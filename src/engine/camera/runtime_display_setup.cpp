@@ -2,6 +2,8 @@
 #include "display_setup_math.h"
 #include "actor_camera_effects.h"
 #include "../entities/actor_sound_pose.h"
+#include "../transitions/native_book.h"
+#include "display_view.h"
 #include "gbtg/anim.h"
 #include <bit>
 #include <cmath>
@@ -493,5 +495,42 @@ void present_runtime_display_views(const std::function<void(i32)>& draw_view,
         }
         ++slot;
     } while (slot < 4);
+}
+
+// Xbox 0x000F6F70
+void present_runtime_hud_viewport(const std::array<u16, 2>& screen,
+    const std::function<void(std::span<const u32, 6>)>& viewport,
+    const std::function<void(u32, const void*, u32, u32, float, u32)>& clear)
+{
+    using namespace entity_detail;
+    const auto& view = *g_display_view; // DAT_005077A8
+    if ((view.aspect_mode != 3 && g_aspect_preset != view.aspect_mode) || g_book_viewport_reset != 0)
+    {
+        const i32 slot = g_book_viewport_reset != 0 ? 0 : view.aspect_mode; // EBX
+        i32 width = 0;
+        i32 left = 0;
+        fit_horizontal(slot, width, left, view); // 0x000F56C0, ECX the slot
+        const u32 hud_width = screen[0];
+        const u32 hud_height = screen[1];
+        const std::array<u32, 6> full{0, 0, hud_width, hud_height, std::bit_cast<u32>(0.f),
+            std::bit_cast<u32>(1.f)}; // DAT_0032B0F8
+        viewport(full); // D3DDevice_SetViewport
+        if (left != 0)
+        {
+            const std::array<std::array<i32, 4>, 2> bars{{{0, 0, left, i32(hud_height)},
+                {left + width, 0, i32(hud_width), i32(hud_height)}}};
+            clear(2, bars.data(), 0xF3, 0, 1.f, 0); // D3DDevice_Clear
+        }
+        i32 height = 0;
+        i32 top = 0;
+        fit_vertical(slot, height, top, view); // 0x000F5760, ECX the slot
+        if (top != 0)
+        {
+            const std::array<std::array<i32, 4>, 2> bars{{{0, 0, i32(hud_width), top},
+                {0, top + height, i32(hud_width), i32(hud_height)}}};
+            clear(2, bars.data(), 0xF3, 0, 1.f, 0);
+        }
+    }
+    g_book_viewport_reset = 0; // DAT_005077FC
 }
 }

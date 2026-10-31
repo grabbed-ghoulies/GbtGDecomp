@@ -10,6 +10,7 @@
 #include "../frontend/dialogue_widget_update.h"
 #include "../frontend/gameselect_challenges.h"
 #include "../frontend/hud_layout.h"
+#include "executable_resources.h"
 #include "../frontend/input_activation.h"
 #include "../frontend/scoreboard_hud.h"
 #include "../frontend/scoreboard_messages.h"
@@ -685,6 +686,27 @@ void restart_run(ChallengeRuntimeServices& context)
         return;
     }
     context.request_script(context.scene_script, 1); // 0x0011EB30(1), EAX DAT_00510E58
+}
+
+
+// Xbox 0x0004A270
+bool show_runtime_challenge_reminder(i32 frontend_state, const SceneExecutableResources& image,
+    RuntimeDialogueActivationContext& dialogue)
+{
+    if (frontend_state != 3) // DAT_004E17C8
+    {
+        return false;
+    }
+    std::array<char, 0x120> key{}; // DAT_00508EB8
+    std::strcpy(key.data(), image.string(read_u32(image.memory(0x004232F0, 4), 0))); // "challengereminder_"
+    std::strcat(key.data(), g_challenge_selection.key.data()); // DAT_004E17EC
+    if (i32(dialogue.state.count) + 1 < 9) // DAT_004EE1E8
+    {
+        request_namespaced_localtext("aid_loctext_ghoulies_dialog_dialogs", "dialogs", key.data(),
+            dialogue.measurement.wide_scratch, dialogue.measurement.localtext); // 0x000FF0A0 into DAT_00507E78
+        enqueue_runtime_dialogue(dialogue.measurement.wide_scratch, 0, dialogue); // 0x000582E0
+    }
+    return true;
 }
 
 namespace

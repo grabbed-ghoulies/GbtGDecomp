@@ -9700,11 +9700,15 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                         continue;
                     }
                 }
+                // Mr Ribs (RibsFNPC, class 0x33), chapter 5's guide, takes no hits: with a region or exit to walk to,
+                // he is passed over, so a nearer Ribs no longer hides a ghouly behind him (scene 5_2's Hunchback) and
+                // Cooper goes on to the goal when he is the only one (scene 5_13's front gate).
                 if (mark.actor == nullptr || unreachable.contains(mark.actor) || mark.actor->class_key == player_class
                     || mark.body.empty()
                     || gbtg::read_u16(mark.body, 0x94) == 0
                     || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37
-                    || mark.actor->class_key == 8 || mark.actor->class_key == 6 || mark.actor->class_key == 0xB)
+                    || mark.actor->class_key == 8 || mark.actor->class_key == 6 || mark.actor->class_key == 0xB
+                    || (mark.actor->class_key == 0x33 && goal))
                 {
                     continue;
                 }
@@ -9720,12 +9724,6 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     ghouly_energy = gbtg::read_u16(mark.body, 0x94);
                 }
             }
-        }
-        // Mr Ribs (RibsFNPC, class 0x33), chapter 5's guide, takes no hits: with a region or exit to walk to, Cooper
-        // goes there rather than after him (scene 5_13's front gate).
-        if (ghouly && ghouly_class == 0x33 && goal)
-        {
-            ghouly.reset();
         }
         // With `take_dropped`, empty-handed Cooper goes for a weapon a ghouly has dropped (its strategy +0x38, no
         // longer in its body +0x48) and taps A beside it to pick it up (0x0007D210's button 0x100 edge): scene 4_1b's
@@ -10687,6 +10685,192 @@ void play_pause_run(gbtg::Game& game)
               << "(frames " << pauses[1].paused << " .. " << pauses[1].resumed << ")\n";
 }
 
+// --pause-rules: chapter 5 scene 2's Hunchback event (it runs on: Cooper never reaches the Hunchback). Once its steps
+// run (DAT_005064D8 3), Start pauses, Y (pause_EventRules, 0x0011E150) shows the event's reminder pages (0x000D0780,
+// phase 5), A closes them and the book holds open again (phase 3); B (pause_Return) closes the pause.
+void play_pause_rules_run(gbtg::Game& game)
+{
+    game.factory_scene->start_actors(game);
+    int event_frame = -1;
+    int open_frame = -1;
+    int rules_frame = -1;
+    int reopened_frame = -1;
+    int resumed_frame = -1;
+    gbtg::u32 queued = 0;
+    for (int frame = 0; frame < 9000 && resumed_frame < 0; ++frame)
+    {
+        gbtg::InputState input;
+        const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        const auto pressed = [frame](int at)
+        {
+            return at >= 0 && frame >= at && frame < at + 3;
+        };
+        // Pages close on A, before the pause and while the rules show.
+        input.accept = page && frame % 30 < 5 && (open_frame < 0 || rules_frame >= 0);
+        if (event_frame >= 0 && open_frame < 0 && !page && pressed(event_frame + 60))
+        {
+            input.start = true;
+        }
+        if (open_frame >= 0 && rules_frame < 0 && pressed(open_frame + 60))
+        {
+            input.pads[0].buttons |= 0x0800; // Y
+        }
+        if (reopened_frame >= 0 && pressed(reopened_frame + 60))
+        {
+            input.back = true;
+        }
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 60.f, input);
+        if (event_frame < 0 && gbtg::g_event_sequence_state == 3)
+        {
+            event_frame = frame;
+            std::cout << "pause-rules frame " << frame << ": the event's steps run\n";
+        }
+        if (event_frame >= 0 && open_frame < 0 && gbtg::g_scene_pause.phase == 3)
+        {
+            open_frame = frame;
+            std::cout << "pause-rules frame " << frame << ": the pause book is open, prompt row "
+                      << gbtg::g_scene_pause.prompt << "\n";
+        }
+        if (open_frame >= 0 && rules_frame < 0 && gbtg::g_scene_pause.phase == 5)
+        {
+            rules_frame = frame;
+            queued = game.script_dialogue != nullptr ? game.script_dialogue->dialogue.state.count : 0;
+            std::cout << "pause-rules frame " << frame << ": Event Rules (phase 5), " << queued
+                      << " dialogue pages queued\n";
+        }
+        if (rules_frame >= 0 && frame == rules_frame + 40)
+        {
+            capture_readback("cache/pause_rules.bmp");
+        }
+        if (rules_frame >= 0 && reopened_frame < 0 && gbtg::g_scene_pause.phase == 3)
+        {
+            reopened_frame = frame;
+            std::cout << "pause-rules frame " << frame << ": the rules closed and the book holds open\n";
+        }
+        if (reopened_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_510e58, 0x108}, 0x104) == 1)
+        {
+            resumed_frame = frame;
+        }
+    }
+    if (event_frame < 0 || open_frame < 0 || rules_frame < 0 || reopened_frame < 0 || resumed_frame < 0)
+    {
+        throw gbtg::Error("the event rules did not run through (event " + std::to_string(event_frame) + ", open "
+            + std::to_string(open_frame) + ", rules " + std::to_string(rules_frame) + ", reopened "
+            + std::to_string(reopened_frame) + ", resumed " + std::to_string(resumed_frame) + ")");
+    }
+    if (queued == 0)
+    {
+        throw gbtg::Error("Event Rules queued no reminder page");
+    }
+    std::cout << "PASS: Event Rules during chapter 5 scene 2's event queues " << queued
+              << " reminder pages, closes them on A and returns to the pause (frames " << rules_frame << " .. "
+              << reopened_frame << ")\n";
+}
+
+// --pause-map: scene 3 with the map's progress bit (progress byte 4 bit 8, a driver cheat that stands in for a game
+// past the map's scene). Start pauses (prompt row 5: Return, Quit, Map), White (pause_Map, 0x0011E140) turns the book to
+// the map (phase 7, the room's spot 0x001410F0 at book +0x118) and shows it (phase 8, 0x000F6F70 and 0x00142720), B
+// (pause_MapReturn, 0x0011E3E0) goes back (phase 9, then 3) and B closes the pause.
+void play_pause_map_run(gbtg::Game& game)
+{
+    auto& actors = game.factory_scene->start_actors(game);
+    gbtg::g_runtime_profile.progress.bytes[4] |= 8;
+    int free_frame = -1;
+    int cooper_frame = -1;
+    int open_frame = -1;
+    int map_frame = -1;
+    int returned_frame = -1;
+    int resumed_frame = -1;
+    std::string spot;
+    for (int frame = 0; frame < 9000 && resumed_frame < 0; ++frame)
+    {
+        gbtg::InputState input;
+        const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        input.accept = page && frame % 30 < 5 && open_frame < 0;
+        if (cooper_frame < 0)
+        {
+            for (const auto& mark : actors.marked_actors())
+            {
+                if (mark.actor != nullptr && mark.actor->class_key == 4)
+                {
+                    cooper_frame = frame;
+                }
+            }
+        }
+        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_510cec == 0)
+        {
+            free_frame = frame;
+        }
+        const auto pressed = [frame](int at)
+        {
+            return at >= 0 && frame >= at && frame < at + 3;
+        };
+        if (open_frame < 0 && !page && pressed(free_frame >= 0 ? free_frame + 60 : -1))
+        {
+            input.start = true;
+        }
+        if (open_frame >= 0 && map_frame < 0 && pressed(open_frame + 60))
+        {
+            input.pads[0].buttons |= 0x2000; // White, the Map row entry's button code 5
+        }
+        if (map_frame >= 0 && returned_frame < 0 && pressed(map_frame + 120))
+        {
+            input.back = true;
+        }
+        if (returned_frame >= 0 && pressed(returned_frame + 120))
+        {
+            input.back = true;
+        }
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 60.f, input);
+        const gbtg::i32 phase = gbtg::g_scene_pause.phase;
+        static gbtg::i32 last_phase = -1;
+        if (phase != last_phase)
+        {
+            std::cout << "pause-map frame " << frame << ": phase " << phase << "\n";
+            last_phase = phase;
+        }
+        if (open_frame < 0 && phase == 3)
+        {
+            open_frame = frame;
+            std::cout << "pause-map frame " << frame << ": the pause book is open, prompt row "
+                      << gbtg::g_scene_pause.prompt << "\n";
+        }
+        if (open_frame >= 0 && map_frame < 0 && phase == 8)
+        {
+            map_frame = frame;
+            if (gbtg::g_scene_pause.book != nullptr)
+            {
+                spot = gbtg::g_scene_pause.book->map_from.data();
+            }
+            std::cout << "pause-map frame " << frame << ": the map shows (phase 8), spot \"" << spot << "\"\n";
+        }
+        if (map_frame >= 0 && frame == map_frame + 60)
+        {
+            capture_readback("cache/pause_map.bmp");
+        }
+        if (map_frame >= 0 && returned_frame < 0 && phase == 3)
+        {
+            returned_frame = frame;
+            std::cout << "pause-map frame " << frame << ": back from the map, prompt row "
+                      << gbtg::g_scene_pause.prompt << "\n";
+        }
+        if (returned_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_510e58, 0x108}, 0x104) == 1)
+        {
+            resumed_frame = frame;
+        }
+    }
+    if (open_frame < 0 || map_frame < 0 || returned_frame < 0 || resumed_frame < 0)
+    {
+        throw gbtg::Error("the pause map did not run through (open " + std::to_string(open_frame) + ", map "
+            + std::to_string(map_frame) + ", returned " + std::to_string(returned_frame) + ", resumed "
+            + std::to_string(resumed_frame) + ")");
+    }
+    std::cout << "PASS: Map in scene 3's pause shows the map (spot \"" << spot << "\"), returns on B and closes on B"
+              << " (frames " << map_frame << " .. " << resumed_frame << ")\n";
+}
+
 std::filesystem::path test_save_folder();
 std::vector<char> saved_progress_file();
 
@@ -11110,6 +11294,8 @@ int main(int argc, char** argv)
     // --pause-quit-save loads a scene 3 save (a child --gameselect-new-game run, its script set to scene 3), then
     // quits the scene from the pause (Start, X, A) and checks the save holds the scene's script and time.
     const bool pause_quit_test = argc == 3 && std::string_view(argv[2]) == "--pause-quit-save";
+    const bool pause_rules_test = argc == 3 && std::string_view(argv[2]) == "--pause-rules";
+    const bool pause_map_test = argc == 3 && std::string_view(argv[2]) == "--pause-map";
     // --chapter5-save loads a chapter 5 scene 1 save and plays scene 1 to its end. Scene 2's start (0x000F2C40)
     // must record the furthest book scene (+0x25D, 0x000F34C0) and, inside the countdown's scenes, leave the save's
     // script at scene 1 (0x000F3410) and its times alone (0x000F3590).
@@ -11360,7 +11546,7 @@ int main(int argc, char** argv)
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene5_13b_test && !scene5_13c_test && !scene5_13d_test && !scenefinal_test && !scenecredits_test && !scene3_test && !pause_test && !pause_quit_test && !chapter5_save_test && !chapter5_finale_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene5_13b_test && !scene5_13c_test && !scene5_13d_test && !scenefinal_test && !scenecredits_test && !scene3_test && !pause_test && !pause_quit_test && !pause_rules_test && !pause_map_test && !chapter5_save_test && !chapter5_finale_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -11527,7 +11713,7 @@ int main(int argc, char** argv)
             }
         }
         gbtg::set_save_root(test_save_folder());
-        game.init(argv[1], scene6_save_test || scene6_reload_test || pause_quit_test || chapter5_save_test || chapter5_finale_test ? "" : scene6_test ? "6" : scene3_test || pause_test ? "7"
+        game.init(argv[1], scene6_save_test || scene6_reload_test || pause_quit_test || chapter5_save_test || chapter5_finale_test ? "" : scene6_test ? "6" : scene3_test || pause_test || pause_map_test ? "7"
             : scene4_test ? "chapter1_scene4_1book" : scene5_test ? "chapter1_scene5_1playcam"
             : scene6_1_test ? "chapter1_scene6_1playcam"
             : scene7_test ? "chapter1_scene7_1playcam"
@@ -11628,7 +11814,7 @@ int main(int argc, char** argv)
             : scene4_1b_test ? "chapter4_scene1_1playcam"
             : scene4_1c_test ? "chapter4_scene1_2book"
             : scene5_1_test ? "chapter5_scene1_1playcam"
-            : scene5_2_test ? "chapter5_scene2_1playcam"
+            : scene5_2_test || pause_rules_test ? "chapter5_scene2_1playcam"
             : scene5_3_test ? "chapter5_scene3_1playcam"
             : scene5_4_test ? "chapter5_scene4_1playcam"
             : scene5_5_test ? "chapter5_scene5_1playcam"
@@ -12524,6 +12710,36 @@ int main(int argc, char** argv)
             pass_chapter_title(game, "scene3_reload", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
             play_scene3(game, false, 0);
             std::cout << "PASS: the reloaded game's scene 3 starts without the rare book\n";
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (pause_map_test)
+        {
+            pass_chapter_title(game, "pause_map", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
+            try
+            {
+                play_pause_map_run(game);
+            }
+            catch (const std::exception& error)
+            {
+                std::cout << "FAIL: " << error.what() << std::endl;
+                std::_Exit(1);
+            }
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (pause_rules_test)
+        {
+            pass_chapter_title(game, "pause_rules", "aid_script_ghoulies_chapter5_scene2_1playcam", false);
+            try
+            {
+                play_pause_rules_run(game);
+            }
+            catch (const std::exception& error)
+            {
+                std::cout << "FAIL: " << error.what() << std::endl;
+                std::_Exit(1);
+            }
             gbtg::gfx_shutdown();
             return 0;
         }

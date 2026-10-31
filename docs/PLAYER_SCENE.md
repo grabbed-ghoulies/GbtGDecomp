@@ -493,6 +493,24 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-10-31: the pause's rules and map
+
+- Event Rules (`0x0011E150`, and `0x0011D490` phase 5): during an event (`DAT_005064D8` 3) `0x000D0780` queues one
+  `eventreminders_*` page per step type (the `0x00428918` keys, flags `DAT_00506488`); in a challenge `0x0004A270`
+  queues `challengereminder_` plus the chosen challenge's key. Neither shown, the book holds open again (phase 3).
+- Map (`0x0011E140`, phase 7): `0x001410F0` names the room's spot (book +0x118, +0x138 cleared). Phase 8's draw runs
+  `0x000F6F70` natively (the HUD viewport and the letterbox bars through the recording device; `0x000F56C0` /
+  `0x000F5760` are now declared) and the prompt widget (`0x00142720(1)`).
+- The pause rows' entries carry a button code (`0x0030F948` rows, stride 0x48 from +0x40): 1 B, 2 X, 3 Y, 5 White
+  (`0x00142460`'s masks). Map is White.
+- The scene services kept their own 0x20-byte `story_bits` for `*(DAT_00506C6C+8)`, zeroed at each scene start,
+  while the script actions set the profile's progress block, so its readers (the pause rows, chapter 5's countdown
+  clear, the body and player factory story byte, the warlock and haunted TV tests) never saw the game's story bits.
+  It is now a reference to `g_runtime_profile.progress.bytes`, and nothing clears it at scene start.
+- `--pause-rules` (chapter 5 scene 2's event: two reminder pages, the "NO WEAPONS" one checked in the capture) and
+  `--pause-map` (scene 3 with the map's progress bit set by the driver: the house map with Cooper at the Billiard
+  Room and "Return to Menu", checked in the capture) pass.
+
 ### 2026-10-31: scene saves
 
 A story game now saves as each scene starts and when the pause quits, as retail does:
@@ -1902,8 +1920,8 @@ Still open:
 
 - (Closed in the hunchback checkpoint above: scene 2a12's type 0x84, and scene 4's exit walk.)
 - `--scene2a11` failed once with "invalid unordered_map key" and passed on three reruns.
-- Map at `0x001410F0`'s room argument; Event Rules at `0x000D0780` / `0x0004A270`. (Quit's Yes `0x0011E1C0` and
-  Restart's Yes `0x0011E320` are translated: see the 2026-10-31 scene saves note.)
+- (Closed 2026-10-31: the pause's Quit, Restart, Map and Event Rules buttons are translated; see the scene saves and
+  pause rules notes.)
 - The 0x1251E0 challenge setup actions (0x7A .. 0x86) still drop `0x0004A100`, `0x0004A240` and `0x0004ADD0`; the
   scene teardown (`0x0011C5A0`) still names about twenty untranslated callees.
 

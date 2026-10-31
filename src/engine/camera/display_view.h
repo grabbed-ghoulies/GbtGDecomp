@@ -36,6 +36,9 @@ extern i32 g_aspect_preset; // DAT_005077F8
 // DAT_00509703: 0x000FC310 sets it from XGetVideoFlags' widescreen bit (the host's [Video] Widescreen).
 extern u8 g_video_widescreen;
 extern u8 g_aspect_exact; // DAT_00509704.
+// The aspect slot's height (`span`) and centered top (`pos`) within the view, and its width and centered left.
+void fit_vertical(i32 slot, i32& span, i32& pos, const DisplayView& view); // Xbox 0x000F5760, ECX slot
+void fit_horizontal(i32 slot, i32& span, i32& pos, const DisplayView& view); // Xbox 0x000F56C0, ECX slot
 extern EntityCamNode g_cam_anchor[4]; // DAT_004E1680
 extern EntityCamNode* g_cam_active[4]; // DAT_004E16A0
 extern char g_cam_saved_name[4][0x21]; // DAT_004E16B0

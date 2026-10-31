@@ -13,6 +13,7 @@ namespace gbtg
 struct Game;
 struct RuntimeDoorContext;
 struct RuntimeDialogueActivationContext;
+class SceneExecutableResources;
 
 // The scripted event sequence (0x000D0xxx): a script node (type 0x17) names an event and its door, later nodes
 // queue steps (0x88-byte records, 0x000D05D0), and type 0x18 plays them: the event door moves to state 5, the
@@ -105,6 +106,10 @@ void place_runtime_grim_reaper(const Vec3& point, Vec3& position, Vec3& euler); 
 // +0x3C.
 u32 summon_runtime_grim_reaper(float first, float second); // Xbox 0x000CF7B0
 bool show_script_event_page(Game& g); // Xbox 0x000D1190
+// The pause's Event Rules (0x0011D490 phase 5, 0x0011E150): while the steps run, one reminder page per step type
+// (eventreminders_*, the 0x00428918 keys) queued in the scene dialogue; false outside an event.
+bool show_script_event_reminders(const SceneExecutableResources& image,
+    RuntimeDialogueActivationContext& dialogue); // Xbox 0x000D0780
 bool run_script_event_steps(Game& g); // Xbox 0x000D0B40
 // ECX the step's +4 timer block: the step waits on a running cutscene, or counts its +4 delay down.
 bool script_event_step_delay_done(std::span<u8> timer); // Xbox 0x000D0700

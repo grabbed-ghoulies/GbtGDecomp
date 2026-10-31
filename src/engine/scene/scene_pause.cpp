@@ -20,6 +20,9 @@
 #include "../entities/ghouly_spawn_record.h"
 #include "../runtime/crt_format.h"
 #include "../saves/runtime_profile.h"
+#include "../camera/runtime_display_setup.h"
+#include "../scripts/script_event_sequence.h"
+#include "challenge_runtime.h"
 #include "../transitions/native_book.h"
 #include "../transitions/scene_transitions.h"
 #include "../../gbtg/text/localtext_resources.h"
@@ -184,6 +187,20 @@ void close_pause_book(ScenePauseServices& s)
     {
         end_dialogue_text_record(*p.text, id, s.books.fonts, s.books.fallback_texture, s.books.random); // 0x0005F7E0
     }
+}
+
+// The map's tail (0x0011D490 phase 7 and 0x0011E140): the room's spot (0x001410F0) is the route's start (book +0x118),
+// empty with none, and the route has no end (+0x138).
+void show_pause_map_spot(RuntimeTransitionBook& book, ScenePauseServices& s)
+{
+    if (const char* spot = s.map_spot(); spot != nullptr) // 0x001410F0
+    {
+        std::strcpy(book.map_from.data(), spot);
+        book.map_to[0] = 0;
+        return;
+    }
+    book.map_from[0] = 0;
+    book.map_to[0] = 0;
 }
 
 void set_prompt_row(RuntimeDialogueWidget& prompts, u32 address, ScenePauseServices& s)
@@ -424,15 +441,29 @@ void set_scene_pause_phase(i32 phase, ScenePauseServices& s)
         enqueue_runtime_dialogue_key(image(s).string(word(s, 0x00430C20)), 0, s.dialogue); // 0x000582A0
         return;
     case 5:
-        if (s.event_state == 3)
+    {
+        bool shown = false;
+        if (s.event_state == 3) // DAT_005064D8
         {
-            untranslated("0x0011D490 phase 5's event check 0x000D0780");
+            shown = show_script_event_reminders(image(s), s.dialogue); // 0x000D0780
         }
-        if (s.frontend_state != 3)
+        else
+        {
+            if (s.frontend_state != 3) // DAT_004E17C8
+            {
+                return;
+            }
+            shown = show_runtime_challenge_reminder(s.frontend_state, image(s), s.dialogue); // 0x0004A270
+        }
+        if (shown)
         {
             return;
         }
-        untranslated("0x0011D490 phase 5's front-end check 0x0004A270");
+        // The loop goes on into phase 3.
+        p.phase = 3;
+        hold_pause_book_open(s);
+        return;
+    }
     case 6:
         close_pause_book(s);
         return;
@@ -450,7 +481,8 @@ void set_scene_pause_phase(i32 phase, ScenePauseServices& s)
             closing.paused = 0;
         }
         hold_transition_book_route(closing); // 0x00048960
-        untranslated("0x0011D490 phase 7's map spot (0x001410F0 with no room argument)");
+        show_pause_map_spot(closing, s);
+        return;
     }
     case 8:
         select_scene_pause_prompt(0xB, s); // 0x0011DD10, EAX 0xB
@@ -801,9 +833,14 @@ void draw_scene_pause(ScenePauseServices& s)
     {
         draw_transition_book(*p.book, b); // 0x00048550
     }
-    if (p.phase == 8 && p.widget != nullptr)
+    if (p.phase == 8 && p.widget != nullptr) // DAT_00510CF4, DAT_00510E30
     {
-        untranslated("0x0011DB50 phase 8's HUD viewport 0x000F6F70");
+        present_runtime_hud_viewport(b.screen, b.draw.d3d.viewport, b.clear); // 0x000F6F70
+        if (b.widget_draw == nullptr)
+        {
+            throw Error("0x0011DB50 phase 8 draws its widget (0x00142720) before the scene binds the widget draw");
+        }
+        draw_runtime_dialogue_widget(*p.widget, 1, *b.widget_draw); // 0x00142720(1)
     }
 }
 
@@ -920,10 +957,11 @@ void show_scene_pause_map(ScenePauseServices& s)
         turning.paused = 0;
     }
     hold_transition_book_route(turning); // 0x00048960
-    untranslated("0x0011E140's map spot (0x001410F0 with no room argument)");
+    show_pause_map_spot(turning, s);
 }
 
-// Xbox 0x0011E150, pause_EventRules: the event's or the front end's rules (phase 5).
+// Xbox 0x0011E150, pause_EventRules: the event's or the challenge's rules (phase 5); with none shown the book holds
+// open again (phase 3).
 void show_scene_pause_rules(ScenePauseServices& s)
 {
     auto& p = g_scene_pause;
@@ -932,16 +970,25 @@ void show_scene_pause_rules(ScenePauseServices& s)
         return;
     }
     p.phase = 5;
+    bool shown = false;
     if (s.event_state == 3) // DAT_005064D8
     {
-        untranslated("0x0011E150's event rules 0x000D0780");
+        shown = show_script_event_reminders(image(s), s.dialogue); // 0x000D0780
     }
-    if (s.frontend_state != 3) // DAT_004E17C8
+    else
     {
-        p.phase = 5;
-        return;
+        if (s.frontend_state != 3) // DAT_004E17C8
+        {
+            p.phase = 5;
+            return;
+        }
+        shown = show_runtime_challenge_reminder(s.frontend_state, image(s), s.dialogue); // 0x0004A270
     }
-    untranslated("0x0011E150's front-end rules 0x0004A270");
+    if (!shown && p.phase != 3)
+    {
+        p.phase = 3;
+        hold_pause_book_open(s);
+    }
 }
 
 // Xbox 0x0011E1A0, pause_No: the confirmation line ends and the game's prompt row returns (0x0011DD90).

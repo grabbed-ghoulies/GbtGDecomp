@@ -69,6 +69,7 @@ struct ScenePauseServices
     std::function<void()> stop_countdown; // 0x000F2780
     std::function<void()> restart_challenge; // 0x0004A310
     std::function<const char*()> held_order; // DAT_00511B64's first name
+    std::function<const char*()> map_spot; // 0x001410F0 on DAT_00545D40: the room's map spot, or null.
 };
 void request_scene_resume(ScenePauseServices& services); // Xbox 0x0011EBA0
 // The current game ends: its scene flags, name and times cleared, then the held order's first script requested.

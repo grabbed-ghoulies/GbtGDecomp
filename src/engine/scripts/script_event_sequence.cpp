@@ -20,6 +20,8 @@
 #include "../entities/actor_transform.h"
 #include "../navigation/spawn_candidates.h"
 #include "../scene/scene_markers.h"
+#include "../scene/executable_resources.h"
+#include "../../gbtg/text/localtext_resources.h"
 #include "gbtg/engine_internal.h"
 
 #include <bit>
@@ -30,6 +32,7 @@ namespace gbtg
 {
 i32 g_event_sequence_state = 0;
 ScriptEventSequence g_event_sequence;
+std::array<u32, 0x13> g_event_reminders{}; // DAT_00506488 .. DAT_005064D0, one per step type.
 ScriptEventSequenceContext* g_event_sequence_context = nullptr;
 
 extern u32 g_flags_ea9c; // DAT_0050EA9C.
@@ -931,6 +934,36 @@ bool show_script_event_page(Game& g)
         }
     }
     return false;
+}
+
+// Xbox 0x000D0780
+bool show_script_event_reminders(const SceneExecutableResources& image, RuntimeDialogueActivationContext& dialogue)
+{
+    if (g_event_sequence_state != 3) // DAT_005064D8
+    {
+        return false;
+    }
+    g_event_reminders.fill(1);
+    g_event_sequence_state = 3;
+    auto* pool = g_event_sequence.steps; // DAT_005064E0
+    u8* end = pool->end;
+    for (u8* row = pool->begin; row < end; row += kStepStride)
+    {
+        const u32 type = read_u32(step_at(row), 0);
+        if (g_event_reminders[type] != 0)
+        {
+            if (i32(dialogue.state.count) + 1 < 9) // DAT_004EE1E8
+            {
+                // PTR_s_eventreminders_KillAll_00428918, stride 0x14 by step type.
+                const char* key = image.string(read_u32(image.memory(0x00428918u + type * 0x14u, 4), 0));
+                request_namespaced_localtext("aid_loctext_ghoulies_dialog_dialogs", "dialogs", key,
+                    dialogue.measurement.wide_scratch, dialogue.measurement.localtext); // 0x000FF0A0 into DAT_00507E78
+                enqueue_runtime_dialogue(dialogue.measurement.wide_scratch, 0, dialogue); // 0x000582E0
+            }
+            g_event_reminders[type] = 0;
+        }
+    }
+    return true;
 }
 
 // Xbox 0x000D0B40

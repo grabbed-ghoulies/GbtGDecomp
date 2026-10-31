@@ -508,7 +508,7 @@ struct SceneActorServices::State
     // Mind message graphs (cinema 0x0007C8B0 and player 0x0007F1E0 over the parent-mind requests).
     std::vector<const char*> state_action_names; // 0x003390E4.
     std::vector<const char*> goal_flag_names; // 0x003397AC.
-    std::array<u8, 0x20> story_bits{}; // *(DAT_00506C6C+8).
+    std::span<u8>& story_bits = g_runtime_profile.progress.bytes; // *(DAT_00506C6C+8), the profile's 8 bytes.
     std::array<u32, 5> port_devices{}; // DAT_0050E0F4.
     RuntimeCameraPulse pulse{}; // DAT_0050447C.
     std::unique_ptr<SceneMindServices> mind_services;
@@ -5887,7 +5887,6 @@ void SceneActorServices::State::reset_scene_data()
     collision_push_contacts = {};
     body_slide_contacts = {};
     view_invert = 0;
-    story_bits = {};
     port_devices = {};
     pulse = {};
     scene_nodes.clear();
@@ -6322,6 +6321,10 @@ void SceneActorServices::State::bind_pause_services()
         [this]() -> const char*
         {
             return reinterpret_cast<const char*>(scene_order_held.data()); // DAT_00511B64
+        },
+        [this]() -> const char*
+        {
+            return runtime_door_room_suffix(room.data(), door_aliases); // 0x001410F0 on DAT_00545D40
         }});
     // The pause prompt rows' buttons (0x0030F948 .. 0x00311AF8, row +0x84).
     const std::array<std::pair<u32, void (*)(ScenePauseServices&)>, 10> buttons{{

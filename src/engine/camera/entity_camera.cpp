@@ -753,7 +753,8 @@ i32 trunc_i32(float v)
 }
 
 
-// 0x000F5760. ECX is the aspect slot, ESI and the stack pointer receive the span and the origin.
+// Xbox 0x000F5760
+// ECX is the aspect slot, ESI and the stack pointer receive the span and the origin.
 void fit_vertical(i32 slot, i32& span, i32& pos, const DisplayView& view)
 {
     const float ref = aspect_triple(g_aspect_preset).aspect;
@@ -769,7 +770,8 @@ void fit_vertical(i32 slot, i32& span, i32& pos, const DisplayView& view)
 }
 
 
-// 0x000F56C0. Same slot. The span is the wide axis and the second out is its centered origin.
+// Xbox 0x000F56C0
+// Same slot. The span is the wide axis and the second out is its centered origin.
 void fit_horizontal(i32 slot, i32& span, i32& pos, const DisplayView& view)
 {
     const float ref = aspect_triple(g_aspect_preset).aspect;

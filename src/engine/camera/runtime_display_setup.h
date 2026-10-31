@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include "display_clip_limits.h"
 #include "display_view.h"
 #include "../frontend/dialogue_draw_context.h"
@@ -41,6 +42,12 @@ void setup_active_camera_display(i32 slot,
 void set_display_transform(const float* matrix, RuntimeDisplaySetupContext& context); // Xbox 0x000F6EB0
 // Display +0x48..+0x54 (origin and size), then the fitted view (0x000F57F0) from them.
 void set_display_viewport(i32 x, i32 y, i32 width, i32 height); // Xbox 0x000F5CC0
+// The HUD's full viewport (DAT_005096E8 x DAT_005096EA, depth 0..1) and, when the display's aspect differs from the
+// preset or a book asked (DAT_005077FC), the side bars outside the fitted width and the bars outside the fitted
+// height cleared (flags 0xF3, color 0, z 1).
+void present_runtime_hud_viewport(const std::array<u16, 2>& screen,
+    const std::function<void(std::span<const u32, 6>)>& viewport,
+    const std::function<void(u32, const void*, u32, u32, float, u32)>& clear); // Xbox 0x000F6F70
 // Display +0x108 (inverse transform), the frustum (0x000F6630) and the renderer's frustum pointer.
 void set_display_inverse_transform(const float* matrix, RuntimeDisplaySetupContext& context); // Xbox 0x000F6E60
 // The projection transposed into DAT_00506F98 and bound (SetTransform 1, the fitted viewport, 0x00156400),

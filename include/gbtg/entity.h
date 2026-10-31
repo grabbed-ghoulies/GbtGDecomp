@@ -30,7 +30,7 @@ struct ActorAttachmentList
 };
 ActorAttachmentNode* actor_create_attachment(ActorAttachmentList& list, const char* name,
     i32 mode, i32 kind); // Xbox 0x0003D1B0
-struct EntityMaskSpan;
+struct RuntimePlayerGoalRing;
 struct MinaPlayback;
 struct ActorAnimationState;
 struct AnimationResourceRegistry;
@@ -151,8 +151,9 @@ struct Actor
     Actor* spawn_owner = nullptr;       // +0xD8C
     i32 spawn_model_blocked = 0;        // +0x9A0
     i32 spawn_blocked = 0;              // +0xAD0, tested by 0x00146150
-    EntityMaskSpan* mask_span = nullptr; // +0x980
-    i32 mask_loading = 0;              // +0x984, type-0x6F loading gate
+    // +0x980: a player's goal ring (stride +0, capacity +2, head +4, tail +6, rows +8). The native player's ring
+    // is this field, so every write of the ring is a write here; null for other actors.
+    RuntimePlayerGoalRing* goal_ring = nullptr;
     i16 mask_mode = 0;                 // +0xcdc, kept with the word by 0x00028830 and 0x001495C0
     u16 damage_class = 0;              // +0xcf4, class row used by 0x00028DA0.
 };
@@ -474,23 +475,11 @@ struct EntityChannelEase
 // EDX is the camera. 0x00072AC0 calls this when +0x154 > 0.
 void camera_ease_channel_targets(EntityChannelEase& cam, float dt); // Xbox 0x0001EA90
 
-// Header at host+0x980 (the object at camera+8). Stride is the element size in bytes.
-// The element is data + index * stride, and its first u16 is the code compared with 0x15.
-// When end equals mark, retail loads that u16 from address 0 and faults.
-struct EntityMaskSpan
-{
-    u16 stride = 0; // +0
-    u16 mark = 0;   // +2
-    u16 index = 0;  // +4
-    u16 end = 0;    // +6
-    const u8* data = nullptr; // +8
-};
-
 // Object at camera+8 read by 0x0001FE00. cam_72cb0 pushes the mask into 0x001226C0.
 struct EntityMaskHost
 {
     i32 flag = 0; // +0x93c. Nonzero clears bit 0x4000, the same mask as mode 2.
-    EntityMaskSpan* span = nullptr; // +0x980
+    const RuntimePlayerGoalRing* ring = nullptr; // +0x980
     i16 mode = 0; // +0xcdc
 };
 

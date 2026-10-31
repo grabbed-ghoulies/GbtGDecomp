@@ -180,7 +180,7 @@ void check_pause_and_strategy()
     Actor actor;
     Messages sent;
     RuntimeBodyAttachedActor self{bytes, 0x1000, recorder(sent)};
-    RuntimePlayerGoalRing* ring = nullptr;
+    RuntimePlayerGoalRing*& ring = actor.goal_ring; // Actor +0x980.
     std::vector<u8> body(0x300);
     std::span<u8> body_view = body;
     entity_detail::LatchNode* latch = nullptr;
@@ -193,12 +193,10 @@ void check_pause_and_strategy()
     RuntimePlayerPause pause{actor, strategy, setup, query, goals, resume};
     require(handle_runtime_player_pause_message(bytes, 9, pause) == 1 && read_u32(bytes, 0xCD8) == 1 && actor.parked_gate == 1
             && read_u16(strategy_bytes, 0xE) == 0x3E8 && transitions.size() == 2, "first pause enters strategy state 1000");
-    // Second pause only counts; the mask span now reports a goal so a first pause would drain.
+    // Second pause only counts; the goal ring now reports a goal so a first pause would drain.
     auto* allocation = static_cast<u8*>(engine_heap_allocate(sizeof(RuntimePlayerGoalRing) + 4));
     ring = new (allocation) RuntimePlayerGoalRing{4, 2, 0, 0, {allocation + sizeof(RuntimePlayerGoalRing), 4}};
     allocation[sizeof(RuntimePlayerGoalRing)] = 2;
-    EntityMaskSpan span{4, 2, 0, 0, allocation + sizeof(RuntimePlayerGoalRing)};
-    actor.mask_span = &span;
     require(handle_runtime_player_pause_message(bytes, 9, pause) == 1 && read_u32(bytes, 0xCD8) == 2 && ring != nullptr
             && transitions.size() == 2, "nested pauses only count");
     handle_runtime_player_pause_message(bytes, 10, pause);
@@ -206,7 +204,6 @@ void check_pause_and_strategy()
     actor.parked_gate = 0;
     require(handle_runtime_player_pause_message(bytes, 9, pause) == 1 && ring == nullptr && transitions.size() == 4,
         "a first pause with an active goal drains the goal ring");
-    actor.mask_span = nullptr;
     decay[1] = 0;
     require(handle_runtime_player_pause_message(bytes, 10, pause) == 1 && read_u32(bytes, 0xCD8) == 0 && transitions.size() == 4,
         "resumption needs the decay table");

@@ -1,12 +1,15 @@
 #pragma once
 
 #include "entity_types.h"
+#include <array>
 
 namespace gbtg
 {
 namespace entity_detail
 {
 extern WorldLists g_world;
+// What a read through a null retail pointer finds (the u16 at address 0 that an empty goal ring's front reads).
+extern const std::array<u8, 0x1000> g_address_zero;
 
 } // namespace entity_detail
 // Xbox 0x000FCD70

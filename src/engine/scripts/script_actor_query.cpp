@@ -30,9 +30,13 @@ int wait_runtime_script_player(u32 player_link,
     {
         return 0;
     }
-    // Actor +0x984: the scene player's own word when it has one.
+    // Actor +0x984, a scene player's word.
     const RuntimeScriptActorGoals goals = context.goals ? context.goals(*actor) : RuntimeScriptActorGoals{};
-    const i32 loading = goals.bytes.empty() ? actor->mask_loading : i32(read_u32(goals.bytes, 0x984));
+    if (goals.bytes.empty())
+    {
+        throw Error("0x00127BC0 reads +0x984 of a player link with no native player");
+    }
+    const i32 loading = i32(read_u32(goals.bytes, 0x984));
     if (script_actor_current_mask(*actor, context) != 0 && loading == 0)
     {
         return 0;
@@ -143,37 +147,18 @@ bool script_mind_is_idle(const RuntimeScriptMindQuery& mind, i32 allow_permitted
 u16 script_actor_current_mask(const Actor& actor,
     const RuntimeScriptActorQueryContext& context)
 {
-    // A scene player's +0x980 is its native goal ring.
-    if (const RuntimeScriptActorGoals goals = context.goals ? context.goals(actor) : RuntimeScriptActorGoals{};
-        !goals.bytes.empty())
-    {
-        const RuntimePlayerGoalRing* ring = goals.ring;
-        if (ring == nullptr)
-        {
-            return 0;
-        }
-        u16 value;
-        if (ring->tail == ring->capacity)
-        {
-            std::memcpy(&value, context.address_zero, sizeof(value));
-            return value;
-        }
-        std::memcpy(&value, ring->rows.data() + size_t(ring->head) * ring->stride, sizeof(value));
-        return value;
-    }
-    const EntityMaskSpan* span = actor.mask_span;
-    if (span == nullptr)
+    const RuntimePlayerGoalRing* ring = actor.goal_ring; // +0x980
+    if (ring == nullptr)
     {
         return 0;
     }
     u16 value;
-    if (span->end == span->mark)
+    if (ring->tail == ring->capacity)
     {
         std::memcpy(&value, context.address_zero, sizeof(value));
         return value;
     }
-    const u32 offset = static_cast<u32>(span->index) * span->stride;
-    std::memcpy(&value, span->data + offset, sizeof(value));
+    std::memcpy(&value, ring->rows.data() + size_t(ring->head) * ring->stride, sizeof(value));
     return value;
 }
 // Xbox 0x00129420

@@ -607,6 +607,8 @@ struct SceneActorServices::State
     struct SceneMindTargetRow
     {
         std::array<u8, 0x68> bytes{};
+        std::vector<u8> bits; // The target body's +0x15C bits at the last refresh; empty for a non-player body.
+        std::vector<u8> actor_bytes; // The target actor's bytes at the last refresh.
         std::unique_ptr<RuntimeMindTarget> target;
         RuntimePlayerTargetView view{};
     };
@@ -619,13 +621,33 @@ struct SceneActorServices::State
     {
         std::array<u8, 0x68> bytes{};
         Actor actor; // The released actor as it was; its model view is gone, so model reads raise.
+        // The actor's bytes, its +0x95C body query and the body's +0x15C bits as they were, which 0x00029C80 and
+        // the target policies read through the record (+0x10 actor).
+        std::vector<u8> actor_bytes;
+        RuntimeScriptMindQuery body{};
+        std::vector<u8> bit_bytes;
+        EntityBitBlock bits{};
+        std::unique_ptr<RuntimeMindTarget> target;
     };
     std::unordered_map<u32, std::unique_ptr<RetiredTarget>> retired_targets;
     // The copy keeps the actor's own pose, scales and cached matrix; every block it pointed at is freed or owned
     // elsewhere, so those pointers are cleared and reads through them raise or fall back as for an unbound actor.
-    static std::unique_ptr<RetiredTarget> retire_target(const std::array<u8, 0x68>& bytes, const Actor& actor)
+    std::unique_ptr<RetiredTarget> retire_target(const SceneMindTargetRow& row, const RuntimeMindTarget& live)
     {
-        auto retired = std::make_unique<RetiredTarget>(RetiredTarget{bytes, actor});
+        // The row's last refresh holds what the freed blocks held: the body and its bits are freed first.
+        const Actor& actor = live.actor;
+        auto retired = std::make_unique<RetiredTarget>(RetiredTarget{row.bytes, actor});
+        retired->actor_bytes = row.actor_bytes;
+        retired->body = live.body;
+        retired->body.bits = nullptr;
+        if (!row.bits.empty())
+        {
+            retired->bit_bytes = row.bits;
+            retired->bits.bytes = retired->bit_bytes.data();
+            retired->body.bits = &retired->bits;
+        }
+        retired->target = std::make_unique<RuntimeMindTarget>(RuntimeMindTarget{nullptr, retired->bytes, live.address,
+            retired->actor, retired->actor_bytes, retired->body, live.occupancy, nullptr});
         Actor& copy = retired->actor;
         copy.render_registration = nullptr;
         copy.model = nullptr;
@@ -638,7 +660,7 @@ struct SceneActorServices::State
         copy.accepted_classes = nullptr;
         copy.accepted_class_count = 0;
         copy.spawn_owner = nullptr;
-        copy.mask_span = nullptr;
+        copy.goal_ring = nullptr;
         for (auto& slot : copy.sound_slots)
         {
             static_cast<RuntimeActorSound&>(slot) = RuntimeActorSound{};
@@ -1080,6 +1102,8 @@ struct SceneActorServices::State
     // 0x0003BE20 over a scene actor's +0x8C callout records with callback 0 and value 0.
     void actor_callouts(u32 address, u32 id, const RuntimeActorCreationOptions* options);
     RuntimeBodyStateContext body_state_context(u32 body_address); // A state action's body views (state +8).
+    // A DAT_00545988 record by address: a live one, or a freed one's last state (retail reads the freed block).
+    RuntimeMindTarget* mind_target_at(u32 address);
     void refresh_mind_targets();
     // The base strategy messages' view of the actor at a retail address: its +0x1FC / +0x1FE words, its +0x8F8 target
     // record and, for a player, the actor its body +0x274 names. Rebuilt on each call; kept per address.
@@ -1577,7 +1601,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             if (row->target != nullptr && &row->target->actor == &actor)
             {
-                retired_targets[row->target->address] = retire_target(row->bytes, actor);
+                retired_targets[row->target->address] = retire_target(*row, *row->target);
             }
         }
     };
@@ -1619,8 +1643,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 address) -> RuntimeMindTarget*
         {
-            refresh_mind_targets();
-            return address == 0 ? nullptr : target_records.at(address);
+            return address == 0 ? nullptr : mind_target_at(address);
         },
         targets, script_records, data(0x003398C8, 0x400), data(0x00217F18, 0x200), mind_goal_names.data(),
         goal_scratch,
@@ -2302,13 +2325,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     weapon_services->target_at = [this](u32 address) -> RuntimeMindTarget*
     {
-        refresh_mind_targets();
-        const auto found = target_records.find(address);
-        if (found == target_records.end())
-        {
-            unbound("weapon reads a mind target record that has no view");
-        }
-        return found->second;
+        return mind_target_at(address);
     };
     weapon_services->player_cells = [this](u32 address) -> entity_detail::NavigationCellRegistration**
     {
@@ -6986,6 +7003,20 @@ RuntimeStrategyMessageActor* SceneActorServices::State::strategy_message_actor(u
     return strategy_message_actors.at(address).get();
 }
 
+RuntimeMindTarget* SceneActorServices::State::mind_target_at(u32 address)
+{
+    refresh_mind_targets();
+    if (const auto found = target_records.find(address); found != target_records.end())
+    {
+        return found->second;
+    }
+    if (const auto retired = retired_targets.find(address); retired != retired_targets.end())
+    {
+        return retired->second->target.get();
+    }
+    unbound("mind target record " + std::to_string(address) + " is neither live nor retired");
+}
+
 void SceneActorServices::State::refresh_mind_targets()
 {
     std::unordered_set<const ActorLiveAttachment*> live;
@@ -7038,6 +7069,15 @@ void SceneActorServices::State::refresh_mind_targets()
             row->target->occupancy = occupancy;
             row->target->record = record;
         }
+        row->actor_bytes.assign(actor_bytes.begin(), actor_bytes.end());
+        row->bits.clear();
+        if (object.type == 5)
+        {
+            if (const auto* flags = players->player(object).body_flags; flags != nullptr)
+            {
+                row->bits.assign(flags->bytes, flags->bytes + flags->byte_count);
+            }
+        }
         row->view = RuntimePlayerTargetView{row->bytes, address, &actor, row->target.get()};
         if (previous == nullptr)
         {
@@ -7074,7 +7114,7 @@ void SceneActorServices::State::refresh_mind_targets()
             });
             if (alive)
             {
-                retired_targets[row.second->target->address] = retire_target(row.second->bytes, *actor);
+                retired_targets[row.second->target->address] = retire_target(*row.second, *row.second->target);
             }
         }
         return true;
@@ -8220,6 +8260,13 @@ RuntimeSegmentContactActor& SceneActorServices::State::segment_contact_actor(ent
                         notice.reply = words[1];
                         return;
                     }
+                    if (*static_cast<const u32*>(payload) == 0x4F)
+                    {
+                        // {0x4F, 0xC} from a flat spider web (0x00070780): plain words, so the player's vtable +0xC
+                        // takes the 0x42-word message as it is.
+                        player->self.message(std::span<const u32>(static_cast<const u32*>(payload), 0x42));
+                        return;
+                    }
                     if (*static_cast<const u32*>(payload) != 0x15)
                     {
                         unbound("player contact payload " + std::to_string(*static_cast<const u32*>(payload)));
@@ -9064,7 +9111,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         unbound("body +0x710 collision sphere view for 0x00025F00");
     }
     RuntimeBodyCollisionSphere* spheres = nullptr;
-    const EntityMaskHost mask{player.actor.mask_flag, player.actor.mask_span, player.actor.mask_mode};
+    const EntityMaskHost mask{player.actor.mask_flag, player.actor.goal_ring, player.actor.mask_mode};
     RuntimeBodyCollision collision_view{player.body, player.actor, player.body_bits, spheres, mask, clock};
     RuntimePlayerRoomTracking room{player.self, player.body, player.allowed, player.current,
         player.strategy_object.bytes != nullptr};

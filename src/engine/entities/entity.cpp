@@ -86,6 +86,7 @@ struct SegmentProbe;
 
 
 WorldLists g_world{};
+const std::array<u8, 0x1000> g_address_zero{};
 
 } // namespace entity_detail
 

@@ -503,7 +503,7 @@ void throw_runtime_grab_throw_victim(std::span<u8> state, RuntimeGrabThrowStateC
     Vec3 point = actor_world_position(context.actor); // 0x000412A0
     Vec3 place = actor_world_position(victim_actor); // 0x000412A0
     point.y = place.y;
-    const EntityMaskHost host{victim_actor.mask_flag, victim_actor.mask_span, victim_actor.mask_mode};
+    const EntityMaskHost host{victim_actor.mask_flag, victim_actor.goal_ring, victim_actor.mask_mode};
     const float radius = read_f32(context.body, 0x888) * context.actor.radius_xz;
     if (entity_collect_sphere_contacts(point, radius, 4, camera_collision_mask(host)) != 0) // 0x001227E0, 0x0001FE00
     {

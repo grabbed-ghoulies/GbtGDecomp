@@ -701,7 +701,7 @@ namespace
 {
 u32 camera_body_mask(const Actor& camera)
 {
-    const EntityMaskHost host{camera.mask_flag, camera.mask_span, camera.mask_mode};
+    const EntityMaskHost host{camera.mask_flag, camera.goal_ring, camera.mask_mode};
     return camera_collision_mask(host);
 }
 

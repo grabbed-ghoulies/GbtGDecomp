@@ -279,7 +279,7 @@ struct NativePlayerInstance
     RuntimeActorMatrixState matrices{};
     std::array<entity_detail::ListHead, 4> links{}; // Actor +0x934/+0x93C/+0x944/+0x94C.
     entity_detail::NavigationCellRegistration* navigation = nullptr; // Actor +0xCE8.
-    RuntimePlayerGoalRing* ring = nullptr; // Actor +0x980.
+    RuntimePlayerGoalRing*& ring = actor.goal_ring; // Actor +0x980.
     RuntimePlayerChildContext child;
     RuntimePlayerAttributes attributes;
     // Body (types 6, 0x27, 0x2A) state.

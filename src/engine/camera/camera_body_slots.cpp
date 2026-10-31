@@ -145,7 +145,7 @@ u32 probe_camera_body_support(RuntimeCameraBodySlots& camera)
     {
         entity_detail::SlideRecord& slot = slots[size_t(index)];
         snap = slide;
-        const EntityMaskHost host{actor.mask_flag, actor.mask_span, actor.mask_mode};
+        const EntityMaskHost host{actor.mask_flag, actor.goal_ring, actor.mask_mode};
         if (entity_record_movement_probe(snap, world, camera.tunables.word(0x004274B8), 4,
                 camera_collision_mask(host)) == 0)
         {

@@ -634,7 +634,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     body_view_ = player_.body;
     // Actor +0x8F8: the first of the actor's live attachment records (owner link at +0), or none.
     live_attachment_ = static_cast<ActorLiveAttachment*>(player_.actor_instance.live_attachments.next);
-    mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.mask_span, player_.actor.mask_mode};
+    mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
     processor_.attributes = player_.body_attributes; // Body +0x268.
     refresh_damage_rows();
     const u32 request = read_u32(player_.body, 0x84);
@@ -1387,7 +1387,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
 RuntimeBodyDamageEntry& SceneBodyMessages::damage_entry()
 {
     body_view_ = player_.body;
-    mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.mask_span, player_.actor.mask_mode};
+    mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
     processor_.attributes = player_.body_attributes; // Body +0x268.
     refresh_damage_rows();
     const u32 request = read_u32(player_.body, 0x84);
@@ -2916,7 +2916,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
         {
             unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
         }
-        const EntityMaskHost mask{player_.actor.mask_flag, player_.actor.mask_span, player_.actor.mask_mode};
+        const EntityMaskHost mask{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
         const i32 floor = i32(read_u32(player_.actor_bytes, 0xCEC));
         RuntimePlayerCollisionAction action{[this](RuntimePlayerCollisionReply& reply)
         {

@@ -1,4 +1,8 @@
 #include "../src/engine/scripts/script_actor_query.h"
+#include "../src/engine/entities/player_mind_events.h"
+#include <algorithm>
+#include <cstring>
+#include <vector>
 #include <array>
 #include <limits>
 #include <stdexcept>
@@ -114,16 +118,16 @@ void test_query_flags()
     reference.source = &case_actor;
     require(!query(0x40000), "mismatched reference source excluded");
     require(matches_runtime_script_actor_query(view, nullptr, 0x40000, context) != 0, "source filter skipped without requester");
-    require(query(0x80000), "missing maskspan reports zero");
+    require(query(0x80000), "missing goal ring reports zero");
     std::array<u8, 4> mask_bytes{0, 0, 1, 0};
-    EntityMaskSpan span{2, 0, 1, 1, mask_bytes.data()};
-    actor.mask_span = &span;
+    RuntimePlayerGoalRing ring{2, 0, 1, 1, mask_bytes};
+    actor.goal_ring = &ring;
     require(!query(0x80000), "current mask nonzero excluded");
-    span.index = 0;
+    ring.head = 0;
     require(query(0x80000), "current mask zero accepted");
-    span.end = span.mark;
-    require(script_actor_current_mask(actor, context) == 0x1234, "empty maskspan reads actual address-zero view");
-    actor.mask_span = nullptr;
+    ring.tail = ring.capacity;
+    require(script_actor_current_mask(actor, context) == 0x1234, "empty goal ring reads actual address-zero view");
+    actor.goal_ring = nullptr;
     require(!query(0x100000), "active mind node required");
     RuntimeScriptMindQueryNode node{};
     mind.node = &node;
@@ -137,27 +141,28 @@ void test_player_wait()
     const std::unordered_map<u32, Actor*> addresses{{0, nullptr}, {0x1000, &actor}};
     const std::array<u8, 2> address_zero{2, 0};
     RuntimeScriptActorQueryContext context{{}, address_zero.data()};
+    std::vector<u8> actor_bytes(0x988); // +0x984, the loading word.
+    context.goals = [&](const Actor&)
+    {
+        return RuntimeScriptActorGoals{actor_bytes, actor.goal_ring};
+    };
     require(find_runtime_script_player(0, addresses) == nullptr, "null player link");
     require(find_runtime_script_player(0x93C, addresses) == nullptr, "player sentinel subtracts to null");
     require(find_runtime_script_player(0x193C, addresses) == &actor, "player link maps actor minus 0x93C");
     require(wait_runtime_script_player(0, addresses, context) == 0, "missing player holds script");
-    require(wait_runtime_script_player(0x193C, addresses, context) == 2, "null mask span finishes wait");
+    require(wait_runtime_script_player(0x193C, addresses, context) == 2, "null goal ring finishes wait");
     std::array<u16, 2> masks{0, 7};
-    EntityMaskSpan mask;
-    mask.data = reinterpret_cast<u8*>(masks.data());
-    mask.stride = 2;
-    mask.index = 1;
-    mask.end = 2;
-    mask.mark = 0;
-    actor.mask_span = &mask;
+    RuntimePlayerGoalRing ring{2, 0, 1, 2, {reinterpret_cast<const u8*>(masks.data()), 4}};
+    actor.goal_ring = &ring;
     require(wait_runtime_script_player(0x193C, addresses, context) == 0, "nonzero mask with zero loading holds");
-    actor.mask_loading = -1;
+    const i32 loading = -1;
+    std::memcpy(actor_bytes.data() + 0x984, &loading, 4);
     require(wait_runtime_script_player(0x193C, addresses, context) == 2, "any nonzero loading finishes wait");
-    actor.mask_loading = 0;
-    mask.index = 0;
+    std::fill_n(actor_bytes.data() + 0x984, 4, u8(0));
+    ring.head = 0;
     require(wait_runtime_script_player(0x193C, addresses, context) == 2, "zero current mask finishes wait");
-    mask.end = mask.mark;
-    require(wait_runtime_script_player(0x193C, addresses, context) == 0, "empty span reads native address-zero view");
+    ring.tail = ring.capacity;
+    require(wait_runtime_script_player(0x193C, addresses, context) == 0, "empty ring reads native address-zero view");
 }
 void test_idle_and_ancestry()
 {

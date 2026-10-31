@@ -279,6 +279,55 @@ bool replace_runtime_player_attachment(RuntimePlayerAttachment& context)
     return true;
 }
 
+// Xbox 0x0003B370, ECX actor, EAX slot
+void reset_runtime_animation_slot_blend(AnimationController* controller, u32 slot)
+{
+    if (controller == nullptr) // Actor +0x50.
+    {
+        return;
+    }
+    MinaPlayer* player = controller->slots.at(slot).player.get(); // +0x58, stride 0x28.
+    if (player != nullptr)
+    {
+        if (player->old_pose != nullptr) // +0xB4.
+        {
+            player->old_pose.reset(); // 0x000663E0
+        }
+        player->blend_remaining = 0.f; // +0x110.
+    }
+    controller->dirty = true; // +0x5C.
+}
+
+// Xbox 0x0013A860
+bool drop_runtime_player_attachment(RuntimePlayerAttachment& context)
+{
+    auto* attached = context.ownership.attached; // Body +0x48.
+    if (attached == nullptr)
+    {
+        return false;
+    }
+    const u8 kind = attached->bytes[0x93F];
+    if (kind != 1)
+    {
+        if (kind != 2)
+        {
+            return false;
+        }
+        const auto* host = attached->host; // +0xD8C.
+        if (host != nullptr && (read_u16(host->bytes, 0xCDC) == 2 || read_u32(host->bytes, 0x93C) != 0))
+        {
+            return false;
+        }
+    }
+    auto& actor = *context.actors.at(attached);
+    detach_runtime_body_actor(context.body, context.ownership); // 0x0001B4C0, ESI body
+    activate_actor_bind_tree(actor.actor); // 0x00112CC0, ESI the attached actor
+    const u16 key = context.body_action_key(); // Body vtable +0x20.
+    select_runtime_body_action(context.body, key, context.actions); // 0x00027650
+    reset_runtime_animation_slot_blend(context.host_animation.controller.get(), 0); // 0x0003B370, EAX 0
+    return true;
+}
+
 // Xbox 0x0013A720
 FactoryObject create_runtime_player_attachment(const char* name, i32 replace,
     RuntimePlayerAttachmentCreation& context)

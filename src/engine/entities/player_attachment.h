@@ -46,6 +46,11 @@ bool attach_runtime_player_secondary(RuntimePlayerAttachmentActor& attached,
 bool release_runtime_player_attachment(i32 force, u32 reason,
     RuntimePlayerAttachment& context); // Xbox 0x0001B810
 bool replace_runtime_player_attachment(RuntimePlayerAttachment& context); // Xbox 0x0013A7C0
+// Slot `slot`'s player drops its blend pose (+0xB4) and time (+0x110), and the controller is marked dirty (+0x5C).
+void reset_runtime_animation_slot_blend(AnimationController* controller, u32 slot); // Xbox 0x0003B370, ECX actor
+// A held weapon of kind 1, or of kind 2 with no player or live holder (+0xD8C), is dropped: detached, its bind tree
+// activated, the body's +0x20 action selected and slot 0's blend reset. True when it was dropped.
+bool drop_runtime_player_attachment(RuntimePlayerAttachment& context); // Xbox 0x0013A860
 struct RuntimePlayerAttachmentCreation
 {
     RuntimePlayerAttachment& attachment;

@@ -58,6 +58,12 @@ void end_runtime_background_cloth_shadow(RuntimeBackgroundClothDraw& context); /
 // The projector pass's shaders, states and constants (c0x60 the frame's transform, c0x6A one, c0x73 zero), and the
 // screen and bias matrices.
 void begin_runtime_shadow_projector(RuntimeBackgroundClothDraw& context); // Xbox 0x000644F0
+struct RuntimeActorSnapshot;
+// The actor snapshots (DAT_005462F8 in link order) projected as decals on the grid DAT_005462EC, when it is set: each
+// from its +8 eye onto its +0x14 point with its +0x20 texture, +0x24 radius and +0x28 colour (an unkept one's alpha
+// scaled by its +0x2C fade), then the projector's states reset.
+void draw_runtime_actor_snapshot_decals(u32 grid, const std::vector<std::unique_ptr<RuntimeActorSnapshot>>& snapshots,
+    RuntimeBackgroundClothDraw& context); // Xbox 0x00116460
 // The texture projected from `eye` toward `at` (EDX) over the grid's (ECX) cells around `at`, `reach` (EAX) cells out;
 // the cells drawn.
 i32 project_runtime_texture_on_grid(u32 grid, const Vec3& at, const Vec3& eye, u32 texture, float radius, u32 color,

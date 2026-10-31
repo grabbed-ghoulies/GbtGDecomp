@@ -128,7 +128,7 @@ void adjust_live_attachment_holds(entity_detail::ListHead& live_attachments, i32
     for (auto* live = static_cast<ActorLiveAttachment*>(live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
-        live->retained_15 = u8(live->retained_15 + step);
+        live->hold = u8(live->hold + step);
     }
 }
 

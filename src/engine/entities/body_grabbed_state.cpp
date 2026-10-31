@@ -35,7 +35,7 @@ void step_holds(std::span<u8> body, entity_detail::ListHead& live_attachments, i
     for (auto* live = static_cast<ActorLiveAttachment*>(live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
-        live->retained_15 = u8(live->retained_15 + step);
+        live->hold = u8(live->hold + step);
     }
     body[0x6D] = u8(body[0x6D] + step);
 }
@@ -123,7 +123,7 @@ void destroy_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateConte
     for (auto* live = static_cast<ActorLiveAttachment*>(pickup.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
-        live->retained_15 = u8(live->retained_15 - 1);
+        live->hold = u8(live->hold - 1);
     }
     --body[0x6D];
     pickup.bits.bytes[4] &= 0xDF;

@@ -5,6 +5,7 @@
 #include "../audio/listener_settings.h"
 #include "../graphics/effect_particles.h"
 #include "../graphics/effect_placement.h"
+#include "../graphics/shader_parameters.h"
 #include "../scene/background_part_destruction.h"
 #include "gbtg/anim.h"
 
@@ -284,11 +285,29 @@ bool initialize_runtime_bone_debris(std::span<const u8> parameters, RuntimeBoneD
     {
         return false;
     }
-    const u32 sound = get(parameters, parameter::sound);
-    if (sound != 0)
+    const u32 record = get(parameters, parameter::shader_texture);
+    if (record != 0 && read_u32(context.bytes_at(record), 8) == 0x5F646961) // "aid_"
     {
-        throw Error("untranslated Xbox 0x00140560 / 0x000F8540 reached from the bone debris 0x00067EB0 "
-            "(parameter +0x558 set)");
+        const ActorModel* model = context.self.actor.model; // EBX, actor +0x204.
+        const std::span<const u8> words = context.bytes_at(record);
+        std::memcpy(field_data(bytes, field::shader_texture), words.data(), field::shader_texture.size); // 0x00140560
+        if (model == nullptr || model->runtime == nullptr)
+        {
+            throw Error("bone debris 0x00067EB0 reads the shader texture's model through actor +0x204 with no model");
+        }
+        context.texture_parameter = create_shader_parameter(*model->runtime,
+            reinterpret_cast<const char*>(context.bytes_at(read_u32(words, 0)).data()),
+            reinterpret_cast<const char*>(context.bytes_at(read_u32(words, 4)).data())); // 0x000F8540
+        set(bytes, field::texture_parameter, context.texture_parameter != nullptr ? 1u : 0u);
+        context.texture = acquire_named_animation_resource(context.startup.registry,
+            reinterpret_cast<const char*>(words.data() + 8), context.startup.error); // 0x00035B60
+        const u32 texture = context.texture.data() == nullptr ? 0u : context.resource_address(context.texture.data());
+        set(bytes, field::texture, texture);
+        if (context.texture_parameter == nullptr)
+        {
+            throw Error("bone debris 0x00067EB0 binds its texture through a null +0x9D8 parameter (0x000F86F0)");
+        }
+        set_shader_parameter_texture(*context.texture_parameter, texture, 0, context.texture_bytes); // 0x000F86F0
     }
     set(bytes, field::stay_time, get(parameters, parameter::stay_time));
     set(bytes, field::fade_timer, get(parameters, parameter::fade_length));
@@ -298,9 +317,11 @@ bool initialize_runtime_bone_debris(std::span<const u8> parameters, RuntimeBoneD
     set(bytes, field::dead_actor, get(parameters, parameter::dead_actor));
     dispatch_actor_attachment_records(context.self.state.resource.resource.data(), 0x18, nullptr, nullptr,
         context.callouts, 0); // 0x0003BE20 over actor +0x8C
-    if (get(parameters, parameter::unk_4C4) != 0)
+    const char* sound = field_data(parameters, parameter::sound);
+    if (sound[0] != 0)
     {
-        throw Error("untranslated Xbox 0x0012A260 reached from the bone debris 0x00067EB0 (parameter +0x4C4 set)");
+        queue_actor_sound(context.self.actor.sound_slots[1], 0, &context.self.actor, 1, nullptr, nullptr, 1.f, sound,
+            context.sounds); // 0x0012A260, EBX actor +0x3EC
     }
     return true;
 }
@@ -313,13 +334,15 @@ void destroy_runtime_bone_debris(RuntimeBoneDebris& context)
         release_actor_effect_node(*context.effect, context.effect_release()); // 0x000ED2E0
         context.effect = nullptr;
     }
-    if (get(context.self.bytes, field::sound) != 0)
+    if (get(context.self.bytes, field::texture_parameter) != 0)
     {
-        throw Error("untranslated Xbox 0x000F85D0 reached from the bone debris 0x00068010 (+0x9D8 set)");
+        release_shader_parameter(context.texture_parameter); // 0x000F85D0
+        context.texture_parameter = nullptr;
     }
-    if (get(context.self.bytes, field::sound_resource) != 0)
+    if (get(context.self.bytes, field::texture) != 0)
     {
-        throw Error("untranslated Xbox 0x00035C00 reached from the bone debris 0x00068010 (+0xA64 set)");
+        release_animation_resource(context.startup.registry, context.texture); // 0x00035C00, EBX the texture
+        context.texture = {};
     }
 }
 
@@ -402,9 +425,9 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
     Actor& actor = context.self.actor;
     const float step = runtime_actor_rate(actor) * runtime_frame_step(context.clock);
     update_actor_frame(context.frame, context.frame_context); // 0x000420D0
-    if (get(bytes, field::sound) != 0)
+    if (get(bytes, field::texture_parameter) != 0)
     {
-        throw Error("untranslated Xbox 0x000F8640 reached from the bone debris 0x00068060 (+0x9D8 set)");
+        advance_shader_parameter(*context.texture_parameter, step, context.texture_bytes); // 0x000F8640
     }
     if (get(bytes, field::resting) != 0)
     {
@@ -419,7 +442,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
                 set(bytes, field::stay_time, 0.f);
                 // 0x0013AF80, EAX actor, with +0x9DC by address.
                 RuntimeActorFade fade{actor, bytes, context.address, context.factory, context.keep, context.default_name};
-                spawn_runtime_actor_fade(2.f, context.address + 0x9DC, 0, nullptr, fade); // EDI 0
+                spawn_runtime_actor_fade(2.f, context.address + field::shader_texture.offset, 0, nullptr, fade); // EDI 0
                 activate_actor_bind_tree(actor); // 0x00112CC0
             }
         }

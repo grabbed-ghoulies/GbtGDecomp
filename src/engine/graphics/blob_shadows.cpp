@@ -3,6 +3,35 @@
 
 namespace gbtg
 {
+// Xbox 0x00119AD0
+void draw_runtime_blob_shadows(const RuntimeBlobShadows& shadows, u32 suppress, RuntimeScenePointLightPass& pass)
+{
+    if (shadows.enabled == 0 || shadows.count == 0 || suppress != 0) // DAT_0050EF18, DAT_0050EF10, DAT_0050EF1C
+    {
+        return;
+    }
+    constexpr u32 kBlack = 0xFF000000u; // DAT_00314F4C
+    constexpr u32 kWhite = 0xFFFFFFFFu; // DAT_00314F48
+    pass.targets.copy_mode = 1; // DAT_0050486C
+    pass.targets.mode = 0; // DAT_00504870
+    begin_runtime_scene_point_lights(shadows.enabled, kBlack, pass); // 0x00062B00, EAX the grid
+    i32 drawn = 0;
+    for (const RuntimeBlobShadow& shadow : shadows.entries) // DAT_0050EC10, stride 0x18
+    {
+        if (shadows.count <= drawn)
+        {
+            break;
+        }
+        if (shadow.active != 0)
+        {
+            add_runtime_scene_point_light(shadows.enabled, shadow.position, kWhite, kWhite, 1.f, 1.f, shadow.radius,
+                shadow.strength, 1, pass); // 0x00063770, EAX the grid
+            ++drawn;
+        }
+    }
+    finish_runtime_scene_point_lights(pass); // 0x00063320
+}
+
 // Xbox 0x00119A60
 i32 register_runtime_blob_shadow(const Vec3& position, float radius, float strength, RuntimeBlobShadows& shadows)
 {

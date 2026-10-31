@@ -166,15 +166,20 @@ void create_audio_sound_bank(std::span<const u8> image, const char* name, AudioC
 {
     auto* bank = static_cast<AudioCoreBank*>(allocate_audio_core_object(0xA4, sizeof(AudioCoreBank), name, 1,
         "audioSoundBankPreLoadedCreate", 99, 0, banks.memory));
+    std::span<const u8> bank_image = image;
     if (image.data() == nullptr || image.empty())
     {
-        // 0x0015BB30 loads the bank from its file.
-        throw Error("sound bank file load 0x0015BB30 is not translated");
+        const std::vector<u8>& file = banks.file_images.emplace_back(boundaries.load_file(name)); // 0x0015BB30
+        bank_image = std::span<const u8>(file);
+        bank->image = file.data();
     }
-    bank->image = image.data();
-    bank->preloaded = 1;
+    else
+    {
+        bank->image = image.data();
+        bank->preloaded = 1;
+    }
     append_audio_core_link(banks.loaded, *bank);
-    boundaries.create_sound_bank(image, bank->runtime.handle);
+    boundaries.create_sound_bank(bank_image, bank->runtime.handle);
     for (u32 category = 0; category < 4; ++category)
     {
         // 0x0015D0E0

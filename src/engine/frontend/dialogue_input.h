@@ -51,6 +51,13 @@ float runtime_input_first_analog_level(const RuntimeDialogueInputDevice& device,
     const RuntimeDialogueInputState& state); // Xbox 0x00108DE0, EAX device
 float runtime_input_second_analog_level(const RuntimeDialogueInputDevice& device,
     const RuntimeDialogueInputState& state); // Xbox 0x00108ED0, EAX device
+// The device's two analog levels (+0x30, +0x34). A group (kind 4) takes each connected child in turn, each level
+// clamped at 140 and scaled by 1/140, so the last connected child's stand; an unknown kind gives zeros.
+void runtime_input_analog_levels(const RuntimeDialogueInputDevice& device, std::array<float, 2>& output,
+    const RuntimeDialogueInputState& state); // Xbox 0x00108BE0, EAX device, EDI output
+// The second analog level less the first (a group's from 0x00108BE0), or -1 for an unknown kind.
+float runtime_input_analog_difference(const RuntimeDialogueInputDevice& device,
+    const RuntimeDialogueInputState& state); // Xbox 0x00108D20, EAX device
 struct RuntimeInputAxisWriteDevice
 {
     std::span<u8> record;

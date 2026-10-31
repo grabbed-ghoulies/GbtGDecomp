@@ -114,6 +114,7 @@
 #include "../frontend/dialogue_resources.h"
 #include "../camera/runtime_display_setup.h"
 #include "../camera/display_view.h"
+#include "scene_post_models.h"
 #include "gbtg/gfx.h"
 #include "gbtg/texture.h"
 #include "../camera/display_clip_limits.h"
@@ -423,10 +424,11 @@ struct SceneActorServices::State
     // The scene tick's (0x0011E7F0) stack bytes under the effect pass. Retail leaves them uninitialised; this
     // native slot starts at zero and, like the reused stack slot, keeps what the previous frame left there.
     RuntimeEffectPassScratch frame_effect_scratch{};
-    // World-pass gates of 0x00121900's helpers. No translated code writes them yet; they keep their BSS value.
+    // World-pass gates of 0x00121900's helpers: 0x00119990 sets them at the scene start (DAT_0050EF18 from the first
+    // background's model) and script type 0xA4 writes DAT_0050EF1C.
     u32 blob_shadow_enable = 0; // DAT_0050EF18.
     i32 blob_shadow_count = 0; // DAT_0050EF10.
-    u32 blob_shadow_suppress = 0; // DAT_0050EF1C.
+    u32& blob_shadow_suppress = g_flag_ef1c; // DAT_0050EF1C.
     std::array<RuntimeBlobShadow, 0x20> blob_shadow_entries{}; // DAT_0050EC10.
     i32 blob_shadow_free = 0; // DAT_0050EF14.
     RuntimeBlobShadows blob_shadows{blob_shadow_entries, blob_shadow_count, blob_shadow_free, blob_shadow_enable};
@@ -512,6 +514,7 @@ struct SceneActorServices::State
     RuntimeCameraPulse pulse{}; // DAT_0050447C.
     std::unique_ptr<SceneMindServices> mind_services;
     std::unordered_map<const u8*, std::unique_ptr<SceneMindMessages>> mind_messages;
+    std::unordered_map<const u8*, std::unique_ptr<SceneCameraMindParent>> camera_mind_parents; // Type 0x36 minds.
     // Active actors (DAT_00511AA4) and the scene-start lists 0x00123070 fills.
     std::unordered_map<u32, std::unique_ptr<entity_detail::LatchNode>> active_nodes;
     std::vector<u32> scene_nodes; // DAT_00511B5C.
@@ -693,8 +696,8 @@ struct SceneActorServices::State
     i32 brews_required = 0; // DAT_00430D9C.
     u8 story_byte = 0; // **(DAT_00506C6C+8) +4.
     u8 unlock_flags = 0; // **(DAT_00506C70+8).
-    u32 intro_pending = 0; // DAT_00545B38.
-    std::array<char, 0x80> intro_name{}; // DAT_00545B44.
+    u32& intro_pending = g_545b38; // DAT_00545B38.
+    std::array<char, 0x80>& intro_name = g_545b44; // DAT_00545B44.
     entity_detail::ListHead& cases = entity_detail::g_world.case_head; // DAT_00511B3C; its next is DAT_00511B40.
     std::function<const EntityBitBlock*(const entity_detail::ListHead*)> case_body_bits;
     // DAT_0050E570 and DAT_0050E660 live in the script's scene words (handler 2 writes them); 0x00116DA0 sets
@@ -1216,8 +1219,18 @@ struct SceneActorServices::State
     void refresh_ambient_context();
     RuntimeSceneMirrors mirrors; // DAT_00511090..DAT_00511180, filled by 0x0011F450 at scene start.
     u32 mirror_pass = 0; // DAT_0051120C.
-    // Gates of 0x0011C240's passes whose writers are not translated; they hold their BSS value.
-    u32 post_model_count = 0; // DAT_00512AF0 (0x0012A9B0 / 0x0012A9E0 / 0x0012AA70).
+    RuntimePostModels post_models; // DAT_00512AF0 (0x0012A9B0 / 0x0012A9E0 / 0x0012AA70 / 0x0012AB10).
+    RuntimeIntroNoticeTick intro_notice_tick(); // 0x0013FD60 / 0x0013FFD0's views.
+    RuntimePostModelContext post_model_context()
+    {
+        return RuntimePostModelContext{post_models, effect_models,
+            [this](const void* pointer)
+            {
+                return resources.memory.address_of(static_cast<const u8*>(pointer));
+            },
+            clock, display_view, display_setup.get(), model_draw.get(),
+            {&g_509b20, &g_509b24, &g_509b28, &g_509b2c}, origin, read_f32(data(0x0032B5C8, 4), 0)};
+    }
     RuntimeLightCones light_cones{}; // DAT_0050EF20 / DAT_00510560 (0x0011AEA0 / 0x0011AEE0 / 0x000BA840).
     i32& frontend_state = g_challenge_run.state; // DAT_004E17C8, the running challenge's state.
     std::unique_ptr<ChallengeRuntimeServices> challenge_services; // 0x0004A100 .. 0x0004B360.
@@ -2094,6 +2107,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         background_views.erase(bytes);
         player_messages.erase(bytes);
         mind_messages.erase(bytes);
+        camera_mind_parents.erase(bytes);
         body_messages.erase(bytes);
         bases.erase(bytes);
         // The prop contact view holds the object's bytes; a later object at this actor address must build its own.
@@ -2562,7 +2576,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             }
             unbound("Super Scary dropper reads +0x95C of an actor that is not a player");
         },
-        empty_name});
+        empty_name,
+        [this](u32 texture) -> u8*
+        {
+            return resources.memory.pointer(texture);
+        }});
     classes->install(scene.types);
     classes->defer_release = true;
     install_runtime_move_action_classes(scene.types, [this](u32 address) -> std::span<u8>
@@ -4819,7 +4837,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }});
     install_runtime_push_buffer_dispatch(*push_buffers, node_callbacks);
     // Camera director (0x000AA250) and rig (0x000781F0) tunables are .data words read from the image.
-    std::memcpy(rig_tunables.rig.data(), data(0x004274B8, 0x88).data(), 0x88);
+    std::memcpy(rig_tunables.rig.data(), data(0x004274B8, 0xEC).data(), 0xEC);
     motion_steps = i32(read_u32(data(0x004312E0, 4), 0));
     {
         const auto words = data(0x00428708, 0x2C);
@@ -5846,7 +5864,7 @@ void SceneActorServices::State::begin_scene()
     in_scene = true;
 }
 
-// The scene globals a scene starts from: what 0x0011C5A0, 0x0011C480 and 0x00116DA0 clear, and the per-scene
+// The scene globals a scene starts from: what 0x0011C5A0 and 0x0011C480 clear, and the per-scene
 // storage the services hold for the scene's actors, backgrounds, doors and lights.
 void SceneActorServices::State::reset_scene_data()
 {
@@ -5877,7 +5895,7 @@ void SceneActorServices::State::reset_scene_data()
     // DAT_0050E148, DAT_0050E16C and DAT_0050E1B0 clear in the teardown (clear_script_tag_tables).
     camera_players = 0;
     // The pause counts (DAT_0050E764, DAT_0050E768) are 0x00116E00's to clear, before the scene loads
-    // (release_scene_music_at_start). A clear here ran after the loading scene's first pause and lost it.
+    // (reset_scene_script_runtime, 0x00116E00). A clear here ran after the loading scene's first pause and lost it.
     pause_nodes.clear();
     first_pause = nullptr;
     for (const auto& [address, view] : weapon_pickups)
@@ -5905,10 +5923,8 @@ void SceneActorServices::State::reset_scene_data()
     unlock_flags = 0;
     intro_pending = 0;
     intro_name = {};
-    std::fill(queue_limits.begin(), queue_limits.end(), 0u);
-    std::fill(class_queue_limits.begin(), class_queue_limits.end(), 0u);
-    queue_limits[0] = 3; // 0x00116DA0
-    std::fill(class_queue_limits.begin(), class_queue_limits.end(), 99u);
+    // The queue and class limits are 0x00116DA0's, which 0x00116E00 runs before the script loads; clearing them
+    // here, at the actor start, would undo the limits the script's head (handler 2) has just written.
     notice_seen = {};
     notice_pending = 0;
     notice_first = nullptr;
@@ -5969,11 +5985,7 @@ void SceneActorServices::State::reset_scene_data()
     temporary_lights = {};
     mirrors = {};
     mirror_pass = 0;
-    post_model_count = 0;
-    clear_runtime_light_cones(light_cones, [this](std::span<const u8> texture)
-    {
-        release_animation_resource(resources.registry, texture); // 0x00035C00
-    }); // 0x0011AEA0
+    // The light cones are cleared by the teardown's 0x0011AEA0 (clear_scene_light_cones).
     hud_enabled = 0;
     camera_start = {};
 }
@@ -9067,10 +9079,14 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         {
             return heap_address(&request, sizeof(RuntimePlayerMindRequest) + request.bytes.size());
         },
-        [](const RuntimePlayerMindRequest& request) -> i32
+        [this, &player](const RuntimePlayerMindRequest& request) -> i32
         {
-            unbound("camera mind request kind " + std::to_string(request.kind)
-                + " through the parent mind requests 0x000295E0");
+            auto& parent = camera_mind_parents[player.mind.data()];
+            if (parent == nullptr)
+            {
+                parent = std::make_unique<SceneCameraMindParent>(*mind_services, player);
+            }
+            return parent->update(request.bytes); // 0x000295E0
         }};
     const std::span<u8> mind_view = player.mind;
     entity_detail::NavigationPathSearch* path_search = nullptr;
@@ -9084,6 +9100,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         }
         path_search = player.mind_storage;
     }
+    camera_requests.path_search = path_search; // Mind +0x1C for kind 0x12 (0x0007ACB0).
     const u8* floor_hint = nullptr;
     if (!mind_view.empty() && read_u32(mind_view, 0x10) != 0)
     {
@@ -10005,12 +10022,32 @@ void SceneActorServices::State::start_background()
     }
     build_scene_navigation(background, {reinterpret_cast<const float*>(data(0x002FCFB8, 0x400).data()), 0x100},
         navigation, navigation_nodes);
-    // 0x0011CBD0 runs 0x001153A0, 0x00123560, 0x00119990 (not translated), then 0x0011F450.
+    // 0x0011CBD0 runs 0x001153A0, 0x00123560, 0x00119990, then 0x0011F450.
     build_runtime_background_cloths(background_cloth_scene()); // 0x001153A0
     reset_runtime_scene_point_lights(background != nullptr && background->model != nullptr ? background->model->cpu
         : std::span<const u8>{}, point_lights); // 0x00123560
+    // The first +0x934 node's light grid: **(its +0x204 +0x10), 0 when the node or its model is missing. 0x00119990
+    // and 0x0011CBD0 (DAT_005462EC, the decals' grid) both read it.
+    const auto first_model_word = [background]() -> u32
+    {
+        return background == nullptr || background->model == nullptr ? 0u
+            : runtime_light_grid_offset(background->model->cpu);
+    };
+    // 0x00119990: no blob shadow is active (DAT_0050EC24, stride 0x18), the count and the next free are 0,
+    // DAT_0050EF18 is the model word and DAT_0050EF1C 0.
+    for (auto& entry : blob_shadow_entries)
+    {
+        entry.active = 0;
+    }
+    blob_shadow_count = 0; // DAT_0050EF10
+    blob_shadow_free = 0; // DAT_0050EF14
+    blob_shadow_enable = first_model_word(); // DAT_0050EF18
+    blob_shadow_suppress = 0; // DAT_0050EF1C
     setup_runtime_scene_mirrors(background != nullptr && background->model != nullptr ? background->model->cpu
-        : std::span<const u8>{}, mirrors);
+        : std::span<const u8>{}, mirrors); // 0x0011F450
+    // 0x0011CBD0 after 0x0011F450: the actor snapshots' decal gate is the same model word, and none is counted.
+    decal_enable = first_model_word(); // DAT_005462EC
+    actor_snapshot_count = 0; // DAT_005462F0
     // 0x00112D70 (after 0x0011F450 and the queue builds): the first background's light grid and parts.
     light_grid = {};
     if (auto* first = backgrounds->first_background(); first != nullptr && first->state.actor.model != nullptr)
@@ -10498,10 +10535,7 @@ void SceneActorServices::State::present_view(i32 view)
         g_50484c,
         [this]()
         {
-            if (blob_shadow_enable != 0 && blob_shadow_count != 0 && blob_shadow_suppress == 0)
-            {
-                unbound("blob shadow draw 0x00119AD0");
-            }
+            draw_runtime_blob_shadows(blob_shadows, blob_shadow_suppress, *point_light_pass); // 0x00119AD0
         },
         [this, first_background_model]()
         {
@@ -10519,10 +10553,17 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
-            if (decal_enable != 0)
-            {
-                unbound("decal draw 0x00116460");
-            }
+            RuntimeBackgroundClothDraw projector{*point_light_pass, *display_setup, shadow_projector,
+                cloth_ramp_texture, cloth_water_phase,
+                [this](u32 address)
+                {
+                    return resources.memory.pointer(address);
+                },
+                [this]()
+                {
+                    return background_cloth_scene().background_model();
+                }};
+            draw_runtime_actor_snapshot_decals(decal_enable, actor_snapshots, projector); // 0x00116460
         },
         [this]()
         {
@@ -10582,12 +10623,8 @@ void SceneActorServices::State::present_view(i32 view)
     RuntimeSceneViewBins bins{passes, entity_detail::g_world.bins, entity_detail::g_world.body_a, view, mirror_pass,
         [this]()
         {
-            // 0x0012AB10. DAT_00512AF0 is filled by 0x0012A9B0 / 0x0012A9E0 / 0x0012AA70, which nothing native
-            // calls yet.
-            if (post_model_count != 0)
-            {
-                unbound("post-model pass 0x0012AB10 body");
-            }
+            RuntimePostModelContext context = post_model_context();
+            draw_runtime_post_models(context); // 0x0012AB10
         }};
     RuntimeSceneMirrorPass mirror{mirrors, g_flag_10b4, *display_setup, d3d_device.outer(), cull_mode,
         [&bins](i32 flag)
@@ -12352,10 +12389,45 @@ void SceneActorServices::animate_light_records()
 // Xbox 0x0012AA70
 void SceneActorServices::tick_post_models()
 {
-    if (state_->post_model_count != 0) // DAT_00512AF0
-    {
-        unbound("0x0012AA70's moving post models (DAT_00512AF8..DAT_00512B88, 0x001059B0)");
-    }
+    RuntimePostModelContext context = state_->post_model_context();
+    tick_runtime_post_models(context);
+}
+
+RuntimeIntroNoticeTick SceneActorServices::State::intro_notice_tick()
+{
+    return RuntimeIntroNoticeTick{g_script_e794, clock, prompt_owner, *dialogue,
+        [](u8 mask, i32 release)
+        {
+            g_actor_pause(mask, release); // 0x00117400
+        }};
+}
+
+// Xbox 0x0013FD60
+void SceneActorServices::tick_intro_notice()
+{
+    RuntimeIntroNoticeTick context = state_->intro_notice_tick();
+    tick_runtime_intro_notice(context);
+}
+
+// Xbox 0x0013FFD0
+void SceneActorServices::finish_intro_notice()
+{
+    RuntimeIntroNoticeTick context = state_->intro_notice_tick();
+    finish_runtime_intro_notice(context);
+}
+
+// Xbox 0x0012A9B0
+void SceneActorServices::clear_post_models()
+{
+    RuntimePostModelContext context = state_->post_model_context();
+    clear_runtime_post_models(context);
+}
+
+// Xbox 0x0012AA50
+void SceneActorServices::set_post_model(const char* name)
+{
+    RuntimePostModelContext context = state_->post_model_context();
+    set_runtime_post_model(name, context);
 }
 
 // Xbox 0x00049DE0
@@ -12409,6 +12481,18 @@ void SceneActorServices::set_reverb_preset(i32 preset)
 {
     auto& state = *state_;
     set_audio_reverb_preset(state.listener, preset, state.resources.registry, state.resources.error); // 0x0003A1F0
+}
+
+void SceneActorServices::load_camera_shake(const char* name, const Vec3& position, float scale)
+{
+    auto& state = *state_;
+    load_actor_camera_shake(name, position, scale, state.resources.registry, state.resources.error); // 0x000FB120
+}
+
+void SceneActorServices::load_camera_effect(const char* name, const Vec3& position)
+{
+    auto& state = *state_;
+    load_actor_camera_effect(name, &position, state.resources.registry, state.resources.error); // 0x000493D0
 }
 
 void SceneActorServices::apply_scene_lighting(std::span<const u8> record)
@@ -12649,6 +12733,22 @@ void SceneActorServices::release_script_player_weapon()
     instance.refresh_views();
     replace_runtime_player_attachment(instance.attachment); // 0x0013A7C0
     reset_runtime_meter(*state.scoreboard_update); // 0x0012ECC0
+}
+
+void SceneActorServices::drop_script_player_weapon()
+{
+    auto& state = *state_;
+    Actor* player = find_runtime_script_player(player_link(), actor_addresses()); // 0x001292D0
+    if (player == nullptr)
+    {
+        return;
+    }
+    auto& instance = state.players->player(state.object_of_actor(*player));
+    instance.refresh_views();
+    if (drop_runtime_player_attachment(instance.attachment)) // 0x0013A860
+    {
+        reset_runtime_meter(*state.scoreboard_update); // 0x0012ECC0
+    }
 }
 
 void SceneActorServices::give_script_player_weapon(const char* name)
@@ -12963,6 +13063,85 @@ const std::unordered_map<u32, Actor*>& SceneActorServices::actor_addresses() con
         state.addresses[state.scene.address_of(bytes)] = actor;
     }
     return state.addresses;
+}
+
+void SceneActorServices::clear_scene_light_cones()
+{
+    auto& state = *state_;
+    clear_runtime_light_cones(state.light_cones, [&state](std::span<const u8> texture)
+    {
+        release_animation_resource(state.resources.registry, texture); // 0x00035C00
+    }); // 0x0011AEA0
+}
+
+void SceneActorServices::run_script_effect_stream(const char* name)
+{
+    load_actor_effect_stream(name, nullptr, state_->effects); // 0x00053170
+}
+
+void SceneActorServices::reset_scene_score_words()
+{
+    auto& state = *state_;
+    if (state.measurement != nullptr)
+    {
+        state.measurement->first_additional = 0; // DAT_00545970
+        state.measurement->third_additional = 0; // DAT_00545974
+    }
+    state.score_total = 0; // DAT_0054597C
+}
+
+void SceneActorServices::release_script_player_attachment()
+{
+    auto& state = *state_;
+    Actor* player = find_runtime_script_player(player_link(), actor_addresses()); // 0x001292D0
+    if (player == nullptr)
+    {
+        return;
+    }
+    auto& instance = state.players->player(state.object_of_actor(*player));
+    instance.refresh_views();
+    release_runtime_player_attachment(0, 0, instance.attachment); // 0x0001B810, EAX the player's +0x95C
+    activate_actor_bind_tree(*player); // 0x00112CC0, ESI the player
+}
+
+void SceneActorServices::hold_script_player_attachments(u32 release)
+{
+    auto& state = *state_;
+    Actor* player = find_runtime_script_player(player_link(), actor_addresses()); // 0x001292D0
+    if (player == nullptr)
+    {
+        return;
+    }
+    auto& live = state.actors->view(state.object_of_actor(*player)).live_attachments; // Actor +0x8F4.
+    if (release == 0)
+    {
+        hold_actor_live_attachments(live); // 0x00042090, EAX the player
+    }
+    else
+    {
+        unhold_actor_live_attachments(live); // 0x000420B0, EAX the player
+    }
+}
+
+void SceneActorServices::point_script_player_at_nearest()
+{
+    auto& state = *state_;
+    Actor* player = find_runtime_script_player(player_link(), actor_addresses()); // 0x001292D0
+    if (player == nullptr)
+    {
+        return;
+    }
+    std::array<u32, 0x42> message{0x37, 0, 0, 0};
+    float distance = 0.f;
+    if (const Actor* nearest = find_nearest_runtime_script_actor(nullptr, *player, 0, 0.f, &distance, 0x4240, nullptr,
+            state.query)) // 0x00128DF0
+    {
+        const Vec3 position = actor_world_position(*nearest); // 0x000412A0, ESI the actor, EDI message +4
+        message[1] = std::bit_cast<u32>(position.x);
+        message[2] = std::bit_cast<u32>(position.y);
+        message[3] = std::bit_cast<u32>(position.z);
+    }
+    send_actor_message(state.address_of(player), message); // Vtable +0xC
 }
 
 int SceneActorServices::wait_script_player() const

@@ -7,6 +7,7 @@
 #include "actor_world_lists.h"
 #include "actor_model_anchors.h"
 #include "../audio/listener_settings.h"
+#include "../graphics/shader_parameters.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
 #include "gbtg/resource_error.h"
@@ -18,6 +19,12 @@ namespace gbtg
 {
 namespace
 {
+// A NUL-terminated name the shader texture record points at.
+const char* string_at(u32 address, RuntimeAvatarAfterimage& context)
+{
+    return reinterpret_cast<const char*>(context.bytes_at(address).data());
+}
+
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -481,11 +488,36 @@ bool initialize_runtime_avatar_afterimage(std::span<const u8> parameters, Runtim
     put_word(bytes, 0x950, read_u32(parameters, 0x340));
     put_word(bytes, 0x954, read_u32(parameters, 0x344));
     put_word(bytes, 0x958, read_u32(parameters, 0x348));
-    const u32 sound = read_u32(parameters, 0x350);
-    if (sound != 0 && read_u32(context.bytes_at(sound), 8) == 0x5F646961) // "aid_"
+    // Parameter +0x350: a shader texture record (+0 the shader, +4 the parameter, +8 the texture's AID).
+    const u32 record = read_u32(parameters, 0x350);
+    if (record != 0 && read_u32(context.bytes_at(record), 8) == 0x5F646961) // "aid_"
     {
-        throw Error("untranslated Xbox 0x000F8540 reached from the after-image 0x000690F0 (parameter +0x350 names "
-            "an aid_ sound)");
+        const std::span<const u8> words = context.bytes_at(record);
+        const ActorModel* model = actor.model; // EBX, actor +0x204.
+        if (model == nullptr || model->runtime == nullptr)
+        {
+            throw Error("after-image 0x000690F0 reads the shader texture's model through actor +0x204 with no model");
+        }
+        context.texture_parameter = create_shader_parameter(*model->runtime, string_at(read_u32(words, 0), context),
+            string_at(read_u32(words, 4), context)); // 0x000F8540
+        put_word(bytes, 0x95C, context.texture_parameter != nullptr ? 1u : 0u);
+        u32 texture = 0;
+        if (read_u32(words, 8) == 0x5F646961) // "aid_"
+        {
+            context.texture = acquire_animation_resource(context.startup.registry,
+                reinterpret_cast<const char*>(words.data() + 8)); // 0x00035E90
+            if (context.texture.data() == nullptr)
+            {
+                resource_error(context.startup.error, 2); // 0x00032700
+            }
+            texture = context.texture.data() == nullptr ? 0u : context.address_of(context.texture.data());
+        }
+        put_word(bytes, 0x960, texture);
+        if (context.texture_parameter == nullptr)
+        {
+            throw Error("after-image 0x000690F0 binds its texture through a null +0x95C parameter (0x000F86F0)");
+        }
+        set_shader_parameter_texture(*context.texture_parameter, texture, 0, context.texture_bytes); // 0x000F86F0
     }
     return true;
 }
@@ -495,11 +527,13 @@ void destroy_runtime_avatar_afterimage(RuntimeAvatarAfterimage& context)
 {
     if (read_u32(context.self.bytes, 0x95C) != 0)
     {
-        throw Error("untranslated Xbox 0x000F85D0 reached from the after-image 0x00069220 (+0x95C set)");
+        release_shader_parameter(context.texture_parameter); // 0x000F85D0
+        context.texture_parameter = nullptr;
     }
     if (read_u32(context.self.bytes, 0x960) != 0)
     {
-        throw Error("after-image 0x00069220 releases a +0x960 resource it has no view of");
+        release_animation_resource(context.startup.registry, context.texture); // 0x00035C00, EBX the texture
+        context.texture = {};
     }
 }
 
@@ -510,7 +544,8 @@ void tick_runtime_avatar_afterimage(RuntimeAvatarAfterimage& context)
     Actor& actor = context.self.actor;
     if (read_u32(bytes, 0x95C) != 0)
     {
-        throw Error("untranslated Xbox 0x000F8640 reached from the after-image 0x00069250 (+0x95C set)");
+        advance_shader_parameter(*context.texture_parameter, runtime_actor_step(actor, context.clock),
+            context.texture_bytes); // 0x000F8640
     }
     const float left = read_f32(bytes, 0x934);
     if (left > 0.f)

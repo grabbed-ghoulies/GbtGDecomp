@@ -357,16 +357,16 @@ i32 g_4dedac = 0;
 
 // Xbox 0x000341E0. When DAT_004DEDA4 is nonzero, walk the pool from end
 // backward by 0x2c. The dword at record+0x28 (end - 4 before the step) is
-// compared with 0. Zero would call 0x000348D0 with EBX = the record and
-// 0x00034110 with ESI = the record, then reload DAT_004DEDA8. Those calls
-// are not translated, so they are not made. The flag is then cleared.
-// When DAT_004DEDAC is 0 and DAT_004DEDA0 < DAT_004DED9C,
-// walk from begin while the cursor is below end and the dword at +0x24 is
-// nonzero, stepping by the stride u16. The slot where +0x24 is 0, or 0 when
-// the walk finishes, would be ESI for 0x00034290. A nonzero return would
-// call 0x00034370 with that return on the stack and EAX = ESI. 0x00034290
-// is not translated, so that return is not taken. The function returns
-// DAT_004DEDAC.
+// compared with 0. Zero calls 0x000348D0 with EBX = the record and
+// 0x00034110 with ESI = the record, then reloads DAT_004DEDA8. The flag is
+// then cleared. When DAT_004DEDAC is 0 and DAT_004DEDA0 < DAT_004DED9C, walk
+// from begin while the cursor is below end and the dword at +0x24 is nonzero,
+// stepping by the stride u16. The slot where +0x24 is 0, or 0 when the walk
+// finishes, is ESI for 0x00034290; a nonzero return calls 0x00034370 with
+// that return on the stack and EAX = ESI. The function returns DAT_004DEDAC.
+// The host loads synchronously, so nothing fills this pool (0x00033CF0 is not
+// run) and both paths raise if they are ever reached: their callees are not
+// translated.
 // Xbox 0x000341E0
 int scene_check_pending_records()
 {
@@ -382,7 +382,8 @@ int scene_check_pending_records()
             end = record;
             if (at_28 == 0)
             {
-                pool = g_4deda8;
+                throw Error("0x000341E0 completes a pending record through 0x000348D0 and 0x00034110, which are not "
+                            "translated");
             }
         }
         g_4deda4 = 0;
@@ -395,6 +396,7 @@ int scene_check_pending_records()
         {
             cursor = cursor + pool->stride;
         }
+        throw Error("0x000341E0 starts a pending record through 0x00034290, which is not translated");
     }
     return g_4dedac;
 }

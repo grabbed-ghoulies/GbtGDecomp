@@ -111,12 +111,30 @@ u16 rank_of(const std::array<i32, 25>& thresholds, i32 stat, Meets meets)
 // 0x00166B36: _itow, the CRT's __itoa into 40 bytes widened by 0x0016AD59.
 void format_wide_integer(i32 value, char16_t* output, i32 radix)
 {
+    // xtoa: a minus sign only in radix 10, then the digits least significant first, reversed; above 9 they are
+    // lowercase letters.
     char digits[40]{};
-    if (radix != 10)
+    char* cursor = digits;
+    u32 number = u32(value);
+    if (radix == 10 && value < 0)
     {
-        throw Error("0x00166B36 with a radix other than 10 is not translated");
+        *cursor++ = '-';
+        number = 0u - number;
     }
-    std::snprintf(digits, sizeof(digits), "%d", value);
+    char* first = cursor;
+    do
+    {
+        const u32 digit = number % u32(radix);
+        number = number / u32(radix);
+        *cursor++ = digit > 9 ? char(digit - 10 + 'a') : char(digit + '0');
+    } while (number != 0);
+    *cursor-- = 0;
+    while (first < cursor)
+    {
+        const char swap = *cursor;
+        *cursor-- = *first;
+        *first++ = swap;
+    }
     size_t index = 0;
     for (; digits[index] != 0; ++index)
     {
@@ -141,7 +159,8 @@ FinalScoreRowRank row_rank(u32 address)
     case 0x000D2E10:
         return rank_runtime_final_score_prisoners;
     default:
-        throw Error("final score row callback " + std::to_string(address) + " is not translated");
+        throw Error("final score row callback " + std::to_string(address)
+            + " is not one of the 0x00303F60 table's four");
     }
 }
 

@@ -4,6 +4,8 @@
 #include "vector_normalize.h"
 #include "../camera/runtime_display_setup.h"
 #include "../camera/view_frustum.h"
+#include "actor_snapshots.h"
+#include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
 
 #include <bit>
@@ -590,6 +592,44 @@ void begin_runtime_shadow_projector(RuntimeBackgroundClothDraw& context)
     projector.screen = {0.5f, 0.f, 0.f, 0.f, 0.f, -0.5f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
     projector.bias = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.5f, 0.5f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
     multiply_projector(context);
+}
+
+// Xbox 0x00116460
+void draw_runtime_actor_snapshot_decals(u32 grid, const std::vector<std::unique_ptr<RuntimeActorSnapshot>>& snapshots,
+    RuntimeBackgroundClothDraw& context)
+{
+    if (grid == 0) // DAT_005462EC
+    {
+        return;
+    }
+    begin_runtime_shadow_projector(context); // 0x000644F0
+    for (const auto& snapshot : snapshots) // DAT_005462F8, next at +4
+    {
+        const std::span<const u8> bytes(snapshot->bytes);
+        u32 color = read_u32(bytes, 0x28);
+        if (read_u32(bytes, 0x30) == 0)
+        {
+            // The alpha times the fade, clamped to 0 .. 255 (DAT_0032B158), truncated (0x001673D8) into the top byte.
+            float alpha = float(i32(color >> 24)) * read_f32(bytes, 0x2C);
+            if (0.f > alpha)
+            {
+                alpha = 0.f;
+            }
+            else if (alpha > 255.f)
+            {
+                alpha = 255.f;
+            }
+            color = (color & 0x00FFFFFFu) | (u32(u8(truncate_runtime_float(alpha))) << 24);
+        }
+        project_runtime_texture_on_grid(grid, Vec3{read_f32(bytes, 0x14), read_f32(bytes, 0x18), read_f32(bytes, 0x1C)},
+            Vec3{read_f32(bytes, 8), read_f32(bytes, 0xC), read_f32(bytes, 0x10)}, read_u32(bytes, 0x20),
+            read_f32(bytes, 0x24), color, false, 1, context); // 0x00064820, ECX the grid, EDX +0x14, EAX 1
+    }
+    context.pass.z_bias(0); // 0x00171660
+    d3d(context).cull(0); // 0x00171420
+    context.pass.multisample_antialias(0); // 0x00172600
+    d3d(context).multisample_mode(0); // 0x001725A0
+    context.pass.multisample_target_mode(0); // 0x001725D0
 }
 
 // Xbox 0x00064820, ECX grid, EDX at, EAX reach

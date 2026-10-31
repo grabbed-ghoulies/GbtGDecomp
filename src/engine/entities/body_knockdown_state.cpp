@@ -409,7 +409,7 @@ bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8>
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
-        live->retained_15 = u8(live->retained_15 + 1);
+        live->hold = u8(live->hold + 1);
     }
     body[0x6D] = u8(body[0x6D] + 1);
     context.bits.bytes[4] |= 0x10;
@@ -499,7 +499,7 @@ void destroy_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContex
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
-        live->retained_15 = u8(live->retained_15 - 1);
+        live->hold = u8(live->hold - 1);
     }
     body[0x6D] = u8(body[0x6D] - 1);
     adjust_body_counters(body, -1);

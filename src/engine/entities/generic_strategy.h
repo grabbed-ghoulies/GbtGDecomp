@@ -2,6 +2,7 @@
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
+#include "body_damage_tables.h"
 
 namespace gbtg
 {
@@ -26,6 +27,7 @@ struct RuntimeGenericStrategy
     RuntimeStrategyTargetChecks& checks;
     RuntimeStrategyTargetQueue& queue;
     RuntimeStrategyActorViews& views;
+    const RuntimeBodyDamageTables* const& damage_tables; // 0x00028DA0's tables, set once the scene has them.
     const char* goal_far; // "far", 0x00321824.
     const char* goal_get_weapon; // "getweapon", 0x00321420.
     const char* goal_attack; // "attack", 0x003211E4.

@@ -106,7 +106,7 @@ void adjust_live_holds(i32 step, RuntimeHauntedPictureStrategy& context)
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
-        live->retained_15 = u8(live->retained_15 + step);
+        live->hold = u8(live->hold + step);
     }
 }
 

@@ -13,7 +13,7 @@ struct ActorLiveAttachment
     entity_detail::ListHead global_link; // +8
     Actor* actor = nullptr; // +0x10
     u8 mode = 0; // +0x14
-    u8 retained_15 = 0;
+    u8 hold = 0; // +0x15, held while nonzero (0x00042090 / 0x000420B0)
     u16 tag = 0; // +0x16
     u8 retained_18 = 0;
     u8 flag = 0; // +0x19
@@ -45,4 +45,7 @@ void release_actor_attachment_slot(ActorLiveAttachment* owner); // Xbox 0x001129
 void suspend_actor_live_attachment(ActorLiveAttachment& record, bool suspend); // Xbox 0x0012B1A0
 void release_actor_live_attachment(ActorLiveAttachment& record); // Xbox 0x0012B0B0
 void clear_actor_live_attachments(entity_detail::ListHead& owner_head); // Xbox 0x00042040
+// Each record on the actor's +0x8F4 list (actor +0x8F8 is the first) gains, or loses, a +0x15 hold.
+void hold_actor_live_attachments(entity_detail::ListHead& owner_head); // Xbox 0x00042090, EAX actor
+void unhold_actor_live_attachments(entity_detail::ListHead& owner_head); // Xbox 0x000420B0, EAX actor
 }

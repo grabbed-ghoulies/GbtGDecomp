@@ -353,12 +353,12 @@ void update_state(RuntimeWeaponActor& weapon, u16 state)
         update_runtime_container_weapon_state(weapon, state); // 0x000C76A0
         return;
     }
-    if (weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
+    if (weapon.type == 0xA4 || weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
     {
         update_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAA80
         return;
     }
-    throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x44 is not translated");
+    throw Error("vtable +0x44 of factory type " + std::to_string(weapon.type) + ", which is no weapon class (0xA0..0xAA)");
 }
 
 // Vtable +0x48 of the weapon's class: the chair and both projectiles keep the empty base slot.
@@ -369,12 +369,12 @@ void late_update_state(RuntimeWeaponActor& weapon, u16 state)
     {
         return;
     }
-    if (weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
+    if (weapon.type == 0xA4 || weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
     {
         late_update_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAF10
         return;
     }
-    throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x48 is not translated");
+    throw Error("vtable +0x48 of factory type " + std::to_string(weapon.type) + ", which is no weapon class (0xA0..0xAA)");
 }
 
 // Vtable +0x40 of the weapon's class.
@@ -415,12 +415,12 @@ void leave_state(RuntimeWeaponActor& weapon, u16 state, u16 next)
         leave_runtime_container_weapon_state(weapon, state, next); // 0x000C7990
         return;
     }
-    if (weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
+    if (weapon.type == 0xA4 || weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
     {
         leave_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAEB0
         return;
     }
-    throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x40 is not translated");
+    throw Error("vtable +0x40 of factory type " + std::to_string(weapon.type) + ", which is no weapon class (0xA0..0xAA)");
 }
 
 // Vtable +0x3C of the weapon's class.
@@ -461,12 +461,12 @@ void enter_state(RuntimeWeaponActor& weapon, u16 state, u16 previous)
         enter_runtime_container_weapon_state(weapon, state, previous); // 0x000C7870
         return;
     }
-    if (weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
+    if (weapon.type == 0xA4 || weapon.type == 0xA3 || weapon.type == 0xA5 || weapon.type == 0xA6)
     {
         enter_runtime_gun_weapon_state(weapon, state); // The gun's 0x000CAE90
         return;
     }
-    throw Error("weapon factory type " + std::to_string(weapon.type) + " vtable +0x3C is not translated");
+    throw Error("vtable +0x3C of factory type " + std::to_string(weapon.type) + ", which is no weapon class (0xA0..0xAA)");
 }
 // Actor +0x99C, the class's contact test: the chair sets 0x000CF5F0.
 RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
@@ -527,7 +527,16 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             return test_runtime_thrown_projectile_contact(weapon, object, point, contacts, velocity, word); // 0x000CBF80
         };
     }
-    throw Error("weapon contact test at +0x99C is not translated");
+    if (read_u32(weapon.bytes, 0x99C) == 0x000CB040)
+    {
+        return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
+            const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
+        {
+            return test_runtime_gun_contact(weapon, object, point, contacts, velocity, word); // 0x000CB040
+        };
+    }
+    throw Error("weapon contact test +0x99C holds " + std::to_string(read_u32(weapon.bytes, 0x99C))
+        + ", which no weapon class sets");
 }
 }
 
@@ -817,7 +826,9 @@ void destroy_runtime_weapon_actor(RuntimeWeaponActor& weapon)
     }
     if (read_u32(weapon.bytes, 0xD9C) != 0)
     {
-        untranslated(0x001450A0, "the weapon destructor 0x00145E80 (+0xD9C set)");
+        // Every retail write of +0xD9C (0x00145150, 0x00145820, 0x00145E80) stores zero, so 0x001450A0's piece
+        // blocks never exist.
+        throw Error("weapon destructor 0x00145E80 finds +0xD9C set, which no retail writer does");
     }
     weapon.pieces.clear(); // +0x2A4, 0x000663E0.
     if (weapon.cells != nullptr)
@@ -831,7 +842,9 @@ void destroy_runtime_weapon_actor(RuntimeWeaponActor& weapon)
     }
     if (read_u32(weapon.bytes, 0xD98) != 0)
     {
-        untranslated(0x000ED2E0, "the weapon destructor 0x00145E80 (+0xD98 set)");
+        // Every retail write of +0xD98 (0x00145820, 0x00145C80, 0x00145E80) stores zero, so there is never an
+        // effect node for 0x000ED2E0 to release.
+        throw Error("weapon destructor 0x00145E80 finds +0xD98 set, which no retail writer does");
     }
     remove_ghouly_controller(&weapon.controller); // DAT_00512B74's entry, as 0x0012ACA0 removes it.
 }
@@ -2364,11 +2377,11 @@ void finish_runtime_weapon_pieces(RuntimeWeaponActor& weapon)
     }
     if (read_u32(bytes, 0xD98) != 0)
     {
-        untranslated(0x000ED2E0, "the weapon piece finish 0x00145820 (+0xD98 set)");
+        throw Error("weapon piece finish 0x00145820 finds +0xD98 set, which no retail writer does"); // 0x000ED2E0
     }
     if (read_u32(bytes, 0xD9C) != 0)
     {
-        untranslated(0x001450A0, "the weapon piece finish 0x00145820 (+0xD9C set)");
+        throw Error("weapon piece finish 0x00145820 finds +0xD9C set, which no retail writer does"); // 0x001450A0
     }
     weapon.pieces.clear(); // +0x2A4, 0x000663E0.
     refresh_actor_model_matrices(weapon.actor, weapon.matrices.matrices, 1, weapon.matrix_boundaries); // 0x00040200

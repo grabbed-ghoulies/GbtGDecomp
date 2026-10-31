@@ -185,4 +185,26 @@ private:
     void refresh_gaze();
     void refresh_control();
 };
+
+// The camera mind's (type 0x36) parent requests: its kinds other than 1, 3, 4 and 0x12 (0x00078170) run the player
+// mind base 0x000295E0 over the same body views a player mind's graph keeps.
+class SceneCameraMindParent
+{
+public:
+    SceneCameraMindParent(SceneMindServices& services, NativePlayerInstance& player);
+    SceneCameraMindParent(const SceneCameraMindParent&) = delete;
+    SceneCameraMindParent& operator=(const SceneCameraMindParent&) = delete;
+    i32 update(std::span<const u8> request); // 0x000295E0 after the body and target views are refreshed.
+
+private:
+    SceneMindServices& services_;
+    NativePlayerInstance& player_;
+    const RuntimeAttachmentRequestTables* tables_ = nullptr; // Body +0x5C.
+    const u8* body_state_ = nullptr; // Body +0x84.
+    std::span<const u8> body_state_view_;
+    RuntimeScriptMindQuery body_query_{};
+    std::span<const u8> target_; // Mind +0x10 object.
+    RuntimeBodyAttachmentRequests attachment_;
+    RuntimeParentMindRequests parent_;
+};
 }

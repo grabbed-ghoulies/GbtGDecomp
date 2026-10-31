@@ -535,4 +535,64 @@ void SceneMindMessages::refresh_gaze()
         }
     }
 }
+
+SceneCameraMindParent::SceneCameraMindParent(SceneMindServices& services, NativePlayerInstance& player)
+    : services_(services),
+      player_(player),
+      attachment_{player.body, tables_, player.body_selection, player.secondary, player.actor.class_key, body_state_,
+          [this](const u8* record)
+          {
+              return services_.address_of(record);
+          }},
+      parent_{player.mind_events, player.mind_goals, attachment_, player.actor, player.actor, *player.body_flags,
+          body_query_, player.actor_instance.animation, player.actor_instance.startup.resource, player.callout,
+          services.flag_names, services.action_names, services.callout_names, services.goal_flag_names,
+          services.random,
+          [&player](std::span<u32> message)
+          {
+              player.self.message(message);
+          },
+          [&player]() -> u16
+          {
+              if (!player.body_slot_key)
+              {
+                  unbound("body effect action (vtable +0x28)");
+              }
+              return player.body_slot_key(0x28);
+          },
+          [this](const Actor* actor) -> u32
+          {
+              return actor == nullptr ? 0 : services_.address_of(actor);
+          },
+          {}, nullptr}
+{
+}
+
+i32 SceneCameraMindParent::update(std::span<const u8> request)
+{
+    const auto body = player_.body;
+    const auto mind = player_.mind;
+    tables_ = player_.animation_resource.data() == nullptr ? nullptr
+        : services_.attack_tables.at(player_.animation_resource.data());
+    body_query_.state = i16(read_u16(body, 0x30));
+    std::memcpy(&body_query_.state_time, body.data() + 0x34, 4);
+    body_query_.case_actor = player_.attached != nullptr ? player_.attached->actor : nullptr;
+    body_query_.node = nullptr;
+    body_query_.blocked = body[0x69];
+    body_query_.active = body[0x6A];
+    body_query_.suspended = body[0x6B];
+    body_query_.permitted = body[0x6C];
+    std::memcpy(&body_query_.timer, body.data() + 0x70, 4);
+    body_query_.energy = i16(read_u16(body, 0x94));
+    body_query_.maximum_energy = i16(read_u16(body, 0x96));
+    body_query_.bits = player_.body_flags;
+    const u32 target = read_u32(mind, 0x10);
+    target_ = target == 0 ? std::span<const u8>{} : services_.bytes_at(target);
+    parent_.target_bytes = target_;
+    parent_.target_actor = target_.empty() ? nullptr : services_.actor_at(target);
+    const u32 state = read_u32(body, 0x84);
+    body_state_view_ = state == 0 ? std::span<const u8>() : std::span<const u8>(services_.resolve(state), 0x24);
+    body_state_ = body_state_view_.data();
+    return update_runtime_parent_mind_request(parent_, request); // 0x000295E0
+}
 }

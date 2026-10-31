@@ -97,7 +97,7 @@ std::array<u32, 11> g_camera_view_tunables{0x4479FFF0, 0x428C0000, 0x000003E7, 0
 float RuntimeCameraRigTunables::real(u32 address) const
 {
     float value;
-    if (address >= 0x004274B8 && address + 4 <= 0x00427540)
+    if (address >= 0x004274B8 && address + 4 <= 0x004275A4)
     {
         std::memcpy(&value, rig.data() + (address - 0x004274B8), 4);
         return value;
@@ -107,7 +107,7 @@ float RuntimeCameraRigTunables::real(u32 address) const
         std::memcpy(&value, reinterpret_cast<const u8*>(g_camera_view_tunables.data()) + (address - 0x00434008), 4);
         return value;
     }
-    throw Error("camera rig tunable outside DAT_004274B8 and DAT_00434008");
+    throw Error("camera rig tunable outside DAT_004274B8..DAT_004275A4 and DAT_00434008");
 }
 
 u32 RuntimeCameraRigTunables::word(u32 address) const

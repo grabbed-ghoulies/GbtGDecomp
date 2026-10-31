@@ -13,7 +13,7 @@ extern std::array<u32, 11> g_camera_view_tunables;
 // The camera rig tunables: .data DAT_004274B8..DAT_0042753F and g_camera_view_tunables, by retail address.
 struct RuntimeCameraRigTunables
 {
-    std::array<u8, 0x88> rig{};
+    std::array<u8, 0xEC> rig{}; // DAT_004274B8..DAT_004275A4: the kind-1 rig, then the kinds 3, 4 and 0x12 words.
     float real(u32 address) const;
     u32 word(u32 address) const;
 };

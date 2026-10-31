@@ -633,7 +633,7 @@ void hold_runtime_jump_on_body(u32 release, std::span<u8> state, RuntimeJumpOnSt
         for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
              live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
         {
-            live->retained_15 = u8(live->retained_15 + step);
+            live->hold = u8(live->hold + step);
         }
     };
     if (release != 0)

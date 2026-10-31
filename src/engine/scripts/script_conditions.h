@@ -11,6 +11,8 @@ extern std::vector<ScriptCond> g_script_conds;
 
 extern std::vector<u32> g_script_fired;
 
+void reset_scene_spawn_words(); // Xbox 0x00116DA0
+extern LiveScript g_live_anchor; // DAT_0050E4D8: its next is DAT_0050E4DC.
 extern LiveScript*& g_live_scripts;
 // The body (node +0x18, actor +0x95C) of a DAT_00511B48 node (actor +0x944), bound by the scene's actor services.
 extern std::function<std::span<const u8>(const void* node)> g_alt_node_body;

@@ -21,6 +21,8 @@ struct NativeAudioBootBoundaries
     std::function<void()> register_wavebanks; // 0x00039DD0: the in-memory and streaming XACT wave banks.
     std::function<i32(std::span<const u8>, void*&)> create_sound_bank; // IXACTEngine_CreateSoundBank.
     std::function<void(void*, u32)> register_notification; // IXACTEngine_RegisterNotification (0x0015D0E0).
+    // 0x0015BB30: CreateFile, GetFileSize, ReadFile and CloseHandle over a named file; the bytes and the file's size.
+    std::function<std::vector<u8>(const char*)> load_file;
 };
 // The audio state 0x0003A280 builds at boot.
 struct NativeAudioBanks
@@ -35,6 +37,7 @@ struct NativeAudioBanks
     u32 loaded_count = 0; // DAT_004D980C.
     u32 notifications = 0; // DAT_004D9794.
     std::array<AudioCoreBank*, 80> banks{}; // DAT_004E13B0.
+    std::deque<std::vector<u8>> file_images; // 0x0015BB30's audio heap blocks, one per bank loaded from a file.
     AudioCoreListener listener; // DAT_004D97EC, DAT_004D97F0 and the listener pose DAT_004D9820..DAT_004D984C.
     i32 bank_count = 0; // DAT_004E14F0.
     // Host: the name record behind each XACT bank handle, for the cue names the playback boundary resolves.

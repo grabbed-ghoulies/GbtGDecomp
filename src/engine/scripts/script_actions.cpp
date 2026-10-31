@@ -48,6 +48,9 @@
 #include "../cutscenes/actor_tracks.h"
 #include "gbtg/actor_spawn_factory.h"
 #include "../navigation/grid_regions.h"
+#include "../video/movie_startup.h"
+#include "../video/movie_session.h"
+#include "../video/native_movies.h"
 
 #include <algorithm>
 #include <bit>
@@ -911,8 +914,7 @@ int script_handle_condition_node(Game& g, const ScriptNode& node, u32& cursor)
 }
 
 
-// DAT_00512378. Type 0x29 sets this after 0x00117400. The clear is the
-// 0x0005B780 hit, which is not translated.
+// DAT_00512378. Type 0x29 sets this after 0x00117400 and clears it when 0x0005B780 reads the awaited door state.
 i32 g_flag_2378 = 0;
 
 
@@ -1025,8 +1027,8 @@ u32 g_script_6550 = 0;
 // Xbox 0x001259B0. Handler 7. The dword at node+4 is the type. Type 0x4F
 // with a zero second argument stores the word at node+8 and the dword at
 // node+0xC at DAT_005123B0 + DAT_00512410*8, then increments DAT_00512410.
-// A nonzero second argument calls 0x001117E0. EAX is the word at node+8 and
-// EBX is the dword at node+0xC. Type 0x56 builds a message whose first dword
+// A nonzero second argument calls 0x001117E0 with the word at node+8 pushed
+// and EBX the dword at node+0xC. Type 0x56 builds a message whose first dword
 // is 0x67 and whose second dword is the word at node+8, then calls
 // 0x00122F70 with that message in EDI. Type 0x29 with a nonzero second
 // argument and a zero third argument reads DAT_00512378. Zero calls
@@ -1038,9 +1040,8 @@ u32 g_script_6550 = 0;
 // at node+0xC. A hit compares the written word. A match calls
 // 0x00117400(0xffff, 1), clears DAT_00512378, and returns 2. The other path
 // stores those two words in the 4-byte record at DAT_0051237C and grows
-// DAT_005123AC when the index has reached the count. 0x001117E0 (type 0x4F)
-// is not translated, so that call is not made. Any other type returns 3. A
-// handled store returns 2.
+// DAT_005123AC when the index has reached the count. Any other type returns
+// 3. A handled store returns 2.
 // Xbox 0x00125B80. Scene start (0x0011CBD0): every door's navigation regions follow its state (0x0005C020), the
 // door pairs the script's head recorded set their doors (0x0005B540 with no hold), the queued 0x4F tags set their
 // regions on every grid, both lists empty, and each DAT_00511B20 actor gets message 0x66.
@@ -1111,10 +1112,9 @@ int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int
                 g_queued_tag_count = g_queued_tag_count + 1;
                 return 2;
             }
-            const u16 word = node_u16(g.scene_script, node, 8);
-            const u32 ebx = node_u32(g.scene_script, node, 0xC);
-            (void)word;
-            (void)ebx;
+            // 0x001117E0 with the word at node+8 pushed and EBX the dword at node+0xC (its low word the blocked value).
+            entity_detail::set_all_navigation_regions_blocked(node_u16(g.scene_script, node, 8),
+                i16(node_u32(g.scene_script, node, 0xC)));
             return 2;
         }
         if (type == 0x56)
@@ -1188,35 +1188,6 @@ int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int
 }
 
 
-// Xbox 0x00126140. Handler 8. The dword at node+4 is the type. The table
-// covers types 0x17 through 0x88. Any other type, and the holes in that
-// range, return 3.
-//
-// Type 0x17 returns 0 when the third argument is nonzero. Zero tests the
-// dword at node+0x10. Nonzero calls 0x000D0530. The word at node+8,
-// the dword at node+0xC, and ESI = node+0x14 then go to 0x000D0550,
-// and the case returns 2.
-//
-// Type 0x18 tests DAT_00512414. Zero calls 0x000D0680, stores 1, and
-// returns 0. Nonzero compares DAT_005064D8 with 3. Equal stores 0 and
-// returns 2. Otherwise it returns 0.
-//
-// Type 0x19 builds step type 0 (0x00125C80, XMM0 = 1.5) and queues it
-// through 0x000D05D0.
-//
-// Type 0x54 copies five fields into DAT_00506540 and returns 2.
-//
-// Every other handled type would build a stack message and pass it to
-// 0x000D05D0 in EDI. The header calls 0x00125C80, 0x00125CC0, 0x00125D00,
-// 0x00125D40, 0x00125D80, 0x00125DC0, 0x00125E00, 0x00125E40, 0x00125E80,
-// 0x00125EC0, 0x00125F00, 0x00125F40, 0x00125F80, 0x00125FC0, 0x00126000,
-// 0x00126040, 0x00126080, 0x001260C0, and 0x00126100 are not translated, and
-// neither is 0x000D05D0, so those calls are not made. 0x001077B0 runs where
-// the dump calls it: EAX is the cstring at the listed node offset.
-// 0x0001BB60, 0x00126940, and 0x00116C50 are not translated, so no index is
-// invented and those calls are not made. A handled type returns 2. Type
-// 0x1A returns 2 before 0x000D05D0 when bit 0x10 of DAT_0050EA9C is set.
-// The second argument is unused.
 // Xbox 0x00126940, DI tag: the DAT_00511B48 actors of the tag (any for a tag below 2) get +0x96D set and +0x96F /
 // +0x970 cleared; one whose +0x974 timer runs is stopped and sent message 0x55. With `keep` 0 the tag joins
 // DAT_0050E22C.
@@ -1254,6 +1225,11 @@ void mark_runtime_one_type_actors(u16 tag, i32 keep)
     }
 }
 
+// Xbox 0x00126140. Handler 8. The dword at node+4 is the type; the table covers types 0x17 through 0x88, and any
+// other type, and the holes in that range, return 3. Type 0x17 opens the event (0x000D0530, 0x000D0550), type 0x18
+// plays it, type 0x54 copies five fields into DAT_00506540, and the other handled types build an event step with
+// their header (0x00125C80 .. 0x00126100) and queue it through 0x000D05D0. A handled type returns 2. The second
+// argument is unused.
 // Xbox 0x00126140
 int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, int param_3)
 {
@@ -1466,12 +1442,28 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 0x26:
-        // 0x00125F40, XMM0 = 1.5. 0x000D05D0 is not translated.
+    {
+        // 0x00125F40 builds step type 0xB with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 0xB;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        queue_script_event_step(step);
         return 2;
+    }
     case 0x27:
     {
+        // 0x00126080 builds step type 0x10 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the dword at node+8.
+        // 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 0x10;
+        const float delay = 1.5f;
         const u32 value = node_u32(g.scene_script, node, 8);
-        (void)value;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        std::memcpy(step.data() + 0x18, &value, 4);
+        queue_script_event_step(step);
         return 2;
     }
     case 0x28:
@@ -1538,8 +1530,16 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 0x87:
-        // 0x001260C0, XMM0 = 1.5. 0x000D05D0 is not translated.
+    {
+        // 0x001260C0 builds step type 0x11 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
+        std::array<u8, 0x88> step{};
+        const u32 type = 0x11;
+        const float delay = 1.5f;
+        std::memcpy(step.data(), &type, 4);
+        std::memcpy(step.data() + 4, &delay, 4);
+        queue_script_event_step(step);
         return 2;
+    }
     case 0x88:
     {
         // 0x00126100 builds step type 0x12 with XMM0 = 1.5 (0x0032B210) at +4. Each named tag with its kill count
@@ -1642,28 +1642,23 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node)
 //
 // Type 0x6B calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
 // below 2, or a word at object+6 equal to the tag, stores the byte at
-// node+0x48 into object+0x969. A live pointer at object+0x958 whose pointer
-// at +0x10 is live would call 0x00029C80 with EAX = that pointer, ECX = the
-// slot, and EDX = 1. That call is not translated, so a zero return is not
-// taken and the vtable call that would clear +0x10 is not made. An empty
-// list returns 2. A finished walk returns 2.
+// node+0x48 into object+0x969. A live object+0x958 whose +0x10 is live and
+// that 0x00029C80 (EDX 1) no longer accepts sends {0x64, 0} through its +8's
+// vtable +0xC and clears +0x10. The case returns 2.
 //
-// Type 0x70 calls 0x001077B0 with EAX = node+8. ESI would be that tag, XMM1
-// the float at node+0x48, and XMM2 the float at node+0x4c, for 0x0010F6C0.
-// That call is not translated. The case returns 2.
+// Type 0x70 calls 0x001077B0 with EAX = node+8 and passes that tag in ESI,
+// XMM1 the float at node+0x48 and XMM2 the float at node+0x4c to 0x0010F6C0.
+// The case returns 2.
 //
 // Type 0x78 calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
-// below 2, or a word at object+6 equal to the tag, would call 0x00019660
-// with EAX = the object and the dword at node+0x48 on the stack. That call
-// is not translated. An empty list returns 2. A finished walk returns 2.
+// below 2, or a word at object+6 equal to the tag, calls 0x00019660 with EAX
+// = the object and the dword at node+0x48 on the stack. The case returns 2.
 //
 // Type 0x97 calls 0x001077B0 with EAX = node+8 and walks DAT_00511B48. A tag
-// below 2, or a word at object+6 equal to the tag, would call 0x00028210.
-// That call is not translated. The word at object+0x990 is cleared. The
-// message id is 0x4D and the dword at node+0x48 follows it. 0x000412A0
-// writes the world position and 0x00041820 writes the world euler. Vtable
-// +0xC receives that message. An empty list returns 2. A finished walk
-// returns 2.
+// below 2, or a word at object+6 equal to the tag, drains the goals
+// (0x00028210), clears object+0x990 and sends message 0x4D with the dword at
+// node+0x48, the world position (0x000412A0) and euler (0x00041820) through
+// vtable +0xC. The case returns 2.
 // Xbox 0x00126A10
 int script_handle_actor_actions(Game& g, const ScriptNode& node)
 {
@@ -1912,11 +1907,10 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
 // calls 0x0012D7E0 with EDI = 1 and that count on the stack.
 //
 // Type 0x9E with a nonzero dword at node+0x10 stores the dword at node+8 at
-// DAT_00512448 + DAT_00512444*4. 0x000F29A0 would take ECX = that dword and
-// its EAX would be stored at DAT_0051245C. That call is not translated, so
-// the parallel dword is not stored. DAT_00512444 is then incremented. A
-// nonzero dword at node+0xC would call 0x000F29D0. Zero would call 0x000F29F0.
-// Both take ECX = the dword at node+8. Neither call is translated.
+// DAT_00512448 + DAT_00512444*4, and 0x000F29A0 (ECX that dword) stores its
+// result in the parallel DAT_0051245C slot. DAT_00512444 is then incremented.
+// A nonzero dword at node+0xC calls 0x000F29D0; zero calls 0x000F29F0. Both
+// take ECX = the dword at node+8.
 // Xbox 0x00126E10
 int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
 {
@@ -2316,7 +2310,7 @@ bool cutscene_retained_for_transition(const SceneScript& script, const ScriptNod
 // (0x00116D20's first half, inlined in retail) and returns 2.
 //
 // Type 0x45 tests DAT_0050E560. Nonzero falls through and returns 2. Zero
-// would call 0x00116C90, stores 1, and returns 2. That call is not translated.
+// calls 0x00116C90, stores 1, and returns 2.
 //
 // Type 0x55 looks up the actor tag named at node+8 (0x001077B0) and plays its
 // fight music (0x00116C50).
@@ -2347,29 +2341,43 @@ void create_scene_ambient_tune(Game& g)
     }
 }
 
-// Xbox 0x00116E00 (part)
-// 0x00116E00 releases the stream the last scene's script left in DAT_0050E4E0, inline, as 0x00116D20's first
-// half does, and clears the name. DAT_004DF370 is the boot-owned table, so the release does not need the new
-// scene. It opens by clearing the two pause counts (DAT_0050E764, DAT_0050E768): the last scene's teardown can
-// release a pause it no longer holds, and a restarted scene would start with the counts below zero and every
-// actor paused. It then clears the event sequence (DAT_005064D8.., so a scene restarted mid-event runs its event
-// again), the DAT_0052C274 statistics (0x0012AF10), the broken parts (DAT_00545978) and the running score
-// (DAT_00545980), and the challenge's words (DAT_004E17C8 1, DAT_004E17CC -1, DAT_004E17D0, DAT_004E19A8,
-// DAT_004E19A0, DAT_004E19A4, DAT_004E1A34). The rest of 0x00116E00 (DAT_0050E784..DAT_0050E79C, which the script reset clears, 0x00116DA0,
-// the DAT_00512B74 and DAT_0051234C pools, DAT_00545970, DAT_00545974, DAT_0054597C and 0x001287F0) is not made here.
-void release_scene_music_at_start()
+// Xbox 0x00116E00. The scene-start reset of the script's runtime: the two pause counts (DAT_0050E764, DAT_0050E768;
+// the last scene's teardown can release a pause it no longer holds), the entry pose flag and the VM words
+// (DAT_0050E784..DAT_0050E79C, DAT_0050E798 4), the stream the last scene left in DAT_0050E4E0 (released inline, as
+// 0x00116D20's first half does), the spawn words (0x00116DA0), the live script list (DAT_0050E4D8, DAT_0050E4DC), a
+// new DAT_00512B74 pool, the event sequence (DAT_005064D8..), the DAT_0052C274 statistics (0x0012AF10), the score
+// words (DAT_00545970..DAT_00545980), the challenge's words (DAT_004E17C8 1, DAT_004E17CC -1, DAT_004E17D0,
+// DAT_004E19A8, DAT_004E19A0, DAT_004E19A4, DAT_004E1A34), the script name (0x001287F0) and a new DAT_0051234C pool.
+// The teardown (0x00117330) has already freed both pools and the live list, so the new pools start empty.
+void reset_scene_script_runtime(Game& g)
 {
     scene_detail::g_pause_references = {}; // DAT_0050E764, DAT_0050E768
+    g_scene_entry_set = 0; // DAT_0050E784
+    g_script_e788 = 0; // DAT_0050E788
+    g_script_e78c = 0; // DAT_0050E78C
+    g_script_e798 = 4; // DAT_0050E798
+    g_script_e79c = 0; // DAT_0050E79C
+    g_script_e794 = 0; // DAT_0050E794
     if (g_name_e4e0[0] != 0)
     {
         play_scene_music_stream(nullptr, 0, g_name_e4e0, native_audio_runtime().streams);
     }
+    reset_scene_spawn_words(); // 0x00116DA0
+    g_live_anchor.prev = nullptr; // DAT_0050E4D8
+    g_live_scripts = nullptr; // DAT_0050E4DC
+    g_ghouly_controllers.clear(); // DAT_00512B74, stride 8, growth 10
     g_event_sequence_state = 0; // DAT_005064D8
     g_event_sequence.door = 0; // DAT_005064DC
+    g_event_sequence.unk_52c = 0; // DAT_0050652C
     g_event_sequence.door_delay = 0.f; // DAT_00506534
     g_event_sequence.icon_delay = 0.f; // DAT_00506538
     g_event_sequence.waiting = 0; // DAT_0050653C
     script_initialize_statistics(g_script_tallies.first); // 0x0012AF10, EAX DAT_0052C274
+    if (g.factory_scene == nullptr || g.factory_scene->actor_services == nullptr)
+    {
+        throw Error("0x00116E00 clears DAT_00545970..DAT_0054597C without the boot scene services");
+    }
+    g.factory_scene->actor_services->reset_scene_score_words(); // DAT_00545970, DAT_00545974, DAT_0054597C
     g_545978 = 0; // DAT_00545978
     g_545980 = 0; // DAT_00545980
     auto& challenge = g_challenge_run;
@@ -2381,6 +2389,8 @@ void release_scene_music_at_start()
     challenge.input = {}; // DAT_004E19A4
     challenge.input_address = 0;
     challenge.reset_notice = 0; // DAT_004E1A34
+    script_set_default_name(g); // 0x001287F0
+    g_script_conds.clear(); // DAT_0051234C, stride 0x20, growth 2
 }
 
 // The native scene's bank streams (DAT_004DF370..), bound once its actor services start.
@@ -2461,16 +2471,14 @@ int script_handle_event_actions(Game& g, const ScriptNode& node)
 // update and draw share the scene binding; missing ownership is an error.
 // A nonzero third argument returns 2 before looking up that binding.
 //
-// Type 0x15 would call 0x00106D50 with the byte at node+0x88, the dword at
-// node+0x8C, and 1. EDI is node+8. 0x00106DD0 then takes DL = that byte.
-// Neither call is translated. The case returns 2.
+// Type 0x15 calls 0x00106D50 with EDI = node+8, the byte at node+0x88, the
+// dword at node+0x8C and 1, then 0x00106DD0 with DL = that byte. The case
+// returns 2.
 //
 // Type 0x16 with a nonzero third argument returns 2. Nonzero DAT_00512470
-// would call 0x0004EFE0. A zero return returns 0. A nonzero return clears
-// the flag, calls 0x0004ECE0, and returns 2. That call is not translated,
-// so the nonzero return is not taken and this path returns 0. A zero flag
-// with a nonzero dword at node+0x8C stores 1 and returns 0. Otherwise the
-// case returns 2.
+// calls 0x0004EFE0. A zero return returns 0. A nonzero return clears the
+// flag, calls 0x0004ECE0, and returns 2. A zero flag with a nonzero dword at
+// node+0x8C stores 1 and returns 0. Otherwise the case returns 2.
 //
 // Type 0x53 plays the player's walk-in cutscene (node+8) at the first kind 0xC marker, turned by pi, with the
 // relic candle's scene control while it plays; when it ends (unless it is the scene's last action) the player marker
@@ -2478,11 +2486,9 @@ int script_handle_event_actions(Game& g, const ScriptNode& node)
 //
 // Type 0x9B calls 0x000FB120 with 1.0, EAX = node+8, and ECX = a stack
 // vector. Type 0x9C calls 0x000493D0 with EDX = node+8 and EAX = that
-// vector. DAT_00511B40 null, or the sentinel 0x93C, zeros the vector.
-// Any other pointer calls 0x000412A0 with ESI = that pointer minus 0x93C
-// and EDI = the vector. 0x000FB120 and 0x000493D0 are not translated, and
-// the port's 0x000412A0 does not take this ESI/EDI pair, so those calls
-// are not made. Both cases return 2.
+// vector. DAT_00511B40 null, or the sentinel 0x93C, zeros the vector; any
+// other pointer calls 0x000412A0 with ESI = that pointer minus 0x93C and EDI
+// = the vector. Both cases return 2.
 // DAT_00512480: the relic candle's scene control while a walk-in cutscene plays, as its retail address.
 u32 g_walk_in_candle = 0;
 
@@ -2647,12 +2653,18 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
             param_3, scene_dialogue_context(g));
     case 0x15:
     {
-        const u8 index = node_u8(g.scene_script, node, 0x88);
-        const u32 word = node_u32(g.scene_script, node, 0x8c);
-        const std::string key = node_cstr(g.scene_script, node, 8);
-        (void)index;
-        (void)word;
-        (void)key;
+        // 0x00106D50 (EDI node+8, the byte at node+0x88, the dword at node+0x8C and 1) loads the movie event into
+        // DAT_0050DD90, then 0x00106DD0 (DL that byte) starts it.
+        if (g.native_movies == nullptr || g.native_movies->session == nullptr)
+        {
+            throw Error("script type 0x15 loads a movie event without the boot movie session");
+        }
+        auto& movies = *g.native_movies;
+        const std::string name = node_cstr(g.scene_script, node, 8);
+        const u8 id = node_u8(g.scene_script, node, 0x88);
+        load_runtime_movie_event(name.c_str(), id, i32(node_u32(g.scene_script, node, 0x8c)), 1,
+            movies.session->slots, movies.session->startup()); // 0x00106D50
+        start_runtime_movie_event(id, movies.mode, movies.session->slots); // 0x00106DD0, DL the id
         return 2;
     }
     case 0x16:
@@ -2660,7 +2672,14 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         {
             if (g_flag_2470 != 0)
             {
-                return 0;
+                auto& cutscenes = scene_cutscene_runtime(g);
+                if (!scene_cutscene_finished(cutscenes)) // 0x0004EFE0
+                {
+                    return 0;
+                }
+                g_flag_2470 = 0;
+                release_scene_cutscenes(cutscenes); // 0x0004ECE0
+                return 2;
             }
             if (node_u32(g.scene_script, node, 0x8c) != 0)
             {
@@ -2676,9 +2695,44 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         }
         return play_script_walk_in_cutscene(g, node);
     case 0x9b:
-        return 2;
     case 0x9c:
+    {
+        // The DAT_00511B40 player's position (0x000412A0, ESI the node - 0x93C), or zeros for null or the 0x93C
+        // sentinel. Type 0x9B shakes the camera by the name at node+8 there (0x000FB120 with 1.0); type 0x9C plays
+        // that camera effect there (0x000493D0, EDX node+8, EAX the point).
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
+        {
+            throw Error("script types 0x9B / 0x9C read DAT_00511B40 outside a native scene");
+        }
+        Vec3 position{};
+        if (const u32 link = actors->player_link(); link != 0 && link != 0x93Cu)
+        {
+            const Actor* player = nullptr;
+            for (const auto& mark : actors->marked_actors())
+            {
+                if (mark.address == link - 0x93C)
+                {
+                    player = mark.actor;
+                }
+            }
+            if (player == nullptr)
+            {
+                throw Error("DAT_00511B40 player is not on DAT_00511B38");
+            }
+            position = actor_world_position(*player); // 0x000412A0
+        }
+        const std::string name = node_cstr(g.scene_script, node, 8);
+        if (node.type == 0x9b)
+        {
+            actors->load_camera_shake(name.c_str(), position, 1.f); // 0x000FB120
+        }
+        else
+        {
+            actors->load_camera_effect(name.c_str(), position); // 0x000493D0
+        }
         return 2;
+    }
     default:
         return 3;
     }
@@ -2714,15 +2768,14 @@ void remember_script_player_weapon(const char* name, i32 value)
 // Type 0x2C with a nonzero third argument returns 2. Zero calls 0x001292D0.
 // A null return returns 2. A live object loads the dword at object+0x95C
 // into EAX, calls 0x0001B810 with two stack zeros, calls 0x00112CC0, and
-// returns 2. 0x001292D0 is not translated, so the live path is not entered.
+// returns 2.
 //
-// Type 0x2D with a nonzero third argument returns 2. Zero would call
-// 0x00127FF0 and return 2. That call is not translated.
+// Type 0x2D with a nonzero third argument returns 2. Zero calls 0x00127FF0
+// and returns 2.
 //
 // Type 0x2E calls 0x001292D0. A null return returns 2. A live object tests
 // the dword at node+8. Zero calls 0x00042090. Nonzero calls 0x000420B0.
-// EAX is the object and ECX is that dword. Both return 2. 0x001292D0 is not
-// translated, so neither call is made.
+// EAX is the object and ECX is that dword. Both return 2.
 //
 // Type 0x2F calls 0x001292D0. A null return returns 2. A live object passes
 // the stack slot at frame+0x1C to 0x00049DB0 in EAX, stores 7 in the next
@@ -2739,7 +2792,7 @@ void remember_script_player_weapon(const char* name, i32 value)
 // Type 0x46 with a zero second argument stores 0 at DAT_00430d08 and a zero
 // byte at DAT_00430d14, then returns 2. Nonzero calls 0x001292D0. A null
 // return returns 2. A live object is pushed for 0x0013A7C0, then 0x0012ECC0
-// runs, and the case returns 2. Those calls are not translated.
+// runs, and the case returns 2.
 //
 // Type 0x6F calls 0x001292D0. A null return returns 0. A live object calls
 // 0x00028360 with ESI set to that object. AX 0 returns 2. A nonzero AX
@@ -2753,10 +2806,10 @@ void remember_script_player_weapon(const char* name, i32 value)
 //
 // Type 0x91 calls 0x001292D0. A null return returns 2. A live object calls
 // 0x00128DF0 with the object, two zeros, the address of the node pointer,
-// 0x4240, and 0. vtable +0xC then takes message id 0x37 and three zero
-// dwords. A nonzero return from 0x00128DF0 would call 0x000412A0 with ESI
-// set to that return and EDI aimed at the first zero. Those calls are not
-// translated.
+// 0x4240, and 0, with EAX 0 (no point). A nonzero return calls 0x000412A0
+// with ESI set to that return and EDI aimed at the message's second dword.
+// vtable +0xC then takes message id 0x37 and those three dwords (zeros when
+// nothing was found).
 //
 // Type 0x96 calls 0x001292D0. A null return returns 2. A live object calls
 // 0x0011F1C0 with EAX = 0 and stack words 2, 1. A zero AX returns 2. Nonzero
@@ -2772,7 +2825,7 @@ void remember_script_player_weapon(const char* name, i32 value)
 // Type 0xA6 with a zero second argument takes the same DAT_00430d08 store as
 // type 0x46. Nonzero calls 0x001292D0. A null return returns 2. A live object
 // is pushed for 0x0013A860. A zero return returns 2. Nonzero calls 0x0012ECC0
-// and returns 2. Those calls are not translated.
+// and returns 2.
 // Xbox 0x00127BC0
 int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, int param_3)
 {
@@ -2781,8 +2834,12 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
     case 0x2c:
         if (param_3 == 0)
         {
-            // 0x001292D0 is not translated, so object+0x95C is not loaded.
-            return 2;
+            SceneActorServices* actors = script_scene_actors(g);
+            if (actors == nullptr)
+            {
+                throw Error("script type 0x2C reads the 0x001292D0 player outside a native scene");
+            }
+            actors->release_script_player_attachment(); // 0x001292D0, 0x0001B810, 0x00112CC0
         }
         return 2;
     case 0x2d:
@@ -2798,7 +2855,17 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         }
         return 2;
     case 0x2e:
+    {
+        // 0x001292D0's player: a zero dword at node+8 calls 0x00042090, nonzero 0x000420B0 (EAX the player, ECX the
+        // dword).
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
+        {
+            throw Error("script type 0x2E reads the 0x001292D0 player outside a native scene");
+        }
+        actors->hold_script_player_attachments(node_u32(g.scene_script, node, 8));
         return 2;
+    }
     case 0x2f:
     {
         // 0x001292D0, then 0x00049DB0's message 0x4D with 7 in the next dword, through vtable +0xC.
@@ -2873,7 +2940,15 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 0x91:
+    {
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
+        {
+            throw Error("script type 0x91 reads the 0x001292D0 player outside a native scene");
+        }
+        actors->point_script_player_at_nearest(); // 0x001292D0, 0x00128DF0, 0x000412A0, message 0x37
         return 2;
+    }
     case 0x96:
     {
         // 0x001292D0's player goes to the type-2 marker whose word at +0x28 is the dword at node+8: 0x0002B430 with
@@ -2912,15 +2987,37 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         }
     }
     case 0xa0:
+    {
+        // 0x001292D0, then message 0x2C through vtable +0xC.
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
+        {
+            throw Error("script type 0xA0 reads the 0x001292D0 player outside a native scene");
+        }
+        if (find_runtime_script_player(actors->player_link(), actors->actor_addresses()) != nullptr)
+        {
+            const std::array<u32, 0x42> message{0x2c};
+            actors->send_actor_message(actors->player_link() - 0x93C, message);
+        }
         return 2;
+    }
     case 0xa6:
+    {
         if (param_2 == 0)
         {
             g_flag_30d08 = 0;
             g_byte_30d14[0] = 0;
             return 2;
         }
+        // 0x001292D0's player is pushed for 0x0013A860; a nonzero return calls 0x0012ECC0.
+        SceneActorServices* actors = script_scene_actors(g);
+        if (actors == nullptr)
+        {
+            throw Error("script type 0xA6 reads the 0x001292D0 player outside a native scene");
+        }
+        actors->drop_script_player_weapon();
         return 2;
+    }
     default:
         return 3;
     }
@@ -3055,44 +3152,33 @@ u32 g_flag_0650 = 0;
 //
 // Type 0x1 calls 0x0011C890 with EAX = node+8 to queue the background name.
 //
-// Type 0x2 with a zero second argument calls 0x0011C950 to queue an object name.
-// A nonzero second argument would call 0x00107720 with EAX = node+8. A zero
-// return falls through and returns 2. A nonzero return would call 0x00107520
-// with that block, then 0x000663E0 on it. This branch still needs a
-// scene-owned factory and resource context before those calls can be wired.
+// Type 0x2 with a zero second argument calls 0x0011C950 to queue an object
+// name. A nonzero second argument calls 0x00107720 with EAX = node+8; a live
+// clone goes to 0x00107520 and is freed by 0x000663E0.
 //
 // Type 0x4 stores the dword at node+8 into DAT_0050EA98.
 // Types 0x5 and 0xC return 2.
 // Type 0x6 stores the dword at node+8 into DAT_00427958.
 // Type 0x7 stores the dword at node+8 into DAT_00430D10.
 //
-// Type 0x8 calls 0x001077B0 with EAX = node+8. 0x0010F690 would take that tag
-// in ECX and the dword at node+0x48 on the stack. That call is not translated.
-// The walk of DAT_00511B48 still runs. A word at object+6 equal to the tag,
-// and a live pointer at object+0x958, stores the dword at node+0x48 into
-// that pointer +0x6C. An empty list returns 2. A finished walk returns 2.
+// Type 0x8 calls 0x001077B0 with EAX = node+8 and 0x0010F690 with that tag
+// in ECX and the dword at node+0x48 on the stack, then walks DAT_00511B48: an
+// object of the tag with a live +0x958 has the dword at node+0x48 stored at
+// that pointer +0x6C.
 //
-// Type 0x9 calls 0x001077B0 with EAX = node+8. 0x0010F660 would take that tag
-// in ECX and the float at node+0x48 in XMM0. The message is id 0x4E and that
-// same float. 0x00122D40 would take the tag in EDI and the message in EBX.
-// Those two calls are not translated.
+// Type 0x9 calls 0x001077B0 with EAX = node+8, 0x0010F660 with that tag in
+// ECX and the float at node+0x48 in XMM0, and 0x00122D40 with the tag in EDI
+// and the message {0x4E, that float} in EBX.
 //
-// Type 0xA clears the word at DAT_00507E78, then would call 0x000FF0A0 with
-// "aid_loctext_ghoulies_script_scenenames", "scenenames", node+8, and that
-// word. A zero return returns 2. A nonzero return would call 0x000FBE10 on
-// the word. A nonzero return from that call returns 2. Zero, with a nonzero
-// dword at node+0x48 and a zero third argument, draws when DAT_00512484 is
-// live. A null DAT_00512484 would call 0x0005F390(0, 0, 0x5E4), step
-// DAT_0054DD7C, and store 2.5, 0.5, and the new seed at +0x14, +0x18, and
-// +0x1C. 0x0005F550, 0x000606D0, and 0x0005F580 would then run, and
-// 0x0011DCF0 runs on the way out. 0x000FF0A0 is not translated, so its
-// nonzero return is not taken and that block is not entered.
+// Type 0xA shows the scene's name (0x000FF0A0 into DAT_00507E78, 0x000FBE10,
+// the DAT_00512484 title record, 0x0011DCF0) when the dword at node+0x48 is
+// set and the third argument is zero.
 //
-// Type 0xB would call 0x00123AD0. ECX is the byte at node+8 and EAX is node+9.
-// Type 0x4B would call 0x000FD780 with ESI = node+8.
-// Type 0x4C would call 0x0003A1F0 with ESI = the dword at node+8.
-// Type 0x52 would call 0x0012AA50 with node+8 on the stack.
-// Those calls are not translated.
+// Type 0xB calls 0x00123AD0 with ECX = the byte at node+8 and EAX = node+9.
+// Type 0x4B calls 0x000FD780 with ESI = node+8.
+// Type 0x4C calls 0x0003A1F0 with ESI = the dword at node+8.
+// Type 0x52 calls 0x0012AA50 with node+8 on the stack (not translated; it
+// raises).
 //
 // Type 0x61 stores four indexes and the words they select from 0x00314DE8,
 // 0x00314DFC, 0x00314E10, 0x00314E28, and 0x00314E38. The second float uses
@@ -3100,30 +3186,27 @@ u32 g_flag_0650 = 0;
 //
 // Type 0x64 packs the bytes at node+0x28, node+0x2C, and node+0x30 into
 // DAT_00512134. DAT_00512138 is 1 when the dword at node+8 is nonzero.
-// DAT_00512104 copies that dword. 0x001236D0 would take the packed bytes at
+// DAT_00512104 copies that dword. 0x001236D0 takes the packed bytes at
 // node+0xC, node+0x10, node+0x14, and node+0x18 twice, then the dwords at
-// node+0x1C, node+0x20, and node+0x24. XMM0 is the float at node+0x1C.
-// That call is not translated.
+// node+0x1C, node+0x20, and node+0x24, with XMM0 the float at node+0x1C.
 //
 // Type 0x6D calls 0x001077B0 with EAX = node+8 and stores the word at
 // DAT_0050E1B4 + DAT_0050E1B0*2, then increments the count.
 //
-// Type 0x79 would call 0x00114050. ECX is the dword at node+8. BL is 2 when
-// that dword is 0 and 1 otherwise. That call is not translated.
+// Type 0x79 calls 0x00114050 with ECX = the dword at node+8 and BL = 2 when
+// that dword is 0, 1 otherwise.
 //
 // Type 0x89 stores the float at node+8 times 60 plus 0.99 into DAT_00506C60, then runs 0x000F27C0 with EAX = 1.
 //
 // Type 0x8A with a nonzero dword at node+8 stores 0 at DAT_00509B74 and 1 at
 // DAT_00509B70. Zero stores 1 and 0.
 //
-// Type 0x8F builds the vector (0, 1, 0) and the float at node+8 times
-// 0.0055555557 times pi. 0x001047E0 would take that vector and that angle.
-// The cross product that follows reads the matrix that call writes, and
-// 0x000FE160 would take the result. Neither call is translated, so the
-// product is not formed.
+// Type 0x8F turns (0, 1, 0) by the float at node+8 times 0.0055555557 times
+// pi (0x001047E0), forms the light offset from that matrix and passes it to
+// 0x000FE160.
 //
-// Type 0x9A calls 0x000F2740, the countdown's gold finish. Type 0xA1 would call 0x000FEA90 with EAX = the dword at
-// node+8, which is not translated.
+// Type 0x9A calls 0x000F2740, the countdown's gold finish. Type 0xA1 calls
+// 0x000FEA90 with EAX = the dword at node+8.
 //
 // Type 0xA2 stores 1 at DAT_005110B4 when the dword at node+8 is 0.
 // Type 0xA4 stores 1 at DAT_0050EF1C when that dword is nonzero.
@@ -3248,8 +3331,11 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
         boot_scene_actors(g).set_reverb_preset(i32(node_u32(g.scene_script, node, 8))); // 0x0003A1F0
         return 2;
     case 0x52:
-        throw Error("untranslated Xbox 0x0012AA50: script world action 0x52's post model " +
-            node_cstr(g.scene_script, node, 8) + " (0x0012A9B0, 0x0012A9E0)");
+    {
+        const std::string name = node_cstr(g.scene_script, node, 8);
+        boot_scene_actors(g).set_post_model(name.c_str()); // 0x0012AA50, node+8
+        return 2;
+    }
     case 0x61:
     {
         const u32 at_8 = node_u32(g.scene_script, node, 8);
@@ -3354,15 +3440,15 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
 // loads the dword at node+8 into EDI and calls 0x0012D050. That call walks
 // DAT_00511B28, the first node of DAT_00511B24. A zero EDI calls 0x00147860
 // on each object. A nonzero EDI decrements the dword at object+0xAD0 and
-// calls 0x0003EEB0 when that counter hits 0. 0x0012D050 is not translated.
-// The case returns 2.
+// calls 0x0003EEB0 when that counter hits 0. The case returns 2. 0x0012D050
+// is not translated, so the case raises.
 //
 // Type 0x59 stores 1 in the incoming argument slot, then calls 0x000FBFB0
 // with count 0xE9, the names at 0x0042A854, and the cstring at node+8. A miss
 // zeros EDI. A hit increments the index and zero-extends it into EDI. Both
 // paths point EBX at that slot and call 0x00122FA0. That call walks
 // DAT_00511B28, compares DI with the word at object+6, and calls vtable +0xC
-// with EBX on a match. 0x00122FA0 is not translated. Both paths return 2.
+// with EBX on a match. Both paths return 2.
 // Any other type returns 3.
 std::function<void(Actor& actor, std::span<u32> message)> g_script_actor_message;
 std::function<void(Actor& actor)> g_script_drain_actor_goals;
@@ -3405,9 +3491,9 @@ int script_handle_broadcast_actions(Game& g, const ScriptNode& node)
 {
     if (node.type == 0x39)
     {
-        const u32 flag = node_u32(g.scene_script, node, 8);
-        (void)flag;
-        return 2;
+        // 0x0012D050 with EDI the dword at node+8 walks DAT_00511B28.
+        throw Error("script type 0x39 calls 0x0012D050 (EDI " + std::to_string(node_u32(g.scene_script, node, 8))
+            + "), which is not translated");
     }
     if (node.type != 0x59)
     {

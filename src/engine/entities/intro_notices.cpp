@@ -1,4 +1,5 @@
 #include "intro_notices.h"
+#include "../frontend/dialogue_activation.h"
 
 namespace gbtg
 {
@@ -41,5 +42,71 @@ u32 queue_runtime_intro_notice(const char* name, RuntimeIntroNotices& context)
     } while (value != '\0');
     context.intro_pending = 1;
     return 1;
+}
+
+u32 g_545b38 = 0;
+u32 g_545b3c = 0;
+float g_545b40 = 0.f;
+std::array<char, 0x80> g_545b44{};
+std::array<char, 0x80> g_545bc4{};
+
+// Xbox 0x0013FD60
+void tick_runtime_intro_notice(RuntimeIntroNoticeTick& context)
+{
+    if (g_545b38 == 1)
+    {
+        if (context.clock.block_decay == 0 && context.clock.decay_enabled[context.clock.decay_index] != 0)
+        {
+            context.pause(u8(0xFFFF), 0); // 0x00117400
+            ++context.pause_requests;
+            g_545b38 = 2;
+            g_545b40 = 1.f; // DAT_0032B0F8.
+            g_545b3c = 1;
+        }
+        return;
+    }
+    if (g_545b38 == 2)
+    {
+        const float step = runtime_frame_step(context.clock);
+        if (!(g_545b40 > 0.f))
+        {
+            return;
+        }
+        g_545b40 = g_545b40 - step;
+        if (!(g_545b40 <= 0.f)) // JC: above zero or unordered.
+        {
+            return;
+        }
+        g_545b40 = 0.f;
+        g_545b38 = 3;
+        enqueue_runtime_dialogue_key(g_545b44.data(), 0, context.dialogue); // 0x000582A0, ECX DAT_00545B44
+        if (g_545bc4[0] != 0)
+        {
+            enqueue_runtime_dialogue_key(g_545bc4.data(), 0, context.dialogue); // 0x000582A0, ECX DAT_00545BC4
+        }
+        return;
+    }
+    if (g_545b38 == 3)
+    {
+        finish_runtime_intro_notice(context); // 0x0013FFD0
+    }
+}
+
+// Xbox 0x0013FFD0
+void finish_runtime_intro_notice(RuntimeIntroNoticeTick& context)
+{
+    if (context.prompt_owner != 0)
+    {
+        return;
+    }
+    if (g_545b3c != 0)
+    {
+        context.pause(u8(0xFFFF), 1); // 0x00117400
+        --context.pause_requests;
+        g_545b3c = 0;
+    }
+    g_545b38 = 0;
+    g_545b44[0] = 0;
+    g_545bc4[0] = 0;
 }
 }

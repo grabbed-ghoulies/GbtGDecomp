@@ -277,18 +277,13 @@ void release_scene_script_title(Game& g)
 //
 // Type 0 returns 1.
 //
-// Type 0xD calls 0x00053170 with the address of node+8 and a stack 0. That
-// call compares the first dword with "aid_". It is not translated. The case
-// returns 2.
+// Type 0xD calls 0x00053170 with the address of node+8 and a stack 0, the
+// effect stream by that name with no creation options. The case returns 2.
 //
-// Type 0xE calls 0x00123B00. The dword at node+0x90 equal to 1 takes the
-// following call when that return is nonzero. Equal to 2 takes it when the
-// return is zero. A nonzero dword at node+0x94 calls 0x00049D10 and takes
-// the same call when that return is nonzero. 0x00123B00 and 0x00049D10 are
-// not translated, so those nonzero returns are not taken. The zero return
-// of 0x00123B00 with node+0x90 equal to 2 would call 0x000532B0 with ECX set
-// to the node cursor and EDX set to 0xF, then return 2. 0x000532B0 is not
-// translated, so the cursor stays put and the case returns 2.
+// Type 0xE calls 0x00123B00. The dword at node+0x90 equal to 1 with a
+// nonzero return, equal to 2 with a zero return, or a nonzero dword at
+// node+0x94 with a nonzero 0x00049D10, calls 0x000532B0 with ECX the node
+// cursor and EDX 0xF (the cursor moves to the next type 0xF) and returns 2.
 // Any other node+0x90 calls 0x00128AB0. EAX is the cstring at node+0x10, ECX
 // is the dword at node+8, and EDX is the dword at node+0xC. A nonzero third
 // argument with a zero dword at node+8 returns 0. A zero second argument and
@@ -338,8 +333,13 @@ int script_handle_title_actions(Game& g, const ScriptNode& node, u32& cursor, in
         return 1;
     case 0xd:
     {
+        // 0x00053170 with node+8 and a stack 0 (no creation options).
         const std::string key = node_cstr(g.scene_script, node, 8);
-        (void)key;
+        if (g.factory_scene == nullptr || g.factory_scene->actor_services == nullptr)
+        {
+            throw Error("script type 0xD runs an effect stream without the boot scene services");
+        }
+        g.factory_scene->actor_services->run_script_effect_stream(key.c_str());
         return 2;
     }
     case 0xe:
@@ -1260,11 +1260,10 @@ std::array<u16, 0x28> g_545ccc{}; // DAT_00545CCC: ten-id groups 0x001400D0 appe
 // DAT_00509b24, DAT_00509b28, and DAT_00509b4c. DAT_00509b50 becomes
 // 0x3eb2b8c3. DAT_005462FC becomes 1. DAT_00509b54 becomes 0x3f32b8c3.
 // DAT_00509b58 becomes 1. DAT_00509b70 becomes 0. DAT_00509b74 becomes 1.
-// 0x00124420 is not translated, so that call is not made. The light words are lighting.cpp's.
-// Of 0x00116E00 only part is made (release_scene_music_at_start). DAT_00545D1C and DAT_00545CC8
-// are cleared after the 0x000FAEE0 call.
+// The light words are lighting.cpp's. DAT_00545D1C and DAT_00545CC8 are cleared after the 0x000FAEE0 call; then
+// 0x0013CBD0, 0x00116E00 and the scene load 0x00124420.
 // Xbox 0x0011CAC0
-void scene_reset_runtime_parameters()
+void scene_reset_runtime_parameters(Game& g)
 {
     g_509b2c = 1.f;
     g_509b20 = 1.f;
@@ -1281,8 +1280,10 @@ void scene_reset_runtime_parameters()
     g_545d1c = 0;
     g_545cc8 = 0;
     reset_runtime_camera_view_tunables(); // 0x0013CBD0
-    release_scene_music_at_start(); // Part of 0x00116E00.
-    // 0x00124420 is not translated.
+    reset_scene_script_runtime(g); // 0x00116E00
+    // 0x00124420, the scene load (0x00035960, 0x00034050, 0x00124490, 0x00123A80, 0x00033FB0, 0x000341E0, then
+    // 0x00033E00 with the script name), is the host load: scene_set_state's caller runs script_load as soon as
+    // state 4 is entered (scene.cpp). Its loading-screen calls are not mapped onto the host load yet.
 }
 
 

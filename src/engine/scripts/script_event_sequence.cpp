@@ -860,18 +860,17 @@ void show_script_event_icons()
             count = left < 0 ? 0u : u32(left);
             break;
         }
-        case 0:
-        case 1:
-        case 9:
-        case 0xA:
-        case 0xB:
-        case 0xC:
-        case 0xF:
-        case 0x11:
+        case 0x10:
+        {
+            // The target (+0x18) less the attacks (DAT_00525B84 and DAT_005251FC), none once it is reached.
+            const i32 left = std::bit_cast<i32>(read_u32(step, 0x18)) - script_statistic_at_address(0x00525B84u)
+                - script_statistic_at_address(0x005251FCu);
+            count = left < 0 ? 0u : u32(left);
             break;
+        }
         default:
-            throw Error("script event step type " + std::to_string(type)
-                + " icon count (0x000D0F20) is not translated");
+            // Every other type shows its icon with no tag and no count.
+            break;
         }
         if (read_u32(step, 0x10) == 0 && read_u32(step, 0x14) == 0 && g_event_sequence.icon_delay <= 0.f)
         {
@@ -1047,10 +1046,22 @@ bool run_script_event_steps(Game& g)
             {
                 result = run_script_event_tag_kill_count_step(step); // 0x000CFDF0
             }
+            else if (type == 0xB)
+            {
+                result = run_script_event_unpaired_step(); // 0x000D0110
+            }
+            else if (type == 0x10)
+            {
+                result = run_script_event_attack_limit_step(step); // 0x000D01D0
+            }
+            else if (type == 0x11)
+            {
+                result = run_script_event_untouched_step(); // 0x000CFFB0
+            }
             else
             {
                 throw Error("script event step type " + std::to_string(type)
-                    + " (table 0x003039CC) is not translated");
+                    + " lies outside table 0x003039CC (types 0 to 0x12)");
             }
         }
         switch (result)
@@ -1312,6 +1323,36 @@ i32 run_script_event_time_limit_step(std::span<u8> step)
         return 3;
     }
     return 2;
+}
+
+// Xbox 0x000D0110: the step fails (3) once either paired tally (0x0012AE90, ECX 2 then 1) is nonzero while the steps
+// do not wait (DAT_0050653C).
+i32 run_script_event_unpaired_step()
+{
+    if (script_sum_paired_statistics(2) == 0 && script_sum_paired_statistics(1) == 0)
+    {
+        return 2;
+    }
+    return g_event_sequence.waiting == 0 ? 3 : 2;
+}
+
+// Xbox 0x000D01D0: the step fails (3) once the attacks (DAT_00525B84 and DAT_005251FC) pass its +0x18 while the steps
+// do not wait (DAT_0050653C).
+i32 run_script_event_attack_limit_step(std::span<u8> step)
+{
+    if (std::bit_cast<i32>(read_u32(step, 0x18)) - script_statistic_at_address(0x00525B84u)
+            - script_statistic_at_address(0x005251FCu)
+        >= 0) // JNS
+    {
+        return 2;
+    }
+    return g_event_sequence.waiting == 0 ? 3 : 2;
+}
+
+// Xbox 0x000CFFB0: the step fails (3) once DAT_00512F48 and DAT_005138D0 sum to anything but zero.
+i32 run_script_event_untouched_step()
+{
+    return script_statistic_at_address(0x00512F48u) + script_statistic_at_address(0x005138D0u) != 0 ? 3 : 2;
 }
 
 // Xbox 0x000D0140: the no-points step fails once the running score (DAT_00545980) is nonzero while the steps do not

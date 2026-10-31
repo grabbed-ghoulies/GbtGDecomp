@@ -342,7 +342,8 @@ std::uintptr_t begin_xbox_signature(u32 flags)
     }
     if (flags == 8)
     {
-        throw Error("XCalculateSignatureBeginEx flag 8 (DAT_00434228) is not translated");
+        // DAT_00434228 is a BSS hook that nothing in the XBE sets, so retail calls address zero here.
+        throw Error("XCalculateSignatureBeginEx flag 8 calls the null hook DAT_00434228");
     }
     g_xapi_last_error = 0x32;
     return std::uintptr_t(-1);
@@ -359,7 +360,8 @@ u32 update_xbox_signature(std::uintptr_t handle, const u8* data, u32 size)
     }
     if (flags == 8)
     {
-        throw Error("XCalculateSignatureUpdate flag 8 (DAT_0043422C) is not translated");
+        // DAT_0043422C is a BSS hook that nothing in the XBE sets, so retail calls address zero here.
+        throw Error("XCalculateSignatureUpdate flag 8 calls the null hook DAT_0043422C");
     }
     return 0x32;
 }
@@ -379,7 +381,8 @@ u32 end_xbox_signature(std::uintptr_t handle, u8* signature)
     }
     if (flags == 8)
     {
-        throw Error("XCalculateSignatureEnd flag 8 (DAT_00434230) is not translated");
+        // DAT_00434230 is a BSS hook that nothing in the XBE sets, so retail calls address zero here.
+        throw Error("XCalculateSignatureEnd flag 8 calls the null hook DAT_00434230");
     }
     return 0x32;
 }

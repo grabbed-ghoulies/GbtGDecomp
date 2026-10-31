@@ -558,6 +558,21 @@ void reset_runtime_scene_point_light_pass(RuntimeScenePointLightPass& context, u
     }
 }
 
+// Xbox 0x0013DF80
+void copy_runtime_back_buffer(u32 width, u32 height, u32 texture, DialogueOuterD3DBoundaries& d3d)
+{
+    const DialogueSurfaceHandle back = d3d.back_buffer(0); // D3DDevice_GetBackBuffer2, DAT_00545B2C
+    const DialogueSurfaceHandle surface = d3d.surface(DialogueSurfaceHandle(texture), 0); // DAT_00545B28
+    if (width != 0 || height != 0)
+    {
+        // D3DSurface_GetDesc and a one-rectangle copy (DAT_00545AFC.., less one on each side).
+        throw Error("0x0013DF80's rectangle copy is not taken by the D3D copy boundary");
+    }
+    d3d.copy_rects(back, surface); // D3DDevice_CopyRects with no rectangle
+    d3d.release(back); // D3DResource_Release
+    d3d.release(surface);
+}
+
 // Xbox 0x00063320
 void finish_runtime_scene_point_lights(RuntimeScenePointLightPass& context)
 {
@@ -621,7 +636,33 @@ void finish_runtime_scene_point_lights(RuntimeScenePointLightPass& context)
     }
     else
     {
-        throw Error("untranslated Xbox 0x0013DF80 (the point-light pass's back-buffer copy)");
+        // The frame is copied into DAT_00504868 (the depth page, DAT_005047E8, when none is set) and modulated by it.
+        if (targets.copy_texture == 0)
+        {
+            targets.copy_texture = context.address_of(context.pages.depth_texture); // DAT_005047E8
+        }
+        copy_runtime_back_buffer(0, 0, targets.copy_texture, outer); // 0x0013DF80, EAX 0, ECX 0
+        d3d(context).pixel_shader(context.word(0x00425EFC)); // 0x00175370
+        d3d(context).vertex_shader(0x202); // 0x001739F0
+        deferred(context, 0x181968) |= 2;
+        deferred(context, 0x1819F0) = 4;
+        deferred(context, 0x1819F4) = 4;
+        deferred(context, 0x1819F8) = 4;
+        context.texture(1, targets.copy_texture); // 0x001749E0
+        d3d(context).cull(0);
+        set_state(context, 0x40354, 0x207);
+        deferred(context, 0x181C54) = 0x207;
+        set_state(context, 0x4035C, 0);
+        deferred(context, 0x181C70) = 0;
+        set_state(context, 0x40344, 1);
+        deferred(context, 0x181C68) = 1;
+        set_state(context, 0x40348, 0);
+        deferred(context, 0x181C6C) = 0;
+        context.z_bias(0);
+        deferred(context, 0x181968) |= 0x3000;
+        deferred(context, 0x181D0C) = 0;
+        set_state(context, 0x40304, 0);
+        deferred(context, 0x181C5C) = 0;
     }
     d3d(context).depth(0); // 0x001722A0
     d3d(context).stencil_enable(0);

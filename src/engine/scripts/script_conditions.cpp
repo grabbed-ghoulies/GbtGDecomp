@@ -338,6 +338,24 @@ u32& scene_word(u32 addr)
 }
 
 
+// Xbox 0x00116DA0. The spawn words handler 2 writes start each scene at their defaults: at most 10 and at least 1
+// spawns, a queue depth of 3, DAT_0050E754 0.5 (DAT_0032B0F4) and DAT_0050E758 0, and for each of the 0x3C classes
+// a zero DAT_0050E574 word and a DAT_0050E664 limit of 99.
+void reset_scene_spawn_words()
+{
+    scene_word(0x0050E568u) = 10;
+    scene_word(0x0050E56Cu) = 1;
+    scene_word(0x0050E570u) = 3;
+    scene_word(0x0050E754u) = std::bit_cast<u32>(std::bit_cast<float>(0x3F000000u)); // DAT_0032B0F4
+    scene_word(0x0050E758u) = 0;
+    for (u32 address = 0x0050E664u; address < 0x0050E754u; address += 4)
+    {
+        scene_word(address - 0xF0u) = 0;
+        scene_word(address) = 99;
+    }
+}
+
+
 u32 cond_u32(const ScriptCond& rec, u32 at)
 {
     return u32(rec.raw[at]) | (u32(rec.raw[at + 1]) << 8) | (u32(rec.raw[at + 2]) << 16) | (u32(rec.raw[at + 3]) << 24);

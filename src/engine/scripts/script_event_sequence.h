@@ -120,6 +120,9 @@ i32 run_script_event_number_step(std::span<u8> step); // Xbox 0x000D0160, step t
 i32 run_script_event_time_limit_step(std::span<u8> step); // Xbox 0x000CFE50, step type 4
 i32 run_script_event_survive_step(std::span<u8> step); // Xbox 0x000CFEE0, step type 5
 // Fails once points are scored (DAT_00545980) while the steps do not wait (DAT_0050653C).
+i32 run_script_event_unpaired_step(); // Xbox 0x000D0110, step type 11
+i32 run_script_event_attack_limit_step(std::span<u8> step); // Xbox 0x000D01D0, step type 16
+i32 run_script_event_untouched_step(); // Xbox 0x000CFFB0, step type 17
 i32 run_script_event_no_points_step(); // Xbox 0x000D0140, step type 12
 i32 run_script_event_done_step(); // Xbox 0x000CFFD0, step type 6
 // Fails once the player's kills of the +0x18 tag grow past the total kept at +0x1C.

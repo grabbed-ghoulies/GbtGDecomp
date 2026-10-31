@@ -1,5 +1,6 @@
 #include "generic_strategy.h"
 #include "actor_clock.h"
+#include "actor_shape_bounds.h"
 #include "player_children.h"
 #include "player_messages.h"
 #include "player_mind_events.h"
@@ -7,6 +8,7 @@
 #include "player_parent_lifecycle.h"
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
+#include <cmath>
 #include <cstring>
 
 namespace gbtg
@@ -20,6 +22,7 @@ constexpr float kChaseRange = 40.f; // DAT_0032B1B8.
 constexpr float kChaseSlack = 30.f; // DAT_0032B108.
 constexpr float kArmedReach = 30.f; // DAT_0032B108: a class target this near keeps a hit ghoulie from arming.
 constexpr float kCloseInSquared = 6400.f; // DAT_0032B6C8, 80 squared.
+constexpr float kGunRange = 5.f; // DAT_0032B184.
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeGenericStrategy& context)
 {
@@ -163,6 +166,91 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     return false;
 }
 
+// Xbox 0x00133C10, EAX body, EDX gun: the gun's damage value (0x00028DA0) for its type (+0xDAC) against the body's
+// actor (+8) is above zero; 0xC and 0xD read key 0x22, 0xE 0x20, 0xF 0x21 and 0x10 0x23, any other type is false.
+bool gun_damages_actor(const RuntimeBodyAttachedActor& gun, const Actor& actor,
+    const RuntimeBodyDamageTables& tables)
+{
+    u8 key = 0;
+    switch (gun.bytes[0xDAC])
+    {
+    case 0xC:
+    case 0xD:
+        key = 0x22;
+        break;
+    case 0xE:
+        key = 0x20;
+        break;
+    case 0xF:
+        key = 0x21;
+        break;
+    case 0x10:
+        key = 0x23;
+        break;
+    default:
+        return false;
+    }
+    return runtime_actor_damage_value(key, actor.damage_class, tables) > 0;
+}
+
+// Xbox 0x0013A630, EAX actor, stack record: the distance from the actor to the target record's point (+0x20) less
+// the reach of the body's +0x78 and +0x888 scaled by the actor's +0x38, a held kind-1 weapon's sweep radius
+// (0x0003D9A0) and the record's +0x38; never below zero.
+float target_gap(std::span<const u8> record, RuntimeGenericStrategy& context)
+{
+    const Actor& actor = actor_of(context);
+    const std::span<u8> body = body_of(context);
+    const Vec3 position = actor_world_position(actor); // 0x000412A0
+    const float dx = position.x - read_f32(record, 0x20);
+    const float dy = position.y - read_f32(record, 0x24);
+    const float dz = position.z - read_f32(record, 0x28);
+    const float scale = actor.radius_xz; // Body +8, +0x38.
+    const float distance = float(std::sqrt(double(dx) * dx + double(dy) * dy + double(dz) * dz));
+    float reach = read_f32(body, 0x78) * scale;
+    float weapon_radius = 0.f;
+    const RuntimeBodyAttachedActor* weapon = weapon_of(context);
+    const u8 kind = weapon == nullptr ? 0 : weapon->bytes[0x93D];
+    if (kind == 1)
+    {
+        if (weapon->actor == nullptr)
+        {
+            throw Error("generic strategy: 0x0013A630 reads a held weapon with no native actor");
+        }
+        if (weapon->actor->model != nullptr && !weapon->actor->model->cpu.empty())
+        {
+            weapon_radius = float(actor_model_sweep_radius(*weapon->actor)); // 0x0003D9A0, EDI weapon
+        }
+    }
+    reach += weapon_radius;
+    const float gap = distance - (read_f32(body, 0x888) * scale + reach + read_f32(record, 0x38));
+    return 0.f >= gap ? 0.f : gap;
+}
+
+// Xbox 0x000ABB10, EDX gun, ESI record, stack actor: a live gun (+0x93C) with a target record not flagged (+0x14)
+// that the gun damages (0x00133C10) and that lies at least DAT_0032B184 beyond reach (0x0013A630).
+bool gun_target_in_range(const RuntimeBodyAttachedActor& gun, u32 record, RuntimeGenericStrategy& context)
+{
+    if (gun.bytes[0x93C] == 0)
+    {
+        return false;
+    }
+    const RuntimeMindTarget* target = goals_of(context).target_at(record);
+    const std::span<const u8> bytes = require_target(target, "0x000ABB1A").bytes;
+    if (bytes[0x14] != 0)
+    {
+        return false;
+    }
+    if (context.damage_tables == nullptr)
+    {
+        throw Error("generic strategy: 0x00133C10 reads 0x00028DA0's tables before the scene has them");
+    }
+    if (!gun_damages_actor(gun, target->actor, *context.damage_tables)) // 0x00133C10
+    {
+        return false;
+    }
+    return !(kGunRange > target_gap(bytes, context)); // 0x0013A630
+}
+
 // Xbox 0x000ABA80, EAX strategy: the attack goal for the held weapon (body +0x48, its kind at +0x93D).
 void load_attack_goal(RuntimeGenericStrategy& context)
 {
@@ -177,9 +265,10 @@ void load_attack_goal(RuntimeGenericStrategy& context)
         }
         if (kind == 4)
         {
-            // 0x000ABB10 picks "attackgun" or "attackgun_secondary" by the gun's ammunition (0x00133C10) and the
-            // target's range (0x0013A630).
-            throw Error("generic strategy: 0x000ABB10 (the gun's range check) is not translated");
+            const u32 record = read_u32(goals_of(context).entry.events.mind, 0x10); // ESI, mind +0x10.
+            load_goal(gun_target_in_range(*weapon, record, context) ? context.goal_attack_gun
+                : context.goal_attack_gun_secondary, context);
+            return;
         }
     }
     load_goal(context.goal_attack, context);

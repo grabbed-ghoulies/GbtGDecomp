@@ -19,6 +19,10 @@ void draw_actor_effect_model(ActorEffectNode& effect, size_t particle, u32 model
 void draw_runtime_model_at(RuntimeModelInstance& model, u32 model_cpu, const Vec3* position, const Vec3* euler,
     const Vec3* scale, u32 kind, RuntimeDisplaySetupContext& display,
     SceneModelDrawContext& models); // Xbox 0x000F8EA0, EAX position, EDI euler, ESI scale, EBX kind
+// As 0x000F8EA0 with one scale for every axis, applied unless it is one.
+void draw_runtime_model_scaled(RuntimeModelInstance& model, u32 model_cpu, const Vec3* position, const Vec3* euler,
+    float scale, u32 kind, RuntimeDisplaySetupContext& display,
+    SceneModelDrawContext& models); // Xbox 0x000F8CF0, EAX position, ESI euler, EBX kind
 // The effect's live particles (+0x5A == -2) by its draw type (+0x13C); returns how many were drawn. Type 2 draws
 // between the world sprite state (0x0005CF20, 0x0005DFF0) and the projection rebind; type 4 draws the effect's model.
 i32 draw_actor_effect_particles(ActorEffectNode& effect, BillboardQueue& queue,

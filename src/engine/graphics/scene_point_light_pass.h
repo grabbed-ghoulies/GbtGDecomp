@@ -71,6 +71,10 @@ void add_runtime_scene_point_light(u32 grid, const Vec3& position, u32 color, u3
     RuntimeScenePointLightPass& context); // Xbox 0x00063770, EAX grid
 // The light texture over the frame.
 void finish_runtime_scene_point_lights(RuntimeScenePointLightPass& context); // Xbox 0x00063320
+// The back buffer copied into the texture at `texture`'s level 0: the whole surface for a zero width and height (a
+// rectangle otherwise, which the copy boundary does not take).
+void copy_runtime_back_buffer(u32 width, u32 height, u32 texture,
+    DialogueOuterD3DBoundaries& d3d); // Xbox 0x0013DF80, ECX width, EAX height, the stack the texture
 // At scene end: every record and light word cleared, the camera light (DAT_00512104) and the clear colour
 // (DAT_00512134) zeroed, the light texture forgotten and the depth texture and its surface released (0x001759F0).
 void reset_runtime_scene_point_light_pass(RuntimeScenePointLightPass& context, u32& camera_light, u32& ambient,

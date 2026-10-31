@@ -148,6 +148,7 @@ add_library(gbtg_lib STATIC
     src/engine/scene/executable_resources.cpp
     src/engine/scene/factory_scene_runtime.cpp
     src/engine/scene/scene_markers.cpp
+    src/engine/scene/scene_post_models.cpp
     src/engine/scene/scene_marker_handlers.cpp
     src/engine/entities/player_spawn.cpp
     src/engine/entities/area_actor.cpp

@@ -13,6 +13,9 @@ extern i32 g_gate_251c;
 extern i32 g_gate_2518;
 extern i32 g_script_e794; // DAT_0050E794.
 extern i32 g_script_e788; // DAT_0050E788: the scene is done; 0x00117140 requests the next one.
+extern i32 g_script_e78c; // DAT_0050E78C: nonzero takes the fade at DAT_0050E790.
+extern u32 g_script_e798; // DAT_0050E798, type 0x69's node+8.
+extern u32 g_script_e79c; // DAT_0050E79C, type 0x69's node+0xC.
 // DAT_00545978, the broken background parts, and DAT_00545980, the running score: 0x0012AF10 and a section title
 // clear them.
 extern u32 g_545978;
@@ -67,11 +70,11 @@ void script_tick_fired_vm(Game& g); // Xbox 0x00117140
 // DAT_00509b24, DAT_00509b28, and DAT_00509b4c. DAT_00509b50 becomes
 // 0x3eb2b8c3. DAT_005462FC becomes 1. DAT_00509b54 becomes 0x3f32b8c3.
 // DAT_00509b58 becomes 1. DAT_00509b70 becomes 0. DAT_00509b74 becomes 1.
-// It then makes a fresh camera shake pool (0x000FAEE0), resets the camera view
-// tunables (0x0013CBD0) and releases the music (part of 0x00116E00); 0x00124420
-// is not translated. DAT_00545D1C and DAT_00545CC8 are cleared after the
-// 0x000FAEE0 call.
-void scene_reset_runtime_parameters(); // Xbox 0x0011CAC0
+// It then makes a fresh camera shake pool (0x000FAEE0), clears DAT_00545D1C and
+// DAT_00545CC8, resets the camera view tunables (0x0013CBD0) and the script's
+// runtime (0x00116E00). The scene load 0x00124420 is the host load that follows
+// state 4 (scene.cpp).
+void scene_reset_runtime_parameters(Game& g); // Xbox 0x0011CAC0
 
 // Xbox 0x0011CB60. Start the loaded scene and run its script latch.
 void script_queue_scene_start(Game& g); // Xbox 0x0011CB60

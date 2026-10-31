@@ -71,6 +71,7 @@ extern "C"
 #include "scene_types.h"
 #include "../camera/camera.h"
 #include "scene.h"
+#include "../entities/intro_notices.h"
 #include "scene_loading.h"
 #include "scene_tick_nodes.h"
 #include "scene_controls.h"
@@ -203,9 +204,6 @@ float g_4312e4 = 0.f;
 
 i32 g_4312e0 = 0;
 
-// DAT_00545B38. 3 would call 0x0013FFD0.
-i32 g_545b38 = 0;
-
 // DAT_0050E438. The global names the link at object+8. Next is the pointer
 // at +4. vtable +0x10 is called with the object. The port keeps the method
 // and the next pointer on the node the global names.
@@ -276,6 +274,19 @@ void scene_set_audio_level(float level)
     take(g_421a1c);
 }
 
+
+namespace
+{
+// The scene's actor services, which hold the intro notice's views (0x0013FD60 / 0x0013FFD0).
+SceneActorServices& notice_scene_actors(Game& g)
+{
+    if (g.factory_scene == nullptr || g.factory_scene->actor_services == nullptr)
+    {
+        throw Error("the intro notice (DAT_00545B38) runs without the scene's actor services");
+    }
+    return *g.factory_scene->actor_services;
+}
+}
 
 // Xbox 0x0011E7F0. ECX is the scene record (DAT_00510E58 when 0x0011E4C0
 // calls). A nonzero dword at +0x22C is decremented and stored. Landing on 2
@@ -355,7 +366,7 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     tick_scene_dialogue(g); // Xbox 0x00057E60
     if (g_545b38 == 3)
     {
-        throw Error("0x0013FFD0 (DAT_00545B38 3) is not translated");
+        notice_scene_actors(g).finish_intro_notice(); // 0x0013FFD0
     }
     script_tick_fired_vm(g);
     tick_script_event_sequence(g); // 0x000D0300
@@ -388,7 +399,7 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     }
     if (g_545b38 != 0)
     {
-        throw Error("0x0013FD60 with DAT_00545B38 " + std::to_string(g_545b38) + " is not translated");
+        notice_scene_actors(g).tick_intro_notice(); // 0x0013FD60
     }
 
     float step = 0.f;
@@ -664,12 +675,6 @@ i32 g_50e1c4 = 0;
 std::array<u8, 8 * 0xC> g_50e1c8{}; // DAT_0050E1C8: the 0x0010F6C0 class ranges, up to DAT_0050E228.
 i32 g_50e228 = 0;
  // DAT_0050E228
-i32 g_545b3c = 0;
- // DAT_00545B3C
-u8 g_545b44 = 0;
-  // DAT_00545B44
-u8 g_545bc4 = 0;
-  // DAT_00545BC4
 i32 g_4dea5c = 0;
  // DAT_004DEA5C
 // DAT_0051108C is the block 0x000663E0 releases.
@@ -787,9 +792,9 @@ void scene_teardown(Game& g, u8* scene)
     // 0x000F44B0 (the ghoul intro) runs in SceneFactoryRuntime::end_scene.
     g_545b38 = 0;
     g_545b3c = 0;
-    g_545b44 = 0;
-    g_545bc4 = 0;
-    // 0x0012A9B0 (the post models, DAT_00512AF0) is not called: nothing native loads one (script type 0x52 raises).
+    g_545b44[0] = 0;
+    g_545bc4[0] = 0;
+    g.factory_scene->actor_services->clear_post_models(); // 0x0012A9B0
     effects_clear_voice_slots();
     // 0x00132100 (the scoreboard) runs in SceneFactoryRuntime::end_scene.
     g.factory_scene->actor_services->release_actor_snapshots(); // 0x001163D0
@@ -833,7 +838,7 @@ void scene_teardown(Game& g, u8* scene)
     reset_scene_pause(scene_pause_services(g)); // 0x0011CD90
     release_movie_events(native_movie_runtime()); // 0x00106E30
     g_511a10 = 0;
-    // 0x0011AEA0 is not translated.
+    g.factory_scene->actor_services->clear_scene_light_cones(); // 0x0011AEA0
     g_50eaa0 = nullptr;
     g_50eacc = nullptr;
     g_50eaf8 = nullptr;
@@ -930,7 +935,7 @@ void scene_set_state(Game& g, u8* scene, i32 next)
             select_scene_directory_row(reinterpret_cast<const char*>(scene)); // 0x001162D0
             *reinterpret_cast<i32*>(scene + 0x22c) = 4;
             scene_set_audio_level(0.f);
-            scene_reset_runtime_parameters();
+            scene_reset_runtime_parameters(g);
             *reinterpret_cast<i32*>(scene + 0x120) = 1;
             break;
         case 6:

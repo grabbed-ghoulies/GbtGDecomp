@@ -180,14 +180,17 @@ SceneD3DDevice::SceneD3DDevice()
     {
         immediate_.assign({0x417FCu, primitive});
         immediate_textured_ = false;
+        immediate_second_textured_ = false;
     };
     // Register 9 (D3DVSDE_TEXCOORD0) holds the current texture coordinate; each later position carries it, and
-    // the block draws as D3DFVF_XYZ | D3DFVF_TEX1.
+    // the block draws as D3DFVF_XYZ | D3DFVF_TEX1. Register 10 (D3DVSDE_TEXCOORD1) is the second set, which only a
+    // D3DFVF_XYZ | D3DFVF_TEX2 (0x202) block reads; under the other formats it is dropped.
     dialogue_.vertex_data2f = [this](i32 reg, float a, float b)
     {
-        // Register 10 (D3DVSDE_TEXCOORD1) is the second set, which no format the blocks draw under reads.
         if (reg == 10 && !immediate_.empty())
         {
+            immediate_second_texcoord_ = {a, b};
+            immediate_second_textured_ = true;
             return;
         }
         if (reg != 9 || immediate_.empty())
@@ -210,14 +213,29 @@ SceneD3DDevice::SceneD3DDevice()
         }
         const auto bound = render_states_.find(kVertexShader);
         const u32 format = bound == render_states_.end() ? 0u : bound->second;
-        // D3DFVF_XYZ | D3DFVF_TEX1 (0x102) bound takes the textured block too (the point-light composite, 0x00063320).
-        if (format != 0x2 && format != 0x42 && format != 0x44 && format != 0x102)
+        // D3DFVF_XYZ | D3DFVF_TEX1 (0x102) bound takes the textured block too (the point-light composite, 0x00063320),
+        // and D3DFVF_XYZ | D3DFVF_TEX2 (0x202) its frame-copy composite with both coordinate sets.
+        if (format != 0x2 && format != 0x42 && format != 0x44 && format != 0x102 && format != 0x202)
         {
             throw Error("D3D immediate vertices under vertex format " + std::to_string(format));
         }
-        if ((immediate_textured_ && format != 0x2 && format != 0x102) || (format == 0x102 && !immediate_textured_))
+        if ((immediate_textured_ && format != 0x2 && format != 0x102 && format != 0x202)
+            || ((format == 0x102 || format == 0x202) && !immediate_textured_)
+            || (format == 0x202 && !immediate_second_textured_))
         {
             throw Error("D3D immediate texture coordinates under vertex format " + std::to_string(format));
+        }
+        if (format == 0x202)
+        {
+            immediate_.push_back(0x1818u | (7u << 18));
+            immediate_.push_back(std::bit_cast<u32>(x));
+            immediate_.push_back(std::bit_cast<u32>(y));
+            immediate_.push_back(std::bit_cast<u32>(z));
+            immediate_.push_back(std::bit_cast<u32>(immediate_texcoord_[0]));
+            immediate_.push_back(std::bit_cast<u32>(immediate_texcoord_[1]));
+            immediate_.push_back(std::bit_cast<u32>(immediate_second_texcoord_[0]));
+            immediate_.push_back(std::bit_cast<u32>(immediate_second_texcoord_[1]));
+            return;
         }
         const u32 words = immediate_textured_ ? 5 : format == 0x44 ? 5 : format == 0x42 ? 4 : 3;
         immediate_.push_back(0x1818u | (words << 18));
@@ -244,10 +262,13 @@ SceneD3DDevice::SceneD3DDevice()
     {
         immediate_.push_back(0x417FCu);
         immediate_.push_back(0);
-        immediate_format_ = immediate_textured_ ? 0x102u : 0u;
+        const auto bound = render_states_.find(kVertexShader);
+        const bool dual = bound != render_states_.end() && bound->second == 0x202u;
+        immediate_format_ = dual ? 0x202u : immediate_textured_ ? 0x102u : 0u;
         decode_push(immediate_.data(), immediate_.data() + immediate_.size());
         immediate_format_ = 0;
         immediate_textured_ = false;
+        immediate_second_textured_ = false;
         immediate_.clear();
     };
     outer_.back_buffer = [](u32)
@@ -436,7 +457,7 @@ void SceneD3DDevice::record_fixed(u32 primitive, u32 format, const std::vector<f
     flush_deferred_states();
     SceneD3DFixedDraw output{primitive, format, std::vector<u32>(vertices.size()), transform(6), transform(0),
         transform(1), constants_[96 - 38], constants_[96 - 37], 0xFFFFFFFFu, snapshot(), textures_[0],
-        address_u_[0], address_v_[0]};
+        address_u_[0], address_v_[0], textures_, address_u_, address_v_, pixel_constants_, pixel_constants_set_};
     std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
     const auto diffuse = render_states_.find(kVertexDataColor + 3);
     if (diffuse != render_states_.end())

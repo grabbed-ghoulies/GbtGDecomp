@@ -63,6 +63,27 @@ public:
     void release_script_title_pool(); // The head of 0x001288C0: the title pool goes once it is empty.
     AudioListenerSettings& audio_listener(); // DAT_004D9798 .., the XACT category volumes and reverb (0x0015C1C0).
     void set_reverb_preset(i32 preset); // 0x0003A1F0, ESI the preset
+    // A camera shake or a camera effect by name at a point, through the scene's resources (script types 0x9B, 0x9C).
+    void load_camera_shake(const char* name, const Vec3& position, float scale); // 0x000FB120
+    void load_camera_effect(const char* name, const Vec3& position); // 0x000493D0
+    // Script type 0x2C: the 0x001292D0 player drops what it holds (0x0001B810 with 0, 0 on its +0x95C) and its bind
+    // tree is activated (0x00112CC0, ESI the player). No player does nothing.
+    void release_script_player_attachment();
+    // Script type 0xA6: the 0x001292D0 player drops its held weapon (0x0013A860); when it does, 0x0012ECC0.
+    void drop_script_player_weapon();
+    // Script type 0x2E: the 0x001292D0 player's live attachments gain (`release` zero, 0x00042090) or lose
+    // (0x000420B0) a hold.
+    void hold_script_player_attachments(u32 release);
+    // Script type 0x91: the 0x001292D0 player is sent {0x37, x, y, z}, the position (0x000412A0) of the nearest
+    // DAT_00511B38 actor 0x00128DF0 finds for it (no point, tag 0, no radius, flags 0x4240), or zeros. No player does
+    // nothing.
+    void point_script_player_at_nearest();
+    // 0x00116E00's clears of the scene's score words: DAT_00545970 and DAT_00545974 (the dialogue measurement's
+    // additional counts) and DAT_0054597C (the score total).
+    void reset_scene_score_words();
+    // Script type 0xD: the effect stream named at node+8 with no creation options (0x00053170, a stack 0).
+    void run_script_effect_stream(const char* name);
+    void clear_scene_light_cones(); // 0x0011AEA0, in the teardown 0x00117330
     void apply_scene_lighting(std::span<const u8> record); // 0x000FD780 over the scene fog, ESI the record
     void set_background_morphs_playing(u8 playing); // 0x00114050 over DAT_0050E388, BL playing
     // Script world actions 0x6D, 9 and 8: the per-tag tables bodies and minds read at construction.
@@ -75,6 +96,10 @@ public:
     void release_actor_snapshots(); // Xbox 0x001163D0, in the teardown
     void animate_light_records(); // Xbox 0x000FDDA0
     void tick_post_models(); // Xbox 0x0012AA70
+    void tick_intro_notice(); // Xbox 0x0013FD60
+    void finish_intro_notice(); // Xbox 0x0013FFD0
+    void clear_post_models(); // Xbox 0x0012A9B0, in the teardown
+    void set_post_model(const char* name); // Xbox 0x0012AA50, script world action 0x52
     void tick_frontend_state(); // Xbox 0x00049DE0
     // The scene tick's tail: with entries on the input stack (DAT_0050E0E8) and the top one's device (DAT_0050E0EC)
     // nonzero, 0x001083F0 (EAX the device, 0x10): Start newly pressed.

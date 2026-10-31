@@ -143,6 +143,50 @@ void draw_runtime_model_at(RuntimeModelInstance& model, u32 model_cpu, const Vec
         models);
 }
 
+// Xbox 0x000F8CF0, EAX position, ESI euler, EBX kind
+void draw_runtime_model_scaled(RuntimeModelInstance& model, u32 model_cpu, const Vec3* position, const Vec3* euler,
+    float scale, u32 kind, RuntimeDisplaySetupContext& display, SceneModelDrawContext& models)
+{
+    auto& draw = display.draw;
+    // DAT_0050DD70 points at DAT_0050D7A0, reset to the identity; DAT_0050D7D0 (+12) is the scratch matrix.
+    draw.current_affine = draw.affine.data();
+    float* current = draw.current_affine;
+    std::fill_n(current, 12, 0.f);
+    current[0] = 1.f; // DAT_0032B0F8.
+    current[5] = 1.f;
+    current[10] = 1.f;
+    if (position != nullptr)
+    {
+        float* translation = draw.affine.data() + 12;
+        std::fill_n(translation, 12, 0.f);
+        translation[0] = 1.f;
+        translation[3] = position->x;
+        translation[5] = 1.f;
+        translation[7] = position->y;
+        translation[10] = 1.f;
+        translation[11] = position->z;
+        multiply_affine_matrices(current, current, translation); // 0x001041B0
+    }
+    if (euler != nullptr)
+    {
+        rotate_dialogue_affine(0x79, euler->y, draw); // 0x00104160
+        rotate_dialogue_affine(0x78, euler->x, draw);
+        rotate_dialogue_affine(0x7A, euler->z, draw);
+    }
+    if (!(scale == 1.f)) // DAT_0032B0F8; unordered scales too.
+    {
+        float* scaling = draw.current_affine + 12;
+        std::fill_n(scaling, 12, 0.f);
+        scaling[0] = scale;
+        scaling[5] = scale;
+        scaling[10] = scale;
+        multiply_affine_matrices(draw.current_affine, draw.current_affine, scaling); // 0x001041B0
+    }
+    // 0x000F9080 receives DAT_0050DD70 itself in EAX.
+    draw_runtime_scene_model(model, model_cpu, *reinterpret_cast<const AnimationMatrix*>(draw.current_affine), kind,
+        models);
+}
+
 // Xbox 0x000F0160
 void draw_actor_effect_model(ActorEffectNode& effect, size_t particle, u32 model_cpu,
     RuntimeDisplaySetupContext& display, SceneModelDrawContext& models)

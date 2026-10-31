@@ -42,7 +42,7 @@ void hold_body(i32 step, RuntimeScoopWhackStateContext& context)
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
-        live->retained_15 = u8(live->retained_15 + step);
+        live->hold = u8(live->hold + step);
     }
     step_byte(context.body, 0x6D, step);
     step_byte(context.body, 0x6A, step);

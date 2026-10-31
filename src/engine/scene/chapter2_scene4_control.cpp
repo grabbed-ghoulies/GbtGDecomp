@@ -15,7 +15,8 @@ RuntimeBackgroundMorphs& morphs_of(Chapter2Scene4ControlServices& services)
 {
     if (services.morphs == nullptr)
     {
-        throw Error("scene 2a4 control reads the DAT_0050E388 morph pool; 0x00114180 that makes it is not translated");
+        throw Error("scene 2a4 control reads the DAT_0050E388 morph pool before the scene start (0x00114180) "
+            "makes it");
     }
     return *services.morphs;
 }

@@ -13,13 +13,6 @@ namespace gbtg::weapon_detail
 {
 inline constexpr u32 kAidPrefix = 0x5F646961; // "aid_".
 
-[[noreturn]] inline void untranslated(u32 address, const char* from)
-{
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08X", address);
-    throw Error(std::string("untranslated Xbox ") + text + " reached from " + from);
-}
-
 inline void store8(std::span<u8> bytes, size_t offset, u8 value)
 {
     bytes[offset] = value;

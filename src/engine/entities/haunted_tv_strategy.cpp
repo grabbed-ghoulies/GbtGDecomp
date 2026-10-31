@@ -211,7 +211,7 @@ void start_runtime_haunted_tv_attack(RuntimeHauntedTvStrategy& context)
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
-        live->retained_15 = u8(live->retained_15 + 1); // Actor +0x8F8's records, +0x15.
+        live->hold = u8(live->hold + 1); // Actor +0x8F8's records, +0x15.
     }
     step_byte(body, 0x6D, 1);
     put_word(body, 0x74C, 1);
@@ -242,7 +242,7 @@ void end_runtime_haunted_tv_attack(RuntimeHauntedTvStrategy& context)
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
-        live->retained_15 = u8(live->retained_15 - 1);
+        live->hold = u8(live->hold - 1);
     }
     step_byte(body, 0x6D, -1);
     put_word(body, 0x74C, 0);

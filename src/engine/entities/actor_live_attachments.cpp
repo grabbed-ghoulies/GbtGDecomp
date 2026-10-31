@@ -152,4 +152,24 @@ void clear_actor_live_attachments(entity_detail::ListHead& owner_head)
         record = next;
     }
 }
+
+// Xbox 0x00042090, EAX actor
+void hold_actor_live_attachments(entity_detail::ListHead& owner_head)
+{
+    for (auto* record = static_cast<ActorLiveAttachment*>(owner_head.next); record != nullptr;
+         record = static_cast<ActorLiveAttachment*>(record->owner_link.next))
+    {
+        record->hold = u8(record->hold + 1);
+    }
+}
+
+// Xbox 0x000420B0, EAX actor
+void unhold_actor_live_attachments(entity_detail::ListHead& owner_head)
+{
+    for (auto* record = static_cast<ActorLiveAttachment*>(owner_head.next); record != nullptr;
+         record = static_cast<ActorLiveAttachment*>(record->owner_link.next))
+    {
+        record->hold = u8(record->hold - 1);
+    }
+}
 }

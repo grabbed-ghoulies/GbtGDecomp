@@ -155,6 +155,13 @@ struct SceneD3DFixedDraw
     const u8* texture; // Stage 0, sampled by the D3DFVF_TEX1 format.
     u32 address_u = 1; // Stage 0 D3DTSS_ADDRESSU / ADDRESSV at the draw.
     u32 address_v = 1;
+    // Every stage and the pixel shader's constants at the draw: a bound pixel shader combines the stages (the
+    // D3DFVF_TEX2 composite of 0x00063320 samples the light texture and the frame copy).
+    std::array<const u8*, 4> textures{};
+    std::array<u32, 4> stage_address_u{1, 1, 1, 1};
+    std::array<u32, 4> stage_address_v{1, 1, 1, 1};
+    std::array<std::array<float, 4>, 16> pixel_constants{};
+    u32 pixel_constants_set = 0;
 };
 // D3DDevice_CopyRects from the back buffer into a texture's level 0 (the book's page captures).
 struct SceneD3DCopy
@@ -259,7 +266,9 @@ private:
     std::vector<u32> push_;
     std::vector<u32> immediate_; // D3DDevice_Begin .. End.
     std::array<float, 2> immediate_texcoord_{}; // SetVertexData2f register 9.
+    std::array<float, 2> immediate_second_texcoord_{}; // SetVertexData2f register 10.
     bool immediate_textured_ = false;
+    bool immediate_second_textured_ = false; // Register 10 written in this block.
     u32 immediate_format_ = 0; // The fixed format an immediate block records under, when not the bound one.
     u32 next_surface_ = 1;
     u32 next_vertex_shader_ = 1;

@@ -83,7 +83,7 @@ void fire_start_hook(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3& 
         start_runtime_water_pistol_fire(weapon, point, &direction); // 0x000C9410
         return;
     }
-    throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x4C is not translated");
+    throw Error("gun factory type " + std::to_string(weapon.type) + " calls its null vtable +0x4C (0x000CA990 leaves it 0)");
 }
 
 // Vtable +0x50: firing ends.
@@ -103,7 +103,7 @@ void fire_end_hook(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3&)
         end_runtime_water_pistol_fire(weapon, point); // 0x000C9540
         return;
     }
-    throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x50 is not translated");
+    throw Error("gun factory type " + std::to_string(weapon.type) + " calls its null vtable +0x50 (0x000CA990 leaves it 0)");
 }
 
 // Vtable +0x54 with the actor's frame step.
@@ -123,7 +123,7 @@ void update_hook(RuntimeWeaponActor& weapon, float step)
         update_runtime_water_pistol(weapon, step); // 0x000C95F0
         return;
     }
-    throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x54 is not translated");
+    throw Error("gun factory type " + std::to_string(weapon.type) + " calls its null vtable +0x54 (0x000CA990 leaves it 0)");
 }
 
 // Vtable +0x5C: the fire tick while held.
@@ -143,7 +143,7 @@ void fire_tick_hook(RuntimeWeaponActor& weapon, u32 firing, const Vec3& point, c
         emit_runtime_water_pistol(weapon, firing, point, direction); // 0x000C98D0
         return;
     }
-    throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x5C is not translated");
+    throw Error("gun factory type " + std::to_string(weapon.type) + " calls its null vtable +0x5C (0x000CA990 leaves it 0)");
 }
 
 // Vtable +0x60: the hit query, a pool of RuntimeSprayHit records or null.
@@ -157,7 +157,7 @@ GhoulySpawnPool* hit_query_hook(RuntimeWeaponActor& weapon, const Vec3& point, c
     {
         return query_runtime_water_pistol(weapon, point, direction); // 0x000C9B20
     }
-    throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x60 is not translated");
+    throw Error("gun factory type " + std::to_string(weapon.type) + " calls its null vtable +0x60 (0x000CA990 leaves it 0)");
 }
 }
 
@@ -292,7 +292,7 @@ void draw_runtime_gun_weapon_effects(RuntimeWeaponActor& weapon, u32 pass)
     }
     if (weapon.type != 0xA3 && weapon.type != 0xA6) // Vtable +0x58 is set for the extinguisher and water pistol.
     {
-        throw Error("gun factory type " + std::to_string(weapon.type) + " vtable +0x58 is not translated");
+        throw Error("gun factory type " + std::to_string(weapon.type) + " calls its null vtable +0x58 (0x000CA990 leaves it 0)");
     }
     Vec3 point{};
     Vec3 direction{};

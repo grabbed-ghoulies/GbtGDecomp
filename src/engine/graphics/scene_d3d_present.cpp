@@ -831,6 +831,7 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     bool has_diffuse = false;
     bool pretransformed = false;
     bool textured = false;
+    bool second_set = false;
     switch (draw.format)
     {
     case 0x002: // D3DFVF_XYZ.
@@ -848,6 +849,11 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     case 0x102: // D3DFVF_XYZ | D3DFVF_TEX1: textured, under the current diffuse.
         stride = 20;
         textured = true;
+        break;
+    case 0x202: // D3DFVF_XYZ | D3DFVF_TEX2: two coordinate sets, for stages 0 and 1.
+        stride = 28;
+        textured = true;
+        second_set = true;
         break;
     default:
         throw Error("fixed-function draw uses vertex format " + std::to_string(draw.format));
@@ -925,6 +931,10 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
         {
             std::memcpy(vertex.uv[0].data(), data + offset + 12, 8);
         }
+        if (second_set)
+        {
+            std::memcpy(vertex.uv[1].data(), data + offset + 20, 8);
+        }
         shaded.push_back(vertex);
         screens.push_back(screen);
     }
@@ -980,6 +990,36 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
         output.textures[0] = &context.texture(draw.texture);
         output.address_u[0] = draw.address_u;
         output.address_v[0] = draw.address_v;
+    }
+    // A bound pixel shader combines the stages, as for indexed and inline draws.
+    std::array<u32, 60> words{};
+    const u32 pixel = state(draw.states, SceneD3DDevice::kPixelShader, 0);
+    if (pixel != 0)
+    {
+        const auto found = context.resources.pixel_shaders.find(pixel);
+        if (found == context.resources.pixel_shaders.end())
+        {
+            throw Error("fixed-function draw binds a pixel shader the device did not create");
+        }
+        for (u32 stage = 0; stage < 4; ++stage)
+        {
+            if (draw.textures[stage] != nullptr)
+            {
+                output.textures[stage] = &context.texture(draw.textures[stage]);
+            }
+        }
+        output.address_u = draw.stage_address_u;
+        output.address_v = draw.stage_address_v;
+        SceneD3DIndexedDraw combiner{};
+        combiner.states = draw.states;
+        combiner.pixel_constants = draw.pixel_constants;
+        combiner.pixel_constants_set = draw.pixel_constants_set;
+        words = pixel_shader_words(context.memory.resolve(found->second, sizeof(words)).data(), combiner);
+        output.pixel_shader = words.data();
+    }
+    else if (second_set)
+    {
+        throw Error("D3DFVF_TEX2 fixed-function draw without a pixel shader");
     }
     apply_states(draw.states, output);
     gfx_draw_native(output);

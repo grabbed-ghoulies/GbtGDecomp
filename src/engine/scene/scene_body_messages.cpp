@@ -2866,7 +2866,7 @@ void SceneBodyMessages::settle(FactoryObject& body)
         const ActorLiveAttachment& live = *bound_live;
         bound_record_.fill(0);
         bound_record_[0x14] = live.mode;
-        bound_record_[0x15] = live.retained_15;
+        bound_record_[0x15] = live.hold;
         std::memcpy(bound_record_.data() + 0x16, &live.tag, 2);
         bound_record_[0x18] = live.retained_18;
         bound_record_[0x19] = live.flag;

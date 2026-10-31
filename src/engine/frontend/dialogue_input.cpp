@@ -690,6 +690,82 @@ float runtime_input_second_analog_level(const RuntimeDialogueInputDevice& device
     return runtime_input_analog_level(device, state, 0x34);
 }
 
+// Xbox 0x00108BE0
+void runtime_input_analog_levels(const RuntimeDialogueInputDevice& device, std::array<float, 2>& output,
+    const RuntimeDialogueInputState& state)
+{
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+    {
+        const u8* block = button_state(device, state);
+        output[0] = read_f32({block, 0x38}, 0x30);
+        output[1] = read_f32({block, 0x38}, 0x34);
+        return;
+    }
+    case 4:
+    {
+        constexpr float kLimit = std::bit_cast<float>(0x430C0000u); // DAT_0032B138, 140.
+        constexpr float kScale = std::bit_cast<float>(0x3BEA0EA1u); // DAT_0032B134, 1/140.
+        for (i32 index = 0; index < 4; ++index)
+        {
+            const auto& child = *device.children[index];
+            float first = 0.f;
+            float second = 0.f;
+            if (read_u32(child.record, 8) != 0xFFFFFFFFu)
+            {
+                const u8* block = analog_child_state(child, state);
+                first = read_f32({block, 0x38}, 0x30);
+                second = read_f32({block, 0x38}, 0x34);
+            }
+            if (second > kLimit)
+            {
+                second = kLimit;
+            }
+            if (first > kLimit)
+            {
+                first = kLimit;
+            }
+            output[0] = first * kScale;
+            output[1] = second * kScale;
+        }
+        return;
+    }
+    default:
+        output[0] = 0.f;
+        output[1] = 0.f;
+        return;
+    }
+}
+
+// Xbox 0x00108D20
+float runtime_input_analog_difference(const RuntimeDialogueInputDevice& device,
+    const RuntimeDialogueInputState& state)
+{
+    switch (read_u32(device.record, 0))
+    {
+    case 1:
+    case 2:
+    case 3:
+    case 5:
+    {
+        const u8* block = button_state(device, state);
+        return read_f32({block, 0x38}, 0x34) - read_f32({block, 0x38}, 0x30);
+    }
+    case 4:
+    {
+        std::array<float, 2> levels{0.f, 0.f};
+        runtime_input_analog_levels(device, levels, state); // 0x00108BE0, EDI the levels
+        return levels[1] - levels[0];
+    }
+    default:
+        return std::bit_cast<float>(0xBF800000u); // DAT_0032B120, -1.
+    }
+}
+
 // Xbox 0x001429E0
 void dialogue_input_direction(const RuntimeDialogueInputDevice& device,
     std::array<float, 2>& output, const RuntimeDialogueInputState& state)

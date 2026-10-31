@@ -108,6 +108,8 @@ struct NativeSceneActorClassBindings
     // (DAT_00546208).
     std::function<std::span<const u8>(const Actor&)> player_body;
     const char* default_name;
+    // The after-image (type 0x11) and bone debris (type 0x12) shader textures: a texture's bytes by its address.
+    std::function<u8*(u32)> texture_bytes;
 };
 // Native contexts for the retail area/trigger classes, over the existing
 // actor lifecycle owner. All referenced scene services must outlive this owner.

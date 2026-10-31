@@ -1583,6 +1583,25 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
     {
         // Cue completion is read from the XAudio2 voice state.
     };
+    boundaries.load_file = [&game](const char* name) -> std::vector<u8>
+    {
+        // The Xbox drive letters D: and Z: (the disc and its cache) name the game folder.
+        std::string path = name;
+        if (path.size() >= 2 && path[1] == ':')
+        {
+            path = path.substr(2);
+        }
+        while (!path.empty() && (path.front() == '\\' || path.front() == '/'))
+        {
+            path.erase(path.begin());
+        }
+        std::ifstream file(game.aids.game_dir / path, std::ios::binary);
+        if (!file)
+        {
+            throw Error(std::string("0x0015BB30 cannot open the sound bank file ") + name);
+        }
+        return std::vector<u8>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    };
     bind_native_audio_listener(banks.listener);
     initialize_native_audio(banks, boundaries);
     log::verbose("native audio banks %d names %zu cues %zu", banks.bank_count, banks.bank_names.size(),

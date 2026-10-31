@@ -1197,7 +1197,8 @@ bool NativeSceneActorClassOwner::construct_afterimage(FactoryObject& object, std
         [this](u32 address) -> std::span<const u8>
         {
             return bindings_.bytes_at(address);
-        }});
+        },
+        bindings_.address_of, bindings_.texture_bytes});
     auto* afterimage = context.get();
     afterimages_.emplace(object.bytes.get(), std::move(context));
     return initialize_runtime_avatar_afterimage(parameters, *afterimage);
@@ -1259,7 +1260,12 @@ bool NativeSceneActorClassOwner::construct_bone_debris(FactoryObject& object, st
         bindings_.emitter.frame, bindings_.tick_owned_effect, bindings_.effect_collision.normal,
         bindings_.base_of(object).callouts, bindings_.actors.bindings.factory, bindings_.keep,
         bindings_.actors.bindings.empty_name, bindings_.effect_release, view.render, view.shape, view.anchors,
-        bindings_.actors.bindings.sounds});
+        bindings_.actors.bindings.sounds,
+        [this](u32 address) -> std::span<const u8>
+        {
+            return bindings_.bytes_at(address);
+        },
+        bindings_.texture_bytes});
     auto* debris = context.get();
     bone_debris_.emplace(object.bytes.get(), std::move(context));
     return initialize_runtime_bone_debris(parameters, *debris);

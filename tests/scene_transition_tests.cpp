@@ -12637,6 +12637,19 @@ int main(int argc, char** argv)
             play_scene7(game, "scene11_2");
             pass_chapter_title(game, "scene11_to_3", "aid_script_ghoulies_chapter1_scene11_3viewcam", false);
             play_scene7(game, "scene11_3", 1000.f, {}, false, true);
+            // The exit door's transition into scene 12: the screen must not stay black (a black screen that only a
+            // restart clears was seen here).
+            pass_chapter_title(game, "scene11_to_12", "aid_script_ghoulies_chapter1_scene12_1playcam", false);
+            for (int frame = 0; frame < 300; ++frame)
+            {
+                gbtg::gfx_begin_frame();
+                game.tick(1.f / 60.f, {});
+                if (frame % 60 == 0)
+                {
+                    capture_readback("cache/scene11_to_12_" + std::to_string(frame) + ".bmp");
+                }
+                gbtg::gfx_end_frame();
+            }
             gbtg::gfx_shutdown();
             return 0;
         }

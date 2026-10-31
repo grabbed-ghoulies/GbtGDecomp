@@ -271,10 +271,13 @@ void draw_runtime_scene_mirror(RuntimeSceneMirrorPass& c)
         deferred(draw, 0x181C54) = 0x203;
         d3d.multisample_mode(2);
         bind_display_projection(c.display);
-        const i32 saved_x = view.fitted_x;
-        const i32 saved_y = view.fitted_y;
-        const i32 saved_width = view.fitted_width;
-        const i32 saved_height = view.fitted_height;
+        // Deviation (docs/RETAIL_DEVIATIONS.md): retail saves the fitted rectangle (+0x58..+0x64) and gives it back to
+        // 0x000F5CC0 as the view's area, which refits inside it. In widescreen a 4:3 camera's fit is narrower than the
+        // area, so each such pass narrows the view until nothing draws. The port saves the area itself (+0x48..+0x54).
+        const i32 saved_x = view.origin_x;
+        const i32 saved_y = view.origin_y;
+        const i32 saved_width = view.width;
+        const i32 saved_height = view.height;
         const float saved_near = view.near_clip;
         const float saved_far = view.far_clip;
         const Vec3 camera = view.position;

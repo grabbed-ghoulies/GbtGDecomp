@@ -98,6 +98,8 @@ struct GfxNativeDraw
     bool depth_test = false;
     bool depth_write = false;
     u32 depth_function = 0x203; // 0x200 never .. 0x207 always.
+    // D3DRS_ZBias (0x00171660): a nonzero bias offsets depth by -z_bias units and -0.25 z_bias times the slope.
+    i32 z_bias = 0;
     bool blend = false;
     u32 source_blend = 1;
     u32 destination_blend = 0;
@@ -129,8 +131,9 @@ void gfx_end_native_batch();
 void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth);
 // D3DDevice_SetRenderTarget onto a texture surface: native draws and clears go to an offscreen width x height
 // target, in the same Xbox pixel space as the back buffer. Ending reads the target back as BGRA and restores the
-// back buffer.
-void gfx_begin_native_target(int width, int height);
+// back buffer. Without `depth` (the Xbox target's depth surface is null) the target has no depth buffer: depth and
+// stencil neither test nor write.
+void gfx_begin_native_target(int width, int height, bool depth);
 void gfx_end_native_target(RgbaImage& output);
 // The open texture target's depth-stencil as the Xbox D24S8 words its memory holds (depth << 8 | stencil),
 // width x height in rows. Empty without a device.

@@ -52,6 +52,7 @@ void apply_states(const SceneD3DStateSnapshot& states, GfxNativeDraw& draw)
     draw.depth_test = state(states, SceneD3DDevice::kZEnable, 1) != 0;
     draw.depth_write = state(states, kDepthWrite, 1) != 0;
     draw.depth_function = state(states, kDepthFunction, 0x203);
+    draw.z_bias = i32(state(states, SceneD3DDevice::kZBias, 0));
     draw.blend = state(states, kBlendEnable, 0) != 0;
     draw.source_blend = state(states, kSourceBlend, 1);
     draw.destination_blend = state(states, kDestinationBlend, 0);
@@ -91,6 +92,7 @@ void apply_states(const SceneD3DStateSnapshot& states, GfxNativeDraw& draw)
     draw.depth_test = applied.depth_test;
     draw.depth_write = applied.depth_write;
     draw.depth_function = applied.depth_function;
+    draw.z_bias = applied.z_bias;
     draw.blend = applied.blend;
     draw.source_blend = applied.source_blend;
     draw.destination_blend = applied.destination_blend;

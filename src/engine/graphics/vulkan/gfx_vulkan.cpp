@@ -126,6 +126,7 @@ struct PipelineState
     bool depth_test = false;
     bool depth_write = false;
     VkCompareOp depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
+    i32 z_bias = 0; // D3DRS_ZBias.
     bool stencil = false;
     VkCompareOp stencil_compare = VK_COMPARE_OP_ALWAYS;
     u32 stencil_read_mask = 0xFF;
@@ -140,7 +141,7 @@ struct PipelineState
                 u64(reinterpret_cast<uintptr_t>(pixel ? pixel->module : VK_NULL_HANDLE)),
                 u64(layout) | (u64(lines) << 8) | (u64(cull) << 16) | (u64(blend) << 24) | (u64(write_mask) << 32),
                 u64(source_color) | (u64(destination_color) << 16) | (u64(source_alpha) << 32) | (u64(destination_alpha) << 48),
-                u64(equation),
+                u64(equation) | (u64(u32(z_bias)) << 32),
                 u64(depth_test) | (u64(depth_write) << 1) | (u64(depth_compare) << 8) | (u64(stencil) << 16)
                     | (u64(stencil_compare) << 24),
                 u64(stencil_read_mask) | (u64(stencil_write_mask) << 32),
@@ -196,6 +197,7 @@ struct GfxVulkan
     vk::Image target_color;
     vk::Image target_depth;
     bool target_rendering = false;
+    bool target_has_depth = true; // False while a target with no depth surface is open: no depth or stencil test.
     Viewport target_saved_viewport;
 
     // Open dynamic rendering, onto target_* while target_rendering, else frame_*.
@@ -783,6 +785,10 @@ VkPipeline pipeline(const PipelineState& state)
     raster.cullMode = state.cull;
     raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
     raster.lineWidth = 1.f;
+    // NV2A polygon offset: units -bias (the depth buffer's resolvable step) and factor -0.25 bias.
+    raster.depthBiasEnable = state.z_bias != 0 ? VK_TRUE : VK_FALSE;
+    raster.depthBiasConstantFactor = float(-state.z_bias);
+    raster.depthBiasSlopeFactor = float(state.z_bias) * -0.25f;
     VkPipelineMultisampleStateCreateInfo multisample{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo depth{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
@@ -1858,10 +1864,13 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     state.write_mask = ((draw.color_mask >> 16) & 1 ? VK_COLOR_COMPONENT_R_BIT : 0)
         | ((draw.color_mask >> 8) & 1 ? VK_COLOR_COMPONENT_G_BIT : 0) | (draw.color_mask & 1 ? VK_COLOR_COMPONENT_B_BIT : 0)
         | ((draw.color_mask >> 24) & 1 ? VK_COLOR_COMPONENT_A_BIT : 0);
-    state.depth_test = draw.depth_test;
-    state.depth_write = draw.depth_write;
+    // A target with no depth surface neither tests nor writes depth and stencil.
+    const bool depth_surface = !g.target_rendering || g.target_has_depth;
+    state.depth_test = draw.depth_test && depth_surface;
+    state.depth_write = draw.depth_write && depth_surface;
     state.depth_compare = native_comparison(draw.depth_function);
-    if (draw.stencil_test)
+    state.z_bias = depth_surface ? draw.z_bias : 0;
+    if (draw.stencil_test && depth_surface)
     {
         state.stencil = true;
         state.stencil_compare = native_comparison(draw.stencil_function);
@@ -1890,7 +1899,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     }
 }
 
-void gfx_begin_native_target(int width, int height)
+void gfx_begin_native_target(int width, int height, bool depth)
 {
     if (!g.ok)
     {
@@ -1907,6 +1916,7 @@ void gfx_begin_native_target(int width, int height)
     }
     g.target_saved_viewport = g.viewport;
     g.target_rendering = true;
+    g.target_has_depth = depth;
     // Xbox pixel coordinates map 1:1 onto the surface; the 640x480 space extends past its edges.
     g.viewport = Viewport{0.f, 0.f, 640.f, 480.f};
 }
@@ -1989,8 +1999,9 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
         return;
     }
     present_hud_viewport();
-    const VkImageAspectFlags aspects = ((flags & 1) != 0 ? VK_IMAGE_ASPECT_DEPTH_BIT : 0)
-        | ((flags & 2) != 0 ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
+    const bool depth_surface = !g.target_rendering || g.target_has_depth; // No depth surface, nothing to clear.
+    const VkImageAspectFlags aspects = !depth_surface ? 0
+        : ((flags & 1) != 0 ? VK_IMAGE_ASPECT_DEPTH_BIT : 0) | ((flags & 2) != 0 ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
     // A single rectangle over the whole 640x480 back buffer (the full view's fitted rectangle) clears as a whole.
     const bool whole = rectangles.size() == 1 && rectangles[0][0] == 0 && rectangles[0][1] == 0
         && rectangles[0][2] == 640 && rectangles[0][3] == 480;

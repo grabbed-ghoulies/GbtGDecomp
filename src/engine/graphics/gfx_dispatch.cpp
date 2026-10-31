@@ -158,9 +158,9 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
     backend().gfx_clear_native(rectangles, flags, color, depth);
 }
 
-void gfx_begin_native_target(int width, int height)
+void gfx_begin_native_target(int width, int height, bool depth)
 {
-    backend().gfx_begin_native_target(width, height);
+    backend().gfx_begin_native_target(width, height, depth);
 }
 
 void gfx_end_native_target(RgbaImage& output)

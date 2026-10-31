@@ -11086,7 +11086,8 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
     {
         throw Error("render target surface is not a registered texture");
     }
-    gfx_begin_native_target(i32(registered->second.header[0]), i32(registered->second.header[1]));
+    // A null depth surface (D3DDevice_SetRenderTarget(surface, NULL)) leaves the target without a depth buffer.
+    gfx_begin_native_target(i32(registered->second.header[0]), i32(registered->second.header[1]), depth != 0);
     render_target_texture = texture;
     const auto depth_texture = d3d_device.surface_textures.find(depth);
     if (depth_texture != d3d_device.surface_textures.end())

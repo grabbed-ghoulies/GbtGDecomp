@@ -181,7 +181,7 @@ struct GfxD3D11
     ComPtr<ID3D11Buffer> native_material;
     std::unordered_map<u64, ComPtr<ID3D11BlendState>> native_blends;
     std::map<std::array<u32, 9>, ComPtr<ID3D11DepthStencilState>> native_depths;
-    std::unordered_map<u32, ComPtr<ID3D11RasterizerState>> native_rasterizers;
+    std::unordered_map<u64, ComPtr<ID3D11RasterizerState>> native_rasterizers; // Cull mode, then the z bias.
     std::unordered_map<u32, ComPtr<ID3D11SamplerState>> native_samplers;
 #if GBTG_OPTIMIZE
     // GBTG_OPTIMIZE step 2: what the previous native draw bound and uploaded. It describes the
@@ -275,6 +275,7 @@ struct NativeRenderTarget
     int width = 0;
     int height = 0;
     bool rendering = false;
+    bool depth_bound = true; // False while a target with no depth surface is open.
     D3D11_VIEWPORT saved_viewport{};
     ComPtr<ID3D11Texture2D> color;
     ComPtr<ID3D11RenderTargetView> rtv;
@@ -1907,7 +1908,8 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         }
         depth = g.native_depths.emplace(depth_key, state).first;
     }
-    auto rasterizer = g.native_rasterizers.find(draw.cull);
+    const u64 rasterizer_key = u64(draw.cull) | (u64(u32(draw.z_bias)) << 32);
+    auto rasterizer = g.native_rasterizers.find(rasterizer_key);
     if (rasterizer == g.native_rasterizers.end())
     {
         D3D11_RASTERIZER_DESC desc{};
@@ -1936,12 +1938,15 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         }
         desc.DepthClipEnable = TRUE;
         desc.ScissorEnable = TRUE;
+        // NV2A polygon offset: units -bias (the depth buffer's resolvable step) and factor -0.25 bias.
+        desc.DepthBias = -draw.z_bias;
+        desc.SlopeScaledDepthBias = float(draw.z_bias) * -0.25f;
         ComPtr<ID3D11RasterizerState> state;
         if (FAILED(g.device->CreateRasterizerState(&desc, state.GetAddressOf())))
         {
             throw Error("D3D11 native rasterizer state creation failed");
         }
-        rasterizer = g.native_rasterizers.emplace(draw.cull, state).first;
+        rasterizer = g.native_rasterizers.emplace(rasterizer_key, state).first;
     }
     ID3D11ShaderResourceView* views[4]{};
     ID3D11SamplerState* samplers[4]{};
@@ -2244,7 +2249,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     }
 }
 
-void gfx_begin_native_target(int width, int height)
+void gfx_begin_native_target(int width, int height, bool depth)
 {
     if (!g.ok)
     {
@@ -2295,7 +2300,8 @@ void gfx_begin_native_target(int width, int height)
     g.context->RSGetViewports(&viewports, &native_target.saved_viewport);
     ID3D11ShaderResourceView* unbound[4]{};
     g.context->PSSetShaderResources(0, 4, unbound);
-    g.context->OMSetRenderTargets(1, native_target.rtv.GetAddressOf(), native_target.dsv.Get());
+    native_target.depth_bound = depth;
+    g.context->OMSetRenderTargets(1, native_target.rtv.GetAddressOf(), depth ? native_target.dsv.Get() : nullptr);
     // Xbox pixel coordinates map 1:1 onto the surface; the 640x480 space extends past its edges.
     D3D11_VIEWPORT vp{0.f, 0.f, 640.f, 480.f, 0.f, 1.f};
     g.context->RSSetViewports(1, &vp);
@@ -2385,7 +2391,8 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
     present_hud_viewport();
     const UINT depth_flags = ((flags & 1) != 0 ? D3D11_CLEAR_DEPTH : 0) | ((flags & 2) != 0 ? D3D11_CLEAR_STENCIL : 0);
     ID3D11RenderTargetView* target = native_target.rendering ? native_target.rtv.Get() : g.rtv.Get();
-    ID3D11DepthStencilView* depth_view = native_target.rendering ? native_target.dsv.Get() : g.dsv.Get();
+    ID3D11DepthStencilView* depth_view = native_target.rendering
+        ? (native_target.depth_bound ? native_target.dsv.Get() : nullptr) : g.dsv.Get();
     // A single rectangle over the whole 640x480 back buffer (the full view's fitted rectangle) clears as a whole.
     const bool whole = rectangles.size() == 1 && rectangles[0][0] == 0 && rectangles[0][1] == 0
         && rectangles[0][2] == 640 && rectangles[0][3] == 480;
@@ -2397,7 +2404,7 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
                 float(color & 0xFF) / 255.f, float(color >> 24) / 255.f};
             g.context->ClearRenderTargetView(target, rgba);
         }
-        if (depth_flags != 0)
+        if (depth_flags != 0 && depth_view != nullptr) // No depth surface, nothing to clear.
         {
             g.context->ClearDepthStencilView(depth_view, depth_flags, depth, 0);
         }

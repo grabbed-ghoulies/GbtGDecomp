@@ -176,22 +176,6 @@ struct FinalScorePage
     FinalScorePageDone done; // +0x10, 0x00304EC0 + page * 0x14
 };
 
-template <u32 Address>
-void untranslated_page_step(FinalScoreServices&)
-{
-    char text[96];
-    std::snprintf(text, sizeof(text), "0x%08X (a final score page step) is not translated", Address);
-    throw Error(text);
-}
-
-template <u32 Address>
-bool untranslated_page_done(FinalScoreServices&)
-{
-    char text[96];
-    std::snprintf(text, sizeof(text), "0x%08X (a final score page's done test) is not translated", Address);
-    throw Error(text);
-}
-
 // 0x001628B0 returns at once.
 void empty_page_step(FinalScoreServices&)
 {
@@ -207,10 +191,10 @@ const FinalScorePage& page_of(i32 page)
         {start_runtime_final_score_super_scary, free_runtime_final_score_super_scary,
             tick_runtime_final_score_super_scary, draw_runtime_final_score_super_scary,
             runtime_final_score_super_scary_done},
-        {untranslated_page_step<0x000D2FE0>, untranslated_page_step<0x000D3160>, untranslated_page_step<0x000D3210>,
-            untranslated_page_step<0x000D3310>, untranslated_page_done<0x000D3350>},
-        {untranslated_page_step<0x000D35A0>, untranslated_page_step<0x000D3780>, untranslated_page_step<0x000D3860>,
-            untranslated_page_step<0x000D38E0>, untranslated_page_done<0x000D3970>}};
+        {start_runtime_final_score_end, free_runtime_final_score_end, tick_runtime_final_score_end,
+            draw_runtime_final_score_end, runtime_final_score_end_done},
+        {start_runtime_final_score_summary, free_runtime_final_score_summary, tick_runtime_final_score_summary,
+            draw_runtime_final_score_summary, runtime_final_score_summary_done}};
     return pages[page - 1];
 }
 
@@ -1083,6 +1067,347 @@ FinalScoreSuperScaryPage& super_scary_of(FinalScoreServices& services)
     }
     return *services.super_scary;
 }
+}
+
+namespace
+{
+FinalScoreEndPage& end_of(FinalScoreServices& services)
+{
+    if (services.end == nullptr)
+    {
+        throw Error("final score page 4 (DAT_0050655C) is read before 0x000D2FE0 makes it");
+    }
+    return *services.end;
+}
+}
+
+// Xbox 0x000D3370, ECX next
+void set_runtime_final_score_end_state(i32 next, FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    auto& page = end_of(services);
+    page.state = next;
+    if (next == 1)
+    {
+        page.banner.record = create_dialogue_text_record(*page.pool, page.banner.text.data(), page.banner.x,
+            page.banner.y, exe_real(s, 0x00428B10), exe_real(s, 0x00428B10), 1.f, 1, 0, 1, s.metrics,
+            s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0, EAX 1
+        return;
+    }
+    if (next == 2)
+    {
+        page.timer = exe_real(s, 0x00428B18);
+        return;
+    }
+    if (next == 4)
+    {
+        end_all_dialogue_text_records(*page.pool, s.fonts, s.fallback_texture, s.random); // 0x0005F970
+    }
+}
+
+// Xbox 0x000D2FE0
+void start_runtime_final_score_end(FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    services.end = std::make_unique<FinalScoreEndPage>(); // 0x000F72D0(0x234), its words cleared
+    auto& page = *services.end;
+    page.color = read_u32(s.image.memory(0x00314F48, 4), 0);
+    lookup_borrowed_localtext(state_of(services).text, "finalscore", "theend_banner", page.banner.text.data(),
+        s.localtext); // 0x000FF120, EDI 0x00324930, EBX +4
+    page.banner.x = s.hud.center_x; // +0x204
+    page.banner.y = s.hud.center_y;
+    page.banner.y = exe_real(s, 0x00428B14);
+    allocate_dialogue_text_pool(page.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0x210
+    page.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    set_runtime_final_score_cutscene(0, 0, services); // 0x000D4280
+    page.color = read_u32(s.image.memory(0x00314F48, 4), 0);
+    page.position = {s.hud.center_x, s.hud.center_y};
+    page.scale = {1.f, 1.f}; // DAT_0032B0F8.
+    page.texture = acquire_animation_resource(s.resources, "aid_texture_ghoulies_finalscore_theend"); // 0x00035E90
+    if (page.texture.data() == nullptr)
+    {
+        resource_error(s.error, 2); // 0x00032700(2)
+    }
+    set_runtime_final_score_end_state(1, services); // 0x000D3370, ECX 1
+}
+
+// Xbox 0x000D3160
+void free_runtime_final_score_end(FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    auto& page = end_of(services);
+    release_dialogue_text_pool(page.pool, *s.text_pools); // 0x0005F460, +0x210
+    page.pool = nullptr;
+    if (page.texture.data() != nullptr)
+    {
+        release_animation_resource(s.resources, page.texture); // 0x00035C00
+        page.color = read_u32(s.image.memory(0x00314F48, 4), 0);
+        page.position = {};
+        page.scale = {};
+        page.texture = {};
+    }
+    services.end.reset(); // HeapFree(DAT_0050655C)
+}
+
+// Xbox 0x000D3210
+void tick_runtime_final_score_end(FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    auto& page = end_of(services);
+    switch (page.state)
+    {
+    case 1:
+        if (dialogue_text_record_animating(*page.pool, page.banner.record, s.fonts, s.fallback_texture) == 0)
+        {
+            page.state = 2;
+            page.timer = exe_real(s, 0x00428B18);
+        }
+        break;
+    case 2:
+        if (s.timer_expired(&page.timer) != 0) // The inlined 0x0012B2A0.
+        {
+            page.state = 3;
+        }
+        break;
+    case 3:
+        if (runtime_input_button_edge(s.input_view(services.input_address), 0xFFFF, s.attract.input_state)
+            != 0) // 0x001083F0, EAX the state's +0x170 device
+        {
+            page.state = 4;
+            end_all_dialogue_text_records(*page.pool, s.fonts, s.fallback_texture, s.random); // 0x0005F970
+        }
+        break;
+    case 4:
+        if (page.pool->allocation->cursor <= page.pool->allocation->begin) // *+0x210 +8, +4: no record left.
+        {
+            page.state = 5;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+// Xbox 0x000D3310
+void draw_runtime_final_score_end(FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    auto& page = end_of(services);
+    if (page.texture.data() != nullptr)
+    {
+        queue_runtime_dialogue_sprite(page.scale.data(), page.position.data(), page.texture.data(), page.color, 0,
+            0.f, s.outer.sprites); // 0x001221B0, ECX +0x22C, EDX +0x220
+    }
+}
+
+// Xbox 0x000D3350
+bool runtime_final_score_end_done(FinalScoreServices& services)
+{
+    return services.end == nullptr || services.end->state == 5;
+}
+
+FinalScoreSummaryPage::~FinalScoreSummaryPage() = default;
+
+namespace
+{
+FinalScoreSummaryPage& summary_of(FinalScoreServices& services)
+{
+    if (services.summary == nullptr)
+    {
+        throw Error("final score page 5 (DAT_00506564) is read before 0x000D35A0 makes it");
+    }
+    return *services.summary;
+}
+
+// An icon's drawn width or height: the texture's +8 or +0xA times the full scale, zero without a texture.
+float icon_extent(const ButtonBatMenuSprite& icon, u32 offset, float scale)
+{
+    if (icon.texture.data() == nullptr)
+    {
+        return 0.f;
+    }
+    return float(read_u16(icon.texture, offset)) * scale;
+}
+}
+
+// Xbox 0x000D3C30, EAX row
+void build_runtime_final_score_summary_entry(i32 row, FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    auto& entry = summary_of(services).entries[size_t(row)];
+    const auto& tally_row = tally_of(services).rows[size_t(row)];
+    const std::array<float, 2> position{s.hud.center_x, s.hud.center_y};
+    std::char_traits<char16_t>::copy(entry.value.text.data(), tally_row.value.data(),
+        std::char_traits<char16_t>::length(tally_row.value.data()) + 1); // lstrcpyW(+0x14, tally +0x188)
+    entry.value_width = runtime_text_line_width(s.metrics, 0, entry.value.text.data(),
+        exe_real(s, 0x00428BA8)); // 0x00060710, EAX 0, ECX +0x14, XMM6 DAT_00428BA8
+    format_wide_integer(tally_row.rank, entry.rank.text.data(), 10); // 0x00166B36, ESI +0x224
+    char16_t part[64]{};
+    std::char_traits<char16_t>::copy(part, u" / ", 4); // wsprintfW(0x003249B8)
+    const auto append = [&entry](const char16_t* text)
+    {
+        auto* end = entry.rank.text.data() + std::char_traits<char16_t>::length(entry.rank.text.data());
+        std::char_traits<char16_t>::copy(end, text, std::char_traits<char16_t>::length(text) + 1); // lstrcatW
+    };
+    append(part);
+    part[0] = 0;
+    format_wide_integer(tally_row.rank_count, part, 10); // 0x00166B36
+    append(part);
+    entry.rank_width = runtime_text_line_width(s.metrics, 0, entry.rank.text.data(),
+        exe_real(s, 0x00428B50)); // 0x00060710, EAX 0, ECX +0x224, XMM6 DAT_00428B50
+    const std::array<float, 2> full_scale{exe_real(s, 0x00428B58 + u32(row) * 8),
+        exe_real(s, 0x00428B5C + u32(row) * 8)};
+    entry.icon = std::make_unique<ButtonBatMenuSprite>(); // 0x000F72D0(0x2C)
+    initialize_menu_sprite(*entry.icon, tally_row.icon.data(), position, full_scale,
+        exe_real(s, 0x00428B78 + u32(row) * 4), s); // 0x00144780, EAX tally +0x100, EBX 0x00428B58 + row * 8
+}
+
+// Xbox 0x000D3990
+void layout_runtime_final_score_summary(FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    auto& page = summary_of(services);
+    const float margin = exe_real(s, 0x0032B110);
+    float width = 0.f;
+    const ButtonBatMenuSprite* first = page.entries[0].icon.get();
+    if (first != nullptr && first->texture.data() != nullptr && 0.f < icon_extent(*first, 8, first->full_scale[0]))
+    {
+        width = icon_extent(*first, 8, first->full_scale[0]);
+    }
+    for (size_t index = 1; index < 4; ++index)
+    {
+        const ButtonBatMenuSprite* icon = page.entries[index].icon.get();
+        if (icon != nullptr && width < icon_extent(*icon, 8, icon->full_scale[0]))
+        {
+            width = icon_extent(*icon, 8, icon->full_scale[0]);
+        }
+    }
+    page.panel_size[0] = exe_real(s, 0x00428B88) * margin + width;
+    page.panel_size[1] = 0.f;
+    if (first != nullptr)
+    {
+        page.panel_size[1] = icon_extent(*first, 0xA, first->full_scale[1]);
+    }
+    for (size_t index = 1; index < 4; ++index)
+    {
+        const ButtonBatMenuSprite* icon = page.entries[index].icon.get();
+        if (icon != nullptr)
+        {
+            page.panel_size[1] = page.panel_size[1] + icon_extent(*icon, 0xA, icon->full_scale[1]);
+            page.panel_size[1] = page.panel_size[1] + exe_real(s, 0x00428B54);
+        }
+    }
+    page.panel_size[1] = exe_real(s, 0x00428B88) * margin + page.panel_size[1];
+    page.panel_color = read_u32(s.image.memory(0x00428B98, 4), 0);
+    page.panel_position = {s.hud.center_x, s.hud.center_y};
+    page.panel_position[0] = page.panel_position[0] + exe_real(s, 0x00428B90);
+    page.panel_position[1] = exe_real(s, 0x00428B94) + page.panel_position[1];
+}
+
+// Xbox 0x000D35A0
+void start_runtime_final_score_summary(FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    services.summary = std::make_unique<FinalScoreSummaryPage>(); // 0x000F72D0(0x1504), its words cleared
+    auto& page = *services.summary;
+    lookup_borrowed_localtext(state_of(services).text, "finalscore", "summary_pagetitle", page.title.text.data(),
+        s.localtext); // 0x000FF120, EDI 0x003249C0, EBX +0x10C8
+    page.title.x = s.hud.center_x; // +0x12C8
+    page.title.y = s.hud.center_y;
+    page.title.y = exe_real(s, 0x00428BA0);
+    allocate_dialogue_text_pool(page.pool, 1, 0x400C0, 0, s.text_pools); // 0x0005F390, ESI +0x10C4
+    page.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    for (i32 row = 0; row < 4; ++row)
+    {
+        build_runtime_final_score_summary_entry(row, services); // 0x000D3C30, EAX row
+    }
+    layout_runtime_final_score_summary(services); // 0x000D3990
+    set_runtime_final_score_cutscene(1, 1, services); // 0x000D4280
+    page.state = 1;
+    for (auto& entry : page.entries)
+    {
+        if (entry.icon != nullptr)
+        {
+            entry.icon->state = 2;
+            entry.icon->timer = entry.icon->duration - entry.icon->timer;
+        }
+    }
+}
+
+// Xbox 0x000D3780
+void free_runtime_final_score_summary(FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    auto& page = summary_of(services);
+    release_dialogue_text_pool(page.pool, *s.text_pools); // 0x0005F460, +0x10C4
+    page.pool = nullptr;
+    for (auto& entry : page.entries)
+    {
+        if (entry.icon != nullptr)
+        {
+            release_animation_resource(s.resources, entry.icon->texture); // 0x00035C00
+            entry.icon->texture = {};
+            entry.icon.reset(); // HeapFree
+        }
+    }
+    services.summary.reset(); // HeapFree(DAT_00506564)
+}
+
+// Xbox 0x000D3860
+void tick_runtime_final_score_summary(FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    auto& page = summary_of(services);
+    if (page.state == 1)
+    {
+        const auto shown = [&page](size_t index)
+        {
+            if (page.entries[index].icon == nullptr)
+            {
+                throw Error("0x000D3860 reads a final score summary icon through address zero");
+            }
+            return page.entries[index].icon->state == 3;
+        };
+        if (shown(3) && shown(2) && shown(1) && shown(0))
+        {
+            page.state = 2;
+        }
+    }
+    for (auto& entry : page.entries)
+    {
+        if (entry.icon != nullptr)
+        {
+            tick_menu_sprite(*entry.icon, s); // 0x00144880
+        }
+    }
+}
+
+// Xbox 0x000D38E0
+void draw_runtime_final_score_summary(FinalScoreServices& services)
+{
+    auto& s = services.frontend;
+    auto& page = summary_of(services);
+    const float half = exe_real(s, 0x0032B0F4);
+    const float x = float(i32(page.panel_position[0]) - i32(page.panel_size[0] * half));
+    const float y = float(i32(page.panel_position[1]) - i32(page.panel_size[1] * half));
+    draw_runtime_dialogue_panel(x, y, float(i32(page.panel_size[0])), float(i32(page.panel_size[1])),
+        exe_real(s, 0x00428B8C), page.panel_color, s.outer); // 0x00061360
+    // 0x000D3D80, inlined.
+    for (auto& entry : page.entries)
+    {
+        const ButtonBatMenuSprite* icon = entry.icon.get();
+        if (icon != nullptr && icon->texture.data() != nullptr && (icon->scale[0] != 0.f || icon->scale[1] != 0.f))
+        {
+            draw_runtime_dialogue_sprite(icon->texture.data(), icon->position.data(), icon->scale.data(), 0.f,
+                icon->color, -1, s.draw); // 0x0005CDC0, 0x0005CA60 (ECX -1) and DAT_00509B5C, as 0x0005CE30
+        }
+    }
+}
+
+// Xbox 0x000D3970
+bool runtime_final_score_summary_done(FinalScoreServices& services)
+{
+    return services.summary == nullptr || services.summary->state == 3;
 }
 
 // Xbox 0x000D4230

@@ -115,6 +115,46 @@ struct FinalScoreSuperScaryPage
     RuntimeDialogueWidget* prompts = nullptr; // +0x634
     ~FinalScoreSuperScaryPage();
 };
+// Page 4, the end (DAT_0050655C, 0x234 bytes). State 1 writes the "theend_banner" text; 2 waits DAT_00428B18 once it
+// has drawn; 3 waits for any button; 4 ends the text and 5 ends the page once the pool is empty. The "theend"
+// texture is drawn throughout.
+struct FinalScoreEndPage
+{
+    i32 state = 0; // +0
+    FinalScoreTextLine banner; // +4, "theend_banner"
+    RuntimeDialogueTextPool* pool = nullptr; // +0x210
+    float timer = 0.f; // +0x214
+    u32 unk_218 = 0; // +0x218
+    std::span<const u8> texture{}; // +0x21C, aid_texture_ghoulies_finalscore_theend
+    std::array<float, 2> position{}; // +0x220
+    u32 color = 0; // +0x228, DAT_00314F48
+    std::array<float, 2> scale{}; // +0x22C
+};
+// One of page 5's four scores (DAT_00506564 + 4 + r * 0x430): the row's icon and its value and rank as text.
+struct FinalScoreSummaryEntry
+{
+    std::unique_ptr<ButtonBatMenuSprite> icon; // +0, the row's pause icon (0x00144780, 0x2C bytes)
+    std::array<float, 3> unk_4{}; // +4
+    FinalScoreTextLine value; // +0x10, the row's value (the tally's +0x188)
+    float value_width = 0.f; // +0x21C, 0x00060710 at DAT_00428BA8
+    FinalScoreTextLine rank; // +0x220, "rank / count"
+    float rank_width = 0.f; // +0x42C, 0x00060710 at DAT_00428B50
+};
+// Page 5, the summary (DAT_00506564, 0x1504 bytes): the four rows' icons grow in on a panel; state 2 once all four
+// are shown. Nothing in the XBE moves it to 3, its done state.
+struct FinalScoreSummaryPage
+{
+    i32 state = 0; // +0
+    std::array<FinalScoreSummaryEntry, 4> entries{}; // +4
+    RuntimeDialogueTextPool* pool = nullptr; // +0x10C4
+    FinalScoreTextLine title; // +0x10C8, "summary_pagetitle"
+    std::array<float, 2> panel_position{}; // +0x12D4
+    std::array<float, 2> panel_size{}; // +0x12DC
+    u32 panel_color = 0; // +0x12E4, DAT_00428B98
+    std::array<float, 4> unk_12e8{}; // +0x12E8
+    FinalScoreTextLine unk_12f8; // +0x12F8
+    ~FinalScoreSummaryPage();
+};
 struct FinalScoreServices
 {
     GameSelectControlServices& frontend;
@@ -125,6 +165,8 @@ struct FinalScoreServices
     std::function<i32()> run_state; // DAT_00510F5C, the scene record's +0x104.
     std::unique_ptr<FinalScoreScoresPage> scores; // DAT_00506554
     std::unique_ptr<FinalScoreSuperScaryPage> super_scary; // DAT_0050656C
+    std::unique_ptr<FinalScoreEndPage> end; // DAT_0050655C
+    std::unique_ptr<FinalScoreSummaryPage> summary; // DAT_00506564
     u32 input_address = 0; // The scene input registry's address for the state's +0x170 device.
 };
 void final_score_control_object_sizes(ObjectSizes& output); // Xbox 0x00082D50
@@ -145,6 +187,21 @@ void destroy_runtime_final_score(FinalScoreServices& services); // Xbox 0x000D3F
 void free_runtime_final_score_tally(FinalScoreServices& services); // Xbox 0x000D2830
 void start_runtime_final_score_ditty(FinalScoreServices& services); // Xbox 0x000D44D0
 void stop_runtime_final_score_ditty(FinalScoreServices& services); // Xbox 0x000D4500
+void set_runtime_final_score_end_state(i32 next, FinalScoreServices& services); // Xbox 0x000D3370, ECX next
+void start_runtime_final_score_end(FinalScoreServices& services); // Xbox 0x000D2FE0
+void free_runtime_final_score_end(FinalScoreServices& services); // Xbox 0x000D3160
+void tick_runtime_final_score_end(FinalScoreServices& services); // Xbox 0x000D3210
+void draw_runtime_final_score_end(FinalScoreServices& services); // Xbox 0x000D3310
+bool runtime_final_score_end_done(FinalScoreServices& services); // Xbox 0x000D3350
+// Row `row`'s value, rank and icon on page 5.
+void build_runtime_final_score_summary_entry(i32 row, FinalScoreServices& services); // Xbox 0x000D3C30, EAX row
+// Page 5's panel: around the widest icon and the icons' stacked heights, by the HUD centre.
+void layout_runtime_final_score_summary(FinalScoreServices& services); // Xbox 0x000D3990
+void start_runtime_final_score_summary(FinalScoreServices& services); // Xbox 0x000D35A0
+void free_runtime_final_score_summary(FinalScoreServices& services); // Xbox 0x000D3780
+void tick_runtime_final_score_summary(FinalScoreServices& services); // Xbox 0x000D3860
+void draw_runtime_final_score_summary(FinalScoreServices& services); // Xbox 0x000D38E0
+bool runtime_final_score_summary_done(FinalScoreServices& services); // Xbox 0x000D3970
 // The page's dialogue cutscene: kind 1 dialogpage1, 2 reallysad, 3 reallyaverage, 4 reallyhappy, else dialogpage1;
 // on 0 the old one goes.
 void set_runtime_final_score_cutscene(i32 on, i32 kind, FinalScoreServices& services); // Xbox 0x000D4280

@@ -208,12 +208,6 @@ void dispatch_runtime_marker_records(u8* records, const RuntimeSceneMarkerHandle
             const u16 row_kind = half_at(row, 4);
             if (row_kind == kind && row_kind < handlers.handlers.size())
             {
-                if (handlers.untranslated[row_kind])
-                {
-                    char message[96];
-                    std::snprintf(message, sizeof(message), "scene marker kind 0x%X handler is not translated", row_kind);
-                    throw Error(message);
-                }
                 if (handlers.handlers[row_kind])
                 {
                     handlers.handlers[row_kind](row);
@@ -314,10 +308,6 @@ void restart_runtime_marker_player(const u8* records, const RuntimeSceneMarkerHa
         if (half_at(row, 6) == next_runtime_marker_id(0, 2, 1, records))
         {
             const u16 kind = half_at(row, 4);
-            if (kind < handlers.handlers.size() && handlers.untranslated[kind])
-            {
-                throw Error("scene marker restart names a kind whose handler is not translated");
-            }
             if (kind < handlers.handlers.size() && handlers.handlers[kind])
             {
                 handlers.handlers[kind](row);

@@ -141,6 +141,11 @@ RuntimeBackgroundCloth* build_runtime_background_cloth(u16 rows, u16 columns, u1
 // 19 rows (kind 1) or 5 rows (kinds 2 and 8).
 RuntimeBackgroundCloth* build_runtime_background_flag(std::span<const u8> part, std::span<const u8> part_table,
     RuntimeBackgroundClothContext& context); // Xbox 0x00050880, EAX part, EBX model
+// Plastic strip curtains (kind 6): six 2 x 16 strips side by side across the part's quad, each a sixth of its first
+// edge less a 0.05 gap at either side, pinned along the top, falling at -10.5 and rustling.
+u32 build_runtime_background_strips(std::span<const u8> part, std::span<const u8> part_table,
+    std::array<RuntimeBackgroundCloth*, 6>& output,
+    RuntimeBackgroundClothContext& context); // Xbox 0x000509E0, the part on the stack, EBP the output
 // A flat `size` x `size` sheet over the quad (EDI) at its first corner's height, every border point pinned, each point
 // starting with DAT_0050DD80's force.
 RuntimeBackgroundCloth* build_runtime_background_water_sheet(u16 size, u16 edges, std::span<const u8> part,

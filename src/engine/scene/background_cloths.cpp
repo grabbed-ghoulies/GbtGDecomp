@@ -6,6 +6,7 @@
 #include "../graphics/vector_normalize.h"
 #include "gbtg/anim.h"
 
+#include <bit>
 #include <cstdio>
 #include <cstring>
 
@@ -71,13 +72,6 @@ std::span<const u8> part_table_of(u32 model, RuntimeBackgroundClothScene& scene)
     return scene.cloth.resolve(table, 0x10);
 }
 
-void kind_not_translated(u8 kind, u32 address)
-{
-    char text[96];
-    std::snprintf(text, sizeof(text), "background part kind %u's cloth builder 0x%08X is not translated", kind,
-        address);
-    throw Error(text);
-}
 }
 
 // Xbox 0x00114180
@@ -215,7 +209,20 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
         }
         else if (kind == 6)
         {
-            kind_not_translated(kind, 0x000509E0);
+            std::array<RuntimeBackgroundCloth*, 6> strips{}; // 0x000F72D0(0x18), freed by 0x00050990.
+            const u32 count = build_runtime_background_strips(part, part_table_of(model, scene), strips,
+                scene.cloth); // 0x000509E0
+            for (u32 strip = 0; strip < count; ++strip)
+            {
+                auto bytes = strips[strip]->bytes;
+                set(bytes, field::constrain_hook, 0x00114910u);
+                set(bytes, field::constrain_enabled, 1u);
+                set(bytes, field::awake_hook, 0x001151F0u);
+                set(bytes, field::asleep_hook, 0x001152C0u);
+                set(bytes, field::casts_shadow, u8(0));
+                set(bytes, field::damping, std::bit_cast<float>(0x3D4CCCCDu)); // DAT_0032B250
+                register_runtime_background_cloth(*strips[strip], scene); // 0x00115A40
+            }
         }
         else if (kind == 5)
         {

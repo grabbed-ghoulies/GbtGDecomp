@@ -777,6 +777,44 @@ void script_tick_ghoulies_alive_condition(ScriptCond& rec)
     }
 }
 
+// Xbox 0x00133420. Opcode 12: unless the word at +8 names an actor still on DAT_00511AA4 (its +0x1FC, the latch node
+// at +0x900 less 0x704), the float at +0xC counts down by the frame step while DAT_0050E768 is clear and the byte at
+// [DAT_0051248C]+0x30F144 is set, stopping at 0.
+void script_tick_actor_gone_condition(ScriptCond& rec)
+{
+    const u16 want = u16(rec.raw[8]) | (u16(rec.raw[9]) << 8);
+    if (want != 0)
+    {
+        if (!g_script_actor_by_id)
+        {
+            throw Error("0x00133420 walks DAT_00511AA4 with no scene bound");
+        }
+        if (g_script_actor_by_id(want) != 0)
+        {
+            return;
+        }
+    }
+    if (g_block_decay != 0 || g_decay_arm == 0)
+    {
+        return;
+    }
+    float step = 0.f;
+    if (g_sim_freeze <= 0.f)
+    {
+        step = g_sim_dt * g_sim_scale;
+    }
+    const float left = cond_f32(rec, 0xC);
+    if (0.f < left)
+    {
+        const float next = left - step;
+        cond_put_f32(rec, 0xC, next);
+        if (!(0.f < next)) // COMISS; JC keeps a positive time.
+        {
+            cond_put_f32(rec, 0xC, 0.f);
+        }
+    }
+}
+
 // Xbox 0x001333A0. Opcode 10 (SpecificGhouliesKilled) in the update table at 0x00314334: once the DAT_00512B78 kill
 // count the word at +0xC indexes reaches the int at +8, while DAT_0050E768 is clear and the byte at
 // [DAT_0051248C]+0x30F144 is set, the float at +0x10 counts down by the frame step, stopping at 0.
@@ -1386,12 +1424,13 @@ void script_vm_tick(Game& g, float dt)
         {
             script_tick_statistics_target_condition(rec);
         }
+        else if (opcode == 12)
+        {
+            script_tick_actor_gone_condition(rec);
+        }
         else if (kUpdates[opcode] != 0x001628B0)
         {
-            char address[16];
-            std::snprintf(address, sizeof(address), "0x%08X", kUpdates[opcode]);
-            throw Error("untranslated Xbox " + std::string(address) + " (script condition update, opcode "
-                + std::to_string(opcode) + ")");
+            throw Error("script condition opcode " + std::to_string(opcode) + " has an update the table lacks");
         }
     }
     script_tick_fired_vm(g);

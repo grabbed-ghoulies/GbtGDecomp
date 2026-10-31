@@ -4820,7 +4820,14 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             *material_bind, bound_culling);
     };
     blendshape_draw = std::make_unique<RuntimeModelBlendshapeDraw>(RuntimeModelBlendshapeDraw{*tree_dispatch,
-        stream_descriptors, vertex_auxiliary});
+        stream_descriptors, vertex_auxiliary,
+        [this](RuntimeBlendshapeVertexBuffer& buffer)
+        {
+            // The instance's 0x18-byte entry; the vertex shader draw binds its D3D resource at +4.
+            const u32 entry = heap_address(&buffer, 0x18);
+            resources.d3d.resources[entry + 4].data = resources.memory.address_of(buffer.data);
+            return entry;
+        }});
     node_callbacks[0x00157A50] = [this](u32 node, void* storage)
     {
         dispatch_runtime_model_blendshape(node, *static_cast<RuntimeModelInstanceStorage*>(storage),

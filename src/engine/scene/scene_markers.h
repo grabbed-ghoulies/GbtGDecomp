@@ -18,12 +18,11 @@ struct RuntimeSceneMarkerRandomizer
     const i32& group_count; // DAT_00545D1C.
     std::span<const u16> group_ids; // DAT_00545CCC, ten ids per group.
 };
-// Handlers indexed by marker kind (DAT_0042A720). An empty entry is a retail null slot; kinds whose
-// retail handler is not translated must be marked so dispatch refuses them.
+// Handlers indexed by marker kind (DAT_0042A720). An empty entry is a retail null slot (kinds 0, 1, 9, 0xC, 0x1A
+// and 0x1B).
 struct RuntimeSceneMarkerHandlers
 {
     std::array<std::function<void(u8* record)>, 0x1C> handlers;
-    std::array<bool, 0x1C> untranslated{};
 };
 u8* load_runtime_marker_resource(const char* name, AnimationResourceRegistry& registry,
     ResourceErrorState& error); // Xbox 0x000FFE20, EAX name

@@ -650,6 +650,41 @@ RuntimeBackgroundCloth* build_runtime_background_flag(std::span<const u8> part, 
         context); // 0x0004FB30
 }
 
+// Xbox 0x000509E0, the part on the stack, EBP the output
+u32 build_runtime_background_strips(std::span<const u8> part, std::span<const u8> part_table,
+    std::array<RuntimeBackgroundCloth*, 6>& output, RuntimeBackgroundClothContext& context)
+{
+    const Vec3 gravity{0.f, -10.5f, 0.f}; // DAT_0032B530
+    std::array<float, 12> corners;
+    order_runtime_cloth_quad(reinterpret_cast<const float*>(part.data()), corners.data()); // 0x0004FA40
+    const Vec3 across{corners[3] - corners[0], corners[4] - corners[1], corners[5] - corners[2]};
+    const Vec3 down{corners[9] - corners[0], corners[10] - corners[1], corners[11] - corners[2]};
+    constexpr float sixth = std::bit_cast<float>(0x3E2AAAABu); // DAT_0032B208
+    constexpr float gap = std::bit_cast<float>(0x3D4CCCCDu); // DAT_0032B250
+    const Vec3 step{across.x * sixth, across.y * sixth, across.z * sixth};
+    const Vec3 margin{across.x * gap, across.y * gap, across.z * gap};
+    for (u32 index = 0; index < 6; ++index)
+    {
+        const float first = float(index);
+        const float second = float(index + 1);
+        const Vec3 left{step.x * first + corners[0] + margin.x, step.y * first + corners[1] + margin.y,
+            step.z * first + corners[2] + margin.z};
+        const Vec3 right{step.x * second + corners[0] - margin.x, step.y * second + corners[1] - margin.y,
+            step.z * second + corners[2] - margin.z};
+        const std::array<float, 12> quad{left.x, left.y, left.z, right.x, right.y, right.z, right.x + down.x,
+            right.y + down.y, right.z + down.z, left.x + down.x, left.y + down.y, left.z + down.z};
+        output[index] = build_runtime_background_cloth(2, 0x10, 0x114, part, 1, gravity, part_table, quad.data(),
+            context); // 0x0004FB30, EAX the part table, EDI the quad
+        if (output[index] == nullptr)
+        {
+            throw Error("0x000509E0 writes a strip curtain that 0x0004FB30 did not make");
+        }
+        set(output[index]->bytes, field::rustles, u8(1));
+        std::strcpy(field_data(output[index]->bytes, field::sound), "XACT_SOUNDBANK_GPROPS_PLASTICCURTAINS");
+    }
+    return 6;
+}
+
 // Xbox 0x00050220, ECX size, EAX part table, EDI quad
 RuntimeBackgroundCloth* build_runtime_background_water_sheet(u16 size, u16 edges, std::span<const u8> part,
     std::span<const u8> part_table, RuntimeBackgroundClothContext& context)

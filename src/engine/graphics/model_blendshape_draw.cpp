@@ -1,5 +1,7 @@
 #include "model_blendshape_draw.h"
 
+#include <cstring>
+
 namespace gbtg
 {
 // Xbox 0x00157880
@@ -71,6 +73,80 @@ void select_runtime_model_blend_targets(u32 node, const RuntimeBlendshapeNodeIns
     }
 }
 
+// Xbox 0x00157650
+void blend_runtime_model_blendshape(u32 node, RuntimeBlendshapeNodeInstance& instance,
+    RuntimeModelBlendshapeDraw& context)
+{
+    const auto& image = context.tree.image;
+    runtime_render_state(context.tree.renderer); // 0x00156DD0
+    const auto targets = [&](u32 target)
+    {
+        return image.word(image.word(node, 0x20), target * 4); // Node +0x20's target list.
+    };
+    const u32 attributes = image.word(targets(0), 0x24);
+    for (u32 attribute = 0; attribute < attributes; ++attribute)
+    {
+        if (attribute >= context.streams.size() || attribute >= instance.buffers.size())
+        {
+            throw Error("blend shape attribute lies outside the render state streams");
+        }
+        RuntimeBlendshapeVertexBuffer& buffer = instance.buffers[attribute]; // Instance +4, stride 0x18.
+        const u32 record = image.word(targets(0), 0x20) + attribute * 0x18;
+        const u8 kind = image.byte(record, 1);
+        if ((context.tree.mask & 1) != 0 && (kind == 9 || kind == 10))
+        {
+            const u16 count = image.half(node, 0x24);
+            float sum = 0.f;
+            for (u32 index = 0; index + 1 < count; ++index)
+            {
+                sum = sum + instance.weights[index];
+            }
+            const u8* source = image.pointer(image.word(record, 0x10));
+            const u32 size = buffer.words[5]; // +0x14.
+            u8* output;
+            if (sum == 0.f)
+            {
+                output = const_cast<u8*>(buffer.data); // +0x10.
+            }
+            else
+            {
+                u8* scratch = instance.attribute_targets[attribute]; // +0x184.
+                std::memcpy(scratch, source, size);
+                for (u32 target = 1; target < count; ++target)
+                {
+                    const u32 target_record = image.word(targets(target), 0x20) + attribute * 0x18;
+                    const float weight = instance.weights[target - 1];
+                    const u8* from = image.pointer(image.word(target_record, 0x10));
+                    const u8* end = from + image.word(target_record, 0x14);
+                    if (weight == 0.f)
+                    {
+                        continue;
+                    }
+                    u8* to = scratch;
+                    while (from < end)
+                    {
+                        float vertex[3];
+                        float blended[3];
+                        std::memcpy(vertex, from, 12);
+                        std::memcpy(blended, to, 12);
+                        blended[0] = vertex[0] * weight + blended[0];
+                        blended[1] = vertex[1] * weight + blended[1];
+                        blended[2] = vertex[2] * weight + blended[2];
+                        std::memcpy(to, blended, 12);
+                        const u8 stride = image.byte(target_record, 0);
+                        from += stride;
+                        to += stride;
+                    }
+                }
+                output = const_cast<u8*>(buffer.data); // D3DVertexBuffer_Lock2 on instance +8.
+                source = scratch;
+            }
+            std::memcpy(output, source, size);
+        }
+        context.streams[attribute] = context.buffer_resource(buffer); // Render state +0x78.
+    }
+}
+
 // Xbox 0x00157A50
 void dispatch_runtime_model_blendshape(u32 node, RuntimeModelInstanceStorage& storage,
     RuntimeModelBlendshapeDraw& context)
@@ -83,9 +159,12 @@ void dispatch_runtime_model_blendshape(u32 node, RuntimeModelInstanceStorage& st
     }
     if (image.byte(node, 0x26) != 0)
     {
-        throw Error("untranslated blend shape vertex update 0x00157650");
+        blend_runtime_model_blendshape(node, found->second, context); // 0x00157650
     }
-    select_runtime_model_blend_targets(node, found->second, context);
-    queue_runtime_model_group(node, context.tree);
+    else
+    {
+        select_runtime_model_blend_targets(node, found->second, context); // 0x00157880
+    }
+    queue_runtime_model_group(node, context.tree); // 0x00158960
 }
 }

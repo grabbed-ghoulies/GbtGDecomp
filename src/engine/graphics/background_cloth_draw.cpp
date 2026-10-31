@@ -5,6 +5,8 @@
 #include "../camera/runtime_display_setup.h"
 #include "../camera/view_frustum.h"
 #include "actor_snapshots.h"
+#include "light_volume_records.h"
+#include "gbtg/model_render.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
 
@@ -935,5 +937,121 @@ void transform_runtime_xmath_vector4(float* output, const float* vector, const f
     output[1] = x * matrix[1] + y * matrix[5] + z * matrix[9] + w * matrix[13];
     output[2] = x * matrix[2] + y * matrix[6] + z * matrix[10] + w * matrix[14];
     output[3] = x * matrix[3] + y * matrix[7] + z * matrix[11] + w * matrix[15];
+}
+
+// Xbox 0x000FE5A0
+void capture_runtime_light_volume(u8 volume, RuntimeBackgroundClothDraw& context, RuntimeLightVolumeCasters& casters)
+{
+    auto& outer = context.pass.outer.d3d;
+    LightVolumeRecord& record = g_light_records.at(volume); // DAT_00509C20 + volume * 0x25C.
+    const Vec3 up{0.f, 1.f, 0.f};
+    const DialogueSurfaceHandle depth = outer.depth_buffer(); // D3DDevice_GetDepthStencilSurface2
+    const DialogueSurfaceHandle target = outer.back_buffer(0); // D3DDevice_GetRenderTarget2
+    d3d(context).depth(0); // D3DDevice_SetRenderState_ZEnable
+    d3d(context).stencil_enable(0);
+    simple(context, 0x4035C, 0, 0x00181C70);
+    simple(context, 0x40354, 0x207, 0x00181C54);
+    constexpr u32 offset_enabled = 0; // DAT_0050D750: BSS that nothing in the XBE writes.
+    constexpr Vec3 offset{}; // DAT_0050D754..DAT_0050D75C.
+    if (casters.candle.active != 0) // DAT_0050D740.
+    {
+        record.light = casters.candle.position; // DAT_0050D744..DAT_0050D74C.
+    }
+    else if (offset_enabled != 0)
+    {
+        record.light = {record.caster.position.x - offset.x, record.caster.position.y - offset.y,
+            record.caster.position.z - offset.z};
+    }
+    set_runtime_cull_mode(0x901, casters.cull_mode); // 0x001565E0
+    outer.render_target(casters.surface, 0); // D3DDevice_SetRenderTarget(DAT_00504848, 0)
+    outer.clear(0, nullptr, 0xF0, 0, 1.f, 0); // D3DDevice_Clear
+    record.radius = record.caster.radius; // +0x1CC from +0x14.
+    for (i32 index = 0; index < record.caster_count; ++index)
+    {
+        const LightVolumeCaster& caster = record.casters[size_t(index)];
+        const long double dx = (long double)record.caster.position.x - caster.position.x;
+        const long double dy = (long double)record.caster.position.y - caster.position.y;
+        const long double dz = (long double)record.caster.position.z - caster.position.z;
+        const float reach = float(((long double)caster.height + caster.radius) * 0.5L
+            + std::sqrt((dx * dx + dz * dz) + dy * dy)); // DAT_0032B0F4
+        if (reach > record.radius) // FCOMIP; JBE keeps the old reach.
+        {
+            record.radius = reach;
+        }
+    }
+    const long double lx = (long double)record.caster.position.x - record.light.x;
+    const long double ly = (long double)record.caster.position.y - record.light.y;
+    const long double lz = (long double)record.caster.position.z - record.light.z;
+    const float span = float(std::sqrt((lx * lx + lz * lz) + ly * ly));
+    const float field_of_view = float(runtime_arc_sine((long double)record.radius / span) * 2.0L); // 0x001706E0
+    std::array<float, 16> projection{};
+    perspective_runtime_graphics_matrix(projection.data(), field_of_view, 1.f, 0.1f, 1000.1f); // 0x00184E2A
+    std::array<float, 16> view{};
+    const float eye[3]{record.light.x, record.light.y, record.light.z};
+    const float at[3]{record.caster.position.x, record.caster.position.y, record.caster.position.z};
+    const float upward[3]{up.x, up.y, up.z};
+    look_at_runtime_graphics_matrix(view.data(), eye, at, upward); // 0x001851AD
+    set_dialogue_render_view(view.data(), context.pass.outer.draw); // 0x00156330
+    set_dialogue_render_projection(projection.data(), context.pass.outer.draw); // 0x00156400
+    auto& renderer = casters.models.lights.environment.upload.renderer;
+    const auto draw_caster = [&](const LightVolumeCaster& caster, u32 kind)
+    {
+        if (caster.model == nullptr)
+        {
+            throw Error("0x000FE5A0 draws a light volume caster with no model");
+        }
+        const u32 cpu = casters.model_cpu(*caster.model);
+        AnimationMatrix world{};
+        std::memcpy(world.data(), caster.matrix.data(), sizeof(world));
+        apply_runtime_model_materials(casters.models.image, cpu, renderer); // 0x000F94F0, EAX the model
+        context.pass.multisample_antialias(0); // 0x00172600
+        d3d(context).multisample_mode(2); // 0x001725A0
+        context.pass.multisample_target_mode(2); // 0x001725D0
+        draw_runtime_model_instance(*caster.model, casters.models.image, cpu, world, kind, renderer,
+            casters.models.matrices); // 0x000F9120, EBX kind, ESI the +0x1C matrix
+        context.pass.multisample_antialias(0);
+        d3d(context).multisample_mode(0);
+        context.pass.multisample_target_mode(0);
+    };
+    draw_caster(record.caster, 1);
+    for (i32 index = 0; index < record.caster_count; ++index)
+    {
+        draw_caster(record.casters[size_t(index)], 1);
+        draw_caster(record.casters[size_t(index)], 2); // 0x000F9040, EBX 2
+    }
+    outer.render_target(target, depth);
+    outer.release(target); // D3DResource_Release
+    if (depth != 0)
+    {
+        outer.release(depth);
+    }
+    d3d(context).depth(1);
+    simple(context, 0x40354, 0x203, 0x00181C54);
+    simple(context, 0x4035C, 1, 0x00181C70);
+    set_runtime_cull_mode(0x900, casters.cull_mode); // 0x001565E0
+}
+
+// Xbox 0x000FE9B0..0x000FEA65
+void project_runtime_light_volume(i32 index, u8 volume, u32 grid, u32 color, RuntimeBackgroundClothDraw& context,
+    RuntimeLightVolumeCasters& casters)
+{
+    capture_runtime_light_volume(volume, context, casters); // 0x000FE5A0
+    begin_runtime_shadow_projector(context); // 0x000644F0
+    auto& projector = context.projector;
+    projector.screen[0] = 0.5f; // DAT_0032B0F4
+    projector.screen[5] = -0.5f; // DAT_0032B1C4
+    projector.bias[8] = 0.5f;
+    projector.bias[9] = 0.5f;
+    projector.product = multiply(context, projector.screen.data(), projector.bias.data()); // 0x00151E64
+    const LightVolumeRecord& record = g_light_records.at(volume);
+    // EBX walks the records by the loop's index, not the ordered volume: +0x1D8's low byte.
+    const bool parts = u8(g_light_records.at(size_t(index)).player) != 0;
+    project_runtime_texture_on_grid(grid, record.caster.position, record.light, casters.texture, record.radius,
+        color, parts, 1, context); // 0x00064820, ECX grid, EDX +8, EAX 1
+    context.pass.z_bias(0); // 0x00171660
+    d3d(context).cull(0); // 0x00171420
+    context.pass.multisample_antialias(0); // 0x00172600
+    d3d(context).multisample_mode(0); // 0x001725A0
+    context.pass.multisample_target_mode(0); // 0x001725D0
 }
 }

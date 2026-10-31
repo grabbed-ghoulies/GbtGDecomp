@@ -4,6 +4,8 @@
 #include "gbtg/entity.h"
 #include "gbtg/model_render.h"
 #include "gbtg/model_runtime.h"
+#include "../entities/candle_weapon.h"
+#include <array>
 
 namespace gbtg
 {
@@ -22,6 +24,8 @@ void set_runtime_light_offset(const Vec3* direction); // Xbox 0x000FE160, EAX th
 void apply_runtime_scene_lighting(std::span<const u8> record, RuntimeSceneFog& fog,
     const std::function<void()>& configure_fog); // Xbox 0x000FD780, ESI the record
 extern u8 g_light_order[0x19]; // DAT_0050D724.
+extern RuntimeCandleFlameSpot g_light_candle_spot; // DAT_0050D740..DAT_0050D74C: lights aim from the candle's flame.
+extern std::array<u8, 4> g_light_volume_color; // DAT_0050D760..DAT_0050D763, the volumes' projected colour.
 // Each registered light record's animation for the frame: +0x66 bit 0x40 flickers its colour (+0x78) between +0x80
 // and +0x84, bit 0x80 flickers its range (+0x70) between +0x8C and +0x90, both on frames the +0x88 / +0x94 masks
 // pass; +0x67 bits 2 and 4 swing the colour and the range on sine periods +0x88 and +0x94. Changed records get

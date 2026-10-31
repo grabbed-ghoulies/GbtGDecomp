@@ -42,15 +42,21 @@ void order_runtime_light_volumes(RuntimeLightVolumeOrder& context)
 void draw_runtime_light_volumes(RuntimeLightVolumeDraw& context)
 {
     const auto header = context.background_header;
-    if (header.data() == nullptr || read_u32(header, read_u32(header, 0x10)) == 0)
+    if (header.data() == nullptr)
     {
         return;
     }
-    order_runtime_light_volumes(context.order);
+    const u32 grid = read_u32(header, read_u32(header, 0x10)); // EBP, the light grid.
+    if (grid == 0)
+    {
+        return;
+    }
+    order_runtime_light_volumes(context.order); // 0x000FE480
     for (i32 index = 0; index < context.order.count; ++index)
     {
-        context.draw_volume(context.order.order[size_t(index)]);
+        project_runtime_light_volume(index, context.order.order[size_t(index)], grid, context.color, context.cloth,
+            context.casters); // 0x000FE5A0, 0x000644F0, 0x00064820
     }
-    context.bind_projection();
+    context.bind_projection(); // JMP 0x000F6170
 }
 }

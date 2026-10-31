@@ -772,7 +772,7 @@ struct SceneActorServices::State
     RuntimeWeaponStatTables weapon_stats; // DAT_005461F4..DAT_005461FC, boot-loaded (0x00033030 -> 0x001486C0).
     std::unique_ptr<RuntimeWeaponServices> weapon_services;
     RuntimeActorCreationOptions candle_hit{}; // DAT_004E1C5C.
-    RuntimeCandleFlameSpot candle_spot{}; // DAT_0050D740..DAT_0050D74C.
+    RuntimeCandleFlameSpot& candle_spot = g_light_candle_spot; // DAT_0050D740..DAT_0050D74C.
     std::unique_ptr<RuntimeCandleServices> candle_services;
     std::unordered_set<const void*> weapon_bound; // Native blocks a weapon message bound for its words.
     // Backgrounds (factory type 4, vtable 0x004E1644) and the scene globals their constructor and message
@@ -854,6 +854,10 @@ struct SceneActorServices::State
     u32 cloth_ramp_texture = 0; // DAT_005043B8.
     float cloth_water_phase = 0.f; // DAT_005462B0, BSS.
     RuntimeShadowProjector shadow_projector; // DAT_00504880..DAT_00504950.
+    // Boot 0x000620C0's light volume texture (DAT_00504844, 256 x 256 A8R8G8B8, a render target) and its surface
+    // (DAT_00504848); the scene makes them once, on its first light volume.
+    u32 light_volume_texture = 0;
+    DialogueSurfaceHandle light_volume_surface = 0;
     std::unique_ptr<RuntimeBackgroundClothContext> cloth_context;
     std::unique_ptr<RuntimeBackgroundClothScene> cloth_scene;
     RuntimeBackgroundClothScene& background_cloth_scene();
@@ -10547,16 +10551,37 @@ void SceneActorServices::State::present_view(i32 view)
         [this, first_background_model]()
         {
             RuntimeLightVolumeOrder order{g_light_filled, g_light_filled_gate, g_light_order};
-            RuntimeLightVolumeDraw volumes{order, first_background_model(),
-                [](u8 volume)
+            if (light_volume_texture == 0)
+            {
+                light_volume_texture = snapshot_d3d.create_texture(0x100, 0x100, 1, 1, 6, 3); // D3D 0x00177840
+                light_volume_surface = d3d_device.outer().surface(DialogueSurfaceHandle(light_volume_texture),
+                    0); // D3DTexture_GetSurfaceLevel2 (0x00177900)
+            }
+            RuntimeBackgroundClothDraw cloth{*point_light_pass, *display_setup, shadow_projector,
+                cloth_ramp_texture, cloth_water_phase,
+                [this](u32 address)
                 {
-                    unbound("light volume record draw 0x000FE5A0 for record " + std::to_string(volume));
+                    return resources.memory.pointer(address);
                 },
+                [this]()
+                {
+                    return background_cloth_scene().background_model();
+                }};
+            RuntimeLightVolumeCasters casters{*model_draw, cull_mode, candle_spot, light_volume_texture,
+                light_volume_surface,
+                [this](RuntimeModelInstance& model)
+                {
+                    flag_origins[&model] = model.node_flags.data();
+                    return resources.memory.address_of(model.source->cpu.data());
+                }};
+            const u32 color = u32(g_light_volume_color[0]) | u32(g_light_volume_color[1]) << 8
+                | u32(g_light_volume_color[2]) << 16 | u32(g_light_volume_color[3]) << 24; // DAT_0050D760
+            RuntimeLightVolumeDraw volumes{order, first_background_model(), cloth, casters, color,
                 [this]()
                 {
                     bind_display_projection(*display_setup);
                 }};
-            draw_runtime_light_volumes(volumes);
+            draw_runtime_light_volumes(volumes); // 0x000FE960
         },
         [this]()
         {
@@ -11970,6 +11995,7 @@ void SceneActorServices::State::remove_retired_actors()
     remove_runtime_retired_actors(removal);
 }
 
+// Xbox 0x00120EF0
 void SceneActorServices::State::update_shadow_casters()
 {
     const std::function<Actor&(entity_detail::ListHead&)> bin_actor = [this](entity_detail::ListHead& node)
@@ -12077,8 +12103,7 @@ void SceneActorServices::run_scene_pass()
     dispose_runtime_scene_objects(links.empty() ? nullptr : links.back().get(), state.scene.factory);
     state.remove_retired_actors(); // 0x001232D0
     g_light_filled = 0; // DAT_0050D71C.
-    // Held: 0x00120EF0 (State::update_shadow_casters, translated) registers the shadow volumes that present's
-    // 0x000FE960 then draws through 0x000FE5A0, 0x000644F0 and 0x00064820, which are not translated yet.
+    state.update_shadow_casters(); // JMP 0x00120EF0: the shadow volumes present's 0x000FE960 draws.
 }
 
 void SceneActorServices::update_sounds()

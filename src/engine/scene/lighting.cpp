@@ -98,14 +98,11 @@ Vec3 g_light_offset{};                          // DAT_0050d764
 i32 g_light_filled = 0;                         // DAT_0050d71c. Compared with 0x19.
 i32 g_light_filled_gate = 0;                    // DAT_0050d720
 u8 g_light_order[kLightVolumeRecords]{};        // DAT_0050d724
+RuntimeCandleFlameSpot g_light_candle_spot{};   // DAT_0050d740
+std::array<u8, 4> g_light_volume_color{};       // DAT_0050d760
 
 namespace
 {
-i32 g_light_mark_740 = 0;                       // DAT_0050d740
-u8 g_light_flag_760 = 0;                        // DAT_0050d760
-u8 g_light_flag_761 = 0;
-u8 g_light_flag_762 = 0;
-u8 g_light_flag_763 = 0;                        // DAT_0050d763
 
 void* g_light_table_slots[4]{}; // DAT_0050d770
 i32 g_light_table_count = 0;    // DAT_0050d780
@@ -150,11 +147,8 @@ void light_init_records()
     }
     g_light_filled = 0;
     g_light_filled_gate = 0;
-    g_light_mark_740 = 0;
-    g_light_flag_760 = 0;
-    g_light_flag_761 = 0;
-    g_light_flag_762 = 0;
-    g_light_flag_763 = 0x50;
+    g_light_candle_spot.active = 0;
+    g_light_volume_color = {0, 0, 0, 0x50};
 }
 
 void light_bind_table()
@@ -331,7 +325,7 @@ void reset_runtime_light_environment(RuntimeShaderRegistrationState& shaders, Ru
 {
     release_runtime_light_records(shaders); // 0x000FDED0
     g_light_filled = 0; // DAT_0050D71C
-    g_light_mark_740 = 0; // DAT_0050D740
+    g_light_candle_spot.active = 0; // DAT_0050D740
     // DAT_00509AFC..DAT_00509B0C has two host views: the scene fog record the cutscene events and 0x000FD5C0 use,
     // and this file's light-volume pass. Both are reset.
     fog.enabled = 0; // DAT_00509AFC

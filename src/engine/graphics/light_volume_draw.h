@@ -1,4 +1,5 @@
 #pragma once
+#include "background_cloth_draw.h"
 #include "gbtg/types.h"
 #include <functional>
 #include <span>
@@ -20,7 +21,9 @@ struct RuntimeLightVolumeDraw
 {
     RuntimeLightVolumeOrder& order;
     std::span<const u8> background_header; // DAT_00511B20 object +0x204 -> resource header, or empty.
-    std::function<void(u8 volume)> draw_volume; // 0x000FE5A0, 0x000644F0 and 0x00064820 for one record.
+    RuntimeBackgroundClothDraw& cloth; // The projector pass 0x000644F0 and 0x00064820 draw with.
+    RuntimeLightVolumeCasters& casters; // 0x000FE5A0's model draw and volume texture.
+    const u32& color; // DAT_0050D760, the projected colour.
     std::function<void()> bind_projection; // 0x000F6170.
 };
 // The scene's light volumes, drawn after the background passes when the background model has light data.

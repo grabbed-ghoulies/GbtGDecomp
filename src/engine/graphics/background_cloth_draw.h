@@ -1,6 +1,8 @@
 #pragma once
 #include "background_cloth.h"
 #include "scene_point_light_pass.h"
+#include "scene_model_draw.h"
+#include "../entities/candle_weapon.h"
 
 #include <array>
 #include <functional>
@@ -55,6 +57,27 @@ void begin_runtime_background_cloth_shadow(RuntimeBackgroundClothDraw& context);
 void project_runtime_background_cloth_shadow(RuntimeBackgroundCloth& cloth, u32 grid,
     RuntimeBackgroundClothDraw& context); // Xbox 0x0005DFA0, EAX cloth
 void end_runtime_background_cloth_shadow(RuntimeBackgroundClothDraw& context); // Xbox 0x0005DF30
+// The light volumes' casters and target: the model draw, the cull state, the candle's flame spot and the volume texture
+// boot 0x000620C0 makes (256 x 256, its surface the render target).
+struct RuntimeLightVolumeCasters
+{
+    SceneModelDrawContext& models; // 0x000F94F0 and 0x000F9120's image, renderer and matrices.
+    u32& cull_mode; // 0x001565E0's state.
+    const RuntimeCandleFlameSpot& candle; // DAT_0050D740..DAT_0050D74C.
+    u32 texture = 0; // DAT_00504844.
+    DialogueSurfaceHandle surface = 0; // DAT_00504848.
+    // A model's CPU header address; the host registers its node flags (model +0x294) for the draw.
+    std::function<u32(RuntimeModelInstance&)> model_cpu;
+};
+// Volume `volume`'s casters drawn from its light (the candle's flame while it burns) into the volume texture: the
+// record's reach grows to cover each extra caster, the view frames the reach and each caster is drawn (extra casters
+// twice, kinds 1 and 2).
+void capture_runtime_light_volume(u8 volume, RuntimeBackgroundClothDraw& context,
+    RuntimeLightVolumeCasters& casters); // Xbox 0x000FE5A0
+// 0x000FE960's loop body: the capture, the projector pass and the volume texture projected from the light onto the
+// grid (with the parts when record `index`'s +0x1D8 byte is set), then the projector's states cleared.
+void project_runtime_light_volume(i32 index, u8 volume, u32 grid, u32 color, RuntimeBackgroundClothDraw& context,
+    RuntimeLightVolumeCasters& casters); // Xbox 0x000FE9B0..0x000FEA65
 // The projector pass's shaders, states and constants (c0x60 the frame's transform, c0x6A one, c0x73 zero), and the
 // screen and bias matrices.
 void begin_runtime_shadow_projector(RuntimeBackgroundClothDraw& context); // Xbox 0x000644F0

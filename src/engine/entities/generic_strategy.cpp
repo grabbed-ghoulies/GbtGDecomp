@@ -465,7 +465,7 @@ void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
     }
     case 0x3EE:
         body[0x328] = 5;
-        strategy[0x1A] = read_u32(body, 0x5C) != 0 ? 1 : 0;
+        strategy[0x1A] = context.attack_resource.data() != nullptr ? 1 : 0; // Body +0x5C.
         load_attack_goal(context); // The tail jump to 0x000ABA80.
         return;
     case 0x401:

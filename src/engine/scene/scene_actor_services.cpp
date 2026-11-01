@@ -10042,7 +10042,7 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor
         mind.case_actor = actor_at_address(read_u32(body, 0x48));
         // Body +0x5C (the attachment request tables) and its +0x2C, read for flag 0x100000.
         mind.node = nullptr;
-        if (read_u32(body, 0x5C) != 0)
+        if (owner->animation_resource.data() != nullptr)
         {
             if (owner->animation_resource.size() < 0x30)
             {

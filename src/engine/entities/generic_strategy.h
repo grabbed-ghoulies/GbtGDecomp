@@ -28,6 +28,7 @@ struct RuntimeGenericStrategy
     RuntimeStrategyTargetQueue& queue;
     RuntimeStrategyActorViews& views;
     const RuntimeBodyDamageTables* const& damage_tables; // 0x00028DA0's tables, set once the scene has them.
+    std::span<const u8>& attack_resource; // Body +0x5C.
     const char* goal_far; // "far", 0x00321824.
     const char* goal_get_weapon; // "getweapon", 0x00321420.
     const char* goal_attack; // "attack", 0x003211E4.

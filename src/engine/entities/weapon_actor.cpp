@@ -2278,12 +2278,11 @@ void update_runtime_weapon_bounds(RuntimeWeaponActor& weapon)
     const float low = (bottom - position.y) * inverse;
     const float high = ((read_f32(bound, 0x14) + bottom) - position.y) * inverse;
     const float radius = read_f32(bound, 0x1C) / scale_xz;
-    std::memcpy(weapon.bytes.data() + 0x1C8, &high, 4);
-    std::memcpy(weapon.bytes.data() + 0x1CC, &low, 4);
-    std::memcpy(weapon.bytes.data() + 0x1C4, &radius, 4);
+    actor.model_size_y = high; // +0x1C8
+    actor.model_size_z = low; // +0x1CC
+    actor.model_size_x = radius; // +0x1C4
     const float extent = high >= low ? high : low;
-    const float reach = float(retail_square_root(extent * extent + radius * radius)); // 0x00152B30
-    std::memcpy(weapon.bytes.data() + 0x1D0, &reach, 4);
+    actor.model_extent = float(retail_square_root(extent * extent + radius * radius)); // +0x1D0, 0x00152B30
     auto* attachment = static_cast<ActorLiveAttachment*>(weapon.view.live_attachments.next); // Actor +0x8F8.
     if (attachment != nullptr)
     {

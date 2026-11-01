@@ -93,7 +93,7 @@ float runtime_actor_view_radius(const Actor& actor, std::span<const u8> actor_by
     const float scale = actor.scale_200 * actor.radius_xz;
     const float extent = float(static_cast<long double>(engine_absolute(float_at(block, 0) * scale))
         * actor.model_factor);
-    const float bound = read_f32(actor_bytes, 0x1D0) * scale;
+    const float bound = actor.model_extent * scale; // +0x1D0
     if (bound > extent)
     {
         return bound;

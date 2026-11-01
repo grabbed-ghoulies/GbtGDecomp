@@ -196,7 +196,7 @@ void copy_runtime_actor_appearance(RuntimeAvatarActorViews& actor, RuntimeAvatar
     self.model_size_y = from.model_size_y;
     self.model_size_z = from.model_size_z;
     self.model_size_x = from.model_size_x;
-    std::memcpy(actor.bytes.data() + 0x1D0, source.bytes.data() + 0x1D0, 4);
+    self.model_extent = from.model_extent; // +0x1D0
     self.model_factor = from.model_factor;
     std::array<char, 0x100> resource{};
     copy_string(resource.data(), source.state.resource.name.data());

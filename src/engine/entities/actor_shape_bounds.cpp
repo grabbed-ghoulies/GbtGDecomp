@@ -428,11 +428,12 @@ void apply_runtime_body_actor_bounds(std::span<const u8> body, Actor& actor,
         const float low = (bound_float(first.data(), 8) - position.y) * inverse;
         const float high = ((bound_float(first.data(), 0x14) + bound_float(first.data(), 8)) - position.y) * inverse;
         const float radius = bound_float(first.data(), 0x1C) / actor.radius_xz;
-        bound_store(actor_bytes.data(), 0x1C8, high);
-        bound_store(actor_bytes.data(), 0x1CC, low);
-        bound_store(actor_bytes.data(), 0x1C4, radius);
+        // Actor +0x1C4..+0x1D0 are the native actor's model size fields, which every bound reader takes.
+        actor.model_size_y = high; // +0x1C8
+        actor.model_size_z = low; // +0x1CC
+        actor.model_size_x = radius; // +0x1C4
         const float extent = !(high >= low) ? low : high;
-        bound_store(actor_bytes.data(), 0x1D0, float(retail_square_root(extent * extent + radius * radius)));
+        actor.model_extent = float(retail_square_root(extent * extent + radius * radius)); // +0x1D0
     }
 }
 }

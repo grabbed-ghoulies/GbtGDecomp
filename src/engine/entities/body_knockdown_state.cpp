@@ -918,7 +918,7 @@ float runtime_floor_pitch(const Actor& actor, std::span<const u8> actor_bytes)
     using entity_detail::g_nav_grids;
     const Vec3 position = actor_world_position(actor);
     const Vec3 euler = actor_world_euler(actor);
-    const float reach = read_f32(actor_bytes, 0x1C4) * actor.radius_xz;
+    const float reach = actor.model_size_x * actor.radius_xz; // +0x1C4
     const float behind = euler.y + std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
     Vec3 back{float(static_cast<long double>(position.x) + retail_sin(behind) * reach), position.y,
         float(static_cast<long double>(position.z) + retail_cos(behind) * reach)};

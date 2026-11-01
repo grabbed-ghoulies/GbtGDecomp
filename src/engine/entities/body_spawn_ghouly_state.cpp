@@ -65,7 +65,7 @@ void step_live_holds(i32 step, RuntimeSpawnGhoulyStateContext& context)
 bool place_runtime_spawned_ghouly(std::span<u32> message, const Vec3& spawn, RuntimeSpawnGhoulyStateContext& context)
 {
     const Actor& actor = context.actor;
-    const float radius = read_f32(context.actor_bytes, 0x1C4) * read_f32(context.actor_bytes, 0x38);
+    const float radius = context.actor.model_size_x * read_f32(context.actor_bytes, 0x38); // +0x1C4
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float heading = actor.euler.y; // Actor +0x18.
     const float reach = radius * 2.f; // DAT_0032B110.

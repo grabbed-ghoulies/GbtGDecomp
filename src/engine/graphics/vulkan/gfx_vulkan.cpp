@@ -13,7 +13,6 @@
 
 #include "../gfx_backend.h"
 #include "../gfx_present_logic.h"
-#include "../gfx_shader_permutations.h"
 #include "../gfx_shader_sources.h"
 #include "../render_profile.h"
 #include "../vertex_program_constants.h"
@@ -2071,92 +2070,34 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
     return supported;
 }
 
-void gfx_warmup_shader_permutations(const std::filesystem::path& path, const std::function<void(float)>& progress)
+bool gfx_prepare_native_pixel_definition(const u32* definition)
 {
     if (!g.ok)
     {
-        throw Error("shader permutation warm-up requires an initialized Vulkan device");
+        return false;
     }
-    if (render_profile::reference)
-    {
-        throw Error("shader permutation warm-up is unavailable with --render-reference");
-    }
-    ShaderPermutationManifest manifest;
-    read_shader_permutation_manifest(path, manifest);
-    size_t vertex_count = 0;
-    size_t pixel_fallbacks = 0;
-    const size_t total = manifest.vertex_programs.size() + manifest.pixel_definitions.size();
-    size_t completed = 0;
-    if (progress)
-    {
-        progress(total == 0 ? 1.f : 0.f);
-    }
-    const auto start = std::chrono::steady_clock::now();
-    for (const auto& program : manifest.vertex_programs)
-    {
-        if (!gfx_native_vertex_program_supported(program))
-        {
-            throw Error("shader warm-up encountered an unsupported vertex program");
-        }
-        ++vertex_count;
-        ++completed;
-        if (progress)
-        {
-            progress(float(completed) / float(total));
-        }
-    }
-    for (const auto& definition : manifest.pixel_definitions)
-    {
-        if (native_pixel_shader(definition.data()) == &g.model_ps)
-        {
-            ++pixel_fallbacks;
-        }
-        ++completed;
-        if (progress)
-        {
-            progress(float(completed) / float(total));
-        }
-    }
-    const double elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-    std::string line = log::format("shader warm-up: %zu vertex, %zu pixel permutations in %g ms", vertex_count,
-                                   manifest.pixel_definitions.size(), elapsed);
-    if (pixel_fallbacks != 0)
-    {
-        line += log::format(" (%zu generic pixel fallbacks)", pixel_fallbacks);
-    }
-    log::info("%s", line.c_str());
+    return native_pixel_shader(definition) != &g.model_ps;
 }
 
-void gfx_capture_shader_permutations(const std::filesystem::path& path)
+void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>& vertex_programs,
+                                      std::vector<std::array<u32, 60>>& pixel_definitions)
 {
     if (!g.ok)
     {
         return;
     }
-    ShaderPermutationManifest manifest;
-    if (std::filesystem::exists(path))
-    {
-        read_shader_permutation_manifest(path, manifest);
-    }
     for (const auto& [program, gpu] : g.native_programs)
     {
-        if (gpu.shader.module != VK_NULL_HANDLE && !contains_program(manifest.vertex_programs, program))
+        if (gpu.shader.module != VK_NULL_HANDLE)
         {
-            manifest.vertex_programs.push_back(program);
+            vertex_programs.push_back(program);
         }
     }
     for (const auto& [definition, shader] : g.specialized_pixels)
     {
         (void)shader;
-        if (std::find(manifest.pixel_definitions.begin(), manifest.pixel_definitions.end(), definition)
-            == manifest.pixel_definitions.end())
-        {
-            manifest.pixel_definitions.push_back(definition);
-        }
+        pixel_definitions.push_back(definition);
     }
-    write_shader_permutation_manifest(path, manifest);
-    log::info("shader capture: %zu vertex, %zu pixel permutations -> %s", manifest.vertex_programs.size(),
-              manifest.pixel_definitions.size(), path.string().c_str());
 }
 
 void gfx_begin_native_batch()

@@ -27,6 +27,18 @@ cmake --build --preset inspector
 .\build-inspector\Release\gbtg-inspector.exe --game-dir OriginalFiles --scene chapter1_scene1_2playcam
 ```
 
+## Plugin authoring tools
+
+Builds configured with `-DGBTG_RETAIL_GAME_ONLY=OFF` add commands that make plugin content
+(`docs/PLUGINS.md`). They run without opening a window:
+
+```powershell
+# Each <language>.txt of [aid_loctext_...] sections becomes <out>/loctext/<language>/<hash>.
+.\build-inspector\Release\gbtg-inspector.exe --write-loctext src\plugins\shader_warmup\loctext --out src\plugins\shader_warmup\files
+# Rebuilds the game's own loctext tables with the same writer and compares the bytes.
+.\build-inspector\Release\gbtg-inspector.exe --check-loctext OriginalFiles\loctext
+```
+
 The scene argument accepts the game's scene-order index or substring. The
 opening gameplay scene is selected by default. The scene browser uses the same
 retail scene-order list. Selecting a scene or Reload / Retry clears selections

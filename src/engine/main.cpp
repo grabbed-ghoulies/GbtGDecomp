@@ -9,6 +9,9 @@
 
 #include "graphics/render_profile.h"
 #include "saves/save_root.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "plugins/plugins.h"
+#endif
 #include <string>
 
 namespace
@@ -144,7 +147,27 @@ int main(int argc, char** argv)
         gbtg::Game game;
         const auto startup = gbtg::render_profile::Clock::now();
         cfg.boot_started = std::chrono::steady_clock::now();
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // Plugins load before the first disc file opens. Headless runs are tests and skip the user's plugins
+        // unless --plugins-dir names a folder.
+        {
+            // Without --plugins-dir: the plugins built with gbtg beside the executable, then the user's in the data
+            // directory (the same folder on Windows).
+            const auto plugins_dir = arg(argc, argv, "--plugins-dir");
+            const auto exe_dir = gbtg::host_exe_dir(argc > 0 ? argv[0] : "");
+            if (!has_flag(argc, argv, "--no-plugins") && (!plugins_dir.empty() || !cfg.headless))
+            {
+                const std::vector<std::filesystem::path> dirs = plugins_dir.empty()
+                    ? std::vector<std::filesystem::path>{exe_dir / "plugins", data_dir / "plugins"}
+                    : std::vector<std::filesystem::path>{plugins_dir};
+                gbtg::load_plugins(dirs, cfg.game_dir, exe_dir);
+            }
+        }
+#endif
         game.init(cfg.game_dir, cfg.scene);
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        gbtg::plugins_boot(game);
+#endif
         if (gbtg::render_profile::enabled)
         {
             gbtg::log::info("profile game_init_ms=%g actor_update_hold=unchanged", std::chrono::duration<double, std::milli>(gbtg::render_profile::Clock::now() - startup).count());

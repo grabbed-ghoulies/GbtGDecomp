@@ -786,7 +786,7 @@ set(GBTG_GFX "${_gbtg_gfx_default}" CACHE STRING
     "Graphics backends compiled into gbtg, first is the default: any of d3d11;vulkan (null is always built)")
 # gfx_dispatch.cpp owns the gfx.h names and forwards to the backend gfx_init picks (--gfx / gbtg.ini Backend).
 target_sources(gbtg PRIVATE src/engine/graphics/gfx_dispatch.cpp src/engine/graphics/gfx_null.cpp
-    src/engine/graphics/gfx_present_logic.cpp src/engine/graphics/gfx_shader_permutations.cpp
+    src/engine/graphics/gfx_present_logic.cpp
     src/engine/graphics/gfx_shader_sources.cpp src/engine/graphics/gfx_render_thread.cpp)
 # GBTG_OPTIMIZE step 11 runs the backend on a std::thread (gfx_render_thread.cpp).
 find_package(Threads REQUIRED)
@@ -949,6 +949,30 @@ if(GBTG_RETAIL_GAME_ONLY)
     # Warning C4996 - Retail uses strcpy, disable deprecation
     target_compile_definitions(gbtg PRIVATE _CRT_SECURE_NO_WARNINGS)
     target_compile_definitions(gbtg_lib PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+    # Plugins (docs/PLUGINS.md): disc file overlays, aid/ files, compiled-in features and plugin libraries,
+    # loaded at boot.
+    target_sources(gbtg PRIVATE
+        src/engine/plugins/plugin_loader.cpp
+        src/engine/plugins/plugin_features.cpp
+        src/engine/plugins/plugin_libraries.cpp
+    )
+    if(UNIX)
+        target_link_libraries(gbtg PRIVATE ${CMAKE_DL_LIBS})
+    endif()
+    # Plugin libraries build into plugins/<id>/ beside gbtg with their plugin.ini (cmake/GbtgPlugin.cmake, which
+    # plugin projects of their own use too). Building gbtg builds them.
+    include(cmake/GbtgPlugin.cmake)
+    # Boot shader warm-up: compiles the shaders a previous run used behind a loading screen, and records them at exit.
+    gbtg_add_plugin(gbtg_shader_warmup ID shader_warmup
+        SOURCES src/plugins/shader_warmup/shader_warmup_plugin.cpp src/plugins/shader_warmup/shader_manifest.cpp
+        PLUGIN_INI src/plugins/shader_warmup/plugin.ini
+        FILES_DIR src/plugins/shader_warmup/files)
+    # Example plugins, each a standalone project (examples/plugins/).
+    option(GBTG_BUILD_PLUGIN_EXAMPLES "Build the example plugins in examples/plugins" ON)
+    if(GBTG_BUILD_PLUGIN_EXAMPLES)
+        add_subdirectory(examples/plugins/scene_log)
+    endif()
 endif()
 
 # Host presenter optimizations (src/engine/graphics/render_optimize.h). OFF keeps the retail
@@ -1221,6 +1245,7 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
             src/engine/inspector/inspector_audio.cpp
             src/engine/inspector/inspector_session.cpp
             src/engine/inspector/inspector_ui.cpp
+            src/engine/inspector/loctext_tool.cpp
             src/engine/graphics/gfx_dispatch.cpp
             src/engine/graphics/gfx_null.cpp
             src/engine/graphics/gfx_d3d11.cpp

@@ -1,4 +1,7 @@
 #include "save_root.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -91,6 +94,11 @@ std::string xbox_host_path(const char* path)
         host += rest;
         return host_separators(std::move(host));
     }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // A disc file a plugin replaces or adds opens from the plugin's folder.
+    return plugin_host_path(host_separators(path));
+#else
     return host_separators(path);
+#endif
 }
 }

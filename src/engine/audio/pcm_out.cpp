@@ -10,6 +10,9 @@
 #include "wavebank_files.h"
 #include "listener_settings.h"
 #include "../scene/dialogue_resource_owner.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 
 #include <algorithm>
 #include <cerrno>
@@ -1602,7 +1605,11 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
         {
             path.erase(path.begin());
         }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        std::ifstream file(plugin_disc_path(game.aids.game_dir / path), std::ios::binary);
+#else
         std::ifstream file(game.aids.game_dir / path, std::ios::binary);
+#endif
         if (!file)
         {
             throw Error(std::string("0x0015BB30 cannot open the sound bank file ") + name);

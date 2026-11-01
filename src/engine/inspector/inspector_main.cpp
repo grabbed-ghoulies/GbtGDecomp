@@ -2,6 +2,7 @@
 #include "inspector_session.h"
 #include "inspector_ui.h"
 #include "inspector_graphics.h"
+#include "loctext_tool.h"
 #include "gbtg/gfx.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/host_config.h"
@@ -49,6 +50,17 @@ int main(int argc, char** argv)
         {
             log::warn("log: could not open %s", log_file.string().c_str());
         }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // Plugin authoring tools (docs/PLUGINS.md); they run without a window.
+        if (const auto source = argument(argc, argv, "--write-loctext"); !source.empty())
+        {
+            return write_loctext_sources(source, argument(argc, argv, "--out", "."));
+        }
+        if (const auto loctext = argument(argc, argv, "--check-loctext"); !loctext.empty())
+        {
+            return check_loctext_writer(loctext);
+        }
+#endif
         GfxConfig config;
         config.width = std::stoi(argument(argc, argv, "--width", "1440"));
         config.height = std::stoi(argument(argc, argv, "--height", "900"));
@@ -223,6 +235,10 @@ int main(int argc, char** argv)
             "[--screenshot workspace.bmp] [--viewport-screenshot scene.bmp] [--headless] "
             "[--width W --height H --vsync N] [--depth-overlays] "
             "[--camera-offset X,Y,Z --camera-angles yaw,pitch] [--log errors.log]");
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        log::error("       gbtg-inspector --write-loctext <source dir> --out <plugin dir>");
+        log::error("       gbtg-inspector --check-loctext <game loctext dir>");
+#endif
         return 1;
     }
 }

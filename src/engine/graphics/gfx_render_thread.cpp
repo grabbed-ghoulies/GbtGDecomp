@@ -559,22 +559,23 @@ void gfx_show_startup_loading_screen(const RgbaImage& text, float progress)
     inner->gfx_show_startup_loading_screen(text, progress);
 }
 
-void gfx_warmup_shader_permutations(const std::filesystem::path& path, const std::function<void(float)>& progress)
+bool gfx_prepare_native_pixel_definition(const u32* definition)
 {
     if (running)
     {
         drain();
     }
-    inner->gfx_warmup_shader_permutations(path, progress);
+    return inner->gfx_prepare_native_pixel_definition(definition);
 }
 
-void gfx_capture_shader_permutations(const std::filesystem::path& path)
+void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>& vertex_programs,
+                                      std::vector<std::array<u32, 60>>& pixel_definitions)
 {
     if (running)
     {
         drain();
     }
-    inner->gfx_capture_shader_permutations(path);
+    inner->gfx_compiled_shader_permutations(vertex_programs, pixel_definitions);
 }
 
 // Window events stay on the thread that created the window; the backend hands a resize to the render thread itself.

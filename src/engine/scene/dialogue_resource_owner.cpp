@@ -1,5 +1,8 @@
 #include "dialogue_resource_owner.h"
 #include "gbtg/language.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 
 #include <cstring>
 
@@ -239,7 +242,10 @@ SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(
     const std::string key(name);
     if (key.starts_with("aid_loctext_"))
     {
-        const auto path = aids_.game_dir / "loctext" / language_folder(g_language) / aid_hash_hex(aid_hash(key));
+        auto path = aids_.game_dir / "loctext" / language_folder(g_language) / aid_hash_hex(aid_hash(key));
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        path = plugin_disc_path(path);
+#endif
         if (!std::filesystem::exists(path))
         {
             return nullptr;
@@ -253,7 +259,10 @@ SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(
     if (key.starts_with("aid_font_"))
     {
         // Fonts are loose files named by their hash, as load_fonts reads them.
-        const auto path = aids_.game_dir / "font" / aid_hash_hex(aid_hash(key));
+        auto path = aids_.game_dir / "font" / aid_hash_hex(aid_hash(key));
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        path = plugin_disc_path(path);
+#endif
         if (!std::filesystem::exists(path))
         {
             last_missing = key;
@@ -402,7 +411,11 @@ void SceneDialogueResourceOwner::load_fonts()
     for (size_t index = 0; index < fonts.size(); ++index)
     {
         auto& file = font_files_[index];
-        file = parse_loose_resource(read_file(aids_.game_dir / "font" / aid_hash_hex(aid_hash(names[index]))));
+        auto path = aids_.game_dir / "font" / aid_hash_hex(aid_hash(names[index]));
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        path = plugin_disc_path(path);
+#endif
+        file = parse_loose_resource(read_file(path));
         publish_font(index, file.cpu);
     }
 }

@@ -93,14 +93,15 @@ void gfx_show_startup_loading_screen(const RgbaImage& text, float progress)
     backend().gfx_show_startup_loading_screen(text, progress);
 }
 
-void gfx_warmup_shader_permutations(const std::filesystem::path& path, const std::function<void(float)>& progress)
+bool gfx_prepare_native_pixel_definition(const u32* definition)
 {
-    backend().gfx_warmup_shader_permutations(path, progress);
+    return backend().gfx_prepare_native_pixel_definition(definition);
 }
 
-void gfx_capture_shader_permutations(const std::filesystem::path& path)
+void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>& vertex_programs,
+                                      std::vector<std::array<u32, 60>>& pixel_definitions)
 {
-    backend().gfx_capture_shader_permutations(path);
+    backend().gfx_compiled_shader_permutations(vertex_programs, pixel_definitions);
 }
 
 void gfx_pump(bool& quit)

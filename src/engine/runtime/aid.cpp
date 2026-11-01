@@ -1,4 +1,7 @@
 #include "gbtg/aid.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 
 namespace gbtg
 {
@@ -7,16 +10,27 @@ void AidStore::open(const std::filesystem::path& dir)
 {
     game_dir = dir;
     common = load_bundle(bundle_path("common.bnl"));
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    plugin_patch_bundle(common);
+#endif
 }
 
 std::filesystem::path AidStore::bundle_path(std::string_view relative) const
 {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    return plugin_disc_path(game_dir / "bundles" / std::filesystem::path(relative));
+#else
     return game_dir / "bundles" / std::filesystem::path(relative);
+#endif
 }
 
 std::filesystem::path AidStore::demand_path(u32 hash) const
 {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    return plugin_disc_path(game_dir / "demand" / aid_hash_hex(hash));
+#else
     return game_dir / "demand" / aid_hash_hex(hash);
+#endif
 }
 
 bool AidStore::demand_exists(u32 hash) const
@@ -75,6 +89,9 @@ const Bundle& AidStore::load_bundle_rel(std::string_view relative)
         return it->second;
     }
     bundles[key] = load_bundle(bundle_path(relative));
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    plugin_patch_bundle(bundles[key]);
+#endif
     return bundles[key];
 }
 

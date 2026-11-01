@@ -184,11 +184,14 @@ committed. These timings do not establish full gameplay performance.
   colour constants remain dynamic. The generic pixel shader remains available via
   `--render-reference` and as a compilation fallback. Compilation happens on cold
   first use and is measured; it is absent from the measured warm hall draw loop.
-- Cold shader variants are captured to `cache/shaders.gbtg` automatically and
-  compiled after D3D11 initializes on later runs. Capture merges with the existing
-  file so representative gameplay builds one warm-up set. The manifest stores the
-  normalized 60-word pixel definitions and complete translated vertex programs;
-  bump its translator version when shader generation or key normalization changes.
+- Cold shader variants are captured to `cache/shaders.gbtg` and compiled after the
+  device initializes on later runs by the `shader_warmup` plugin (`docs/PLUGINS.md`),
+  which only plugin builds (`GBTG_RETAIL_GAME_ONLY=OFF`) have; retail builds compile
+  each variant on first use. Capture merges with the existing file so representative
+  gameplay builds one warm-up set. The manifest stores the normalized 60-word pixel
+  definitions and complete translated vertex programs; bump its translator version
+  (`src/plugins/shader_warmup/shader_manifest.cpp`) when shader generation or key
+  normalization changes.
 - Contiguous immutable state snapshots replace per-state tree allocations. Native
   batches avoid restoring the shared pipeline between adjacent native draws,
   restoring it at clears, target boundaries and batch end. Draw order is unchanged.

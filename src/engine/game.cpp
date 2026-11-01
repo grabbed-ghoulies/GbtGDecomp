@@ -23,6 +23,9 @@
 #include "gbtg/log.h"
 #include "camera/display_view.h"
 #include "gbtg/movie.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "plugins/plugins.h"
+#endif
 
 #include <algorithm>
 #include <string>
@@ -200,6 +203,9 @@ void frame_tick(Game& g, float dt, const InputState& in)
 void Game::tick(float dt, const InputState& in)
 {
     frame_tick(*this, dt, in);
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    plugins_frame(*this);
+#endif
 }
 
 } // namespace gbtg

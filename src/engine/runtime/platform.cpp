@@ -1,9 +1,11 @@
 #include "gbtg/gfx.h"
-#include "gbtg/font.h"
 #include "gbtg/log.h"
 #include "../graphics/render_profile.h"
 #include "gbtg/platform.h"
 #include "gbtg/texture.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 
 #include "gbtg/debug_ui.h" // Defines GBTG_DEBUG_UI when the debug UI is enabled.
 
@@ -48,63 +50,6 @@ bool host_input_focused()
 constexpr std::chrono::duration<double> kLogicStep{1.0 / 60.0};
 // D3DPRESENT_INTERVAL_TWO: the fewest fields between two swaps, so the usual step is 1/30 s.
 constexpr int kSwapInterval = 2;
-
-RgbaImage startup_text_image(const GloopyFont& font, std::string_view text)
-{
-    int cursor = 0;
-    int left = 0;
-    int right = 0;
-    int height = 0;
-    for (char character : text)
-    {
-        const char32_t codepoint = static_cast<unsigned char>(character);
-        const RgbaImage* glyph = font.image(codepoint, font.glyph_frame_count(codepoint) - 1);
-        if (glyph != nullptr)
-        {
-            left = (std::min)(left, cursor - font.bearing(codepoint));
-            right = (std::max)(right, cursor - font.bearing(codepoint) + glyph->width);
-            height = (std::max)(height, glyph->height);
-        }
-        cursor += font.advance(codepoint);
-    }
-
-    RgbaImage image;
-    image.width = right - left;
-    image.height = height;
-    if (image.width <= 0 || image.height <= 0)
-    {
-        return image;
-    }
-    image.bgra.resize(size_t(image.width) * size_t(image.height) * 4);
-
-    cursor = 0;
-    for (char character : text)
-    {
-        const char32_t codepoint = static_cast<unsigned char>(character);
-        const RgbaImage* glyph = font.image(codepoint, font.glyph_frame_count(codepoint) - 1);
-        if (glyph != nullptr)
-        {
-            const int x0 = cursor - font.bearing(codepoint) - left;
-            for (int y = 0; y < glyph->height; ++y)
-            {
-                for (int x = 0; x < glyph->width; ++x)
-                {
-                    const size_t source = (size_t(y) * size_t(glyph->width) + size_t(x)) * 4;
-                    if (glyph->bgra[source + 3] == 0)
-                    {
-                        continue;
-                    }
-                    const size_t destination =
-                        (size_t(y) * size_t(image.width) + size_t(x0 + x)) * 4;
-                    std::copy_n(glyph->bgra.begin() + std::ptrdiff_t(source), 4,
-                        image.bgra.begin() + std::ptrdiff_t(destination));
-                }
-            }
-        }
-        cursor += font.advance(codepoint);
-    }
-    return image;
-}
 
 // Waits until `deadline`: a high-resolution timer sleep until about a millisecond before it, then a short spin.
 void wait_until(std::chrono::steady_clock::time_point deadline)
@@ -151,7 +96,6 @@ void wait_until(std::chrono::steady_clock::time_point deadline)
 
 int run_platform(Game& game, const PlatformConfig& cfg)
 {
-    const std::filesystem::path shader_permutations = "cache/shaders.gbtg";
     int remaining = cfg.frames;
     if ((cfg.headless || !cfg.screenshot.empty()) && remaining <= 0)
     {
@@ -180,32 +124,14 @@ int run_platform(Game& game, const PlatformConfig& cfg)
 #endif
     log::info("gfx: %s%s", gfx_ok ? gfx_backend_name() : "unavailable", gfx_has_window() ? " window" : " offscreen");
 
-    if (gfx_ok && gfx_has_window())
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Plugins that work with the device before the first frame, such as the shader warm-up (docs/PLUGINS.md).
+    if (gfx_ok)
     {
-        GloopyFont font;
-        if (!font.load(cfg.game_dir / "font" / "069563d4"))
-        {
-            throw Error("could not load startup font " + (cfg.game_dir / "font" / "069563d4").string());
-        }
-        const RgbaImage text = startup_text_image(font, "Compiling Shaders");
-        if (text.width <= 0 || text.height <= 0)
-        {
-            throw Error("startup font has no drawable glyphs");
-        }
-        const auto show_progress = [&text](float progress)
-        {
-            gfx_show_startup_loading_screen(text, progress);
-        };
-        show_progress(0.f);
+        plugins_graphics_ready(game);
         render_profile::frame = {};
-
-        if (std::filesystem::exists(shader_permutations)
-            && !render_profile::reference && !render_profile::cpu_vertex)
-        {
-            gfx_warmup_shader_permutations(shader_permutations, show_progress);
-            render_profile::frame = {};
-        }
     }
+#endif
 
 #if !defined(GBTG_WITH_SDL)
     if (!gfx_has_window() && remaining <= 0)
@@ -532,7 +458,9 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     std::string summary = log::format("frames %u t=%gs scene %s", game.frame, game.time, game.scene_name.c_str());
     log::info("%s", summary.c_str());
 
-    gfx_capture_shader_permutations(shader_permutations);
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    plugins_graphics_shutdown(game);
+#endif
 
     // The Game still owns every captured resource here; release replay commands before unloading it.
     render_profile::replay = {};

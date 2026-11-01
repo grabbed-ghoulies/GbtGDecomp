@@ -275,6 +275,7 @@ and restoration steps in [Original file changes](docs/ORIGINAL_FILES.md).
 
 - [Executable map](docs/XBE.md) and [Ghidra workflow](docs/GHIDRA.md)
 - [AID resource identifiers](docs/AID.md) and [File formats](docs/FORMATS.md)
+- [Plugins](docs/PLUGINS.md) (non-retail builds only) and [example plugins](examples/plugins/README.md)
 - [Native scene presentation](docs/NATIVE_SCENE_PRESENT.md),
   [Transitions](docs/NATIVE_TRANSITIONS.md) and [Audio](docs/NATIVE_AUDIO.md)
 - [xemu runtime oracle](docs/XEMU.md) and [Oracle tooling](tools/oracle/README.md)

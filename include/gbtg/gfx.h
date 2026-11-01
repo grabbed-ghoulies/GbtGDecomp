@@ -34,9 +34,12 @@ void gfx_shutdown();
 const char* gfx_backend_name();
 bool gfx_has_window();
 void gfx_show_startup_loading_screen(const RgbaImage& text, float progress);
-void gfx_warmup_shader_permutations(const std::filesystem::path& path,
-                                    const std::function<void(float)>& progress = {});
-void gfx_capture_shader_permutations(const std::filesystem::path& path);
+// Compiles the specialized pixel shader for a 60-word D3DPIXELSHADERDEF ahead of its first draw. False when the
+// definition runs on the generic combiner shader instead, or without a device.
+bool gfx_prepare_native_pixel_definition(const u32* definition);
+// The vertex programs and pixel definitions compiled so far, each once.
+void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>& vertex_programs,
+                                      std::vector<std::array<u32, 60>>& pixel_definitions);
 
 // PC window messages. Sets quit on close / Escape. No-op without a window.
 void gfx_pump(bool& quit);

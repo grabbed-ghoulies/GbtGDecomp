@@ -26,7 +26,7 @@ retail translation differs between them.
 | `src/engine/graphics/gfx_backend.h`, `gfx_dispatch.cpp` | `GfxBackend` table; the public `gfx_*` names forward to the selected backend |
 | `src/engine/graphics/gfx_render_thread.*` | `GBTG_OPTIMIZE` step 11: the Vulkan backend on a render thread, fed by a queue of copied `gfx_*` calls |
 | `src/engine/graphics/gfx_shader_sources.*` | The HLSL both backends compile, and native pixel-shader specialization |
-| `src/engine/graphics/gfx_shader_permutations.*` | `cache/shaders.gbtg` format |
+| `src/plugins/shader_warmup/shader_manifest.*` | `cache/shaders.gbtg` format, owned by the shader warm-up plugin |
 | `src/engine/graphics/gfx_present_logic.*` | Retail present logic (0x00033480, 0x00032AB0, 0x00033A90) shared by every backend |
 | `src/engine/graphics/vulkan/vk_context.*` | Instance, device, VMA, buffers, images, barriers |
 | `src/engine/graphics/vulkan/vk_swapchain.*` | Window swapchain |
@@ -50,7 +50,8 @@ retail translation differs between them.
   staging data share a ring that is reset after each wait. This is simple and correct, with no frames in flight.
 - **State.** Blend, depth-stencil, cull and topology are baked into a pipeline cached by its state;
   viewport, scissor and stencil reference are dynamic. Clears use `vkCmdClearAttachments`.
-- **SPIR-V cache.** Every compiled module is written to `cache/spirv/<hash>.spv`. A warm warm-up takes
+- **SPIR-V cache.** Every compiled module is written to `cache/spirv/<hash>.spv`. A warm warm-up (the
+  `shader_warmup` plugin, `docs/PLUGINS.md`) takes
   about 0.65 s for 159 permutations, against 17 s cold (D3D11: about 6.7 s).
 
 ## Verified

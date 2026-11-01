@@ -34,11 +34,12 @@ void gfx_show_startup_loading_screen(const RgbaImage&, float)
 {
 }
 
-void gfx_warmup_shader_permutations(const std::filesystem::path&, const std::function<void(float)>&)
+bool gfx_prepare_native_pixel_definition(const u32*)
 {
+    return false;
 }
 
-void gfx_capture_shader_permutations(const std::filesystem::path&)
+void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>&, std::vector<std::array<u32, 60>>&)
 {
 }
 

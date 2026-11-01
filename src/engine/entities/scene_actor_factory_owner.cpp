@@ -1332,6 +1332,23 @@ ActorMatrixSetup& NativeSceneActorClassOwner::bone_debris_matrices(FactoryObject
     return bone_debris_.at(object.bytes.get())->matrices;
 }
 
+ActorMatrixSetup* NativeSceneActorClassOwner::actor_matrices(const u8* bytes)
+{
+    if (const auto weapon = weapons_.find(bytes); weapon != weapons_.end())
+    {
+        return &weapon->second->context.matrices;
+    }
+    if (const auto debris = bone_debris_.find(bytes); debris != bone_debris_.end())
+    {
+        return &debris->second->matrices;
+    }
+    if (const auto emitter = emitters_.find(bytes); emitter != emitters_.end())
+    {
+        return &emitter->second->matrices;
+    }
+    return nullptr;
+}
+
 bool NativeSceneActorClassOwner::construct_animated_light(FactoryObject& object, std::span<const u8> parameters)
 {
     auto& view = bindings_.actors.view(object);

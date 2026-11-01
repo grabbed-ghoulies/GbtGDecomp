@@ -494,6 +494,26 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 
 ## Checkpoints
 
+### 2026-11-01: native fields read as raw words (audit)
+
+Fields the port holds natively but some code still read as raw words, which always read 0.
+
+- **Actor +0x288 matrix records reached no draw.** The actor draw (`0x0003C9E0`) refreshes the model's matrix
+  array (`0x00040200`) when +0x298 is clear, but it was handed an empty matrix state for every actor. A weapon's
+  chipped pieces (`0x001451C0`, `0x0003F820`, moved by `0x0003FB80`) never left the model, and a broken weapon stayed
+  drawn whole where it was dropped until its fade-out, when its settled debris appeared. Draws now take the class
+  instance's +0x288 setup (weapon, bone debris, emitter, background) or a player's; the view visibility test uses the
+  same lookup. Checked in play by the user in the snooker room (chapter 1 scene 5): each hit snaps pieces off a cue,
+  and a broken cue falls apart at once.
+- **Body +0x710 collision spheres.** `0x00026010` builds them natively (most bodies have one: Cooper, the mummies,
+  Mr Ribs), but +0x710 / +0x714 were never written, so `0x00025F00` never pushed a downed body's spheres and the
+  knockdown's wall and landing contacts (`0x0009C100`, `0x00025FE0`, `0x0009B430`) never ran. The count and flag are
+  now the body's bytes, and the knockdown, death and grabbed states and the collision update take the native records.
+- **Actor +0x310 secondary model** in weapon breakage (`0x001457A0`, `0x001454F0`) now uses the native model.
+- Checked and sound: actor +0x8F8's guards, +0x958, +0x95C, +0x960 and body +0x760.
+- `--scene5` holds in Free Play: the driver keeps walking to a cue it cannot take, with Cooper on 1 energy. The room
+  plays through by hand.
+
 ### 2026-11-01: the mummy's bandages, and enemies provoked by hits
 
 - **entityStateBandaged** (factory type 0x60, getter `0x0008A300`, vtable 0x005056E0) in

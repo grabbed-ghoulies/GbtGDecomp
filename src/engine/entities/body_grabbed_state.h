@@ -1,4 +1,5 @@
 #pragma once
+#include "body_collision.h"
 #include "body_pickup_state.h"
 #include "body_hit_state.h"
 #include "body_timer_requests.h"
@@ -16,6 +17,7 @@ struct RuntimeGrabbedStateContext
     RuntimePickupStateContext& pickup; // Body, actor, bits, animation, clock, live records, input, actor message.
     RuntimeBodyRecoveryAction& recovery; // 0x00134060.
     RuntimeBodyHoldTimerContext& hold; // 0x00027BE0.
+    RuntimeBodyCollisionSphere* spheres; // Body +0x710; the count is body +0x714.
 };
 
 void grabbed_state_object_sizes(ObjectSizes& output); // Xbox 0x000942D0

@@ -141,10 +141,13 @@ void destroy_runtime_death_state(std::span<u8> state, RuntimeDeathStateContext& 
     step_half(body, 0x30, -1);
     step_counters(body, -1);
     set_runtime_body_shape_mode(get(state, field::shape_mode), knockdown.shape); // 0x0001FEB0, BL state +0x20
-    if (read_u32(body, 0x710) != 0)
+    if (knockdown.spheres != nullptr) // Body +0x710.
     {
-        // Body +0x710: +0x714 sphere records of 0x58, each +0x26 cleared; no body has a native view of them.
-        throw Error("death state destructor 0x0008C750 reads body +0x710 collision spheres without a native view");
+        RuntimeBodyCollisionSphere* end = knockdown.spheres + body[0x714];
+        for (RuntimeBodyCollisionSphere* sphere = knockdown.spheres; sphere < end; ++sphere)
+        {
+            sphere->contact[0x26] = 0;
+        }
     }
     body[0x715] = 0;
     body[0x716] = 0;

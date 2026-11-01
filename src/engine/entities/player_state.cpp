@@ -219,7 +219,8 @@ void collect_runtime_player_body_shapes(const RuntimeBodyModelNodes* model, Runt
 }
 
 // Xbox 0x00026010
-void collect_runtime_body_special_shapes(const RuntimeBodyModelNodes* model, RuntimeBodyShapeStorage& storage)
+void collect_runtime_body_special_shapes(std::span<u8> body, const RuntimeBodyModelNodes* model,
+    RuntimeBodyShapeStorage& storage)
 {
     if (model != nullptr && model->nodes.data() != nullptr)
     {
@@ -245,17 +246,18 @@ void collect_runtime_body_special_shapes(const RuntimeBodyModelNodes* model, Run
                     } while (shape != nullptr);
                     if (count != 0)
                     {
-                        storage.special_count = u8(count);
-                        storage.special = static_cast<RuntimeBodySpecialShape*>(engine_heap_allocate(i32(count * sizeof(RuntimeBodySpecialShape))));
-                        std::memset(storage.special, 0, count * sizeof(RuntimeBodySpecialShape));
+                        body[0x714] = u8(count);
+                        storage.special = static_cast<RuntimeBodyCollisionSphere*>(
+                            engine_heap_allocate(i32(count * sizeof(RuntimeBodyCollisionSphere))));
+                        std::memset(static_cast<void*>(storage.special), 0, count * sizeof(RuntimeBodyCollisionSphere));
                         shape = entry.data + 8;
                         u32 index = 0;
                         do
                         {
                             if ((shape[4] & 0x10) != 0 && shape[0] == 0)
                             {
-                                storage.special[index].bytes[0x26] = 0;
-                                storage.special[index++].shape = shape;
+                                storage.special[index].contact[0x26] = 0;
+                                storage.special[index++].node = reinterpret_cast<const EntityShapeNode*>(shape);
                             }
                             if (shape[1] == 0)
                             {
@@ -263,7 +265,7 @@ void collect_runtime_body_special_shapes(const RuntimeBodyModelNodes* model, Run
                             }
                             shape += shape[1];
                         } while (shape != nullptr);
-                        storage.special_active = 0;
+                        body[0x715] = 0;
                     }
                 }
                 return;

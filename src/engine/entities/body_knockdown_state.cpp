@@ -156,13 +156,14 @@ bool has_action(RuntimeKnockdownContext& context, u16 key)
     return runtime_body_has_action_id(context.table, key);
 }
 
-// The body's +0x710 sphere records (stride 0x58) are not viewed natively; every reader requires them absent.
-void require_no_contact_records(std::span<const u8> body)
+// A sphere record's contact copy (0x000FCD70's segment record) as the wall test and the bounce read it.
+std::span<const u8> sphere_record(const RuntimeBodyCollisionSphere* sphere)
 {
-    if (read_u32(body, 0x710) != 0)
+    if (sphere == nullptr)
     {
-        throw Error("body +0x710 collision sphere records have no native view");
+        throw Error("knockdown reads a null body +0x710 sphere record");
     }
+    return {sphere->contact.data(), sphere->contact.size()};
 }
 }
 
@@ -176,7 +177,14 @@ void knockdown_state_object_sizes(ObjectSizes& output)
 // Xbox 0x00025FA0
 void clear_runtime_body_contacts(RuntimeKnockdownContext& context)
 {
-    require_no_contact_records(context.body);
+    if (context.spheres != nullptr)
+    {
+        RuntimeBodyCollisionSphere* end = context.spheres + context.body[0x714];
+        for (RuntimeBodyCollisionSphere* sphere = context.spheres; sphere < end; ++sphere)
+        {
+            sphere->contact[0x26] = 0;
+        }
+    }
     context.body[0x715] = 0;
     context.body[0x716] = 0;
 }
@@ -725,9 +733,9 @@ u32 runtime_knockdown_contact_kind(std::span<const u8>, RuntimeKnockdownContext&
     {
         return 0;
     }
-    require_no_contact_records(context.body);
-    // No records: the scan ends on a null record, whose +0x10 is read from address zero.
-    throw Error("knockdown contact kind 0x0009C100 reads a null +0x710 record");
+    // A scan that finds no marked record reads +0x10 from address zero.
+    const std::span<const u8> record = sphere_record(first_hit_runtime_body_sphere(context.body, context.spheres));
+    return read_f32(record, 0x10) > 0.9f ? 2 : 1; // DAT_0032B174; COMISS, JA
 }
 
 // Xbox 0x0009BA40
@@ -1113,7 +1121,11 @@ void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCon
         }
         else if (against)
         {
-            require_no_contact_records(body);
+            const std::span<const u8> record = sphere_record(
+                first_hit_runtime_body_sphere(body, context.spheres)); // 0x00025FE0
+            put_vec(state, 0xD0, read_vec(record, 0));
+            body[0x254] = entity_detail::navigation_surface_kind(i32(read_u32(context.actor_bytes, 0xCEC)),
+                read_vec(state, 0xD0)); // 0x001117A0
         }
         else
         {
@@ -1143,7 +1155,11 @@ void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCon
     {
         return;
     }
-    require_no_contact_records(body);
+    const std::span<const u8> record = sphere_record(first_hit_runtime_body_sphere(body, context.spheres)); // 0x00025FE0
+    if (runtime_knockdown_hits_wall(record, velocity)) // 0x0009BA40, ECX record
+    {
+        bounce_runtime_knockdown(state, record, context); // 0x0009B780, EAX record
+    }
 }
 
 // Xbox 0x0009CBE0

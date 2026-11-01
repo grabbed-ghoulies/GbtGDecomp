@@ -1063,7 +1063,11 @@ struct SceneActorServices::State
     u32 node_registry_count = 0;
     std::unique_ptr<RuntimeShaderFragmentTable> shader_fragments =
         std::make_unique<RuntimeShaderFragmentTable>();
-    std::unordered_map<Actor*, RuntimeActorMatrixState> draw_matrices; // Actor +0x288 views for draws.
+    std::unordered_map<Actor*, RuntimeActorMatrixState> draw_matrices; // Empty +0x288 views for classes without one.
+    // Actor +0x288..+0x2A0 of the object's class instance (a weapon, bone debris, emitter or background), or null.
+    ActorMatrixSetup* actor_matrix_setup(FactoryObject& object);
+    // The +0x288 view the draw's 0x00040200 refreshes: the class instance's, a player's, or an empty one.
+    RuntimeActorMatrixState& actor_draw_matrices(FactoryObject& object, Actor& actor);
     std::unordered_map<ActorFrameAttachment*, ActorFrameDrawCallback> attachment_draws; // Attachment vtable +0x14.
     std::unique_ptr<RuntimeFxCustomContext> fx_custom; // Types 0xC and 0x2E.
     std::unique_ptr<RuntimeGenerateGhoulyScene> generate_ghouly; // Type 0x6F's scene views.
@@ -9336,11 +9340,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             unbound("mind +0x10 target record " + std::to_string(record) + " outside DAT_00545988");
         }
     }
-    if (read_u32(player.body, 0x710) != 0)
-    {
-        unbound("body +0x710 collision sphere view for 0x00025F00");
-    }
-    RuntimeBodyCollisionSphere* spheres = nullptr;
+    RuntimeBodyCollisionSphere* spheres = player.shapes.special; // Body +0x710.
     const EntityMaskHost mask{player.actor.mask_flag, player.actor.goal_ring, player.actor.mask_mode};
     RuntimeBodyCollision collision_view{player.body, player.actor, player.body_bits, spheres, mask, clock};
     RuntimePlayerRoomTracking room{player.self, player.body, player.allowed, player.current,
@@ -10616,16 +10616,8 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
     {
         throw Error("actor visibility has no DAT_005077A8 display view");
     }
-    ActorMatrixSetup* matrices = nullptr;
-    if (object.type == 0x12)
-    {
-        // The bone debris keeps the base slot 0x0003C830; its +0x288 rows are the class's own.
-        matrices = &classes->bone_debris_matrices(object);
-    }
-    else if (i32(read_u32({object.bytes.get(), object.size}, 0x28C)) > 0)
-    {
-        unbound("actor +0x288 matrix setup for view visibility");
-    }
+    // Actor +0x288..+0x2A0 lives on the class's native instance (the bone debris keeps the base slot 0x0003C830).
+    ActorMatrixSetup* matrices = actor_matrix_setup(object);
     RuntimeActorViewVisibility visibility{actor, {object.bytes.get(), object.size}, matrices, *display_view};
     return runtime_actor_in_view(visibility, pass, view);
 }
@@ -11210,6 +11202,28 @@ void SceneActorServices::State::draw_scene_controls()
     }
 }
 
+ActorMatrixSetup* SceneActorServices::State::actor_matrix_setup(FactoryObject& object)
+{
+    if (auto* background = backgrounds->find(object.bytes.get()); background != nullptr)
+    {
+        return &background->matrices;
+    }
+    return classes->actor_matrices(object.bytes.get());
+}
+
+RuntimeActorMatrixState& SceneActorServices::State::actor_draw_matrices(FactoryObject& object, Actor& actor)
+{
+    if (object.type == 5)
+    {
+        return players->player(object).matrices;
+    }
+    if (ActorMatrixSetup* setup = actor_matrix_setup(object); setup != nullptr)
+    {
+        return setup->matrices;
+    }
+    return draw_matrices[&actor];
+}
+
 ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object, Actor& actor,
     std::unique_ptr<ActorDrawModelView>& model)
 {
@@ -11269,7 +11283,7 @@ ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object
     };
     return ActorDrawState{view.frame, model.get(), bytes[0x197], bytes[0x298], view.startup.color,
         std::bit_cast<u32>(flags), callback(read_u32(bytes, 0x1A0), "+0x1A0"), callback(read_u32(bytes, 0x1A4), "+0x1A4"),
-        reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), draw_matrices[&actor]};
+        reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), actor_draw_matrices(object, actor)};
 }
 
 // The open texture target's texels (and its depth texture's words) written back, then the back buffer again.

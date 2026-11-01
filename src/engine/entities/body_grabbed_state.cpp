@@ -137,9 +137,13 @@ void destroy_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateConte
     {
         pickup.bits.bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
     }
-    if (word(body, 0x710) != 0)
+    if (context.spheres != nullptr) // Body +0x710.
     {
-        throw Error("grabbed destructor 0x00094450 reads body +0x710 collision spheres without a native view");
+        RuntimeBodyCollisionSphere* end = context.spheres + body[0x714];
+        for (RuntimeBodyCollisionSphere* sphere = context.spheres; sphere < end; ++sphere)
+        {
+            sphere->contact[0x26] = 0;
+        }
     }
     body[0x715] = 0;
     body[0x716] = 0;

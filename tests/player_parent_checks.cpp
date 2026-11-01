@@ -699,8 +699,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         RuntimeBodyCollisionState* collision = nullptr;
         std::span<const u8> attributes, actions;
         RuntimeBodyShapeStorage shapes{};
-        shapes.special = static_cast<RuntimeBodySpecialShape*>(engine_heap_allocate(sizeof(RuntimeBodySpecialShape)));
-        shapes.special_count = 1;
+        shapes.special = static_cast<RuntimeBodyCollisionSphere*>(engine_heap_allocate(sizeof(RuntimeBodyCollisionSphere)));
         std::array<u8, 0xD00> health_actor{};
         std::array<u8, 12> curve{};
         std::array<u8, 1> tags{};
@@ -761,8 +760,8 @@ void check_body_dependencies(SceneExecutableResources& executable)
             && body[0x2D2] == 0xA5 && body[0x92] == 1 && read_u32(body, 0xFC) == 1,
             "complete body constructor must preserve raw copies, conditional byte and exact constants");
         require(flags != nullptr && flags->bit_count == 0x41 && flags->bytes[3] == 0x20
-            && collision != nullptr && collision->count == 1 && shapes.special_count == 1
-            && shapes.special->shape == shape_data.data() + 8 && hash_count == 6,
+            && collision != nullptr && collision->count == 1 && body[0x714] == 1 && body[0x715] == 0
+            && reinterpret_cast<const u8*>(shapes.special->node) == shape_data.data() + 8 && hash_count == 6,
             "complete body constructor must own real bit, collision, special shape and hash allocations");
         destroy_runtime_parent_body(body, cleanup);
         const std::array<u16, 1> excluded{5};
@@ -776,7 +775,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
             "excluded body class must skip randomness and nonzero parameter must clear its conditional byte");
         destroy_runtime_parent_body(body, cleanup);
         require(groups == nullptr && animation_bits == nullptr && flags == nullptr && cache_count == 0
-            && shapes.special == nullptr && shapes.special_count == 0 && group_count == 1,
+            && shapes.special == nullptr && body[0x714] == 0 && group_count == 1,
             "complete parent destructor must release owned storage while preserving group count byte");
         destroy_runtime_parent_body(body, cleanup);
     }
@@ -1837,10 +1836,10 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
         RuntimeBodyModelNodes model{nodes};
         RuntimeBodyShapeStorage storage{};
         collect_runtime_player_body_shapes(&model, storage);
-        collect_runtime_body_special_shapes(&model, storage);
+        collect_runtime_body_special_shapes(body, &model, storage);
         require(storage.selected_count == 3 && storage.selected[2] == shapes.data() + 24
-            && storage.special_count == 2 && storage.special[1].shape == shapes.data() + 24
-            && storage.special[0].bytes[0x26] == 0, "shape terminal must be tested before zero stride");
+            && body[0x714] == 2 && reinterpret_cast<const u8*>(storage.special[1].node) == shapes.data() + 24
+            && storage.special[0].contact[0x26] == 0, "shape terminal must be tested before zero stride");
         engine_heap_free(storage.selected);
         engine_heap_free(storage.selected_state);
         engine_heap_free(storage.special);

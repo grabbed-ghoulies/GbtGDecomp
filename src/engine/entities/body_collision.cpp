@@ -312,4 +312,19 @@ void push_runtime_body_spheres(RuntimeBodyCollision& context)
         }
     }
 }
+
+// Xbox 0x00025FE0
+RuntimeBodyCollisionSphere* first_hit_runtime_body_sphere(std::span<const u8> body,
+    RuntimeBodyCollisionSphere* spheres)
+{
+    RuntimeBodyCollisionSphere* end = spheres + body[0x714];
+    for (RuntimeBodyCollisionSphere* sphere = spheres; sphere < end; ++sphere)
+    {
+        if (sphere->contact[0x26] != 0)
+        {
+            return sphere;
+        }
+    }
+    return nullptr;
+}
 }

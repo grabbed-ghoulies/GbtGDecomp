@@ -1,4 +1,5 @@
 #pragma once
+#include "body_collision.h"
 #include "player_parent_lifecycle.h"
 #include "gbtg/entity.h"
 
@@ -32,24 +33,17 @@ struct RuntimeBodyModelNodes
 {
     std::span<const RuntimeBodyModelNode> nodes;
 };
-struct RuntimeBodySpecialShape
-{
-    std::array<u8, 0x54> bytes;
-    const u8* shape; // +0x54, native pointer expansion.
-};
 struct RuntimeBodyShapeStorage
 {
     u32 selected_count; // Body +0x898.
     const u8** selected; // Body +0x8A0.
     u8* selected_state; // Body +0x89C.
-    RuntimeBodySpecialShape* special; // Body +0x710.
-    u8 special_count; // Body +0x714.
-    u8 special_active; // Body +0x715.
+    RuntimeBodyCollisionSphere* special; // Body +0x710; its count is the body byte +0x714.
 };
 void collect_runtime_player_body_shapes(const RuntimeBodyModelNodes* model,
     RuntimeBodyShapeStorage& storage); // Xbox 0x00075270
-void collect_runtime_body_special_shapes(const RuntimeBodyModelNodes* model,
-    RuntimeBodyShapeStorage& storage); // Xbox 0x00026010
+void collect_runtime_body_special_shapes(std::span<u8> body, const RuntimeBodyModelNodes* model,
+    RuntimeBodyShapeStorage& storage); // Xbox 0x00026010, EBX body
 struct RuntimeBodyAction
 {
     FactoryObject& object; // Body +0x760.

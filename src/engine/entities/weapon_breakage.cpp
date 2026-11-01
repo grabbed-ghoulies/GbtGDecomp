@@ -131,9 +131,9 @@ void set_runtime_weapon_piece_pairs(RuntimeWeaponActor& weapon, float fraction)
         (static_cast<long double>(1.f) - fraction); // DAT_0032B0F8.
     const u8 value = u8(i32(scaled)); // 0x001673D8.
     entity_store_pair(std::span<u8>(weapon.view.pose.node_flags), pair, value); // 0x000F96F0 on +0x204's +0x294
-    if (read_u32(weapon.bytes, 0x310) != 0)
+    if (RuntimeModelInstance* secondary = weapon.view.startup.models.secondary.get(); secondary != nullptr)
     {
-        throw Error("0x001457A0 stores the pair on actor +0x310's model, which has no native view");
+        entity_store_pair(std::span<u8>(secondary->node_flags), pair, value); // 0x000F96F0 on actor +0x310
     }
 }
 
@@ -190,7 +190,7 @@ bool break_runtime_weapon(RuntimeWeaponActor& weapon)
             store16(bytes, 0xD88, 0xFFFF);
         }
     }
-    if (read_u32(bytes, 0x310) != 0)
+    if (weapon.view.startup.models.secondary != nullptr) // Actor +0x310, held natively.
     {
         store32(bytes, 0x30C, 0);
     }

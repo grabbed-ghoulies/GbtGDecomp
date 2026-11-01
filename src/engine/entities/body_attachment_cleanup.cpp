@@ -167,7 +167,7 @@ void destroy_runtime_parent_body(std::span<u8> body, RuntimeParentBodyCleanup& c
     {
         engine_heap_free(context.shapes.special);
         context.shapes.special = nullptr;
-        context.shapes.special_count = 0;
+        body[0x714] = 0;
     }
     release_runtime_body_health(context.health);
     release_runtime_body_actions(body, context.first_action, context.second_action,

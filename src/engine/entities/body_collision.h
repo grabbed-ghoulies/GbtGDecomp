@@ -31,6 +31,9 @@ struct RuntimeBodyCollision
 u8 push_runtime_body_sphere(RuntimeBodyCollision& context, RuntimeBodyCollisionSphere& sphere,
     const float* world); // Xbox 0x00026100
 void push_runtime_body_spheres(RuntimeBodyCollision& context); // Xbox 0x00025F00, ESI body
+// The first of the body's +0x714 sphere records a push marked (+0x26), or null.
+RuntimeBodyCollisionSphere* first_hit_runtime_body_sphere(std::span<const u8> body,
+    RuntimeBodyCollisionSphere* spheres); // Xbox 0x00025FE0, ECX body
 bool sweep_runtime_player_body_floor(std::span<u8> body, Actor& actor,
     EntityBitBlock& bits, const EntityMaskHost& mask, i32 floor,
     const Vec3& start, const Vec3& base, Vec3& candidate,

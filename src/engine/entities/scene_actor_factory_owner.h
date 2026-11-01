@@ -226,6 +226,8 @@ public:
     void message_bone_debris(FactoryObject& object, std::span<const u32> message);
     u32 draw_bone_debris(FactoryObject& object, i32 kind, RuntimeBoneDebrisDraw& draw); // Vtable +0x14, 0x000686A0.
     ActorMatrixSetup& bone_debris_matrices(FactoryObject& object); // Actor +0x288..+0x2A0 of a type 0x12 actor.
+    // Actor +0x288..+0x2A0 of a weapon, bone debris or animated emitter instance, or null for other classes.
+    ActorMatrixSetup* actor_matrices(const u8* bytes);
     bool construct_animated_light(FactoryObject& object, std::span<const u8> parameters); // Type 0x13, Xbox 0x0006C2B0.
     void release_animated_light(FactoryObject& object); // Xbox 0x0006C540.
     void update_animated_light(FactoryObject& object); // Type 0x13 vtable +0x10 after 0x000420D0, Xbox 0x0006C5A0.

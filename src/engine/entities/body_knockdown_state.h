@@ -1,5 +1,6 @@
 #pragma once
 
+#include "body_collision.h"
 #include "body_state_actions.h"
 #include "body_attachment_cleanup.h"
 #include "body_death_effects.h"
@@ -71,6 +72,7 @@ struct RuntimeKnockdownContext
     // Another scene actor's vtable +0xC; its replies land in the words.
     std::function<void(u32 actor, std::span<u32> message)> send;
     std::function<void()> hold_latches; // 0x00027BE0 on this body.
+    RuntimeBodyCollisionSphere* spheres; // Body +0x710 (0x00026010's records); the count is body +0x714.
 };
 
 // Message 8 from the knockdown sweep (0x0013FC50) to a probe's owner: +4 the owner's reply, +8 its contact

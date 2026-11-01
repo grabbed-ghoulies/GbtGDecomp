@@ -104,7 +104,7 @@ bool initialize_runtime_parent_body(std::span<u8> body, std::span<const u8> para
     body[0x87E] = 0;
     copy(0x878, 0x1B4, 4);
     copy(0x87C, 0x1AC, 2);
-    collect_runtime_body_special_shapes(context.nodes, owner.shapes);
+    collect_runtime_body_special_shapes(body, context.nodes, owner.shapes);
     body[0x717] = 0;
     initialize_runtime_body_action(body, parameters, context.action);
     const u16 key = read_u16(body, 0x74A);

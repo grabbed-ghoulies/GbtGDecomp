@@ -1555,7 +1555,8 @@ RuntimeKnockdownContext& SceneBodyMessages::knockdown_context()
         [this]()
         {
             hold_runtime_body_latches(player_.body, hold_timer()); // 0x00027BE0
-        }});
+        },
+        player_.shapes.special});
     return *knockdown_;
 }
 
@@ -2579,7 +2580,7 @@ RuntimeBodyHoldTimerContext& SceneBodyMessages::hold_timer()
 RuntimeGrabbedStateContext& SceneBodyMessages::grabbed_context()
 {
     auto& pickup = pickup_context();
-    grabbed_.emplace(RuntimeGrabbedStateContext{pickup, recovery_action(), hold_timer()});
+    grabbed_.emplace(RuntimeGrabbedStateContext{pickup, recovery_action(), hold_timer(), player_.shapes.special});
     return *grabbed_;
 }
 

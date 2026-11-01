@@ -13802,6 +13802,9 @@ int main(int argc, char** argv)
                     if (brew_test)
                     {
                         gbtg::g_runtime_profile.unlocks.bytes[0] |= 8; // **(DAT_00506C70+8): the brew is unlocked.
+                        // A brew needs a kill in the scene (DAT_00506C8C >= DAT_00430D9C); Cooper stands still here.
+                        // The death restart keeps the count (DAT_00430D94).
+                        gbtg::g_runtime_profile.times[5] = 1;
                     }
                     const auto cooper_health = [&]() -> int
                     {

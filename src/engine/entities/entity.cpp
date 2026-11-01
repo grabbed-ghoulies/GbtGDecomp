@@ -78,8 +78,6 @@ namespace entity_detail
 {
 
 
-// DAT_0050dd80. Three BSS floats. Message 9 copies them onto the actor and the body.
-Vec3 g_anchor{};
 
 
 struct SegmentProbe;

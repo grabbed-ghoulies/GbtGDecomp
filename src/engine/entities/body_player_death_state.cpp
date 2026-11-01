@@ -351,7 +351,7 @@ void tick_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathCont
         {
             return;
         }
-        if (test_runtime_unlock_bit(context.unlock_bits, 3) && context.brews_owned >= context.brews_required
+        if (test_runtime_unlock_bit(context.unlock_bits, 3) && context.scene_kills >= context.brew_kills_required
             && script_chapter_index(context.scene_name) < 8 && context.frontend_state != 3) // 0x000F2B30, 0x0004B4D0
         {
             put_word(state, 0x18, 4);

@@ -603,7 +603,6 @@ void ambient_initialize_beds(); // Xbox 0x00118470
 // cam_11c480 calls this after the text-page reset. Creates the 4096x1
 // A8R8G8B8 lookup, fills each texel from its index nibbles, swizzles that
 // row, and clears the eight records at DAT_0050eaa0 plus the count.
-void ambient_initialize_lookup_texture(); // Xbox 0x00119160
 
 // cam_11c480's first call. Zeros the intrusive heads from DAT_00511AA0 through
 // DAT_00511B58: the latch list, eight bins, the segment and shape probes, and
@@ -620,7 +619,6 @@ void entity_release_aid_records(); // Xbox 0x0011B630
 // callback releases that hold. A first dword other than 'aid_' clears
 // the pointer and installs 0x00035940. Otherwise 0x00035E90 writes the
 // resolved name, and a null result calls 0x00032700 with 2.
-void scene_store_aid_name(const char* name); // Xbox 0x001234B0
 
 // cam_11c480 calls this after 0x001234B0. Zeros the flag bytes held by
 // DAT_00506c74, the six counters at DAT_00506c78, and the word at

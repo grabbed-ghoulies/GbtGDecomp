@@ -105,7 +105,6 @@ namespace
 {
 
 void* g_light_table_slots[4]{}; // DAT_0050d770
-i32 g_light_table_count = 0;    // DAT_0050d780
 void* g_light_table = nullptr;  // DAT_0050d798
 i32 g_light_table_span = 0;     // DAT_0050d79c. Byte count from 0x00035D90 divided by 140.
 
@@ -162,7 +161,6 @@ void light_bind_table()
     {
         g_light_table_slots[i] = nullptr;
     }
-    g_light_table_count = 0;
     g_light_table = nullptr;
     g_light_table_span = 0;
 }

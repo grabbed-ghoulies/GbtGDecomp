@@ -1406,7 +1406,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           scene_bindings.brews_taken, scene_bindings.brew_accepted, scene_bindings.prompt_lock,
           scene_bindings.prompt_owner, scene_bindings.difficulty, scene_bindings.chapter_mode,
           scene_bindings.unlock_flags, scene_bindings.scene_flags, scene_bindings.scene_name,
-          scene_bindings.brews_owned, scene_bindings.brews_required, scene_bindings.story_byte,
+          scene_bindings.scene_kills, scene_bindings.brew_kills_required, scene_bindings.story_byte,
           scene_bindings.intro_pending, scene_bindings.intro_name, scene_bindings.cases,
           scene_bindings.case_body_bits, "idle"},
       target_checks{strategy_goals, attribute_resource, scene_bindings.difficulty, scene_bindings.active_actors,

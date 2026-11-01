@@ -17,7 +17,6 @@ extern char (&g_510ed8)[0x80];
 // DAT_00430D0C. Cleared with DAT_00430D08 and DAT_00430D10.
 extern i32 g_script_30d0c;
 extern i32 g_script_30d94; // DAT_00430D94: a restart keeps DAT_00506C8C.
-extern i32 g_506c8c; // DAT_00506C8C.
 
 extern i32 g_4312e0; // DAT_004312E0, motion integration steps from 0x0011E7F0.
 extern u8 g_4312c8[0x14];

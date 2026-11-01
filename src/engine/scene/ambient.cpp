@@ -273,37 +273,6 @@ void amb_sample_extra(AudioEventVoices* voices)
     g_amb_extra = 0xFFFF;
 }
 
-// DAT_0050eaa0, Xbox stride 0x2c, eight records. DAT_0050ec00 is the count
-// that follows them. 0x00119160 clears only the object pointer at +0.
-struct LookupRecord
-{
-    void* object = nullptr; // Xbox +0
-};
-
-constexpr i32 kLookupRecords = 8;
-
-// Index i (12 bits) becomes A8R8G8B8 with R = low nibble, G = middle, B = high.
-// ((i >> 4 & 0xf) | (i & 0xf) << 8) << 8 | (i >> 8 & 0xf)
-constexpr u32 lookup_texel(u32 index)
-{
-    // Xbox 0x00119160
-    const u32 lo = index & 0xfu;
-    const u32 mid = (index >> 4) & 0xfu;
-    const u32 hi = (index >> 8) & 0xfu;
-    return (lo << 16) | (mid << 8) | hi;
-}
-
-static_assert(lookup_texel(0) == 0u);
-static_assert(lookup_texel(1) == 0x00010000u);
-static_assert(lookup_texel(0x10) == 0x00000100u);
-static_assert(lookup_texel(0x100) == 0x00000001u);
-static_assert(lookup_texel(0x123) == 0x00030201u);
-static_assert(lookup_texel(0xfff) == 0x000f0f0fu);
-
-LookupRecord g_lookup_records[kLookupRecords]{};
-i32 g_lookup_count = 0; // DAT_0050ec00
-u32* g_lookup_tex = nullptr; // DAT_0050ec04. 4096 A8R8G8B8 texels.
-
 } // namespace
 
 RuntimeBackgroundAmbient runtime_background_ambient()
@@ -404,32 +373,6 @@ void ambient_initialize_beds()
     amb_sample_step(); // 0x00117F20
     amb_sample_extra(nullptr); // 0x00118290
 }
-
-// Xbox 0x00119160
-void ambient_initialize_lookup_texture()
-{
-    // Xbox 0x00119160
-    // D3DDevice_CreateTexture2(0x1000, 1, 1, 1, 0, D3DFMT_A8R8G8B8, 3).
-    // GetLevelDesc's 0x1c-byte result is unused. LockRect then writes 4096
-    // texels. XGSwizzleRect(bits, 0, NULL, bits, 0x1000, 1, NULL, 4) runs
-    // in place; a one-row NV2A swizzle leaves that order unchanged.
-    constexpr u32 kWidth = 0x1000;
-    u32* texels = static_cast<u32*>(std::malloc(kWidth * sizeof(u32)));
-    g_lookup_tex = texels;
-    if (texels != nullptr)
-    {
-        for (u32 i = 0; i < kWidth; ++i)
-        {
-            texels[i] = lookup_texel(i);
-        }
-    }
-    for (LookupRecord& rec : g_lookup_records)
-    {
-        rec.object = nullptr;
-    }
-    g_lookup_count = 0;
-}
-
 
 // Xbox 0x001189D0, ECX gate, XMM0 length, EAX the name
 void start_ambient_phase(u32 gate, float length, float jitter, float rate, u32 color, const char* name,

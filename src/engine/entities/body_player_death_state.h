@@ -29,8 +29,8 @@ struct RuntimePlayerDeathContext
     i32& active_strategies; // DAT_00510CEC.
     i32& scene_counter; // DAT_004DEA24.
     i32& restart_pending; // DAT_00430D94.
-    const i32& brews_owned; // DAT_00506C8C.
-    const i32& brews_required; // DAT_00430D9C.
+    const i32& scene_kills; // DAT_00506C8C, the scene's kills credited to tags 4, 9 and 0xE (0x0012ACF0).
+    const i32& brew_kills_required; // DAT_00430D9C, 1 and only read: a brew needs one kill in the scene.
     const i32& frontend_state; // DAT_004E17C8.
     const u32& prompt_owner; // DAT_004EE1EC.
     const i32& transition_phase; // DAT_0054632C.

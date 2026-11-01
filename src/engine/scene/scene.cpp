@@ -13,6 +13,7 @@
 #include "gbtg/resource.h"
 #include "factory_scene_runtime.h"
 #include "scene_actor_services.h"
+#include "../saves/runtime_profile.h"
 
 #include <algorithm>
 #include <bit>
@@ -146,8 +147,6 @@ i32 g_script_30d94 = 0;
 // DAT_00430D98. Cleared with DAT_00430D94.
 i32 g_script_30d98 = 0;
 
-// DAT_00506C8C. Cleared when DAT_00430D94 was 0 on entry to the copy.
-i32 g_506c8c = 0;
 
 
 
@@ -184,7 +183,7 @@ void request_scene_aid(const char* src, i32 mode)
     g_byte_30d14[0] = 0;
     if (g_script_30d94 == 0)
     {
-        g_506c8c = 0;
+        g_runtime_profile.times[5] = 0; // DAT_00506C8C, the scene's kill count
     }
     g_script_30d94 = 0;
     g_script_30d98 = 0;
@@ -668,7 +667,6 @@ i32 g_50e1c4 = 0;
 std::array<u8, 8 * 0xC> g_50e1c8{}; // DAT_0050E1C8: the 0x0010F6C0 class ranges, up to DAT_0050E228.
 i32 g_50e228 = 0;
  // DAT_0050E228
-i32 g_4dea5c = 0;
  // DAT_004DEA5C
 // DAT_0051108C is the block 0x000663E0 releases.
 void* g_51108c = nullptr;
@@ -703,7 +701,6 @@ void* g_50eba8 = nullptr;
 
 void* g_50ebd4 = nullptr;
 
-i32 g_50ec00 = 0;
 
 
 // Xbox 0x0011C5A0
@@ -792,7 +789,6 @@ void scene_teardown(Game& g, u8* scene)
     effects_clear_voice_slots();
     // 0x00132100 (the scoreboard) runs in SceneFactoryRuntime::end_scene.
     g.factory_scene->actor_services->release_actor_snapshots(); // 0x001163D0
-    g_4dea5c = 0;
     release_actor_camera_shakes(g.native_resources->registry); // 0x000FAE40
     entity_release_aid_records();
     if (g_51108c != nullptr)
@@ -841,7 +837,6 @@ void scene_teardown(Game& g, u8* scene)
     g_50eb7c = nullptr;
     g_50eba8 = nullptr;
     g_50ebd4 = nullptr;
-    g_50ec00 = 0;
     // 0x00173F30 D3D_KickOffAndWaitForIdle.
     // 0x001593D0 only clears D3D device state, the presenter's.
     g.factory_scene->actor_services->flush_model_releases(); // 0x000F97F0

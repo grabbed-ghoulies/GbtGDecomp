@@ -86,7 +86,7 @@ u32 runtime_brew_prompt_available(RuntimePlayerStrategyFlow& context)
     {
         if (script_chapter_index(context.scene_script) < 8)
         {
-            return context.brews_owned >= context.brews_required ? 1 : 0;
+            return context.scene_kills >= context.brew_kills_required ? 1 : 0;
         }
     }
     return 0;

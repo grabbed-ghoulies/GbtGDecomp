@@ -514,6 +514,11 @@ struct SceneActorServices::State
     u8& story_byte = g_runtime_profile.progress.bytes[4]; // Byte +4 of **(DAT_00506C6C+8).
     u8& intro_bits = g_runtime_profile.progress.bytes[0]; // Byte 0 of **(DAT_00506C6C+8): the intros shown.
     u8& unlock_flags = g_runtime_profile.unlocks.bytes[0]; // **(DAT_00506C70+8), the profile's unlock byte.
+    // DAT_00506C8C, the last of the profile's DAT_00506C78 block: the scene's kills credited to tags 4, 9 and 0xE
+    // (0x0012ACF0). The scene request (0x0011EB30) clears it unless a death restart set DAT_00430D94, as do a new
+    // game and a load.
+    i32& scene_kills = g_runtime_profile.times[5];
+    const i32 brew_kills_required = 1; // DAT_00430D9C: 1 in the XBE and only read.
     std::array<u32, 5> port_devices{}; // DAT_0050E0F4.
     RuntimeCameraPulse pulse{}; // DAT_0050447C.
     std::unique_ptr<SceneMindServices> mind_services;
@@ -696,8 +701,6 @@ struct SceneActorServices::State
     i32& difficulty = g_event_sequence_state; // DAT_005064D8, the event sequence state.
     std::unique_ptr<RuntimeScoreboardResources> event_board_resources;
     std::unique_ptr<ScriptEventSequenceContext> event_sequence;
-    i32 brews_owned = 0; // DAT_00506C8C.
-    i32 brews_required = 0; // DAT_00430D9C.
     u32& intro_pending = g_545b38; // DAT_00545B38.
     std::array<char, 0x80>& intro_name = g_545b44; // DAT_00545B44.
     entity_detail::ListHead& cases = entity_detail::g_world.case_head; // DAT_00511B3C; its next is DAT_00511B40.
@@ -1695,7 +1698,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         effects, node_cache, reset_matrix, nullptr, callout_objects, linked_records,
         *brew, *health_display, input_state,
         keyboard, voices, brews_taken, brew_accepted, prompt_lock, prompt_owner, difficulty, unlock_flags,
-        brews_owned, brews_required, story_byte, intro_pending, intro_name, cases, case_body_bits,
+        scene_kills, brew_kills_required, story_byte, intro_pending, intro_name, cases, case_body_bits,
         std::span<ActorAttachmentSlot, 20>(g_actor_attachment_slots), queue_limits, class_queue_limits,
         [this](const ActorLiveAttachment* record) -> const RuntimeMindTarget*
         {
@@ -5707,7 +5710,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             unbound("script kill counters before the dialogue measurement exists");
         }
-        return RuntimeScriptKillCounters{&measurement->second_count, &brews_owned, &measurement->first_additional};
+        return RuntimeScriptKillCounters{&measurement->second_count, &scene_kills, &measurement->first_additional};
     };
     // DAT_00511B48 nodes are player actor +0x944 (links[2]); node +0x18 is actor +0x95C.
     g_script_body_list_message = [this](std::span<const u32> message)
@@ -5958,8 +5961,6 @@ void SceneActorServices::State::reset_scene_data()
     brews_taken = 0;
     brew_accepted = 0;
     difficulty = 0;
-    brews_owned = 0;
-    brews_required = 0;
     intro_pending = 0;
     intro_name = {};
     // The queue and class limits are 0x00116DA0's, which 0x00116E00 runs before the script loads; clearing them

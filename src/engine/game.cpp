@@ -54,7 +54,8 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     factory_scene->start_services(*this);
     // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0. Its input push and handler inits run in the boot above and the
     // scene services' start; its zeroed globals are already zero. 0x001233C0, 0x0011B630 and 0x00123B30 clear lists
-    // that are empty at boot, 0x00057D40 and 0x00119160 fill host tables nothing native reads, and the sums it
+    // that are empty at boot, 0x00057D40 fills a host table nothing native reads (0x00119160's depth ramp is
+    // made with the scene services' D3D resources), and the sums it
     // stores at DAT_0042A424 / DAT_0042A42C have no reader in the dumps.
     scene_initialize_handle_slots(); // 0x0011C3F0 -> 0x00129F30: the named sound rows' ids become 0xFFFF.
     lighting_initialize_volume(); // 0x0011C3F0 -> 0x000FD620

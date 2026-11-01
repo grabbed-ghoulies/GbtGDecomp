@@ -212,10 +212,10 @@ void choose_runtime_mummy_attack(RuntimeMummyStrategy& context)
     if (target.bytes[0x14] == 0)
     {
         const std::span<const u8> body = context.views.body_of(target.actor).bytes; // Target +0x10 actor's +0x95C.
-        if (read_u32(body, 0x73C) != 0)
+        if (const RuntimeScriptLookupTable* table = context.actions_of(body); table != nullptr) // Body +0x73C.
         {
             u32 parameters = 0;
-            if (find_runtime_script_table_row(context.actions_of(body), 0x10, parameters) != nullptr // 0x00027510
+            if (find_runtime_script_table_row(table, 0x10, parameters) != nullptr // 0x00027510
                 && roll_runtime_actor_attack(context.checks.attributes, goals_of(context).random)) // 0x000196F0
             {
                 change_state(0x3EF, context);

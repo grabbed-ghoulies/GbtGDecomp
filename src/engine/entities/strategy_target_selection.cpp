@@ -880,7 +880,7 @@ bool runtime_message_source_targets_mind_target(std::span<const u32> message, u3
     {
         return false;
     }
-    const u32 source_target = read_u32(views.actor_bytes_at(message[2]), 0x8F8);
+    const u32 source_target = views.first_live_attachment_at(message[2]); // Source actor +0x8F8.
     if (source_target == 0)
     {
         return false;
@@ -973,7 +973,7 @@ u32 adopt_runtime_strategy_message_attacker(std::span<const u32> message, u32 fo
     {
         return 0;
     }
-    const u32 record = read_u32(views.actor_bytes_at(message[2]), 0x8F8);
+    const u32 record = views.first_live_attachment_at(message[2]); // Actor +0x8F8.
     if (record == 0)
     {
         return 0;
@@ -1085,7 +1085,7 @@ u32 retaliate_runtime_strategy_contact(std::span<const u32> message, i32 minimum
     {
         return 0;
     }
-    const u32 record = read_u32(views.actor_bytes_at(attacker), 0x8F8);
+    const u32 record = views.first_live_attachment_at(attacker); // Actor +0x8F8.
     if (record == 0)
     {
         return 0;
@@ -1165,7 +1165,7 @@ u32 take_runtime_strategy_hit_sender(std::span<const u32> message, RuntimeStrate
         return 0;
     }
     clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
-    const u32 record = read_u32(views.actor_bytes_at(sender), 0x8F8);
+    const u32 record = views.first_live_attachment_at(sender); // Actor +0x8F8.
     if (record == 0)
     {
         return 0;

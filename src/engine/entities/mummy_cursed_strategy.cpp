@@ -1097,7 +1097,7 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
         return;
     case 0x5F:
     {
-        const u32 record = read_u32(context.actor_bytes_at(get(strategy, field::cursed)), 0x8F8);
+        const u32 record = context.shared.views.first_live_attachment_at(get(strategy, field::cursed)); // Actor +0x8F8.
         set(strategy, field::curse_landed, 1u);
         std::memcpy(context.actor_bytes_at(message[1]).data() + 0xE50, &record, 4);
         return;

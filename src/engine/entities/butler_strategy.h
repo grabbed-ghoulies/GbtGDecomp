@@ -11,7 +11,7 @@ struct RuntimeButlerStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and the 0x00128DF0 query.
     std::function<u32(const Actor&)> actor_address; // Retail address of an actor.
-    std::function<std::span<const u8>(const Actor&)> actor_bytes; // Actor bytes; +0x8F8 its target record.
+    std::function<u32(u32)> first_live_attachment_at; // Actor +0x8F8 (its target record) by retail address.
     std::function<std::span<const u8>(u32)> actor_bytes_at; // Actor bytes by retail address; +0x93C, +0xCDC.
     const char* goal_scared; // "scared", 0x00321234.
     const char* goal_far; // "far", 0x00321824.

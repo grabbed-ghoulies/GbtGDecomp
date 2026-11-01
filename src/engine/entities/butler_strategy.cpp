@@ -87,7 +87,7 @@ u32 find_runtime_butler_threat(RuntimeButlerStrategy& context)
         return 0;
     }
     put(mind, 0xC, context.actor_address(*found));
-    const u32 target = read_u32(context.actor_bytes(*found), 0x8F8);
+    const u32 target = context.first_live_attachment_at(context.actor_address(*found)); // Actor +0x8F8.
     if (target != 0)
     {
         set_runtime_mind_target(goals.entry.events, target);

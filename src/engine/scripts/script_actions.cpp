@@ -3277,14 +3277,15 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     case 8:
     {
-        // Each DAT_00511B48 actor of the tag has its body's (node +0x18, actor +0x95C) +0x6C set to node+0x48.
+        // Each DAT_00511B48 actor of the tag with a mind (node +0x14, actor +0x958) has the mind's +0x6C, its target
+        // range, set to node+0x48.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
         const u32 stored = node_u32(g.scene_script, node, 0x48);
         boot_scene_actors(g).add_mind_class_setting(tag, std::bit_cast<float>(stored)); // 0x0010F690
         for (const auto* link = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
              link != nullptr; link = static_cast<const entity_detail::ListHead*>(link->next))
         {
-            if (!g_alt_node_class || !g_alt_node_body)
+            if (!g_alt_node_class || !g_alt_node_mind)
             {
                 throw Error("script type 8 walks DAT_00511B48 without the scene's actor views");
             }
@@ -3292,8 +3293,11 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
             {
                 continue;
             }
-            const std::span<const u8> body = g_alt_node_body(link);
-            std::memcpy(const_cast<u8*>(body.data()) + 0x6C, &stored, 4);
+            const std::span<u8> mind = g_alt_node_mind(link);
+            if (!mind.empty())
+            {
+                std::memcpy(mind.data() + 0x6C, &stored, 4);
+            }
         }
         return 2;
     }

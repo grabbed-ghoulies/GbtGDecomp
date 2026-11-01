@@ -22,6 +22,7 @@
 #include "../entities/body_spawn_ghouly_state.h"
 #include "../entities/body_shocked_state.h"
 #include "../entities/body_slam_smash_state.h"
+#include "../entities/body_bandaged_state.h"
 #include "../entities/body_blood_suck_state.h"
 #include "../entities/body_grab_throw_state.h"
 #include "../entities/body_grabbed_hold_state.h"
@@ -183,6 +184,9 @@ struct SceneBodyServices
     std::function<RuntimeJumpOnPeer(u32 actor_address)> jump_peer{};
     // The blood suck state (type 0x61): its target's views and the struggle preset (0x00302728, 0x10 bytes).
     std::function<RuntimeBloodSuckTarget(u32 actor_address)> blood_suck_target{};
+    // The bandaged state (type 0x60): its struggle preset (0x0030260C, 0x10 bytes) and 0x0013AF80 over a scene actor.
+    std::span<const u8> bandaged_preset{};
+    std::function<void(u32 address, float duration, const float* tint)> actor_fade{};
     // The grab and throw state (type 0x72): the scene's markers (DAT_0051108C).
     const u8* const* markers{};
     std::span<const u8> struggle_preset{};
@@ -218,6 +222,7 @@ public:
     RuntimeSpawnGhoulyStateContext& spawn_ghouly_context(); // The type 0x85 state's views of this body.
     RuntimeShockedStateContext& shocked_context(); // The type 0x80 state's views of this body.
     RuntimeSlamSmashStateContext& slam_smash_context(); // The type 0x82 state's views of this body.
+    RuntimeBandagedStateContext& bandaged_context(); // The type 0x60 state's views of this body.
     RuntimeBloodSuckStateContext& blood_suck_context(); // The type 0x61 state's views of this body.
     RuntimeGrabThrowStateContext& grab_throw_context(); // The type 0x72 state's views of this body.
     RuntimeGrabbedHoldStateContext& grabbed_hold_context(); // The type 0x71 state's views of this body.
@@ -282,6 +287,7 @@ private:
     std::optional<RuntimeArcStateContext> arc_;
     std::optional<RuntimeDroneAppearStateContext> drone_appear_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> jump_on_children_; // 0x79, 0x0009AE60.
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> bandaged_children_; // 0x60, 0x0008A8E0.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> blood_suck_children_; // 0x61, 0x0008BB90.
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBodyMessageChild>> grab_throw_children_; // 0x72, 0x00094FA0.
     std::optional<RuntimeJumpOnStateContext> jump_on_;
@@ -296,6 +302,7 @@ private:
     std::optional<RuntimeShockedStateContext> shocked_;
     std::optional<RuntimeBodyStateContext> slam_smash_shape_;
     std::optional<RuntimeSlamSmashStateContext> slam_smash_;
+    std::optional<RuntimeBandagedStateContext> bandaged_;
     std::optional<RuntimeBloodSuckStateContext> blood_suck_;
     std::optional<RuntimeGrabThrowStateContext> grab_throw_;
     std::optional<RuntimeGrabbedHoldStateContext> grabbed_hold_;

@@ -575,7 +575,7 @@ bool special_retarget(u32 actor, RuntimeJessieClydeStrategy& context)
     {
         return false;
     }
-    const u32 record = read_u32(context.shared.views.actor_bytes_at(actor), 0x8F8);
+    const u32 record = context.shared.views.first_live_attachment_at(actor); // Actor +0x8F8.
     if (record == 0 || goals_of(context).target_at(record)->bytes[0x18] != 0)
     {
         return false;

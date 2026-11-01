@@ -464,6 +464,25 @@ void retime_mina_playback(MinaPlayback* player, float duration, bool& dirty)
     dirty = true;
 }
 
+// Xbox 0x0002DD00, ESI player
+void set_mina_playback_direction(MinaPlayback& player, u16 direction)
+{
+    switch (direction)
+    {
+    case 0:
+        player.speed = animation_absolute(player.speed);
+        return;
+    case 1:
+        player.speed = -animation_absolute(player.speed);
+        return;
+    case 2:
+        player.speed = 0.f - player.speed;
+        return;
+    default:
+        return;
+    }
+}
+
 // Xbox 0x0002DBB0.
 void tick_mina_player(MinaPlayer& player, float dt, bool skip_pose)
 {

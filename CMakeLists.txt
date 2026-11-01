@@ -287,6 +287,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/ghoulie_girl_strategy.cpp
     src/engine/entities/warlock_strategy.cpp
     src/engine/entities/body_slam_smash_state.cpp
+    src/engine/entities/body_bandaged_state.cpp
     src/engine/entities/body_blood_suck_state.cpp
     src/engine/entities/body_grabbed_hold_state.cpp
     src/engine/entities/body_explode_state.cpp
@@ -320,6 +321,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_slide_state.cpp
     src/engine/entities/animated_light.cpp
     src/engine/entities/scare_actor.cpp
+    src/engine/entities/anim_delete_avatar.cpp
     src/engine/entities/body_swing_state.cpp
     src/engine/entities/actor_runtime_queries.cpp
     src/engine/entities/actor_view_visibility.cpp

@@ -28,7 +28,7 @@ struct RuntimeMummyStrategy
     RuntimeStrategyTargetChecks& checks;
     RuntimeStrategyTargetQueue& queue;
     RuntimeStrategyActorViews& views;
-    // A target actor's body's action table (body +0x73C), by the body's bytes.
+    // A target actor's body's action table (body +0x73C, null without one), by the body's bytes.
     std::function<const RuntimeScriptLookupTable*(std::span<const u8> body)> actions_of;
     const char* goal_attack; // "attack", 0x003211E4.
     const char* goal_ankh_getout; // "ankh_getout", 0x00321550.

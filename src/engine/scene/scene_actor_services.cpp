@@ -992,6 +992,7 @@ struct SceneActorServices::State
     RuntimeScenePointLights point_lights{ambient_points, ambient_points_enabled, ambient_point_free,
         ambient_point_draw, ambient_point_fc, ambient_point_100};
     RuntimeSceneLightGrid light_grid; // DAT_0050E374..DAT_0050E384.
+    NativeBackgroundInstance* light_grid_background = nullptr; // DAT_0050E374, recorded at scene start.
     RuntimeSceneLightGridD3D light_grid_d3d;
     RuntimeScenePointLightTargets point_light_targets; // DAT_00504850..DAT_00504878.
     std::unique_ptr<RuntimeScenePointLightPass> point_light_pass;
@@ -1121,6 +1122,9 @@ struct SceneActorServices::State
     // The base strategy messages' view of the actor at a retail address: its +0x1FC / +0x1FE words, its +0x8F8 target
     // record and, for a player, the actor its body +0x274 names. Rebuilt on each call; kept per address.
     RuntimeStrategyMessageActor* strategy_message_actor(u32 address);
+    // Actor +0x8F8: the address of the first record on the scene actor's +0x8F4 live attachment list (the record
+    // minds hold as a target), or 0.
+    u32 first_live_attachment_at(u32 actor_address);
     std::unordered_map<u32, std::unique_ptr<RuntimeStrategyMessageActor>> strategy_message_actors;
     std::unordered_set<u32> strategy_message_building;
     // The emitters' DAT_00511B40 walk (0x0010A590): a view of each player on the list, in list order.
@@ -1805,7 +1809,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 address) -> std::span<const u8>
         {
-            // The words through +0xCDC that 0x000AB2D0 reads.
+            // A scene object's whole instance (a weapon's +0xD8C owner lies past the actor's 0xCE0); otherwise the
+            // words through +0xCDC that 0x000AB2D0 reads.
+            if (auto* object = object_of(scene.resolve_address(address, 0).data()); object != nullptr)
+            {
+                return {object->bytes.get(), object->size};
+            }
             return scene.resolve_address(address, 0xCE0);
         },
         [this](u32 address) -> const char*
@@ -1950,6 +1959,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     players->bindings.scene.mind_bytes_at = [this](u32 address) -> std::span<const u8>
     {
         return scene.resolve_tail(address); // The mind's words through its target (+0x10).
+    };
+    players->bindings.scene.first_live_attachment_at = [this](u32 actor_address) -> u32
+    {
+        return first_live_attachment_at(actor_address);
     };
     players->bindings.scene.medusa_parameters = data(0x004287F0, 0x58);
     players->bindings.scene.hunchback_parameters = data(0x00428770, 0x50);
@@ -3133,6 +3146,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
         }
         return graph->grabbed_hold_context();
+    });
+    install_runtime_bandaged_state_class(scene.types, [this](u32 body_address) -> RuntimeBandagedStateContext&
+    {
+        const auto bytes = scene.resolve_address(body_address, 0);
+        auto* player = players->find_child_owner(bytes.data());
+        if (player == nullptr || player->body.data() != bytes.data())
+        {
+            unbound("bandaged state whose body has no player owner");
+        }
+        auto& graph = body_messages[player->body.data()];
+        if (graph == nullptr)
+        {
+            graph = std::make_unique<SceneBodyMessages>(*body_services, *player);
+        }
+        return graph->bandaged_context();
     });
     install_runtime_blood_suck_state_class(scene.types, [this](u32 body_address) -> RuntimeBloodSuckStateContext&
     {
@@ -4494,11 +4522,17 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 part) -> const Vec3&
         {
-            // The first background's +0x950 row's +4: its point rows (stride 0x30), the first one's position.
-            auto* first = backgrounds->first_background();
+            // DAT_0050E374's +0x950 row's +4: its point rows (stride 0x30), the first one's position. Retail keeps
+            // the background the light grid was built from (0x00112D70), not the list's current first.
+            auto* first = backgrounds->live(light_grid_background) ? light_grid_background : nullptr;
             if (first == nullptr || part >= first->state.graphs.size() || first->state.graphs[part].points.size() < 12)
             {
-                unbound("point-light part centre without the background's point graph");
+                unbound("point-light part " + std::to_string(part) + " centre without the background's point graph ("
+                    + (first == nullptr ? std::string("no background")
+                        : std::to_string(first->state.graphs.size()) + " graphs"
+                            + (part < first->state.graphs.size()
+                                ? ", " + std::to_string(first->state.graphs[part].points.size()) + " point bytes"
+                                : std::string())) + ")");
             }
             return *reinterpret_cast<const Vec3*>(first->state.graphs[part].points.data());
         },
@@ -5170,6 +5204,18 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     body_services->jump_globals = jump_globals;
     body_services->struggle_preset = data(0x00302728, 0x10);
+    body_services->bandaged_preset = data(0x0030260C, 0x10);
+    body_services->actor_fade = [this](u32 address, float duration, const float* tint)
+    {
+        Actor& actor = *actors->actors.at(scene.resolve_address(address, 0).data());
+        auto& object = object_of_actor(actor);
+        const std::function<FactoryObject*(FactoryObject)> keep = [this](FactoryObject made)
+        {
+            return scene.keep_object(std::move(made));
+        };
+        RuntimeActorFade fade{actor, {object.bytes.get(), object.size}, address, scene.factory, keep, empty_name};
+        spawn_runtime_actor_fade(duration, 0, 0, tint, fade); // 0x0013AF80
+    };
     body_services->blood_suck_target = [this](u32 address) -> RuntimeBloodSuckTarget
     {
         RuntimeBloodSuckTarget target;
@@ -5640,7 +5686,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             static const std::unordered_map<u32, u32> lengths{{0x31, 3}, {0x6E, 8}, {0x6F, 5}, {0x70, 5}, {0x71, 2},
                 {0x72, 5}, {0x73, 3}, {0x74, 3}, {0x75, 2}, {0x76, 2}, {0x77, 2}, {0x78, 2}, {0x79, 2}, {0x87, 3},
                 {0xAB, 4}, {0x82, 1}, {0x83, 2}, {0x84, 1}, {0x86, 5}, {0x8E, 2}, {0x8F, 2},
-                {0x6C, 1}, {0x6D, 1}}; // 0x6C / 0x6D: the giant hand's grab and its end (0x000AC740, 0x000ACBF0).
+                {0x6C, 1}, {0x6D, 1}, {0x2E, 2}}; // 0x6C / 0x6D: the giant hand's grab and its end (0x000AC740,
+                // 0x000ACBF0); 0x2E: the death curse's meter running out, with the curse's actor (0x0012E070).
             const auto found = lengths.find(id);
             if (found == lengths.end())
             {
@@ -6153,6 +6200,7 @@ void SceneActorServices::State::end_scene()
         created_textures.erase(u32(resource));
     }); // 0x001199F0
     release_runtime_scene_light_grid(light_grid, light_grid_d3d); // 0x001133B0
+    light_grid_background = nullptr;
     // The scene's cutscenes released their track actors (0x0004D720). Track actors a live cutscene still holds (one
     // that outlives the scene, as a transition's book does) stay; any other goes with the scene.
     std::unordered_set<const Actor*> held;
@@ -7121,6 +7169,21 @@ RuntimeStrategyMessageActor* SceneActorServices::State::strategy_message_actor(u
     return strategy_message_actors.at(address).get();
 }
 
+u32 SceneActorServices::State::first_live_attachment_at(u32 actor_address)
+{
+    auto* object = object_of(scene.resolve_address(actor_address, 0).data());
+    if (object == nullptr || !actors->actors.contains(object->bytes.get()))
+    {
+        unbound("actor +0x8F8 of an address that is no scene actor");
+    }
+    auto* link = actors->view(*object).live_attachments.next;
+    if (link == nullptr)
+    {
+        return 0;
+    }
+    return heap_address(reinterpret_cast<ActorLiveAttachment*>(link), 0x68); // As refresh_mind_targets keys it.
+}
+
 RuntimeMindTarget* SceneActorServices::State::mind_target_at(u32 address)
 {
     refresh_mind_targets();
@@ -7930,6 +7993,26 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             frame->decay_enabled = decay_enabled[decay_index];
             classes->update_motion_blur(updated);
             store_actor_model_animation_view(updated_view);
+        };
+        // Xbox 0x00070370
+        dispatch_base_actor_word_message(base_of(object).base, message, word_messages);
+        if (message[0] == 0x23)
+        {
+            unregister_actor_segment_probes(view.render);
+            clear_actor_shape_probe(view.bat.actor, view.shape);
+        }
+        return;
+    }
+    if (type == 0x14)
+    {
+        // Getter 0x0006C9E0: +0x10 is 0x0006CAF0 (the actor update 0x000420D0 first) and +0xC is 0x00070370.
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            update_base_actor(updated); // 0x000420D0
+            classes->update_anim_delete(updated);
         };
         // Xbox 0x00070370
         dispatch_base_actor_word_message(base_of(object).base, message, word_messages);
@@ -9489,6 +9572,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             case 0x65: // And getter 0x0008D350.
             case 0x82: // And getter 0x000A03D0.
             case 0x61: // And getter 0x0008B200.
+            case 0x60: // And getter 0x0008A300.
             case 0x71: // And getter 0x00095550.
             case 0x68: // And getter 0x0008E760.
             case 0x72: // And getter 0x000947A0.
@@ -10199,9 +10283,11 @@ void SceneActorServices::State::start_background()
     g_flag_0650 = 0; // DAT_00510650
     // 0x00112D70 (after 0x0011F450 and the queue builds): the first background's light grid and parts.
     light_grid = {};
+    light_grid_background = nullptr;
     if (auto* first = backgrounds->first_background(); first != nullptr && first->state.actor.model != nullptr)
     {
         light_grid.background = true;
+        light_grid_background = first;
         light_grid.model = first->state.actor.model->cpu;
         // The serialized header keeps offsets; the relocated original (the model instance's source) gives the cells'
         // vertex buffer headers their retail addresses.
@@ -10398,7 +10484,8 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
             // ghouly setups 0x24, 0x25 and 0x26, the bg-break key 0x1E, the ghouly key 0x18 and the spider web 0x1B
             // (getters 0x0006A4F0, 0x0006B110, 0x0006BB30, 0x0006CC70, 0x0006E950 and 0x000704D0).
             // Type 0x16's and 0x17's +0x14 are 0x0006EF20 as well.
-            if (type != 0x1A && type != 2 && type != 0x16 && type != 0x17 && type != 0xF && type != 0x1F && type != 0x23
+            if (type != 0x1A && type != 2 && type != 0x14 && type != 0x16 && type != 0x17 && type != 0xF && type != 0x1F
+                && type != 0x23
                 && type != 0x25 && type != 0x24 && type != 0x26 && type != 0x1E && type != 0x18 && type != 0x19
                 && type != 0x1B && type != 0x20) // 0x20: the SSS door, getter 0x000711A0.
             {
@@ -10481,6 +10568,7 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 && type != 0x65 // And getter 0x0008D350.
                 && type != 0x82 // And getter 0x000A03D0.
                 && type != 0x61 // And getter 0x0008B200.
+                && type != 0x60 // And getter 0x0008A300.
                 && type != 0x71 // And getter 0x00095550.
                 && type != 0x68 // And getter 0x0008E760.
                 && type != 0x72) // And getter 0x000947A0.
@@ -10509,7 +10597,8 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
         return 1;
     }
     if (object.type != 2 && object.type != 5 && object.type != 0xF && object.type != 0x10 && object.type != 0x12
-        && object.type != 0x13 && object.type != 0x15 && object.type != 0x16 && object.type != 0x17
+        && object.type != 0x13 && object.type != 0x14 && object.type != 0x15 && object.type != 0x16
+        && object.type != 0x17
         && object.type != 0x1A && object.type != 0x1F && object.type != 0x23 && object.type != 0x25
         && object.type != 0x24 && object.type != 0x26 && object.type != 0x1E && object.type != 0x1D
         && object.type != 0x18 && object.type != 0x19 && object.type != 0x1B && object.type != 0x21 && object.type != 0x20
@@ -11008,7 +11097,7 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
             const FactoryObject* object = object_of(bytes);
             const u16 type = object == nullptr ? 0 : object->type;
             if (type == 2 || type == 4 || type == 5 || type == 0xD || type == 0xF || type == 0x10 || type == 0x12
-                || type == 0x13 || type == 0x15 || type == 0x16 || type == 0x17
+                || type == 0x13 || type == 0x14 || type == 0x15 || type == 0x16 || type == 0x17
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
                 || type == 0x1E || type == 0x1D || type == 0x18 || type == 0x19 || type == 0x1B || type == 0x21 || type == 0x20
                 || type == 0x1C || type == 0xAA || type == 0xA9 || type == 0xA8 || type == 0xA7

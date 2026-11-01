@@ -434,6 +434,20 @@ void release_animated_light_view(FactoryObject& object)
 {
     active_owner->release_animated_light(object);
 }
+bool construct_anim_delete_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_anim_delete(object, parameters);
+}
+void release_anim_delete_view(FactoryObject& object)
+{
+    active_owner->release_anim_delete(object);
+}
+const ObjectFactoryVtable* anim_delete_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504BBC, anim_delete_object_sizes, construct_anim_delete_view,
+        release_anim_delete_view};
+    return &table;
+}
 bool construct_scare_view(FactoryObject& object, std::span<const u8> parameters)
 {
     return active_owner->construct_scare(object, parameters);
@@ -1119,6 +1133,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0x10] = {2, afterimage_lifecycle}; // Getter 0x000690A0.
     types[0x12] = {2, bone_debris_lifecycle}; // Getter 0x00067E60.
     types[0x13] = {2, animated_light_lifecycle}; // Getter 0x0006C260.
+    types[0x14] = {2, anim_delete_lifecycle}; // Getter 0x0006C9E0.
     types[0x1C] = {2, scare_lifecycle}; // Getter 0x0006FCC0.
     types[0xB] = {2, weapon_lifecycle}; // Getter 0x00145900.
     types[0xAA] = {0xB, chair_weapon_lifecycle}; // Getter 0x000CEF70.
@@ -1346,6 +1361,30 @@ void NativeSceneActorClassOwner::update_animated_light(FactoryObject& object)
 void NativeSceneActorClassOwner::queue_animated_light_glow(FactoryObject& object)
 {
     queue_runtime_animated_light_glow(*animated_lights_.at(object.bytes.get()));
+}
+
+bool NativeSceneActorClassOwner::construct_anim_delete(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto& view = bindings_.actors.view(object);
+    auto context = std::make_unique<RuntimeAnimDelete>(RuntimeAnimDelete{{object.bytes.get(), object.size},
+        view.bat.actor, view.animation, bindings_.address_of(object.bytes.get()), bindings_.actors.bindings.factory,
+        bindings_.keep, bindings_.default_name});
+    auto* anim_delete = context.get();
+    anim_deletes_.emplace(object.bytes.get(), std::move(context));
+    return initialize_runtime_anim_delete(parameters, *anim_delete);
+}
+
+void NativeSceneActorClassOwner::release_anim_delete(FactoryObject& object)
+{
+    if (!defer_release)
+    {
+        anim_deletes_.erase(object.bytes.get());
+    }
+}
+
+void NativeSceneActorClassOwner::update_anim_delete(FactoryObject& object)
+{
+    update_runtime_anim_delete(*anim_deletes_.at(object.bytes.get()));
 }
 
 bool NativeSceneActorClassOwner::construct_scare(FactoryObject& object, std::span<const u8> parameters)
@@ -1817,6 +1856,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
     afterimages_.erase(bytes);
     bone_debris_.erase(bytes);
     animated_lights_.erase(bytes);
+    anim_deletes_.erase(bytes);
     scares_.erase(bytes);
     weapons_.erase(bytes);
 }

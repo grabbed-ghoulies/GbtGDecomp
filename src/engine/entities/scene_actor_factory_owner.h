@@ -25,6 +25,7 @@
 #include "sss_door.h"
 #include "bone_debris_actor.h"
 #include "animated_light.h"
+#include "anim_delete_avatar.h"
 #include "scare_actor.h"
 #include "../graphics/effect_collision_response.h"
 
@@ -229,6 +230,9 @@ public:
     void release_animated_light(FactoryObject& object); // Xbox 0x0006C540.
     void update_animated_light(FactoryObject& object); // Type 0x13 vtable +0x10 after 0x000420D0, Xbox 0x0006C5A0.
     void queue_animated_light_glow(FactoryObject& object); // Type 0x13 vtable +0x14 before 0x0003C9E0, 0x0006C7C0.
+    bool construct_anim_delete(FactoryObject& object, std::span<const u8> parameters); // Type 0x14, Xbox 0x0006CA20.
+    void release_anim_delete(FactoryObject& object); // Type 0x14, the empty 0x001628B0.
+    void update_anim_delete(FactoryObject& object); // Type 0x14 vtable +0x10 after 0x000420D0, Xbox 0x0006CAF0.
     bool construct_scare(FactoryObject& object, std::span<const u8> parameters); // Type 0x1C, Xbox 0x0006FD20.
     void release_scare(FactoryObject& object); // Xbox 0x0006FF20.
     void update_scare(FactoryObject& object); // Type 0x1C vtable +0x10 after 0x000420D0, Xbox 0x0006FF90.
@@ -268,6 +272,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBoneDebris>> bone_debris_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAnimatedLight>> animated_lights_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeAnimDelete>> anim_deletes_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeScareActor>> scares_;
     std::unordered_map<const u8*, std::unique_ptr<WeaponInstance>> weapons_;
 };

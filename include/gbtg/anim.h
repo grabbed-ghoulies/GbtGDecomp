@@ -520,6 +520,8 @@ const AnimationTable& button_bat_animation_table(); // executable data at 0x0033
 void advance_mina_playback(MinaPlayback& player, float dt, AnimationRoot* root,
                            AnimationRoot* cached_root, bool sampled);
 void retime_mina_playback(MinaPlayback* player, float duration, bool& dirty); // Xbox 0x00030DB0
+// The playback direction (AX): 0 forward (|speed|), 1 backward (-|speed|), 2 reversed (0 - speed); others leave it.
+void set_mina_playback_direction(MinaPlayback& player, u16 direction); // Xbox 0x0002DD00, ESI player
 bool mina_playback_completed(const MinaPlayback* player); // Xbox 0x0003B290
 
 // Column-major 4x4 skin palette, one matrix per joint (Xbox stores the same

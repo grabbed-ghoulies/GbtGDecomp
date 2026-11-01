@@ -95,6 +95,18 @@ NativeBackgroundInstance* NativeBackgroundClassOwner::owner_of(const entity_deta
     return nullptr;
 }
 
+bool NativeBackgroundClassOwner::live(const NativeBackgroundInstance* background) const
+{
+    for (const auto& [bytes, other] : instances_)
+    {
+        if (other.get() == background)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool NativeBackgroundClassOwner::construct(FactoryObject& object, std::span<const u8> parameters)
 {
     auto& view = bindings.actors.view(object);

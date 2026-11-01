@@ -1417,10 +1417,12 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           owner_instance.animation, scene_bindings.registry, scene_bindings.create_effect, scene_bindings.object_message,
           scene_bindings.body_at, scene_bindings.body_of, scene_bindings.model_of, scene_bindings.attachment_limit,
           "aid_objparams_ghoulies_fx_mutatehalo", "attack", "mutateup", "jumpbite", "jumpbiteprepare"},
-      butler{strategy_messages, scene_bindings.actor_address, scene_bindings.actor_bytes, scene_bindings.actor_bytes_at,
+      butler{strategy_messages, scene_bindings.actor_address, scene_bindings.first_live_attachment_at,
+          scene_bindings.actor_bytes_at,
           "scared", "far"},
       strategy_views{scene_bindings.actor_at, scene_bindings.actor_bytes_at, scene_bindings.body_of,
-          scene_bindings.query, scene_bindings.story_flags, scene_bindings.mind_bytes_at},
+          scene_bindings.query, scene_bindings.story_flags, scene_bindings.mind_bytes_at,
+          scene_bindings.first_live_attachment_at},
       skeleton{strategy_messages, target_checks, target_queue, strategy_views, scene_bindings.skeleton_fetch_delay,
           "attack", "knockdown", "attackwithprojectile", "attackwithweapon", "duckndodge?", "far", "getweapon"},
       zombie{strategy_messages, target_checks, target_queue, strategy_views, scene_bindings.zombie_parameters,
@@ -1463,14 +1465,15 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
       ghoulie_girl{strategy_messages, target_checks, target_queue, strategy_views, scene_bindings.create_effect,
           scene_bindings.object_message, scene_bindings.latches, "wake", "randomwander", "knockdown"},
       mummy{strategy_messages, target_checks, target_queue, strategy_views,
-          [&tables = scene_bindings.action_tables](std::span<const u8> body) -> const RuntimeScriptLookupTable*
+          [](std::span<const u8> body) -> const RuntimeScriptLookupTable*
           {
-              const auto found = tables.find(body.data());
-              if (found == tables.end())
+              const NativePlayerInstance* owner = active_owner == nullptr ? nullptr
+                  : active_owner->find_child_owner(body.data());
+              if (owner == nullptr)
               {
-                  throw Error("mummy strategy: a target body's action table (+0x73C) is not loaded");
+                  throw Error("mummy strategy: a target body (+0x73C) belongs to no native player");
               }
-              return found->second;
+              return owner->action_table;
           },
           "attack", "ankh_getout", "ankh_whack", "bondage_bandage", "far", "scared"},
       vampire{strategy_messages, target_checks, target_queue, strategy_views, "knockback", "knockbackfollowup",

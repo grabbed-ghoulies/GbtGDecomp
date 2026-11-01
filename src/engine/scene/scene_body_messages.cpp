@@ -104,9 +104,9 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
       processor_{player.actor, player.actor_address, *player.body_flags, player.body_attributes, nullptr, nullptr,
           services.damage_tables, services.push_keys, services.amount_keys, services.player_damage, 0, services.player_blocked,
           services.player_modes, services.player_mode, actions_,
-          []() -> u16
+          [this]() -> u16
           {
-              unbound("body defensive action (vtable +0x44)");
+              return body_slot_key(0x44); // Body vtable +0x44, the base 0x00027220.
           },
           services.death_actions, damage_rows_, std::span<char>(), death_, services.random, parameter_scratch_,
           [this]() -> u16
@@ -348,6 +348,22 @@ void SceneBodyMessages::bind_action_children()
                 };
             }
             children_[child->bytes.get()] = grab_throw.get();
+            continue;
+        }
+        if (child->type == 0x60)
+        {
+            auto& bandaged = bandaged_children_[child->bytes.get()];
+            if (bandaged == nullptr)
+            {
+                bandaged = std::make_unique<RuntimeBodyMessageChild>();
+                bandaged->message = [this, child](std::span<u8> message)
+                {
+                    const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
+                    message_runtime_bandaged_state({child->bytes.get(), child->size}, words,
+                        bandaged_context()); // 0x0008A8E0
+                };
+            }
+            children_[child->bytes.get()] = bandaged.get();
             continue;
         }
         if (child->type == 0x61)
@@ -1000,6 +1016,23 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     case 0x82:
         tick_runtime_slam_smash_state({action.bytes.get(), action.size}, slam_smash_context()); // 0x000A0630
         return;
+    case 0x60:
+    {
+        // The tick's second argument is the player's input record (actor +0x960) or zero, as for 0x64.
+        const RuntimeDialogueInputDevice* device = nullptr;
+        if (input != 0)
+        {
+            if (player_.input.empty() || input != services_.address_of(player_.input.data()))
+            {
+                unbound("bandaged state input word that is not this player's input record");
+            }
+            device = &player_.input_device;
+        }
+        auto& context = bandaged_context();
+        context.input = device;
+        tick_runtime_bandaged_state({action.bytes.get(), action.size}, context); // 0x0008A5F0
+        return;
+    }
     case 0x61:
         tick_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B6C0
         return;
@@ -1330,6 +1363,7 @@ void SceneBodyMessages::action_step(FactoryObject& action)
         step_runtime_stand_action({action.bytes.get(), action.size}, context, player_.actor_instance.animation);
         return;
     }
+    case 0x60: // Getter 0x0008A300 keeps the empty 0x001628B0 at +0x14.
     case 0x5E:
     case 0x62:
     case 0x63:
@@ -1862,6 +1896,32 @@ RuntimeSlamSmashStateContext& SceneBodyMessages::slam_smash_context()
             dispatch(player_.body_object, buffer); // Body vtable +0xC.
         }});
     return *slam_smash_;
+}
+
+RuntimeBandagedStateContext& SceneBodyMessages::bandaged_context()
+{
+    // Body views only, as for the dizzy state: a state destroyed with its player outlives the input device.
+    player_.refresh_body_views();
+    if (player_.body_bits == nullptr)
+    {
+        unbound("bandaged state of a body with no +0x15C bit block");
+    }
+    if (services_.bandaged_preset.empty() || !services_.actor_fade)
+    {
+        unbound("bandaged state services");
+    }
+    bandaged_.reset();
+    bandaged_.emplace(RuntimeBandagedStateContext{player_.body, player_.actor, player_.actor_address,
+        player_.actor_bytes, *player_.body_bits, player_.actor_instance.render, player_.attachment,
+        player_.body_selection, services_.clock, player_.actor_instance.animation, services_.sounds, services_.effects,
+        services_.default_position, services_.empty_name, services_.bandaged_preset, player_.scene.input_state,
+        recovery_action(), services_.image_string,
+        [this](u32 slot)
+        {
+            return body_slot_key(slot);
+        },
+        services_.create_object, services_.actor_view, services_.actor_fade});
+    return *bandaged_;
 }
 
 RuntimeBloodSuckStateContext& SceneBodyMessages::blood_suck_context()
@@ -3083,6 +3143,18 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
                 message_runtime_grab_throw_state({second.bytes.get(), second.size}, words, grab_throw_context());
+                return;
+            }
+            if (type == 0x60)
+            {
+                // 0x0008A8E0 reads past the id only for 0x7C (+4).
+                if (reply.id == 0x7C)
+                {
+                    unbound("collision reply id 0x7C to the bandaged state 0x0008A8E0");
+                }
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 1> words{reply.id};
+                message_runtime_bandaged_state({second.bytes.get(), second.size}, words, bandaged_context());
                 return;
             }
             if (type == 0x61)

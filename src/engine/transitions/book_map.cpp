@@ -1,4 +1,7 @@
 #include "book_map.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include "../audio/event_voices.h"
 #include "../audio/listener_settings.h"
 #include "../camera/display_view.h"
@@ -583,7 +586,12 @@ u32 tick_book_map(RuntimeTransitionBook& book, TransitionBookServices& services)
     {
         s.flags |= 0x2000; // DAT_0050EA9C
     }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay: the countdown counts retail ticks.
+    else if (rare_replay_retail_tick())
+#else
     else
+#endif
     {
         --book.map_countdown;
     }

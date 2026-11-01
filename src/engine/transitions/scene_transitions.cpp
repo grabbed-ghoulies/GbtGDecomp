@@ -3,6 +3,7 @@
 #include "native_book.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../plugins/plugins.h"
+#include "../runtime/rare_replay.h"
 #endif
 #include "book_map.h"
 #include "../audio/event_voices.h"
@@ -31,6 +32,7 @@
 
 #include <bit>
 #include <cstring>
+#include <limits>
 
 namespace gbtg
 {
@@ -108,6 +110,14 @@ void count_down(RuntimeSceneTransition& t, const SceneTransitionServices& s)
     if (0.f < t.time)
     {
         t.time = t.time - s.dt;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // Rare Replay: a 1/60 s step can land a duration exactly on zero, which the handlers read as no timer
+        // (0x0012BC80 waits for time <= 0 && time != 0) and never leave; retail's 1/30 s steps always pass below it.
+        if (t.time == 0.f && rare_replay_enabled())
+        {
+            t.time = -std::numeric_limits<float>::min();
+        }
+#endif
     }
 }
 
@@ -870,7 +880,12 @@ void tick_scene_transition()
     }
     if (t.phase == 1)
     {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // Rare Replay: the delay counts retail ticks.
+        if (t.flag_delay != 0 && rare_replay_retail_tick())
+#else
         if (t.flag_delay != 0)
+#endif
         {
             t.flag_delay = t.flag_delay - 1;
             if (t.flag_delay == 0)

@@ -1,4 +1,7 @@
 #include "gbtg/engine_internal.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "runtime/rare_replay.h"
+#endif
 #include "scripts/script_actions.h"
 #include "scene/ambient.h"
 #include "scene/dialogue_scene_runtime.h"
@@ -149,6 +152,9 @@ void frame_tick(Game& g, float dt, const InputState& in)
 {
     // Xbox 0x00033B50.
     clock_pad(g.clock, dt);    // 0x000FC030
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    advance_rare_replay(g.clock.dt_raw); // Rare Replay: which ticks are retail's 1/30 s ticks.
+#endif
     clock_frame_time(g.clock); // 0x00033C80
     g.time = g.clock.time;
     g.frame = g.clock.frame;

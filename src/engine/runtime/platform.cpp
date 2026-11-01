@@ -1,4 +1,7 @@
 #include "gbtg/gfx.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "rare_replay.h"
+#endif
 #include "gbtg/log.h"
 #include "../graphics/render_profile.h"
 #include "gbtg/platform.h"
@@ -157,16 +160,21 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     // step after it spans that load. Game::init runs that load before this loop.
     const auto origin = cfg.boot_started;
     long long field = 0; // The 60 Hz field of the previous logic tick (its swap).
+    int swap_interval = kSwapInterval;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay (rare_replay.h): a tick every field, so the step is 1/60 s.
+    swap_interval = rare_replay_swap_interval();
+#endif
     bool presented = false;
     [[maybe_unused]] auto last_pass = std::chrono::steady_clock::now(); // Plugin overlays' host frame time.
     while (game.running)
     {
         // DAT_005096D0: the fields between the last two swaps, which the vertical-blank callback 0x000FC3B0 counts.
         // 0x000FC030 makes the step that many fields.
-        int fields = kSwapInterval;
+        int fields = swap_interval;
         if (paced)
         {
-            const auto due = origin + step * (field + kSwapInterval);
+            const auto due = origin + step * (field + swap_interval);
             if (std::chrono::steady_clock::now() < due)
             {
                 if (!presented || cfg.vsync == 0)

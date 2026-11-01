@@ -1,4 +1,7 @@
 #include "../entities/mind_target_policy.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include "gbtg/clock.h"
 #include "chapter5_countdown.h"
 #include "../saves/save_summary.h"
@@ -12721,7 +12724,17 @@ void SceneActorServices::age_actor_snapshots()
 void SceneActorServices::animate_light_records()
 {
     auto& state = *state_;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay: the lights flicker on frame-counter masks with a random roll each; they animate on retail ticks.
+    if (!rare_replay_retail_tick())
+    {
+        return;
+    }
+    animate_runtime_light_records(state.shaders, rare_replay_retail_frame(state.game.clock.frame),
+        state.game.clock.time, state.random);
+#else
     animate_runtime_light_records(state.shaders, state.game.clock.frame, state.game.clock.time, state.random);
+#endif
 }
 
 // Xbox 0x0011B7F0, from the frame tick after the drift moves on.

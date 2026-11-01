@@ -1,4 +1,7 @@
 #include "gbtg/engine_internal.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "rare_replay.h"
+#endif
 
 #include <algorithm>
 #include <cstddef>
@@ -287,6 +290,13 @@ void update_holds(PadSlot& slot)
             slot.hold[i] = 0;
             continue;
         }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // Rare Replay: the hold counts retail ticks.
+        if (!rare_replay_retail_tick())
+        {
+            continue;
+        }
+#endif
         if (slot.hold[i] < kHoldCap)
         {
             ++slot.hold[i];

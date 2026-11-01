@@ -1362,7 +1362,7 @@ void script_queue_scene_start(Game& g)
         script_queue_event(g, start);
     });
     g.factory_scene->actor_start = 1;
-    log::info("native scene start complete: %s", g.scene_name.c_str());
+    log::info("native scene start complete: %s at %.3f s", g.scene_name.c_str(), g.clock.time);
     g_scene_script_started = true;
     g.factory_scene->start_actors(g).tick_live_spawns(); // 0x0011B670
     script_tick_fired_vm(g); // 0x00117140

@@ -1,4 +1,7 @@
 #include "point_graph_solver.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include "vector_normalize.h"
 #include "d3dx_matrix.h"
 #include "matrix_inverse.h"
@@ -638,7 +641,14 @@ void recover_runtime_point_graph_transform(RuntimePointGraph& graph)
     std::memcpy(inverse.data(), graph.fields.data() + 0x170, 0x40);
     invert_runtime_graphics_matrix(inverse, nullptr, placed);
     std::memcpy(graph.fields.data() + 0x170, inverse.data(), 0x40);
-    const u32 frames = read_u32(graph.fields, 0x1C8) + 1;
+    u32 frames = read_u32(graph.fields, 0x1C8) + 1;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay: the warm-up counts retail ticks.
+    if (!rare_replay_retail_tick())
+    {
+        frames = read_u32(graph.fields, 0x1C8);
+    }
+#endif
     std::memcpy(graph.fields.data() + 0x1C8, &frames, 4);
     if (frames > 10)
     {

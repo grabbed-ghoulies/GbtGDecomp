@@ -1,4 +1,7 @@
 #include "effect_notifications.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 
 #include <cstring>
 
@@ -30,10 +33,14 @@ void notify_actor_effect_particle(const ActorEffectNode& owner, u32 collided,
 {
     const char* sound = reinterpret_cast<const char*>(owner.bytes.data()
         + (collided == 0 ? 0x15C : 0x1DC));
-    if (*sound != '\0' && frame - last_sound_frame > 5)
+    u32 now = frame;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    now = rare_replay_retail_frame(frame); // Rare Replay: the spacing is in retail ticks.
+#endif
+    if (*sound != '\0' && now - last_sound_frame > 5)
     {
         request_positioned_audio_event_voice(sound, 1, position, voices);
-        last_sound_frame = frame;
+        last_sound_frame = now;
     }
     u32 prefix;
     std::memcpy(&prefix, owner.bytes.data() + 0x25C, sizeof(prefix));

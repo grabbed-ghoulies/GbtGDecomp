@@ -1,4 +1,7 @@
 #include "scoreboard_update.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include "../entities/powerup_flags.h"
 #include "dialogue_widget_update.h"
 #include "../camera/camera.h"
@@ -702,7 +705,12 @@ void update_runtime_damage_counter(RuntimeScoreboardUpdate& context)
     auto& globals = context.hud.globals;
     if (context.paused == 0)
     {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // Rare Replay: the damage flash counts retail ticks.
+        if (globals.damage_6e0 != 0 && rare_replay_retail_tick())
+#else
         if (globals.damage_6e0 != 0)
+#endif
         {
             --globals.damage_6e0;
         }
@@ -922,7 +930,12 @@ void update_runtime_meter(RuntimeScoreboardUpdate& context)
     auto& globals = context.hud.globals;
     if (context.paused == 0)
     {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // Rare Replay: the meter's countdown counts retail ticks.
+        if (globals.meter_bc8 != 0 && rare_replay_retail_tick())
+#else
         if (globals.meter_bc8 != 0)
+#endif
         {
             --globals.meter_bc8;
         }

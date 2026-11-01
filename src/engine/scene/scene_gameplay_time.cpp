@@ -1,4 +1,7 @@
 #include "scene_gameplay_time.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include "../entities/entity.h"
 
 #include <cstring>
@@ -10,7 +13,14 @@ void advance_scene_gameplay_time(std::span<u8> timers, const RuntimeActorClock& 
     u32 flags)
 {
     const float step = runtime_frame_step(clock);
-    const u32 frame = read_u32(timers, 0x10) + 1u;
+    u32 frame = read_u32(timers, 0x10) + 1u;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay: +0x10 and +0xC count retail ticks.
+    if (!rare_replay_retail_tick())
+    {
+        frame = read_u32(timers, 0x10);
+    }
+#endif
     const float first = read_f32(timers, 0) + step;
     std::memcpy(timers.data(), &first, 4);
     std::memcpy(timers.data() + 0x10, &frame, 4);

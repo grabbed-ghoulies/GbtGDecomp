@@ -11685,7 +11685,7 @@ void SceneActorServices::start_scene(const std::function<void()>& script_event)
     clear_runtime_scene_control_updates(controls); // 0x001160C0
     auto activation = state.activation_context();
     clear_runtime_scene_start_list(activation); // 0x00123240
-    // 0x0011CBD0 then runs 0x0012A1E0 and the scoreboard set-up.
+    start_runtime_scene_named_sounds(state.sounds, state.voices); // 0x0012A1E0
     set_up_runtime_scoreboard(*state.scoreboard_hud); // 0x00132040
     start_runtime_scene_challenge(*state.challenge_services); // 0x00049BA0, challenge 21's run
     // The player start latch DAT_005462FC, set by 0x0011CAC0,

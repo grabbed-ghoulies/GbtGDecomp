@@ -1,5 +1,6 @@
 #include "actor_sound_tick.h"
 #include "../runtime/link_exchange.h"
+#include <cstring>
 
 namespace gbtg
 {
@@ -151,6 +152,29 @@ void tick_runtime_actor_sounds(RuntimeActorSoundQueues& queues, RuntimeActorSoun
             context.message(actor, 0x89, sound);
         };
         dispatch_pending_actor_sounds(group, start, started);
+    }
+}
+
+// Xbox 0x0012A1E0
+void start_runtime_scene_named_sounds(RuntimeActorSoundQueues& queues, AudioEventVoices& voices)
+{
+    for (i32 index = 0; index < queues.static_voice_count; ++index) // DAT_00512548
+    {
+        const std::span<u8> row = queues.static_voice_rows.subspan(size_t(index) * 0x90, 0x90); // DAT_0051254C
+        const i16 voice = allocate_audio_event_voice(1, voices); // 0x00039830, EBX 1
+        if (voice != -1)
+        {
+            auto& slot = voices.voices[size_t(voice)];
+            slot.stop = 0; // DAT_004E0CEC
+            if (slot.source != nullptr) // DAT_004E0D04
+            {
+                Vec3 position;
+                std::memcpy(&position, row.data() + 0x80, sizeof(position));
+                set_audio_core_source_position(*slot.source, position, voices.core.sources); // 0x0015C800
+            }
+            prepare_audio_event_voice(voice, reinterpret_cast<const char*>(row.data()), voices); // 0x00039A20
+        }
+        std::memcpy(row.data() + 0x8C, &voice, sizeof(voice));
     }
 }
 }

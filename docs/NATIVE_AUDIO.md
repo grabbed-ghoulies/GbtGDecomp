@@ -371,8 +371,10 @@ audio would leave each screen half on each path:
   `event_runtime.cpp`);
 - `movie.cpp` stops a clip's cue by name (the movie boundary).
 
-Also still to do from the earlier list: scene start's ambient sounds
-`0x0012A1E0` (with `0x00132040` and `0x00049BA0`).
+Scene start's ambient sounds `0x0012A1E0` run from `SceneActorServices::start_scene`
+before `0x00132040` and `0x00049BA0`, as 0x0011CBD0 calls them: each kind 7 marker's named
+sound (DAT_0051254C) starts at its position (fires, cauldrons, the furnace, the projector,
+the muffled disco), and 0x00129F70 stops them at teardown. 26 of the 134 scenes have one or two.
 
 ## Native cue voice lifetime and the exit crash (2026-10-15)
 

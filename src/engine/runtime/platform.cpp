@@ -164,6 +164,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     gfx_cfg.vsync = cfg.vsync;
     gfx_cfg.widescreen = cfg.widescreen;
     gfx_cfg.fullscreen = cfg.fullscreen;
+    gfx_cfg.render_thread = cfg.render_thread;
     gfx_cfg.visible = !cfg.headless && cfg.screenshot.empty();
     const auto gfx_start = render_profile::Clock::now();
     const bool gfx_ok = gfx_init(gfx_cfg);

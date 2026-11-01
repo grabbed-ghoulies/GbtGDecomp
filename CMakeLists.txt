@@ -786,7 +786,10 @@ set(GBTG_GFX "${_gbtg_gfx_default}" CACHE STRING
 # gfx_dispatch.cpp owns the gfx.h names and forwards to the backend gfx_init picks (--gfx / gbtg.ini Backend).
 target_sources(gbtg PRIVATE src/engine/graphics/gfx_dispatch.cpp src/engine/graphics/gfx_null.cpp
     src/engine/graphics/gfx_present_logic.cpp src/engine/graphics/gfx_shader_permutations.cpp
-    src/engine/graphics/gfx_shader_sources.cpp)
+    src/engine/graphics/gfx_shader_sources.cpp src/engine/graphics/gfx_render_thread.cpp)
+# GBTG_OPTIMIZE step 11 runs the backend on a std::thread (gfx_render_thread.cpp).
+find_package(Threads REQUIRED)
+target_link_libraries(gbtg PRIVATE Threads::Threads)
 if(WIN32)
     # XACT audio uses XAudio2 with any graphics backend.
     target_link_libraries(gbtg PRIVATE xaudio2 ole32)

@@ -21,6 +21,8 @@ struct GfxConfig
     bool visible = true; // false: offscreen target (headless / screenshot)
     bool widescreen = false; // The Xbox frame is shown at 16:9 (anamorphic widescreen), else 4:3.
     bool fullscreen = false; // The window covers its display. Only the SDL window (Linux) honours it.
+    // GBTG_OPTIMIZE builds: run the backend on a render thread (gfx_render_thread.h). Retail builds ignore it.
+    bool render_thread = true;
     const char* title = "Grabbed by the Ghoulies";
 };
 

@@ -16,6 +16,7 @@
 #include "../gfx_shader_permutations.h"
 #include "../gfx_shader_sources.h"
 #include "../render_profile.h"
+#include "../vertex_program_constants.h"
 #include "../xbox_vertex_hlsl.h"
 #include "../xbox_vertex_program.h"
 #include "../xg_shader_assembly.h"
@@ -26,6 +27,7 @@
 #include "gbtg/log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -308,6 +310,29 @@ struct GfxVulkan
 
 GfxVulkan g;
 
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 11: window events arrive on the main thread (gfx_pump) while the render thread may be presenting,
+// so a resize is handed over here and applied by take_window_events before the swapchain is used. The extent is
+// window_extent's width << 32 | height; without a new extent (WM_SIZE) only the stale flag is set.
+std::atomic<bool> g_resize_pending{false};
+std::atomic<bool> g_resize_has_extent{false};
+std::atomic<u64> g_resize_extent{0};
+
+void take_window_events()
+{
+    if (!g_resize_pending.exchange(false))
+    {
+        return;
+    }
+    if (g_resize_has_extent.exchange(false))
+    {
+        const u64 extent = g_resize_extent.load();
+        g.swapchain.window_extent = {u32(extent >> 32), u32(extent)};
+    }
+    g.swapchain.stale = true;
+}
+#endif
+
 #if defined(_WIN32)
 LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -324,7 +349,11 @@ LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 #endif
     if (msg == WM_SIZE)
     {
+#if GBTG_OPTIMIZE
+        g_resize_pending.store(true);
+#else
         g.swapchain.stale = true;
+#endif
     }
     if (msg == WM_CLOSE || (msg == WM_KEYDOWN && wp == VK_ESCAPE))
     {
@@ -350,8 +379,14 @@ void handle_window_event(const SDL_Event& event)
 #endif
     if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
     {
+#if GBTG_OPTIMIZE
+        g_resize_extent.store(u64(u32(std::max(event.window.data1, 0))) << 32 | u32(std::max(event.window.data2, 0)));
+        g_resize_has_extent.store(true);
+        g_resize_pending.store(true);
+#else
         g.swapchain.window_extent = {u32(std::max(event.window.data1, 0)), u32(std::max(event.window.data2, 0))};
         g.swapchain.stale = true;
+#endif
     }
     if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED
         || (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE))
@@ -616,38 +651,6 @@ VkDeviceSize ring_take_range(const void* data, VkDeviceSize bytes, VkDeviceSize 
     std::memcpy(g.ring.mapped + offset + copy_begin, static_cast<const u8*>(data) + copy_begin, size_t(copy_bytes));
     g.ring_cursor = offset + bytes;
     return offset;
-}
-
-// The registers of `vc` a translated program reads (xbox_vertex_hlsl: an operand of kind 3 reads the instruction's
-// constant index, plus the address register when the relative bit is set). Every constant-kind operand counts,
-// whether or not its MAC/ILU operation uses it, and any relative read takes the whole file.
-void program_constant_range(std::span<const u32> program, u32& first, u32& count)
-{
-    u32 lowest = 192;
-    u32 highest = 0;
-    for (size_t n = 1; n + 3 < program.size(); n += 4)
-    {
-        const u32* w = program.data() + n;
-        const bool constant = ((w[2] >> 26) & 3) == 3 || ((w[2] >> 11) & 3) == 3 || ((w[3] >> 28) & 3) == 3;
-        if (constant)
-        {
-            const u32 index = (w[1] >> 13) & 255;
-            if ((w[3] & 2) != 0 || index >= 192)
-            {
-                first = 0;
-                count = 192;
-                return;
-            }
-            lowest = std::min(lowest, index);
-            highest = std::max(highest, index);
-        }
-        if ((w[3] & 1) != 0)
-        {
-            break;
-        }
-    }
-    first = lowest > highest ? 0 : lowest;
-    count = lowest > highest ? 0 : highest - lowest + 1;
 }
 #endif
 
@@ -1426,6 +1429,9 @@ void draw_sprite_quad(VkImageView view, const GfxRect& rect)
 // Copies the back buffer onto the window and presents it. Without a window this only submits.
 void present_frame_image()
 {
+#if GBTG_OPTIMIZE
+    take_window_events();
+#endif
     if (g.window == nullptr || !vk::swapchain_ready(g.context, g.swapchain))
     {
         submit();

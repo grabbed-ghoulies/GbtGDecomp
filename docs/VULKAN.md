@@ -24,6 +24,7 @@ retail translation differs between them.
 | File | Role |
 |---|---|
 | `src/engine/graphics/gfx_backend.h`, `gfx_dispatch.cpp` | `GfxBackend` table; the public `gfx_*` names forward to the selected backend |
+| `src/engine/graphics/gfx_render_thread.*` | `GBTG_OPTIMIZE` step 11: the Vulkan backend on a render thread, fed by a queue of copied `gfx_*` calls |
 | `src/engine/graphics/gfx_shader_sources.*` | The HLSL both backends compile, and native pixel-shader specialization |
 | `src/engine/graphics/gfx_shader_permutations.*` | `cache/shaders.gbtg` format |
 | `src/engine/graphics/gfx_present_logic.*` | Retail present logic (0x00033480, 0x00032AB0, 0x00033A90) shared by every backend |

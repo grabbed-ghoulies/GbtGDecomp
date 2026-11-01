@@ -348,6 +348,7 @@ optimized exe; otherwise the menu case starts from different save data.
 | 10 (Vulkan) | `gfx_vulkan` | A GPU-program draw copies into its 3 KB constant ring slot only the registers its program can read: every operand of constant kind reads the instruction's index, and any relative read takes the whole file. The descriptor range is unchanged; the rest of the slot keeps earlier ring contents, which the shader never reads. |
 | 3 (presenter) | `scene_d3d_present` | Address-validation checks are kept per program (keyed by the address of its words, verified against a copy) instead of in one entry, so draws alternating programs do not rebuild them. |
 | 8 | `scene_resource_memory` | `resolve`, `tail` and `find_address` try the four blocks recent lookups found before searching the map (`find_address` scanned every block; a draw alternates between its stream and index blocks). Blocks never move, resize or overlap, and the cache answers only for addresses and pointers strictly inside its block, so results are those of the map; `free` clears it. The member exists in every build so the class layout does not depend on the option. |
+| 11 | `gfx_render_thread`, `gfx_dispatch`, `gfx_vulkan` | The Vulkan backend runs on a render thread. `gfx_init` swaps the dispatch table for a wrapper (`[Video] RenderThread=0` or `--render-thread 0` keeps it synchronous; D3D11 and null are never wrapped). The game thread keeps the tick, recording and translation, and queues each `gfx_*` call in batches of up to 128 commands, copying what it points at: vertices, indices and program inputs into the batch's arena (a retained-geometry id is copied once and aged after 600 frames), the 60-word pixel definition, and only the constant registers the program reads (the step 10 range, now `vertex_program_constants.h`). Vertex programs are interned by the address of their words and verified with `memcmp`, so the backend's step 3 memo still sees one address per program. Images reach the backend through proxies: a new serial queues the new pixels as a command, so draws queued earlier keep the pixels they were queued with, and `gfx_release_sprite` is queued in order. Calls that return results (`end_native_target`, `read_native_target_depth`, `readback`, `readback_ui`, the first program query for a new program, the loading screen, warmup) drain the queue and run on the game thread. One frame may present while the next is recorded; `present_again` waits for the previous present, and the debug UI waits for it before building ImGui's next frame. Window resizes reach the render thread through atomics; profile counters are per thread and the render thread's are added to the next frame. |
 
 Not done: removing the synchronous render-target round trip (copy → Map → swizzle →
 re-decode). That needs proof that native code never reads the target's memory in the same
@@ -420,3 +421,23 @@ in `SceneD3DDevice::take_commands`, and the Vulkan uniform reuse above.
 Remaining, by the heavy-stretch profile: heap allocation and the kernel time that goes with it (about 47,000
 main-thread allocations per heavy frame, roughly 13 per draw, from recording and game code), Vulkan per-draw
 submission (descriptor pushes, pipeline lookup, the 3 KB constant ring copy) and the driver.
+
+### Render thread, step 11 (2026-11-01)
+
+Before the change, hall heavy frames (frames 60–95, `--scene chapter1_scene1_2playcam`, about 2,680 draws) were
+counted for calls that must return a result: each frame ends five render targets, all between draws 1,579 and 1,611,
+and reads nothing else back. Draws before that point overlap their submission with the presenter's translation; the
+target readbacks drain the queue; the remaining 40% of the frame, the present and the GPU wait overlap the next tick.
+
+Windows, Release `GBTG_OPTIMIZE=ON`, Vulkan, 1280x800, `--vsync 0`, three alternating rounds of `--render-thread 0`
+and `1`: heavy frames median 11.5–12.1 → 10.3–11.0 ms, frames from 120 on 3.21–3.24 → 2.63–2.79 ms. Desktop
+submission is under 2 ms of the heavy frame; on the Steam Deck it was about 12 ms before steps 8–10, so the overlap
+there should be larger (not yet measured on a Deck).
+
+Checks: the six benchmark cases on Vulkan match the retail build with maximum channel delta 0; the hall at frame 300
+is identical with the thread on and off; the validation layer reports 0 errors over 300 hall frames with the thread
+on; a windowed `--vsync 1` run exercises `present_again` and the debug UI wait. A ThreadSanitizer build (Linux,
+lavapipe) over 300 hall frames reports no race involving the render thread; its reports are inside FAudio (game
+thread against the SDL audio thread), unrelated to this step. It also found a game-thread use-after-free, since fixed:
+`retire_target` copied the target's body query through a reference into the player body, which player destruction
+frees before the actor view is released; the row now keeps the query from its last refresh, as it keeps the bits. `--validate-render-boundary` runs before `gfx_init`, so it does not exercise the wrapper.

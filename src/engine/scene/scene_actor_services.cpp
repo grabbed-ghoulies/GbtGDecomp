@@ -620,6 +620,7 @@ struct SceneActorServices::State
         std::array<u8, 0x68> bytes{};
         std::vector<u8> bits; // The target body's +0x15C bits at the last refresh; empty for a non-player body.
         std::vector<u8> actor_bytes; // The target actor's bytes at the last refresh.
+        RuntimeScriptMindQuery body{}; // The target's +0x95C body query at the last refresh.
         std::unique_ptr<RuntimeMindTarget> target;
         RuntimePlayerTargetView view{};
     };
@@ -649,7 +650,7 @@ struct SceneActorServices::State
         const Actor& actor = live.actor;
         auto retired = std::make_unique<RetiredTarget>(RetiredTarget{row.bytes, actor});
         retired->actor_bytes = row.actor_bytes;
-        retired->body = live.body;
+        retired->body = row.body; // live.body names the freed body.
         retired->body.bits = nullptr;
         if (!row.bits.empty())
         {
@@ -7187,6 +7188,7 @@ void SceneActorServices::State::refresh_mind_targets()
             row->target->record = record;
         }
         row->actor_bytes.assign(actor_bytes.begin(), actor_bytes.end());
+        row->body = *query_view;
         row->bits.clear();
         if (object.type == 5)
         {

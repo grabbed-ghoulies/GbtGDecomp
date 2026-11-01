@@ -287,13 +287,15 @@ void load_runtime_door_clips(RuntimeDoorClips& door, const char* clip,
                 }
                 if ((flags & 1) != 0)
                 {
+                    // BL, the value: 0 shows slot 0's challenge icon over a door in state 5 (+6 or +8), 1 hides it.
+                    const u8 value = read_u16(door.fields, 6) == 5 || read_u16(door.fields, 8) == 5 ? 0 : 1;
                     if (models.reference != nullptr)
                     {
-                        set_runtime_model_node_state(*models.primary, 0, 0, context.shared_model_states);
+                        set_runtime_model_node_state(*models.primary, 0, value, context.shared_model_states);
                     }
                     if (models.secondary != nullptr)
                     {
-                        set_runtime_model_node_state(*models.secondary, 0, 0, context.shared_model_states);
+                        set_runtime_model_node_state(*models.secondary, 0, value, context.shared_model_states);
                     }
                 }
             }

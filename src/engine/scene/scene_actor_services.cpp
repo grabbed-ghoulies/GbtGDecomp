@@ -1118,6 +1118,9 @@ struct SceneActorServices::State
         return names;
     }
     FactoryObject* object_of(const u8* bytes);
+    // The scene object with these bytes, which must exist. Taken again after anything that can create objects: the
+    // object vectors may reallocate, and a held FactoryObject& would then dangle.
+    FactoryObject& scene_object(const u8* bytes);
     bool release_actor_frame_object(Actor& actor, u32 object); // Xbox 0x0003DE30, ECX actor, ESI object
     u32 address_of(const void* pointer);
     // 0x0003BE20 over a scene actor's +0x8C callout records with callback 0 and value 0.
@@ -7429,6 +7432,16 @@ bool SceneActorServices::State::release_actor_frame_object(Actor& actor, u32 obj
     return false;
 }
 
+FactoryObject& SceneActorServices::State::scene_object(const u8* bytes)
+{
+    FactoryObject* object = object_of(bytes);
+    if (object == nullptr)
+    {
+        throw Error("scene object update finds its object released");
+    }
+    return *object;
+}
+
 FactoryObject* SceneActorServices::State::object_of(const u8* bytes)
 {
     // A moved-from object keeps null bytes; an unresolved address must not match it.
@@ -7734,13 +7747,15 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         const u8* bytes = object.bytes.get();
         actor_updates[&view.bat.actor] = [this, bytes](Actor& actor)
         {
-            auto& updated = *object_of(bytes);
-            refresh_actor_model_animation_view(actors->view(updated));
-            classes->update_scare_figure(updated);
-            store_actor_model_animation_view(actors->view(updated));
-            update_base_actor(updated); // 0x000420D0
+            // Both updates can create scene objects, which may move the object storage, so the object is found again
+            // by its bytes after each; the view belongs to the actor class and stays put.
+            auto& updated_view = actors->view(scene_object(bytes));
+            refresh_actor_model_animation_view(updated_view);
+            classes->update_scare_figure(scene_object(bytes));
+            store_actor_model_animation_view(updated_view);
+            update_base_actor(scene_object(bytes)); // 0x000420D0
             measure_runtime_actor_bound_size(actor, 0x200,
-                reinterpret_cast<GhoulySpawnPool*&>(actors->view(updated).allocation_8fc)); // 0x0003D670
+                reinterpret_cast<GhoulySpawnPool*&>(updated_view.allocation_8fc)); // 0x0003D670
         };
         refresh_actor_model_animation_view(view);
         classes->message(object, message);
@@ -7807,10 +7822,9 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
         const u8* bytes = object.bytes.get();
         actor_updates[&view.bat.actor] = [this, bytes](Actor&)
         {
-            auto& updated = *object_of(bytes);
-            classes->update_super_scary_shock(updated, [this, &updated]()
+            classes->update_super_scary_shock(scene_object(bytes), [this, bytes]()
                 {
-                    update_base_actor(updated); // 0x000420D0
+                    update_base_actor(scene_object(bytes)); // 0x000420D0; the storage may have moved since.
                 });
         };
         classes->message(object, message);

@@ -16,6 +16,7 @@
 #include "gbtg/resource.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -1540,6 +1541,10 @@ struct MovieClip
     AVIOContext* io = nullptr;
     u8* io_buf = nullptr;
     int video_index = -1;
+    // A Bink with the grayscale video flag (0x20000) codes no chroma; libavcodec leaves those planes unset, so the
+    // frame converts through neutral chroma instead.
+    bool gray = false;
+    std::vector<u8> neutral_chroma;
     struct Mem
     {
         const u8* data = nullptr;
@@ -1786,7 +1791,25 @@ bool clip_decode(MovieClip* clip)
         clip->image.bgra.resize(need + 64);
         u8* dst = clip->image.bgra.data();
         const int dst_stride[4] = {pitch, 0, 0, 0};
-        sws_scale(clip->scale, clip->frame->data, clip->frame->linesize, 0, h, &dst, dst_stride);
+        const u8* const* planes = clip->frame->data;
+        const int* strides = clip->frame->linesize;
+        std::array<const u8*, 4> gray_planes{};
+        std::array<int, 4> gray_strides{};
+        if (clip->gray && clip->frame->format == AV_PIX_FMT_YUV420P)
+        {
+            // The luma plane with neutral (128) chroma planes of half the width and height.
+            const int chroma_width = (w + 1) / 2;
+            const size_t chroma_size = size_t(chroma_width) * size_t((h + 1) / 2);
+            if (clip->neutral_chroma.size() < chroma_size)
+            {
+                clip->neutral_chroma.assign(chroma_size, 128);
+            }
+            gray_planes = {clip->frame->data[0], clip->neutral_chroma.data(), clip->neutral_chroma.data(), nullptr};
+            gray_strides = {clip->frame->linesize[0], chroma_width, chroma_width, 0};
+            planes = gray_planes.data();
+            strides = gray_strides.data();
+        }
+        sws_scale(clip->scale, planes, strides, 0, h, &dst, dst_stride);
         clip->image.width = w;
         clip->image.height = h;
         clip->image.bgra.resize(need);
@@ -1898,6 +1921,13 @@ MovieClip* clip_open(const void* src, unsigned flags, bool loop, const std::stri
         return nullptr;
     }
     clip->video_index = index;
+    // libavformat's Bink demuxer passes the header's video flags (+0x24) as the stream's four extradata bytes.
+    if (stream->codecpar->codec_id == AV_CODEC_ID_BINKVIDEO && stream->codecpar->extradata != nullptr
+        && stream->codecpar->extradata_size >= 4)
+    {
+        const u8* flags = stream->codecpar->extradata;
+        clip->gray = ((u32(flags[0]) | u32(flags[1]) << 8 | u32(flags[2]) << 16 | u32(flags[3]) << 24) & 0x20000) != 0;
+    }
     clip->packet = av_packet_alloc();
     clip->frame = av_frame_alloc();
     clip->width = u32(stream->codecpar->width);

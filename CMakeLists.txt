@@ -152,6 +152,7 @@ add_library(gbtg_lib STATIC
     src/engine/camera/camera_body_slots.cpp
     src/engine/entities/actor_callout_resources.cpp
     src/engine/scene/executable_resources.cpp
+    src/engine/scene/ntsc_j_layout.cpp
     src/engine/scene/factory_scene_runtime.cpp
     src/engine/scene/scene_markers.cpp
     src/engine/scene/scene_post_models.cpp

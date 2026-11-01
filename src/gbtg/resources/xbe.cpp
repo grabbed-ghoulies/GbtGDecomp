@@ -42,6 +42,7 @@ XbeInfo parse_xbe(const std::filesystem::path& path)
     XbeInfo info;
     info.path = path;
     info.base = read_u32(bytes, 0x104);
+    info.timestamp = read_u32(bytes, 0x114);
     const u32 cert_addr = read_u32(bytes, 0x118);
     const u32 nsect = read_u32(bytes, 0x11C);
     const u32 sect_addr = read_u32(bytes, 0x120);

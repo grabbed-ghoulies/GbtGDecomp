@@ -1,5 +1,8 @@
 #include "executable_resources.h"
+#include "ntsc_j_layout.h"
+#include <algorithm>
 #include <cstring>
+#include <sstream>
 
 namespace gbtg
 {
@@ -9,6 +12,16 @@ SceneExecutableResources::SceneExecutableResources(const std::filesystem::path& 
     const auto path = std::filesystem::exists(original) ? original : directory / "default.xbe";
     info_ = parse_xbe(path);
     bytes_ = read_file(path);
+    if (is_ntsc_j_build(info_))
+    {
+        auto view = build_ntsc_j_view(info_, bytes_);
+        bytes_ = std::move(view.bytes);
+        info_.sections = std::move(view.sections);
+        covered_ = std::move(view.covered);
+        redirects_ = std::move(view.redirects);
+        missing_ = std::move(view.missing);
+        ntsc_j_ = true;
+    }
     // The registrations of 0x00034C30 (through 0x00034B60) and then 0x00034BC0, in order.
     // Keep their order: duplicate template names resolve in the first pool.
     read_pool(0, "animtable", 0x0033AC88, 0x56, true);
@@ -76,8 +89,40 @@ SceneExecutableResources::SceneExecutableResources(const std::filesystem::path& 
     }
 }
 
+// PAL and NTSC read the file as it is. NTSC-J reads the PAL-layout view: a literal the NTSC-J code moved goes to
+// its overflow address, and a read that starts where the view has no NTSC-J data is missing rather than zero.
+// Only the start is checked: spans here are often wider than the retail table, and the bytes past a table's end
+// may sit in a gap. Gap bytes inside a span read as zero.
+u32 SceneExecutableResources::resolve(u32 address, size_t size) const
+{
+    if (!ntsc_j_)
+    {
+        return address;
+    }
+    if (const auto found = redirects_.find(address); found != redirects_.end())
+    {
+        return found->second;
+    }
+    if (address >= kNtscjOverflow)
+    {
+        return address;
+    }
+    const auto next = std::upper_bound(covered_.begin(), covered_.end(),
+        std::pair<u32, u32>{address, 0xFFFFFFFFu});
+    const bool covered = next != covered_.begin() && address < std::prev(next)->second;
+    if (missing_.contains(address) || !covered)
+    {
+        std::ostringstream message;
+        message << "NTSC-J has no data for PAL 0x" << std::hex << std::uppercase << address << " (+0x" << size
+                << "); the code reading it differs between builds, see docs/REGIONS.md";
+        throw Error(message.str());
+    }
+    return address;
+}
+
 std::span<const u8> SceneExecutableResources::memory(u32 address, size_t size) const
 {
+    address = resolve(address, size);
     for (const auto& section : info_.sections)
     {
         if (address >= section.virt_addr)
@@ -99,6 +144,7 @@ std::span<const u8> SceneExecutableResources::memory(u32 address, size_t size) c
 const char* SceneExecutableResources::string(u32 address) const
 {
     const auto first = memory(address, 1);
+    address = resolve(address, 1);
     for (const auto& section : info_.sections)
     {
         if (address >= section.virt_addr && address - section.virt_addr < section.raw_size)

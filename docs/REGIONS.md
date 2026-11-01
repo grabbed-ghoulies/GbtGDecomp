@@ -35,16 +35,73 @@ The two `default.xbe` files differ in only 533 bytes:
 
 NTSC-J is a later build, from about two months after PAL/NTSC: link timestamp
 `0x3FB9F5C5`, entry `0x0014FADC`, certificate region `0x2`, version `0x3`.
-Running it fails at startup:
 
-```text
-error: executable resource table does not match this retail XBE:
+The port reads retail tables and constants from `default.xbe` at PAL addresses
+(`SceneExecutableResources`). It never runs the executable's code. Those
+addresses are wrong for NTSC-J, so NTSC-J is read through an address map (see
+below). With the map, NTSC-J boots through all executable data and starts the
+attract scene, then crashes drawing text on about the 6th frame: the font
+resources differ (see [Missing for NTSC-J support](#missing-for-ntsc-j-support)).
+It does not reach a visible frame yet.
+
+### The address map
+
+`tools/regions/xbe_address_map.py` builds the map from your own PAL and NTSC-J
+`default.xbe`:
+
+```powershell
+python tools/regions/xbe_address_map.py --pal <PAL>/default.xbe --ntscj <NTSC-J>/default.xbe
 ```
 
-`SceneExecutableResources` (`src/engine/scene/executable_resources.cpp`) reads
-the AID resource pools from fixed PAL addresses such as `0x0033AC88`. At those
-addresses NTSC-J holds other data. That is only the first check to fail; every
-hardcoded retail address in the source assumes the PAL layout.
+It writes `src/engine/scene/ntsc_j_address_map.inl`, which holds addresses only
+and no game bytes, and a report with the evidence for every address at
+`cache/address_maps/ntsc_j.json`. The `.inl` is committed so NTSC-J owners don't
+need a PAL dump. Rerun the tool when new code reads the XBE at an address it
+hasn't seen.
+
+The tool works in four steps:
+
+1. **Data blocks.** It aligns `.rdata` and `.data` dword by dword, with
+   address-like dwords masked. First come ordered anchors, then an LCS inside
+   each gap for data that shifted by a few dwords, unique-value matches for
+   fields that moved, and the remaining equal-size spans as content changed in
+   place. Last, it relocates tables the linker moved elsewhere. This covers
+   99.89% of PAL's file-backed data.
+2. **Code references.** For each address the source names, and each address PAL
+   code names inside an unaligned gap, the tool finds the instruction in NTSC-J
+   `.text` by its surrounding bytes. Image addresses and `call`/`jmp`/`jcc` rel32
+   are wildcarded, and the tool reads the operand. When code and data disagree,
+   the side whose item (a string, or a 4-byte value) matches PAL wins. Otherwise
+   the side with clearly more matching data around it wins. Otherwise the
+   address is left unresolved.
+3. **Value.** As a last resort, an item whose bytes occur exactly once in each
+   build's data maps there. Three constants use this.
+4. **Pointers.** Every aligned dword that holds a pointer is recorded. A pointer
+   into data is resolved through the blocks at run time. A pointer into code
+   takes the PAL value from the same slot, so the port's dispatch on PAL
+   function addresses keeps working.
+
+At startup, `SceneExecutableResources` recognizes NTSC-J by its timestamp and
+builds a PAL-layout view (`src/engine/scene/ntsc_j_layout.cpp`). Each NTSC-J
+block is copied to its PAL address and its pointers are rewritten. NTSC-J data
+with no PAL place stays readable at `0x01000000` plus its NTSC-J address.
+Callers keep using PAL addresses and need no changes. If a read starts in an
+unmapped PAL range or at an address the map lists as missing, the view throws
+`NTSC-J has no data for PAL 0x...` instead of returning invented bytes. PAL and
+NTSC never take this path.
+
+Rebuilt in Python from the generated `.inl`, the view matches PAL for 99.97% of
+the dwords it covers. The rest is data that differs in NTSC-J.
+
+Still missing (the code reading them differs between builds):
+
+| PAL address | Read by |
+|-------------|---------|
+| `0x0020A64C`, `0x0020A65C`, `0x0020A668`, `0x00434118`, `0x00434120` | `frontend/virtual_keyboard.cpp` (NTSC-J likely has a kana keyboard) |
+| `0x0032A530` (`"Scene"`) | `scene/scene_pause.cpp`. NTSC-J formats the pause title in a different word order (`%d %s, %d %s: %s`) |
+
+Mapped by value only: `0x0032B49C` (the dialogue panel alpha, 224.0), and
+`0x0032B570` and `0x0032B574` in `virtual_keyboard.cpp`.
 
 ### How the executable differs
 
@@ -54,11 +111,14 @@ hardcoded retail address in the source assumes the PAL layout.
 - **Library sections moved.** `D3D` and `XGRPH` grew slightly (a different XDK
   library build), which shifts every section after `.text`.
 - **Data moved.** `.rdata` and `.data` start at `0x00203120` and `0x0032D580`
-  (PAL: `0x00202EA0` and `0x0032C800`). The `aid_animtable` and
-  `aid_attackdata` pools sit 0xD90 bytes later than in PAL. The rest of the
-  data has not been mapped.
-- **Behavior may differ.** A build two months newer may have changed functions,
-  not only moved them. That has not been checked.
+  (PAL: `0x00202EA0` and `0x0032C800`). Data moves in blocks, mostly by about
+  +0xD80 in `.data`. Some tables moved between sections; the `bigarrowup` and
+  `bigarrowdown` texture names, for example, moved into `.data`. Float constant
+  pools were laid out again.
+- **Some functions changed.** The pause title, the virtual keyboard and the
+  function that reads the dialogue panel alpha differ from PAL, not only in
+  their addresses. Some NTSC-J tables also hold different values: about 0.03%
+  of the dwords the map aligns.
 
 ### How the game data differs
 
@@ -74,11 +134,15 @@ hardcoded retail address in the source assumes the PAL layout.
 
 ### Missing for NTSC-J support
 
-1. A PAL→NTSC-J address map for functions, globals and tables, so the runtime
-   can choose an address set from the XBE certificate instead of assuming PAL.
-2. NTSC-J Ghidra exports for any function whose body changed, with those
-   differences translated.
-3. A check that the changed BNLs, fonts and Japanese, Korean and Chinese text
-   load and draw correctly. That includes whatever the font and text code needs
-   for CJK glyphs.
+1. **Fonts.** This is the current blocker. `SceneDialogueResourceOwner::load_fonts`
+   loads the two English fonts by name, and NTSC-J's English font files differ
+   from PAL's. `publish_font` turns each glyph's texture offset into a pointer
+   without a bounds check. With NTSC-J fonts, the first text draw in the attract
+   scene (`draw_runtime_dialogue_glyph` → `draw_dialogue_texture`) reads through
+   a bad glyph texture pointer and crashes. NTSC-J's font format, and how its
+   code reads it, needs checking against an NTSC-J decompile.
+2. NTSC-J Ghidra exports for the functions that changed (pause title, virtual
+   keyboard, dialogue panel alpha), with those differences translated.
+3. A check that the changed BNLs and the Japanese, Korean and Chinese text load
+   and draw correctly.
 4. NTSC-J entries in the retail manifest.

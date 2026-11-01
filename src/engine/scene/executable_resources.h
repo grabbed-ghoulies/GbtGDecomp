@@ -4,6 +4,7 @@
 #include "../scripts/script_table_lookup.h"
 #include "../entities/player_mind_goals.h"
 #include "../entities/body_attachment_requests.h"
+#include <unordered_set>
 
 namespace gbtg
 {
@@ -44,6 +45,12 @@ private:
     };
     XbeInfo info_;
     std::vector<u8> bytes_;
+    // NTSC-J only (ntsc_j_layout.h): the PAL ranges the view holds, and literals the NTSC-J code moved.
+    bool ntsc_j_ = false;
+    std::vector<std::pair<u32, u32>> covered_;
+    std::unordered_map<u32, u32> redirects_;
+    std::unordered_set<u32> missing_;
+    u32 resolve(u32 address, size_t size) const;
     std::array<std::vector<ExecutableResourceRecord>, 7> records_;
     std::vector<std::unique_ptr<DecodedAnimationTable>> tables_;
     std::vector<std::unique_ptr<RuntimeScriptLookupTable>> state_tables_;

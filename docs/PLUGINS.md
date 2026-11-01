@@ -284,6 +284,15 @@ it holds references and edits only. The menu entry and the scene are checked by 
 --gameselect-feature` with `GBTG_PLUGINS_DIR`, `GBTG_FEATURE="DLC Story"` and `GBTG_FEATURE_PLAY=1500`, which plays
 the scene up to its door event (the event then waits for A).
 
+### Xbox One buttons example (`examples/plugins/xbox_one_buttons`)
+
+A data plugin with no library. The host maps the Xbox controller's White button to LB and Black to RB, so its
+`aid/` textures replace the White and Black button pictures (`aid_texture_joypad_buttons_white` and `_black` in
+`common.bnl`, 64x64 DXT3) with the game's Black button labelled "LB" and "RB". `make_buttons.py --game-dir <game
+folder>` reads the Black button from `common.bnl`, draws the label on its dome and writes both as loose textures
+with the disc entry's texture header (Pillow and numpy). The other button pictures are unchanged. It ships with
+`Enabled = 0`; set `Enabled = 1` in `plugins/xbox_one_buttons/plugin.ini` to try it.
+
 ### Scene log example (`examples/plugins/scene_log`)
 
 A feature library in C, as a standalone project: it logs each scene script the game loads, with the prefix from

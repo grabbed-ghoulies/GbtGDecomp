@@ -1001,6 +1001,7 @@ else()
     if(GBTG_BUILD_PLUGIN_EXAMPLES)
         add_subdirectory(examples/plugins/scene_log)
         add_subdirectory(examples/plugins/dlc_story)
+        add_subdirectory(examples/plugins/xbox_one_buttons)
     endif()
 endif()
 

@@ -4,6 +4,8 @@ Recovered from a retail dump with `gbtg-catalog` / `gbtg::parse_xbe`. Load **you
 
 ## Identity
 
+These values are from the PAL executable, which is identical in layout to NTSC. The NTSC-J executable is a different build; see [REGIONS.md](REGIONS.md).
+
 | Field | Value |
 |-------|--------|
 | Title | Grabbed by the Ghoulies |

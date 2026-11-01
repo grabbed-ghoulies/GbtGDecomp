@@ -48,8 +48,9 @@ void spawn_runtime_body_death_drop(RuntimeBodyDeathDrops& context)
             entity_detail::select_navigation_spawn_position(floor, nullptr, position,
                 30.f, 60.f, nullptr, nullptr, 0x19, 0, selected, context.random, context.occupancy_initial))
         {
-            const Vec3 direction{position.x - selected.x, position.y - selected.y,
-                position.z - selected.z};
+            // The drop is made where the body died and heads for the spot 0x00111420 picked.
+            const Vec3 direction{selected.x - position.x, selected.y - position.y,
+                selected.z - position.z};
             runtime_direction_angle(direction, euler.y);
             char name[0x80];
             char variant[0x80];
@@ -65,7 +66,7 @@ void spawn_runtime_body_death_drop(RuntimeBodyDeathDrops& context)
                     auto clone = clone_executable_resource(context.resources, name);
                     if (clone.bytes != nullptr)
                     {
-                        std::memcpy(clone.bytes.get() + 8, &selected, 12);
+                        std::memcpy(clone.bytes.get() + 8, &position, 12);
                         std::memcpy(clone.bytes.get() + 0x14, &euler, 12);
                         const float scale = 1.f;
                         const u16 zero = 0;
@@ -84,8 +85,8 @@ void spawn_runtime_body_death_drop(RuntimeBodyDeathDrops& context)
                         clone.bytes.reset();
                     }
                 }
-                const std::array<u32, 9> message{0x4D, 3, std::bit_cast<u32>(position.x),
-                    std::bit_cast<u32>(position.y), std::bit_cast<u32>(position.z),
+                const std::array<u32, 9> message{0x4D, 3, std::bit_cast<u32>(selected.x),
+                    std::bit_cast<u32>(selected.y), std::bit_cast<u32>(selected.z),
                     std::bit_cast<u32>(euler.x), std::bit_cast<u32>(euler.y),
                     std::bit_cast<u32>(euler.z), 0};
                 const u32 drop = context.keep(std::move(object));
@@ -101,14 +102,14 @@ void spawn_runtime_body_death_drop(RuntimeBodyDeathDrops& context)
                 {
                     return;
                 }
-                object = create_runtime_actor_at(name, &selected, &euler, 1.f,
+                object = create_runtime_actor_at(name, &position, &euler, 1.f,
                     context.resources, context.factory, context.default_position, context.default_euler);
                 if (object.bytes == nullptr)
                 {
                     return;
                 }
-                std::array<u32, 7> message{0x96, std::bit_cast<u32>(position.x),
-                    std::bit_cast<u32>(position.y), std::bit_cast<u32>(position.z),
+                std::array<u32, 7> message{0x96, std::bit_cast<u32>(selected.x),
+                    std::bit_cast<u32>(selected.y), std::bit_cast<u32>(selected.z),
                     std::bit_cast<u32>(euler.x), std::bit_cast<u32>(euler.y), std::bit_cast<u32>(euler.z)};
                 if (kind == 2)
                 {

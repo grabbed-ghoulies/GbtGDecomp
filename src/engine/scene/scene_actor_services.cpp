@@ -475,7 +475,6 @@ struct SceneActorServices::State
     std::array<const char*, 4> shock_pass{};
     std::array<const char*, 4> shock_fail{};
     std::array<u16, 3> death_actions{}; // DAT_00217EB8.
-    u32 player_damage = 0; // DAT_00512200.
     entity_detail::ListHead global_attachments{}; // DAT_00545984.
     std::unique_ptr<RuntimeBodyDamageTables> damage_tables;
     std::unique_ptr<FootstepSoundNames> footsteps;
@@ -486,7 +485,6 @@ struct SceneActorServices::State
     RuntimeBodyShapePush body_shape_push{entity_detail::g_world.shape, entity_detail::g_contact_slot,
         collision_push_contacts};
     std::array<entity_detail::SlideRecord, 5> body_slide_contacts{}; // DAT_00505040.
-    u32 view_invert = 0; // DAT_005122D8.
     i32 render_width = 0; // DAT_0054DD84, set by display initialization 0x000F5900.
     i32 render_height = 0; // DAT_0054DD80.
     struct DirectorData
@@ -605,9 +603,10 @@ struct SceneActorServices::State
     bool pause_walking = false;
     RuntimePauseActor* first_pause = nullptr; // DAT_00511B38.
     RuntimeActorPauseGroups pause_groups{pause_references, first_pause};
-    std::array<u32, 8> override_words{}; // DAT_005121E8..
-    RuntimePlayerScriptOverrides overrides{override_words[0], override_words[1], override_words[2],
-        override_words[3], override_words[4], override_words[5], override_words[6], override_words[7]};
+    // The GhoulyFreeze (DAT_005121E8, kind 7) and TraitorFever (DAT_00512308, kind 0x13) powerup rows' first words.
+    RuntimePlayerScriptOverrides overrides{powerup_rows[7].active, reinterpret_cast<u32&>(powerup_rows[7].amount),
+        powerup_rows[7].extra, powerup_rows[7].player, powerup_rows[0x13].active,
+        reinterpret_cast<u32&>(powerup_rows[0x13].amount), powerup_rows[0x13].extra, powerup_rows[0x13].player};
     entity_detail::LatchNode*& latches = entity_detail::g_world.latch; // DAT_00511AA4.
     u32& decay_index = reinterpret_cast<u32&>(g_state_248c); // DAT_0051248C, the script's title mode.
     std::span<const u8> decay_enabled; // DAT_0030F144.
@@ -753,7 +752,6 @@ struct SceneActorServices::State
     u32 health_mode = 0; // DAT_00433C70.
     std::array<std::span<const u8>, 5> health_textures{}; // DAT_00433C7C.
     std::array<u32, 5> health_widths{}; // DAT_00433C90.
-    u32 override_health = 0; // DAT_00512230.
     std::unique_ptr<RuntimePlayerHealthDisplay> health_display;
     RuntimeScoreboardGlobals scoreboard_globals;
     std::unique_ptr<RuntimeScoreboardHud> scoreboard_hud; // 0x00132040 / 0x00132100 / 0x00132290.
@@ -881,7 +879,6 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeActorPlacementSpawn> placement_spawn; // 0x001349E0's views.
     std::unique_ptr<RuntimeMiniCooperSpawn> minicooper_spawn; // Powerup kind 0xC.
     std::unique_ptr<RuntimePowerupActors> powerup_actors;
-    u32 super_scary_auto = 0; // DAT_005122F0 (BSS; its writer is not native).
     void* super_scary_text = nullptr; // DAT_00512484 (BSS; its writer is not native).
     NativePlayerInstance& case_player(u32 address); // A player by its actor address.
     void bind_button_bat(FactoryObject& object);
@@ -1484,7 +1481,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         resources.error, address_zero});
     brew->rows = data(0x00312A30, 0x310).data(); // "challengeMenu_restart": butlersBrew_No, butlersBrew_Yes
     health_display = std::make_unique<RuntimePlayerHealthDisplay>(RuntimePlayerHealthDisplay{health_active,
-        health_style, health_intensity, health_counter, health_mode, health_textures, health_widths, override_health,
+        health_style, health_intensity, health_counter, health_mode, health_textures, health_widths,
+        powerup_rows[0xA].active, // DAT_00512230, the Invulnerability powerup row.
         story_byte, data(0x00313A40, 5 * 0x18), data(0x00313A18, 0x14), data(0x00313A2C, 0x14), resources.registry,
         resources.error});
     scoreboard_hud = std::make_unique<RuntimeScoreboardHud>(RuntimeScoreboardHud{scoreboard_globals, *brew,
@@ -4196,8 +4194,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     super_scary_services = std::make_unique<SuperScaryControlServices>(SuperScaryControlServices{
         resources.registry, resources.error, scene_cutscene_runtime(game), voices, audio.streams, random, g_510cec,
         g_flags_ea9c, g_scene_flags->bytes[0], g_runtime_profile.progress.bytes, frontend_state, prompt_owner,
-        super_scary_auto,
-        override_health, data(0x00302198, 4 * 0x50), i32(read_u32(data(0x00427958, 4), 0)),
+        powerup_rows[0x12].active, // DAT_005122F0, the ShockerBlocker powerup row.
+        powerup_rows[0xA].active, data(0x00302198, 4 * 0x50), i32(read_u32(data(0x00427958, 4), 0)),
         read_u32(data(0x0042795C, 4), 0), read_u32(data(0x00314F48, 4), 0), read_u32(data(0x00314F30, 4), 0),
         hud_size, display_view, scene_name.data(), clock,
         [](u8 mask, i32 release)
@@ -4992,7 +4990,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         input_state});
     camera_rig = std::make_unique<RuntimeCameraRigContext>(RuntimeCameraRigContext{rig_tunables, *director_tunables,
-        clock, unlock_flags, view_invert, render_width, render_height, director_targets->actor_at,
+        clock, unlock_flags, powerup_rows[0x11].active, render_width, render_height, director_targets->actor_at,
         director_targets->input_device, input_state});
     body_services = std::make_unique<SceneBodyServices>(SceneBodyServices{game, scene.factory, image.pools,
         scene.objects, sounds, effects, latches, entity_detail::g_world.body_a, global_attachments, origin, default_euler, random,
@@ -5001,7 +4999,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {image.string(0x00315A98), image.string(0x00315AE0), image.string(0x00315AFC), image.string(0x00315AF4)},
         std::span<const char* const, 0x55>(callout_names.data(), 0x55),
         std::span<const char* const, 0x41>(flag_names.data(), 0x41), shock_pass, shock_fail, data(0x00217DE8, 0xD0),
-        death_actions, pause_references, decay_enabled, decay_index, player_damage, g_flags_ea9c, g_flag_ea98,
+        death_actions, pause_references, decay_enabled, decay_index,
+        powerup_rows[8].active, g_flags_ea9c, g_flag_ea98,
         reinterpret_cast<u32&>(g_script_30d0c), goal_scratch, empty_name, occupancy_initial,
         [this](const void* pointer)
         {
@@ -5495,10 +5494,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return next == nullptr ? 0 : address_of(next);
         },
         targets, target_views, target_eligibility, target_addresses, target_queries, embedded_targets, query,
-        view_invert,
+        powerup_rows[0x11].active, // DAT_005122D8, the ReverseControls powerup row.
         data(0x002FFF24, 0x10), read_f32(data(0x004275B8, 4), 0),
         scoreboard_globals.meter_bd0, // DAT_00433BD0, the meter buzzer 0x0012ED30 plays and clears
-        statsheet, data(0x00433D5C, 0xC), powerup_rows[11].active, player_damage,
+        statsheet, data(0x00433D5C, 0xC), powerup_rows[11].active, powerup_rows[8].active,
         [this](u32 address) -> const u8*
         {
             // The native address arenas: resources from 0x40000000, host heap blocks from 0x30000000, scene
@@ -5613,6 +5612,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     // its body's +0x24 position.
     g_runtime_invisibility = &powerup_rows[9].active; // DAT_00512218.
     g_runtime_weapon_boost = &powerup_rows[0xD].active; // DAT_00512278.
+    g_grim_reaper_dizzy = &powerup_rows[2].active; // DAT_00512170.
     g_spawn_trigger_players = [this]()
     {
         std::vector<GhoulySpawnPlayerLink> links;
@@ -6000,10 +6000,8 @@ void SceneActorServices::State::reset_scene_data()
     effect_sound_frame = 0;
     frame_effect_scratch = {};
     scare_flags = 0;
-    player_damage = 0;
     collision_push_contacts = {};
     body_slide_contacts = {};
-    view_invert = 0;
     port_devices = {};
     pulse = {};
     scene_nodes.clear();
@@ -6033,7 +6031,6 @@ void SceneActorServices::State::reset_scene_data()
     weapon_pickups.clear();
     released_positions.clear();
     weapon_attachments.clear();
-    override_words = {};
     // decay_index is DAT_0051248C, the script's title mode: only 0x001287F0 clears it (script_set_default_name).
     // A clear here ran after a restarted scene's first title, so its next title with the same id looked active.
     targets = nullptr;
@@ -6059,7 +6056,6 @@ void SceneActorServices::State::reset_scene_data()
     health_intensity = 0.f;
     health_counter = {};
     health_mode = 0;
-    override_health = 0;
     area_dialogue = nullptr;
     message_references.clear();
     emitter_players.clear();
@@ -7050,6 +7046,7 @@ SceneActorServices::State::~State()
             g_app_error_services = nullptr;
         }
         g_runtime_weapon_boost = nullptr;
+        g_grim_reaper_dizzy = nullptr;
         g_marked_actor_message = nullptr;
         g_actor_broadcast = nullptr;
         g_alt_node_body = nullptr;

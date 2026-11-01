@@ -41,8 +41,9 @@ constexpr RetailField<i32, 0x98> shadow{}; // the blob shadow (0x00119A60), or -
 constexpr u32 kSize = 0x9C;
 static_assert(retail_fits(kSize, shadow));
 } // namespace grim_reaper_strategy_field
-// DAT_00512170: set, the reaper turns dizzy (0x3EA). No translated code writes it yet.
-extern u32 g_grim_reaper_dizzy;
+// DAT_00512170: the powerup table's DizzyReaper row (DAT_00512140 kind 2) +0 active, which 0x00123E70 sets; set,
+// the reaper turns dizzy (0x3EA). A native scene points it at its row.
+extern const u32* g_grim_reaper_dizzy;
 struct RuntimeGrimReaperStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

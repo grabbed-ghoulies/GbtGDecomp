@@ -3,6 +3,7 @@
 #include "actor_live_attachments.h"
 #include "entity_heap.h"
 #include <array>
+#include <bit>
 #include <cstring>
 
 namespace gbtg
@@ -185,7 +186,12 @@ bool restore_runtime_player_script_overrides(RuntimeBodyAttachedActor& actor,
     u32 count = 0;
     if (context.enabled != 0)
     {
-        put(actor.bytes, 0x930, context.value);
+        // Actor +0x930 is the native actor's animation pause, which the frame update counts down.
+        if (actor.actor == nullptr)
+        {
+            throw Error("0x00138030 freezes an actor whose native owner is not bound");
+        }
+        actor.actor->animation_pause = std::bit_cast<float>(context.value);
         const std::array<u32, 5> message{0x86, context.name, 7, context.argument, 0};
         count = 1;
         actor.message(message);

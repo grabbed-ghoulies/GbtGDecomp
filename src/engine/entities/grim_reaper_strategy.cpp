@@ -17,7 +17,7 @@
 
 namespace gbtg
 {
-u32 g_grim_reaper_dizzy = 0;
+const u32* g_grim_reaper_dizzy = nullptr;
 
 namespace
 {
@@ -700,7 +700,11 @@ void update_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
     {
         shadows_of(context).entries[size_t(slot)].position = shadow_point(context);
     }
-    if (state != 0x3EA && g_grim_reaper_dizzy != 0)
+    if (g_grim_reaper_dizzy == nullptr)
+    {
+        throw Error("DAT_00512170 (the DizzyReaper powerup row) is read outside a native scene");
+    }
+    if (state != 0x3EA && *g_grim_reaper_dizzy != 0)
     {
         change_state(0x3EA, context);
     }

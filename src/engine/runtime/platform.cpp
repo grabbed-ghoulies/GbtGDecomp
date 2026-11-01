@@ -7,8 +7,6 @@
 #include "../plugins/plugins.h"
 #endif
 
-#include "gbtg/debug_ui.h" // Defines GBTG_DEBUG_UI when the debug UI is enabled.
-
 #include <algorithm>
 #include <chrono>
 #include <thread>
@@ -116,12 +114,6 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     {
         log::info("profile gfx_init_ms=%g", std::chrono::duration<double, std::milli>(render_profile::Clock::now() - gfx_start).count());
     }
-#if defined(GBTG_DEBUG_UI)
-    if (cfg.debug_ui && !debug_ui_menu_open())
-    {
-        debug_ui_toggle_menu();
-    }
-#endif
     log::info("gfx: %s%s", gfx_ok ? gfx_backend_name() : "unavailable", gfx_has_window() ? " window" : " offscreen");
 
 #if !defined(GBTG_RETAIL_GAME_ONLY)
@@ -166,7 +158,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     const auto origin = cfg.boot_started;
     long long field = 0; // The 60 Hz field of the previous logic tick (its swap).
     bool presented = false;
-    [[maybe_unused]] auto last_pass = std::chrono::steady_clock::now(); // The debug UI's host frame time.
+    [[maybe_unused]] auto last_pass = std::chrono::steady_clock::now(); // Plugin overlays' host frame time.
     while (game.running)
     {
         // DAT_005096D0: the fields between the last two swaps, which the vertical-blank callback 0x000FC3B0 counts.
@@ -190,9 +182,9 @@ int run_platform(Game& game, const PlatformConfig& cfg)
                         game.running = false;
                         break;
                     }
-#if defined(GBTG_DEBUG_UI)
+#if !defined(GBTG_RETAIL_GAME_ONLY)
                     const auto now = std::chrono::steady_clock::now();
-                    debug_ui_build(game, std::chrono::duration<float>(now - last_pass).count());
+                    plugins_overlay_build(game, std::chrono::duration<float>(now - last_pass).count());
                     last_pass = now;
 #endif
                     gfx_present_again();
@@ -215,30 +207,15 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         // The keyboard and pads count only while a window of this process has the focus; a headless run (no
         // visible window) reads none, so its result does not depend on what is pressed elsewhere.
         const bool focused = gfx_cfg.visible && host_input_focused();
-        const auto key = [focused](int code)
-        {
-            return focused && (GetAsyncKeyState(code) & 0x8000) != 0;
-        };
-#if defined(GBTG_DEBUG_UI)
-        // F8 and F12 never enter InputState. While the menu bar is open, keyboard
-        // mappings stay clear so the scene list can use those keys.
-        static bool f8_down = false;
-        static bool f12_down = false;
-        const bool f8 = key(VK_F8);
-        const bool f12 = key(VK_F12);
-        if (f8 && !f8_down)
-        {
-            debug_ui_toggle_menu();
-        }
-        if (f12 && !f12_down)
-        {
-            debug_ui_toggle_overlay();
-        }
-        f8_down = f8;
-        f12_down = f12;
-        if (!debug_ui_menu_open())
-        {
+        bool keyboard = focused;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // While a plugin overlay has the keys (the debug UI's menu bar), the game reads none of them.
+        keyboard = keyboard && !plugins_capture_input();
 #endif
+        const auto key = [keyboard](int code)
+        {
+            return keyboard && (GetAsyncKeyState(code) & 0x8000) != 0;
+        };
         if (key(VK_UP))
         {
             in.up = true;
@@ -282,13 +259,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             in.caret_right = true;
         }
-#if defined(GBTG_DEBUG_UI)
-        }
-#endif
         // Keyboard stand-ins for the sticks on port 0: WASD is the left stick, IJKL the right.
-#if defined(GBTG_DEBUG_UI)
-        if (!debug_ui_menu_open())
-#endif
         {
             const auto axis = [&key](int negative, int positive) -> i16
             {
@@ -398,10 +369,10 @@ int run_platform(Game& game, const PlatformConfig& cfg)
             game.tick(dt, in);
             render_profile::capture_replay = false;
         }
-#if defined(GBTG_DEBUG_UI)
+#if !defined(GBTG_RETAIL_GAME_ONLY)
         {
             const auto now = std::chrono::steady_clock::now();
-            debug_ui_build(game, paced ? std::chrono::duration<float>(now - last_pass).count() : dt);
+            plugins_overlay_build(game, paced ? std::chrono::duration<float>(now - last_pass).count() : dt);
             last_pass = now;
         }
 #endif

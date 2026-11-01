@@ -859,10 +859,9 @@ if(NOT _gbtg_gfx_d3d11 EQUAL -1)
     target_link_libraries(gbtg PRIVATE d3d11 dxgi d3dcompiler user32)
 endif()
 if(NOT _gbtg_gfx_d3d11 EQUAL -1 OR NOT _gbtg_gfx_vulkan EQUAL -1)
-    # Dear ImGui is compiled into every gbtg configuration with a D3D11 or Vulkan backend, which
-    # defines GBTG_DEBUG_UI_AVAILABLE. GBTG_DEBUG_UI_ENABLED in include/gbtg/debug_ui.h turns the
-    # debug UI on or off. The null backend never sees it. Populate skips add_subdirectory:
-    # upstream has no library target that includes the Win32, D3D11 and Vulkan backends.
+    # Dear ImGui is for the inspector and the debug_ui plugin (non-retail builds); gbtg itself has none.
+    # Populate skips add_subdirectory: upstream has no library target that includes the Win32, D3D11 and
+    # Vulkan backends.
     FetchContent_Declare(
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -882,8 +881,9 @@ if(NOT _gbtg_gfx_d3d11 EQUAL -1 OR NOT _gbtg_gfx_vulkan EQUAL -1)
     if(POLICY CMP0169)
         cmake_policy(POP)
     endif()
-    # GBTG_IMGUI_SOURCES is ImGui with its Win32 and D3D11 backends, which the inspector reuses with its own
-    # debug_ui_* definitions.
+    # GBTG_IMGUI_SOURCES is ImGui with its platform backend (Win32, else SDL3) and, with the D3D11 backend, its
+    # D3D11 renderer. The inspector compiles it with its own debug_ui_* definitions; the debug_ui plugin adds the
+    # Vulkan renderer when gbtg has that backend.
     set(GBTG_IMGUI_SOURCES
         "${imgui_SOURCE_DIR}/imgui.cpp"
         "${imgui_SOURCE_DIR}/imgui_draw.cpp"
@@ -897,17 +897,6 @@ if(NOT _gbtg_gfx_d3d11 EQUAL -1 OR NOT _gbtg_gfx_vulkan EQUAL -1)
     endif()
     if(NOT _gbtg_gfx_d3d11 EQUAL -1)
         list(APPEND GBTG_IMGUI_SOURCES "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp")
-        target_sources(gbtg PRIVATE src/engine/graphics/debug_ui_d3d11.cpp)
-    endif()
-    if(NOT _gbtg_gfx_vulkan EQUAL -1)
-        target_sources(gbtg PRIVATE "${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp"
-            src/engine/graphics/vulkan/vk_debug_ui.cpp)
-    endif()
-    target_sources(gbtg PRIVATE ${GBTG_IMGUI_SOURCES} src/engine/graphics/debug_ui.cpp)
-    target_compile_definitions(gbtg PRIVATE GBTG_DEBUG_UI_AVAILABLE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
-    target_include_directories(gbtg PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
-    if(WIN32)
-        target_link_libraries(gbtg PRIVATE imm32)
     endif()
 endif()
 if(GBTG_WITH_SDL)
@@ -956,6 +945,8 @@ else()
         src/engine/plugins/plugin_loader.cpp
         src/engine/plugins/plugin_features.cpp
         src/engine/plugins/plugin_libraries.cpp
+        src/engine/plugins/plugin_overlays.cpp
+        src/engine/plugins/plugin_diagnostics.cpp
     )
     if(UNIX)
         target_link_libraries(gbtg PRIVATE ${CMAKE_DL_LIBS})
@@ -968,6 +959,34 @@ else()
         SOURCES src/plugins/shader_warmup/shader_warmup_plugin.cpp src/plugins/shader_warmup/shader_manifest.cpp
         PLUGIN_INI src/plugins/shader_warmup/plugin.ini
         FILES_DIR src/plugins/shader_warmup/files)
+    # Debug UI: the F8 menu and F12 timing overlay (Dear ImGui), drawn as a plugin overlay. It needs a D3D11 or
+    # Vulkan backend.
+    if(DEFINED GBTG_IMGUI_SOURCES)
+        gbtg_add_plugin(gbtg_debug_ui ID debug_ui
+            SOURCES src/plugins/debug_ui/debug_ui_plugin.cpp src/plugins/debug_ui/renderer_d3d11.cpp
+                src/plugins/debug_ui/renderer_vulkan.cpp ${GBTG_IMGUI_SOURCES}
+            PLUGIN_INI src/plugins/debug_ui/plugin.ini)
+        target_include_directories(gbtg_debug_ui PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
+        target_compile_definitions(gbtg_debug_ui PRIVATE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
+        if(NOT _gbtg_gfx_d3d11 EQUAL -1)
+            target_compile_definitions(gbtg_debug_ui PRIVATE DEBUG_UI_D3D11)
+            target_link_libraries(gbtg_debug_ui PRIVATE d3d11 d3dcompiler)
+        endif()
+        if(NOT _gbtg_gfx_vulkan EQUAL -1)
+            target_sources(gbtg_debug_ui PRIVATE "${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp")
+            target_compile_definitions(gbtg_debug_ui PRIVATE DEBUG_UI_VULKAN)
+            target_link_libraries(gbtg_debug_ui PRIVATE Vulkan::Vulkan)
+        endif()
+        if(WIN32)
+            target_link_libraries(gbtg_debug_ui PRIVATE imm32)
+        else()
+            # SDL3 is linked into gbtg statically, so ImGui's SDL3 backend must call gbtg's copy: gbtg exports its
+            # symbols and the plugin leaves SDL's unresolved until it is loaded.
+            target_include_directories(gbtg_debug_ui PRIVATE
+                $<TARGET_PROPERTY:SDL3::SDL3,INTERFACE_INCLUDE_DIRECTORIES>)
+            set_target_properties(gbtg PROPERTIES ENABLE_EXPORTS ON)
+        endif()
+    endif()
     # Example plugins, each a standalone project (examples/plugins/).
     option(GBTG_BUILD_PLUGIN_EXAMPLES "Build the example plugins in examples/plugins" ON)
     if(GBTG_BUILD_PLUGIN_EXAMPLES)
@@ -1129,14 +1148,11 @@ target_sources(gbtg PRIVATE ${GBTG_ENGINE_PUBLIC_HEADERS} ${GBTG_ENGINE_INCLUDES
 # Backend sources this configuration does not compile stay visible in the IDE.
 set(GBTG_INACTIVE_BACKEND)
 if(_gbtg_gfx_d3d11 EQUAL -1)
-    list(APPEND GBTG_INACTIVE_BACKEND src/engine/graphics/gfx_d3d11.cpp src/engine/graphics/debug_ui_d3d11.cpp)
+    list(APPEND GBTG_INACTIVE_BACKEND src/engine/graphics/gfx_d3d11.cpp)
 endif()
 if(_gbtg_gfx_vulkan EQUAL -1)
     file(GLOB GBTG_VULKAN_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/graphics/vulkan/*.cpp")
     list(APPEND GBTG_INACTIVE_BACKEND ${GBTG_VULKAN_SOURCES})
-endif()
-if(_gbtg_gfx_d3d11 EQUAL -1 AND _gbtg_gfx_vulkan EQUAL -1)
-    list(APPEND GBTG_INACTIVE_BACKEND src/engine/graphics/debug_ui.cpp)
 endif()
 set_source_files_properties(${GBTG_INACTIVE_BACKEND} PROPERTIES HEADER_FILE_ONLY TRUE)
 
@@ -1186,7 +1202,7 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
     set(GBTG_GAME_SHELL_SOURCES ${GBTG_ALL_GAME_SOURCES})
     foreach(source IN LISTS GBTG_ALL_GAME_SOURCES)
         if(source MATCHES "^src/engine/.*\\.cpp$" AND
-            NOT source MATCHES "(main|platform|gfx_d3d11|gfx_null|gfx_dispatch|gfx_vulkan|debug_ui[a-z0-9_]*)\\.cpp$" AND
+            NOT source MATCHES "(main|platform|gfx_d3d11|gfx_null|gfx_dispatch|gfx_vulkan)\\.cpp$" AND
             NOT source MATCHES "^src/engine/graphics/vulkan/")
             list(APPEND GBTG_SHARED_RUNTIME_SOURCES "${source}")
             list(REMOVE_ITEM GBTG_GAME_SHELL_SOURCES "${source}")
@@ -1251,13 +1267,12 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
             src/engine/graphics/gfx_d3d11.cpp
         )
         set(GBTG_INSPECTOR_IMGUI_SOURCES ${GBTG_IMGUI_SOURCES})
-        list(REMOVE_ITEM GBTG_INSPECTOR_IMGUI_SOURCES "${CMAKE_SOURCE_DIR}/src/engine/graphics/debug_ui.cpp")
         add_executable(gbtg-inspector src/engine/inspector/inspector_main.cpp
             ${GBTG_INSPECTOR_SOURCES} ${GBTG_INSPECTOR_IMGUI_SOURCES}
             "${CMAKE_CURRENT_BINARY_DIR}/gbtg.rc")
         target_link_libraries(gbtg-inspector PRIVATE gbtg-inspector-runtime imm32)
         target_include_directories(gbtg-inspector PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
-        target_compile_definitions(gbtg-inspector PRIVATE GBTG_GFX_D3D11 GBTG_DEBUG_UI
+        target_compile_definitions(gbtg-inspector PRIVATE GBTG_GFX_D3D11
             GBTG_INSPECTOR_APP IMGUI_IMPL_WIN32_DISABLE_GAMEPAD _CRT_SECURE_NO_WARNINGS)
         foreach(dll ${GBTG_FFMPEG_DLLS})
             add_custom_command(TARGET gbtg-inspector POST_BUILD
@@ -1276,7 +1291,7 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
                 ${GBTG_INSPECTOR_SOURCES} ${GBTG_INSPECTOR_IMGUI_SOURCES})
             target_link_libraries(gbtg-inspector-tests PRIVATE gbtg-inspector-runtime imm32 dbghelp)
             target_include_directories(gbtg-inspector-tests PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
-            target_compile_definitions(gbtg-inspector-tests PRIVATE GBTG_GFX_D3D11 GBTG_DEBUG_UI
+            target_compile_definitions(gbtg-inspector-tests PRIVATE GBTG_GFX_D3D11
                 GBTG_INSPECTOR_APP IMGUI_IMPL_WIN32_DISABLE_GAMEPAD _CRT_SECURE_NO_WARNINGS)
             if(MSVC)
                 target_compile_options(gbtg-inspector-tests PRIVATE /W3 /EHsc /utf-8)

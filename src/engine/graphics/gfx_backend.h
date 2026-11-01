@@ -15,7 +15,7 @@ namespace gbtg
     X(gfx_has_window)                        \
     X(gfx_show_startup_loading_screen)       \
     X(gfx_prepare_native_pixel_definition)   \
-    X(gfx_compiled_shader_permutations)      \
+    X(gfx_compiled_shader_permutations)          X(gfx_overlay_device)                    \
     X(gfx_pump)                              \
     X(gfx_begin_frame)                       \
     X(gfx_clear_ui_depth)                    \

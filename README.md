@@ -100,7 +100,8 @@ Copies of the fetched sources in `cache/_deps/<name>-src` (zlib, imgui,
 ffmpeg_lgpl) are used in place of a download, so new build directories configure
 offline. Seed them once from `build/_deps/*-src`.
 
-CMake fetches zlib and, for the D3D11 backend, Dear ImGui. Windows builds also
+CMake fetches zlib and, for the D3D11 or Vulkan backend, Dear ImGui (used by the
+inspector and the debug UI plugin). Windows builds also
 fetch an LGPL FFmpeg build and copy its DLLs beside the executable. Initial
 configuration requires network access unless dependencies are already cached.
 
@@ -182,11 +183,11 @@ Console output is also written to `gbtg.log` beside the executable
 each line starts with `[INFO]`, `[WARN]` or `[ERROR]` and the time since boot.
 `--verbose` also shows `[VERBOSE]` lines, which are dropped otherwise.
 
-D3D11 game builds include ImGui diagnostics in every configuration: **F8** opens
-the menu and **F12** toggles the timing overlay (shown at start in Debug, hidden
-in Release). `--debug-ui` opens diagnostics at
-startup. To build without the UI, set `GBTG_DEBUG_UI_ENABLED` to 0 in
-`include/gbtg/debug_ui.h`. The null backend omits it.
+The ImGui diagnostics are the `debug_ui` plugin, so they exist only in builds
+configured with `-DGBTG_RETAIL_GAME_ONLY=OFF` and a D3D11 or Vulkan backend: **F8**
+opens the menu and **F12** toggles the timing overlay (shown at start in Debug,
+hidden in Release). `OpenMenu = 1` in `plugins/debug_ui/plugin.ini` opens the menu
+at startup. See [Plugins](docs/PLUGINS.md).
 
 ## Scene inspector
 

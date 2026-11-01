@@ -7,7 +7,6 @@
 #endif
 
 #include "vk_context.h"
-#include "vk_debug_ui.h"
 #include "vk_shader_compiler.h"
 #include "vk_swapchain.h"
 
@@ -20,8 +19,10 @@
 #include "../xbox_vertex_program.h"
 #include "../xg_shader_assembly.h"
 #include "../../gbtg_resource.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../../plugins/plugins.h"
+#endif
 
-#include "gbtg/debug_ui.h" // Defines GBTG_DEBUG_UI when the debug UI is enabled.
 #include "gbtg/gfx.h"
 #include "gbtg/log.h"
 
@@ -335,13 +336,14 @@ void take_window_events()
 #if defined(_WIN32)
 LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-#if defined(GBTG_DEBUG_UI)
-    if (debug_ui_wndproc(hwnd, msg, wp, lp))
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Plugin overlays (the debug UI) see each message first. Escape quits the process unless an overlay has the keys.
+    const GbtgWin32Message message{hwnd, msg, wp, lp};
+    if (plugins_window_event(&message))
     {
         return 0;
     }
-    // Escape quits the process. While the menu bar is open it stays with ImGui.
-    if (debug_ui_menu_open() && msg == WM_KEYDOWN && wp == VK_ESCAPE)
+    if (plugins_capture_input() && msg == WM_KEYDOWN && wp == VK_ESCAPE)
     {
         return 0;
     }
@@ -365,13 +367,13 @@ LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 // The SDL counterpart of gfx_wndproc.
 void handle_window_event(const SDL_Event& event)
 {
-#if defined(GBTG_DEBUG_UI)
-    if (debug_ui_sdl_event(&event))
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Plugin overlays (the debug UI) see each event first. Escape quits the process unless an overlay has the keys.
+    if (plugins_window_event(&event))
     {
         return;
     }
-    // Escape quits the process. While the menu bar is open it stays with ImGui.
-    if (debug_ui_menu_open() && event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)
+    if (plugins_capture_input() && event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)
     {
         return;
     }
@@ -1463,8 +1465,10 @@ void present_frame_image()
     vkCmdBlitImage(g.command, g.frame_color.image, VK_IMAGE_LAYOUT_GENERAL, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    1, &blit, VK_FILTER_LINEAR);
     VkImageLayout layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    // The debug UI draws over the copy, so the held back buffer stays without it for gfx_present_again.
-    if (vk::debug_ui_has_draws())
+    // Plugin overlays (the debug UI) draw over the copy, so the held back buffer stays without them for
+    // gfx_present_again.
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    if (plugins_overlay_has_draws())
     {
         vk::image_barrier(g.command, image, VK_IMAGE_ASPECT_COLOR_BIT, layout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -1479,12 +1483,13 @@ void present_frame_image()
         rendering.colorAttachmentCount = 1;
         rendering.pColorAttachments = &attachment;
         vkCmdBeginRendering(g.command, &rendering);
-        vk::debug_ui_render(g.command);
+        plugins_overlay_render(g.command);
 #if GBTG_OPTIMIZE
         g.command_state = {};
 #endif
         vkCmdEndRendering(g.command);
     }
+#endif
     vk::image_barrier(g.command, image, VK_IMAGE_ASPECT_COLOR_BIT, layout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     const VkSemaphore rendered = g.swapchain.rendered[index];
     {
@@ -1659,9 +1664,6 @@ void release_all()
         return;
     }
     vkDeviceWaitIdle(g.context.device);
-#if defined(GBTG_DEBUG_UI)
-    debug_ui_shutdown();
-#endif
     for (vk::Image& image : g.retired)
     {
         vk::image_destroy(g.context, image);
@@ -1884,7 +1886,6 @@ bool initialize(const GfxConfig& cfg)
 #else
         SDL_ShowWindow(g.window);
 #endif
-        vk::debug_ui_init(g.context, g.window, VK_FORMAT_B8G8R8A8_UNORM, u32(std::max<size_t>(2, g.swapchain.images.size())));
     }
     g.ok = true;
     return true;
@@ -1934,6 +1935,27 @@ const char* gfx_backend_name()
 bool gfx_has_window()
 {
     return g.window != nullptr;
+}
+
+bool gfx_overlay_device(GfxOverlayDevice& device)
+{
+    if (!g.ok || g.window == nullptr)
+    {
+        return false;
+    }
+    device = {};
+    device.backend = "vulkan";
+    device.window = g.window;
+    device.vk_api_version = VK_API_VERSION_1_3;
+    device.vk_instance = g.context.instance;
+    device.vk_physical_device = g.context.physical;
+    device.vk_device = g.context.device;
+    device.vk_queue_family = g.context.queue_family;
+    device.vk_queue = g.context.queue;
+    // The swapchain images the overlay draws onto (see present).
+    device.vk_color_format = VK_FORMAT_B8G8R8A8_UNORM;
+    device.vk_image_count = u32(std::max<size_t>(2, g.swapchain.images.size()));
+    return true;
 }
 
 void gfx_pump(bool& quit)

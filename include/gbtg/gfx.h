@@ -41,6 +41,25 @@ bool gfx_prepare_native_pixel_definition(const u32* definition);
 void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>& vertex_programs,
                                       std::vector<std::array<u32, 60>>& pixel_definitions);
 
+// The device and window a host overlay renders with (plugin overlays, docs/PLUGINS.md), as opaque handles. False for
+// the null backend and runs without a window.
+struct GfxOverlayDevice
+{
+    const char* backend = nullptr; // "d3d11" or "vulkan".
+    void* window = nullptr; // HWND, or SDL_Window* off Windows.
+    void* d3d11_device = nullptr;
+    void* d3d11_context = nullptr;
+    u32 vk_api_version = 0;
+    void* vk_instance = nullptr;
+    void* vk_physical_device = nullptr;
+    void* vk_device = nullptr;
+    u32 vk_queue_family = 0;
+    void* vk_queue = nullptr;
+    i32 vk_color_format = 0;
+    u32 vk_image_count = 0;
+};
+bool gfx_overlay_device(GfxOverlayDevice& device);
+
 // PC window messages. Sets quit on close / Escape. No-op without a window.
 void gfx_pump(bool& quit);
 

@@ -62,6 +62,105 @@ typedef struct GbtgShaderSink
     void* context;
 } GbtgShaderSink;
 
+/* A window message on Windows, as a window procedure receives it. Elsewhere GbtgOverlay.window_event gets the
+ * SDL_Event itself. */
+typedef struct GbtgWin32Message
+{
+    void* hwnd;
+    uint32_t message;
+    uintptr_t wparam;
+    intptr_t lparam;
+} GbtgWin32Message;
+
+/* An overlay: host presentation drawn over each presented frame, such as the debug UI. Any hook may be NULL. */
+typedef struct GbtgOverlay
+{
+    const char* id;
+    /* Each window message or event before the game sees it: a GbtgWin32Message on Windows, an SDL_Event elsewhere.
+     * Return 1 to take it from the game. */
+    int (*window_event)(void* user, const void* event);
+    /* 1 while the overlay takes the keyboard: the game reads no keys and Escape does not quit. */
+    int (*captures_input)(void* user);
+    /* On the game thread after each frame's tick, and before each repeated present between ticks, with the host
+     * seconds since the last call. The previous build has been presented by then. */
+    void (*build)(void* user, GbtgGame* game, float host_dt);
+    /* 1 when render has something to draw. */
+    int (*has_draws)(void* user);
+    /* Draws over the frame about to be presented, possibly on a render thread. D3D11: `command` is NULL and the back
+     * buffer is bound. Vulkan: `command` is the VkCommandBuffer, inside dynamic rendering onto a swapchain image of
+     * GbtgGraphicsDevice.vk_color_format. */
+    void (*render)(void* user, void* command);
+    void* user;
+} GbtgOverlay;
+
+/* The graphics device and window (graphics_device), for an overlay's renderer. Vulkan handles are given as
+ * pointers; VkFormat as its value. */
+typedef struct GbtgGraphicsDevice
+{
+    uint32_t size; /* Set to sizeof(GbtgGraphicsDevice) before the call. */
+    const char* backend; /* "d3d11" or "vulkan". */
+    void* window; /* HWND on Windows, SDL_Window* elsewhere. */
+    void* d3d11_device; /* ID3D11Device* */
+    void* d3d11_context; /* ID3D11DeviceContext* (the immediate context) */
+    uint32_t vk_api_version;
+    void* vk_instance;
+    void* vk_physical_device;
+    void* vk_device;
+    uint32_t vk_queue_family;
+    void* vk_queue;
+    int32_t vk_color_format;
+    uint32_t vk_image_count;
+} GbtgGraphicsDevice;
+
+/* What the runtime is doing (runtime_info). Strings are valid until the next frame. */
+typedef struct GbtgRuntimeInfo
+{
+    uint32_t size; /* Set to sizeof(GbtgRuntimeInfo) before the call. */
+    const char* scene_name;
+    uint32_t frame;
+    uint32_t clock_frame;
+    float clock_time;
+    float dt; /* The clock's step and its uncapped value, in seconds. */
+    float dt_raw;
+    int target_hz;
+    int pal;
+    int script_phase;
+    int script_hold;
+    const char* requested_script;
+    const char* presenter; /* The gfx backend. */
+    int width;
+    int height;
+    int has_native_scene; /* The fields below up to delayed_active are 0 without one. */
+    int actor_start;
+    size_t native_objects;
+    uint32_t registered_objects;
+    size_t address_bindings;
+    uint32_t loading;
+    const char* last_missing_resource; /* "" when none. */
+    size_t delayed_active;
+    size_t delayed_slots;
+    size_t cached_bundles; /* Not counting common. */
+    size_t demand_resources;
+} GbtgRuntimeInfo;
+
+/* An object the native scene factory owns: its retail address token, type, size in bytes and vtable address. */
+typedef struct GbtgNativeObject
+{
+    uint32_t address;
+    uint32_t type;
+    uint32_t size;
+    uint32_t vtable;
+} GbtgNativeObject;
+
+/* A cached bundle: its name ("common" first), entries and heap sizes in bytes. */
+typedef struct GbtgBundleInfo
+{
+    const char* name;
+    size_t entries;
+    size_t cpu_bytes;
+    size_t gpu_bytes;
+} GbtgBundleInfo;
+
 typedef struct GbtgPluginHost
 {
     uint32_t api_version; /* GBTG_PLUGIN_API_VERSION of the running gbtg. */
@@ -103,6 +202,26 @@ typedef struct GbtgPluginHost
     /* The loaded scene script's AID, "" before the first. Valid until the next frame. */
     const char* (*scene_name)(const GbtgGame* game);
     uint32_t (*frame)(const GbtgGame* game);
+
+    /* The host copies the struct; `id` and `user` must outlive the process. Returns 1 when added. */
+    int (*add_overlay)(void* plugin, const GbtgOverlay* overlay);
+    /* Fills `out` (set out->size first) and returns 1 when the run has a window on the D3D11 or Vulkan backend.
+     * Valid from graphics_ready until graphics_shutdown returns. */
+    int (*graphics_device)(GbtgGame* game, GbtgGraphicsDevice* out);
+
+    /* Read-only diagnostics. runtime_info fills `out` (set out->size first). The visitors are called in order. */
+    void (*runtime_info)(const GbtgGame* game, GbtgRuntimeInfo* out);
+    void (*native_objects)(const GbtgGame* game, void (*visit)(void* context, const GbtgNativeObject* object),
+        void* context);
+    void (*delayed_callbacks)(const GbtgGame* game, void (*visit)(void* context, size_t slot, uint32_t frames_left),
+        void* context);
+    void (*resource_bundles)(const GbtgGame* game, void (*visit)(void* context, const GbtgBundleInfo* bundle),
+        void* context);
+    /* The scene scripts in the game's scene order. */
+    size_t (*scene_count)(const GbtgGame* game);
+    const char* (*scene_at)(const GbtgGame* game, size_t index);
+    /* Queues `name` (an aid_script) the way the game requests its next script (0x0011EB30). */
+    void (*request_scene)(GbtgGame* game, const char* name);
 } GbtgPluginHost;
 
 typedef int (*GbtgPluginLoad)(const GbtgPluginHost* host);

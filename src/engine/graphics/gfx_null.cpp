@@ -43,6 +43,11 @@ void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>&, std::vecto
 {
 }
 
+bool gfx_overlay_device(GfxOverlayDevice&)
+{
+    return false;
+}
+
 void gfx_pump(bool&)
 {
 }

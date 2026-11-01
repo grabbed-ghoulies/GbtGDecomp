@@ -76,7 +76,6 @@ int main(int argc, char** argv)
         gbtg::PlatformConfig cfg;
         cfg.game_dir = arg(argc, argv, "--game-dir", host.game_dir.empty() ? "OriginalFiles" : host.game_dir.string());
         cfg.headless = has_flag(argc, argv, "--headless");
-        cfg.debug_ui = has_flag(argc, argv, "--debug-ui");
         cfg.frames = int_arg(argc, argv, "--frames", 0);
         cfg.replay_after = int_arg(argc, argv, "--render-replay-after", 0);
         cfg.screenshot = arg(argc, argv, "--screenshot");

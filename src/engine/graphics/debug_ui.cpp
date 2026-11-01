@@ -3,6 +3,7 @@
 #if defined(GBTG_DEBUG_UI)
 #include "gbtg/engine_internal.h"
 #include "gbtg/gfx.h"
+#include "gfx_render_thread.h"
 #include "../scene/factory_scene_runtime.h"
 
 #include <algorithm>
@@ -420,6 +421,10 @@ void debug_ui_build(Game& game, float host_dt)
     {
         return;
     }
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 11: the render thread draws the previous ImGui frame while presenting it.
+    gfx_render_thread_wait_presented();
+#endif
     g_avg.push(host_dt, game.clock.dt, game.clock.dt_raw);
     if (!g_freeze_history)
     {

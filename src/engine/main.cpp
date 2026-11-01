@@ -82,6 +82,7 @@ int main(int argc, char** argv)
         cfg.height = int_arg(argc, argv, "--height", host.height);
         cfg.vsync = int_arg(argc, argv, "--vsync", host.vsync);
         cfg.widescreen = host.widescreen || has_flag(argc, argv, "--widescreen");
+        cfg.render_thread = int_arg(argc, argv, "--render-thread", host.render_thread ? 1 : 0) != 0;
         cfg.fullscreen = (host.fullscreen || has_flag(argc, argv, "--fullscreen")) && !has_flag(argc, argv, "--windowed");
 #if !defined(_WIN32)
         // The data directory holds saves/ and, as the working directory, cache/; the game folder stays where the
@@ -153,7 +154,7 @@ int main(int argc, char** argv)
     catch (const std::exception& ex)
     {
         gbtg::log::error("error: %s", ex.what());
-        gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--fullscreen|--windowed] [--gfx d3d11|vulkan|null] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary] [--verbose]");
+        gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--fullscreen|--windowed] [--gfx d3d11|vulkan|null] [--render-thread 0|1] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary] [--verbose]");
         return 1;
     }
 }

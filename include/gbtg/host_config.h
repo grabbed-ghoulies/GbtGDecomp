@@ -22,6 +22,7 @@ struct HostConfig
     bool widescreen = true;
 #endif
     int vsync = 1;
+    bool render_thread = true; // [Video] RenderThread: GBTG_OPTIMIZE builds run the gfx backend on its own thread.
     std::string gfx_backend; // [Video] Backend: d3d11, vulkan or null. Empty uses the build's default.
     int master_volume = 100; // 0..100
     unsigned language = 0; // DAT_0042A710 index, see gbtg/language.h

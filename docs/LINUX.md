@@ -62,7 +62,8 @@ game folder is resolved before the change.
 
 Linux defaults in `gbtg.ini` suit the Deck: `Width=1280`, `Height=800`, `Fullscreen=1`, `Widescreen=1` (the Xbox's
 16:9 setting, letterboxed on the 16:10 panel), `VSync=1`. `--fullscreen` and `--windowed` override `Fullscreen`.
-`[Game] GameDir` names the disc dump; `--game-dir` overrides it.
+`[Game] GameDir` names the disc dump; `--game-dir` overrides it. `[Video] RenderThread=0` (or `--render-thread 0`)
+keeps the Vulkan backend on the game thread; by default it runs on its own thread (`GBTG_OPTIMIZE` step 11).
 
 Logic runs on 60 Hz fields with a 1/30 s swap step, paced by the clock rather than the swap interval, so the game
 runs at the same speed on the 60 Hz LCD and 90 Hz OLED panels.

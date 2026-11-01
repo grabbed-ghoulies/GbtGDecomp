@@ -141,6 +141,17 @@ void apply_key(HostConfig& cfg, const std::filesystem::path& path, const std::st
         cfg.fullscreen = number != 0;
         return;
     }
+    if (section == "video" && key == "renderthread")
+    {
+        int number = 0;
+        if (!parse_int(value, number) || (number != 0 && number != 1))
+        {
+            log::warn("config: RenderThread must be 0 or 1 in %s", path.string().c_str());
+            return;
+        }
+        cfg.render_thread = number != 0;
+        return;
+    }
     if (section == "video" && key == "widescreen")
     {
         int number = 0;

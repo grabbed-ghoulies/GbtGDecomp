@@ -25,7 +25,34 @@ inline bool cpu_vertex = false;
 inline bool validate_vertex = false;
 inline bool capture_replay = false;
 inline std::function<void()> replay;
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 11: the render thread runs backend calls, so each thread counts its own frame. The render thread's
+// totals are added to the main thread's with merge when it finishes presenting (gfx_render_thread.cpp).
+inline thread_local Frame frame;
+inline void merge(Frame& into, const Frame& from)
+{
+    for (size_t n = 0; n < into.ms.size(); ++n)
+    {
+        into.ms[n] += from.ms[n];
+    }
+    into.draws += from.draws;
+    into.vertices += from.vertices;
+    into.output_vertices += from.output_vertices;
+    into.uploaded_bytes += from.uploaded_bytes;
+    into.buffer_allocations += from.buffer_allocations;
+    into.state_misses += from.state_misses;
+    into.declaration_misses += from.declaration_misses;
+    into.texture_uploads += from.texture_uploads;
+    into.shader_instructions += from.shader_instructions;
+    into.pixel_misses += from.pixel_misses;
+    into.gpu_vertex_draws += from.gpu_vertex_draws;
+    into.cpu_vertex_draws += from.cpu_vertex_draws;
+    into.all_draws += from.all_draws;
+    into.allocations += from.allocations;
+}
+#else
 inline Frame frame;
+#endif
 inline thread_local bool count_allocations = false;
 inline unsigned long long number = 0;
 inline std::ofstream output, gpu_output;

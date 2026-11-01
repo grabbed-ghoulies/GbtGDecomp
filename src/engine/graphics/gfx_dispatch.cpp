@@ -1,4 +1,5 @@
 #include "gfx_backend.h"
+#include "gfx_render_thread.h"
 
 #include "gbtg/log.h"
 
@@ -59,6 +60,16 @@ bool gfx_select_backend(const char* name)
 
 bool gfx_init(const GfxConfig& cfg)
 {
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 11: the selected backend runs on a render thread when it supports one.
+    if (cfg.render_thread)
+    {
+        if (const GfxBackend* threaded = gfx_render_thread_backend(backend()))
+        {
+            active = threaded;
+        }
+    }
+#endif
     return backend().gfx_init(cfg);
 }
 

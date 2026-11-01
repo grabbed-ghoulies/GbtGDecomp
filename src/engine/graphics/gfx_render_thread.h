@@ -16,8 +16,8 @@ namespace gbtg
 // The threaded table wrapping `inner`, or nullptr when that backend stays on the game thread.
 const GfxBackend* gfx_render_thread_backend(const GfxBackend& inner);
 
-// Blocks until every frame and present_again queued so far has been presented. The debug UI calls it before building
-// ImGui's next frame, since the render thread draws the previous one while presenting.
+// Blocks until every frame and present_again queued so far has been presented. Plugin overlays (the debug UI) are
+// built after it, since the render thread draws the previous build while presenting.
 void gfx_render_thread_wait_presented();
 
 } // namespace gbtg

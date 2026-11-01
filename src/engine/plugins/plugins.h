@@ -4,6 +4,7 @@
 // guards its call with #if !defined(GBTG_RETAIL_GAME_ONLY). See docs/PLUGINS.md.
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "gbtg/bundle.h"
+#include "gbtg/plugin_api.h"
 
 #include <filesystem>
 #include <map>
@@ -48,5 +49,16 @@ void plugins_frame(Game& game);
 // gfx_shutdown.
 void plugins_graphics_ready(Game& game);
 void plugins_graphics_shutdown(Game& game);
+
+// Plugin overlays (GbtgOverlay, such as the debug UI), drawn by the gfx backends over each presented frame.
+// A window message (GbtgWin32Message) or SDL_Event before the game sees it: true when an overlay took it.
+bool plugins_window_event(const void* event);
+// True while an overlay takes the keyboard: the game reads no keys and Escape does not quit.
+bool plugins_capture_input();
+// After each frame's tick and before each repeated present, with the host seconds since the last call.
+void plugins_overlay_build(Game& game, float host_dt);
+bool plugins_overlay_has_draws();
+// D3D11: null `command`, with the back buffer bound. Vulkan: the command buffer, inside dynamic rendering.
+void plugins_overlay_render(void* command);
 }
 #endif

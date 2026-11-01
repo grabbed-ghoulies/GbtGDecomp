@@ -578,6 +578,11 @@ void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>& vertex_prog
     inner->gfx_compiled_shader_permutations(vertex_programs, pixel_definitions);
 }
 
+bool gfx_overlay_device(GfxOverlayDevice& device)
+{
+    return inner->gfx_overlay_device(device);
+}
+
 // Window events stay on the thread that created the window; the backend hands a resize to the render thread itself.
 void gfx_pump(bool& quit)
 {

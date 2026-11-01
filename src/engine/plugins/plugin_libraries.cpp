@@ -463,6 +463,8 @@ bool load_plugin_library(const LoadedPlugin& plugin, const std::filesystem::path
     host.compiled_shaders = host_compiled_shaders;
     host.scene_name = host_scene_name;
     host.frame = host_frame;
+    fill_overlay_calls(host);
+    fill_diagnostics_calls(host);
     if (load(&host) == 0)
     {
         log::warn("plugin %s: %s declined to load", plugin.id.c_str(), file.filename().string().c_str());
@@ -476,6 +478,12 @@ void reset_plugin_libraries()
 {
     // Loaded libraries stay mapped; only what they registered is dropped.
     g_features.clear();
+    reset_plugin_overlays();
+}
+
+const char* plugin_library_id(void* plugin)
+{
+    return library_of(plugin).id.c_str();
 }
 
 void plugin_libraries_boot(Game& game)
@@ -499,6 +507,8 @@ void plugin_libraries_graphics_ready(Game& game)
 
 void plugin_libraries_graphics_shutdown(Game& game)
 {
+    // Overlays release their device objects here; the render thread must be done drawing them.
+    plugin_overlays_wait_presented();
     run_hooks(&GbtgFeature::graphics_shutdown, game);
 }
 }

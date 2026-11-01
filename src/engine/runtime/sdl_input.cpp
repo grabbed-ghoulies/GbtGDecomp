@@ -1,6 +1,8 @@
 #include "sdl_input.h"
 
-#include "gbtg/debug_ui.h" // Defines GBTG_DEBUG_UI when the debug UI is enabled.
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 
 #include <SDL3/SDL.h>
 
@@ -70,24 +72,9 @@ void poll_sdl_input(InputState& in)
 {
     const bool* keys = SDL_GetKeyboardState(nullptr);
     // Xbox pad is read in frame_tick. On PC the host copies the keyboard into that same pad state.
-#if defined(GBTG_DEBUG_UI)
-    // F8 and F12 never enter InputState. While the menu bar is open, keyboard
-    // mappings stay clear so the scene list can use those keys.
-    static bool f8_down = false;
-    static bool f12_down = false;
-    const bool f8 = keys[SDL_SCANCODE_F8];
-    const bool f12 = keys[SDL_SCANCODE_F12];
-    if (f8 && !f8_down)
-    {
-        debug_ui_toggle_menu();
-    }
-    if (f12 && !f12_down)
-    {
-        debug_ui_toggle_overlay();
-    }
-    f8_down = f8;
-    f12_down = f12;
-    if (!debug_ui_menu_open())
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // While a plugin overlay has the keys (the debug UI's menu bar), the game reads none of them.
+    if (!plugins_capture_input())
 #endif
     {
         in.up = in.up || keys[SDL_SCANCODE_UP];

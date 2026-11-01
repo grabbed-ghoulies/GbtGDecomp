@@ -107,6 +107,22 @@ The game is an opaque `GbtgGame*`. The host table gives the library:
 | `has_window`, `show_loading_screen` | Whether the run has a window, and a black screen with a line of text in the game's startup font and a progress bar. |
 | `prepare_vertex_program`, `prepare_pixel_definition`, `compiled_shaders` | Compile a vertex program or 60-word pixel definition before its first draw, and list what the backend has compiled. |
 | `scene_name`, `frame` | The loaded scene script and the frame count. |
+| `add_overlay`, `graphics_device` | Register an overlay (below), and the window and D3D11 or Vulkan device handles its renderer needs, from `graphics_ready` until `graphics_shutdown` returns. |
+| `runtime_info`, `native_objects`, `delayed_callbacks`, `resource_bundles` | Read-only diagnostics: the clock, script and presenter state, the native scene factory's objects, the delayed callback slots and the cached bundles. |
+| `scene_count`, `scene_at`, `request_scene` | The scene order, and a scene request the way the game queues its next script (0x0011EB30). |
+
+An **overlay** (`GbtgOverlay`) is host presentation drawn over each presented frame, such as the debug UI:
+
+| Hook | When |
+|------|------|
+| `window_event` | Each window message (`GbtgWin32Message`) or `SDL_Event`, before the game. Returning 1 takes it from the game. |
+| `captures_input` | Returning 1 keeps the keyboard from the game, and Escape no longer quits. |
+| `build` | On the game thread after each tick and before each repeated present, with the host seconds since the last call. The previous build has been presented by then (the Vulkan render thread included). |
+| `has_draws`, `render` | When the backend presents: D3D11 with the back buffer bound and a null command, Vulkan with the `VkCommandBuffer` inside dynamic rendering onto the swapchain image. The held frame `present_again` repeats is kept without the overlay, so it is drawn again each time. |
+
+The overlay owns its renderer: it creates it from `graphics_device` in its feature's `graphics_ready` hook and
+releases it in `graphics_shutdown`, after the host has waited for the last present. Retail builds have none of these
+hooks; their backends present the frame alone.
 
 The interface is plain C, so a library can be written in C or C++ and built with any compiler for the platform; no
 C++ exception or standard library type crosses it. Libraries stay loaded until the process exits. Bump
@@ -178,6 +194,23 @@ first draw, as the Xbox did.
 - `--render-reference` and `--cpu-vertex` runs skip the warm-up, as before.
 - A damaged manifest is logged and skipped; at exit it is replaced.
 
+### Debug UI (`src/plugins/debug_ui`)
+
+The Dear ImGui diagnostics, which retail does not have, as an overlay. **F8** opens the menu bar (Diagnostics:
+Runtime, Performance, Native objects, Resource cache, Timing overlay; and Scenes, which requests any scene in the scene
+order) and gives it the keyboard and mouse; **F12** toggles the timing overlay. Opened windows stay on screen, without
+input, after F8 closes the menu. The plugin compiles ImGui itself with its platform half (Win32, or SDL3 elsewhere)
+and a renderer for each backend gbtg has (`renderer_d3d11.cpp`, `renderer_vulkan.cpp`); gbtg has no ImGui.
+
+```ini
+[DebugUi]
+OpenMenu = 0        ; 1 opens the menu bar at startup (formerly --debug-ui)
+TimingOverlay = 1   ; optional: show or hide the timing overlay at startup; default shown in Debug, hidden in Release
+```
+
+Off Windows, SDL3 is linked into gbtg statically, so gbtg exports its symbols (`ENABLE_EXPORTS`) and the plugin's
+SDL3 calls resolve to gbtg's copy when it loads.
+
 ### Scene log example (`examples/plugins/scene_log`)
 
 A feature library in C, as a standalone project: it logs each scene script the game loads, with the prefix from
@@ -211,9 +244,9 @@ last plugin's settings. Unlike a library, a compiled-in feature sees the whole `
 Features of either kind are host code and fall under the native-first rule in `AGENTS.md`: they may observe and
 adjust game state and add presentation, but must not re-implement retail behavior the native path already provides.
 
-## Where the overlay applies
+## Where the disc overlay applies
 
-The overlay sits on the file boundary, so translated code is unchanged:
+The disc overlay sits on the file boundary, so translated code is unchanged:
 
 | Boundary | Covers |
 |----------|--------|

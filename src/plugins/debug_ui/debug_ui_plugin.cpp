@@ -1,38 +1,39 @@
-#include "gbtg/debug_ui.h"
-// Empty unless the debug UI is enabled (GBTG_DEBUG_UI_ENABLED in debug_ui.h).
-#if defined(GBTG_DEBUG_UI)
-#include "gbtg/engine_internal.h"
-#include "gbtg/gfx.h"
-#include "gfx_render_thread.h"
-#include "../scene/factory_scene_runtime.h"
+// The host debug UI (Dear ImGui), which retail does not have, as a plugin overlay: F8 opens the menu bar and gives it
+// the keyboard and mouse, F12 toggles the timing overlay. The diagnostics windows read the runtime through the host's
+// read-only diagnostics calls. The plugin owns ImGui; the game only offers the overlay hooks (docs/PLUGINS.md).
+#include "renderer.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstring>
+#include <string>
 
+#include "imgui.h"
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 
-#include "imgui.h"
 #include "imgui_impl_win32.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 #else
 #include <SDL3/SDL.h>
 
-#include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #endif
 
-namespace gbtg
+namespace debug_ui
 {
+
 namespace
 {
 
+const GbtgPluginHost* g_host = nullptr;
+const Renderer* g_renderer = nullptr;
 bool g_ready = false;
-DebugUiRenderer g_renderer;
 bool g_menu = false;
-// The F12 timing overlay starts shown in Debug and hidden in Release.
+// The F12 timing overlay starts shown in Debug and hidden in Release, unless [DebugUi] TimingOverlay says.
 #if defined(_DEBUG)
 bool g_overlay = true;
 #else
@@ -98,6 +99,16 @@ struct FrameAvg
 
 FrameAvg g_avg;
 
+bool setting_flag(const char* key, bool fallback)
+{
+    const char* value = g_host->setting(g_host->plugin, "DebugUi", key);
+    if (value == nullptr || *value == '\0')
+    {
+        return fallback;
+    }
+    return std::strcmp(value, "0") != 0 && std::strcmp(value, "false") != 0 && std::strcmp(value, "no") != 0;
+}
+
 // Keep opened diagnostics visible while F8 gives input back to the game.
 ImGuiWindowFlags diagnostic_window_flags()
 {
@@ -132,29 +143,25 @@ void draw_performance()
     ImGui::End();
 }
 
-void draw_runtime(const Game& game)
+void draw_runtime(const GbtgGame* game, const GbtgRuntimeInfo& info)
 {
     ImGui::SetNextWindowSize(ImVec2(460.f, 430.f), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Runtime", &g_runtime, diagnostic_window_flags()))
     {
-        ImGui::TextWrapped("Scene: %s", game.scene_name.c_str());
-        ImGui::Text("Frame %u / clock %u, time %.3f s", game.frame, game.clock.frame, game.clock.time);
-        ImGui::Text("Target %d Hz (%s)", clock_fps(game.clock), game.clock.pal ? "PAL" : "NTSC");
-        ImGui::Text("Script phase %d, hold %s", game.script_phase, game.script_hold ? "yes" : "no");
-        ImGui::TextWrapped("Requested script: %.*s", static_cast<int>(sizeof(game.requested_script)), game.requested_script);
-        int width = 0;
-        int height = 0;
-        gfx_size(width, height);
-        ImGui::Text("Presenter: %s, %d x %d", gfx_backend_name(), width, height);
-        if (game.factory_scene)
+        ImGui::TextWrapped("Scene: %s", info.scene_name);
+        ImGui::Text("Frame %u / clock %u, time %.3f s", info.frame, info.clock_frame, info.clock_time);
+        ImGui::Text("Target %d Hz (%s)", info.target_hz, info.pal ? "PAL" : "NTSC");
+        ImGui::Text("Script phase %d, hold %s", info.script_phase, info.script_hold ? "yes" : "no");
+        ImGui::TextWrapped("Requested script: %s", info.requested_script);
+        ImGui::Text("Presenter: %s, %d x %d", info.presenter, info.width, info.height);
+        if (info.has_native_scene)
         {
-            const auto& scene = *game.factory_scene;
             ImGui::SeparatorText("Native scene");
-            ImGui::Text("Actor start: %d (0 idle, 1 complete)", scene.actor_start);
-            ImGui::Text("Owned objects %zu / registered count %u", scene.objects.size(), scene.factory.count);
-            ImGui::Text("Address bindings %zu / loading %u", scene.address_count(), scene.resources.loading);
-            ImGui::TextWrapped("Last missing resource: %s", scene.resources.last_missing.empty()
-                ? "none recorded" : scene.resources.last_missing.c_str());
+            ImGui::Text("Actor start: %d (0 idle, 1 complete)", info.actor_start);
+            ImGui::Text("Owned objects %zu / registered count %u", info.native_objects, info.registered_objects);
+            ImGui::Text("Address bindings %zu / loading %u", info.address_bindings, info.loading);
+            ImGui::TextWrapped("Last missing resource: %s", info.last_missing_resource[0] == '\0'
+                ? "none recorded" : info.last_missing_resource);
         }
         else
         {
@@ -162,31 +169,25 @@ void draw_runtime(const Game& game)
         }
         if (ImGui::TreeNode("Delayed callbacks"))
         {
-            size_t active = 0;
-            for (size_t i = 0; i < game.clock.delayed.size(); ++i)
+            g_host->delayed_callbacks(game, [](void*, size_t slot, uint32_t frames_left)
             {
-                const auto& slot = game.clock.delayed[i];
-                if (slot.fn != nullptr)
-                {
-                    ++active;
-                    ImGui::Text("Slot %zu: %u frames remaining", i, slot.frames_left);
-                }
-            }
-            ImGui::Text("%zu / %zu slots active", active, game.clock.delayed.size());
+                ImGui::Text("Slot %zu: %u frames remaining", slot, frames_left);
+            }, nullptr);
+            ImGui::Text("%zu / %zu slots active", info.delayed_active, info.delayed_slots);
             ImGui::TreePop();
         }
     }
     ImGui::End();
 }
 
-void draw_objects(const Game& game)
+void draw_objects(const GbtgGame* game, const GbtgRuntimeInfo& info)
 {
     ImGui::SetNextWindowSize(ImVec2(600.f, 420.f), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Native objects", &g_objects, diagnostic_window_flags()))
     {
         ImGui::InputInt("Type (-1 = all)", &g_object_type);
         ImGui::TextUnformatted("Read-only native factory ownership; addresses are retail tokens.");
-        if (game.factory_scene && ImGui::BeginTable("objects", 4,
+        if (info.has_native_scene && ImGui::BeginTable("objects", 4,
             ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, ImVec2(0.f, 0.f)))
         {
             ImGui::TableSetupColumn("Address");
@@ -195,26 +196,25 @@ void draw_objects(const Game& game)
             ImGui::TableSetupColumn("Vtable");
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableHeadersRow();
-            const auto& scene = *game.factory_scene;
-            for (const auto& object : scene.objects)
+            g_host->native_objects(game, [](void*, const GbtgNativeObject* object)
             {
-                if (g_object_type >= 0 && object.type != g_object_type)
+                if (g_object_type >= 0 && object->type != uint32_t(g_object_type))
                 {
-                    continue;
+                    return;
                 }
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::Text("%08X", scene.find_address(object.bytes.get()));
+                ImGui::Text("%08X", object->address);
                 ImGui::TableNextColumn();
-                ImGui::Text("%04X", unsigned(object.type));
+                ImGui::Text("%04X", object->type);
                 ImGui::TableNextColumn();
-                ImGui::Text("%u", object.size);
+                ImGui::Text("%u", object->size);
                 ImGui::TableNextColumn();
-                ImGui::Text("%08X", object.vtable ? object.vtable->address : 0);
-            }
+                ImGui::Text("%08X", object->vtable);
+            }, nullptr);
             ImGui::EndTable();
         }
-        if (!game.factory_scene)
+        if (!info.has_native_scene)
         {
             ImGui::TextUnformatted("No native scene factory bound.");
         }
@@ -222,12 +222,12 @@ void draw_objects(const Game& game)
     ImGui::End();
 }
 
-void draw_resources(const Game& game)
+void draw_resources(const GbtgGame* game, const GbtgRuntimeInfo& info)
 {
     ImGui::SetNextWindowSize(ImVec2(620.f, 420.f), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Resource cache", &g_resources, diagnostic_window_flags()))
     {
-        ImGui::Text("Cached bundles %zu / demand resources %zu", game.aids.bundles.size(), game.aids.demand_resources.size());
+        ImGui::Text("Cached bundles %zu / demand resources %zu", info.cached_bundles, info.demand_resources);
         ImGui::TextUnformatted("Host cache contents; not a list of active native references. Sizes are heap bytes.");
         g_resource_filter.Draw("Filter (include,-exclude)");
         if (ImGui::BeginTable("bundles", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
@@ -239,34 +239,29 @@ void draw_resources(const Game& game)
             ImGui::TableSetupColumn("GPU bytes");
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableHeadersRow();
-            const auto row = [](const char* name, const Bundle& bundle)
+            g_host->resource_bundles(game, [](void*, const GbtgBundleInfo* bundle)
             {
-                if (!g_resource_filter.PassFilter(name))
+                if (!g_resource_filter.PassFilter(bundle->name))
                 {
                     return;
                 }
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(name);
+                ImGui::TextUnformatted(bundle->name);
                 ImGui::TableNextColumn();
-                ImGui::Text("%zu", bundle.entries.size());
+                ImGui::Text("%zu", bundle->entries);
                 ImGui::TableNextColumn();
-                ImGui::Text("%zu", bundle.cpu_heap.size());
+                ImGui::Text("%zu", bundle->cpu_bytes);
                 ImGui::TableNextColumn();
-                ImGui::Text("%zu", bundle.gpu_heap.size());
-            };
-            row("common", game.aids.common);
-            for (const auto& [name, bundle] : game.aids.bundles)
-            {
-                row(name.c_str(), bundle);
-            }
+                ImGui::Text("%zu", bundle->gpu_bytes);
+            }, nullptr);
             ImGui::EndTable();
         }
     }
     ImGui::End();
 }
 
-void draw_scene_loader(Game& game)
+void draw_scene_loader(GbtgGame* game, const GbtgRuntimeInfo& info)
 {
     ImGui::SetNextWindowSize(ImVec2(480.f, 420.f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Scenes", &g_scenes, diagnostic_window_flags()))
@@ -276,22 +271,23 @@ void draw_scene_loader(Game& game)
     }
     ImGui::InputText("Filter", g_scene_filter, sizeof(g_scene_filter));
     ImGui::BeginChild("list", ImVec2(0.f, 0.f), ImGuiChildFlags_Borders);
-    if (game.scene_order.empty())
+    const size_t count = g_host->scene_count(game);
+    if (count == 0)
     {
         ImGui::TextUnformatted("No scenes");
     }
-    for (size_t i = 0; i < game.scene_order.size(); ++i)
+    for (size_t i = 0; i < count; ++i)
     {
-        const std::string& name = game.scene_order[i];
-        if (g_scene_filter[0] != '\0' && name.find(g_scene_filter) == std::string::npos)
+        const char* name = g_host->scene_at(game, i);
+        if (g_scene_filter[0] != '\0' && std::strstr(name, g_scene_filter) == nullptr)
         {
             continue;
         }
         ImGui::PushID(static_cast<int>(i));
-        const bool current = name == game.scene_name;
-        if (ImGui::Selectable(name.c_str(), current))
+        const bool current = std::strcmp(name, info.scene_name) == 0;
+        if (ImGui::Selectable(name, current))
         {
-            script_request(game, name);
+            g_host->request_scene(game, name);
         }
         ImGui::PopID();
     }
@@ -299,7 +295,7 @@ void draw_scene_loader(Game& game)
     ImGui::End();
 }
 
-void draw_frame_overlay(const Game& game)
+void draw_frame_overlay()
 {
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
@@ -319,12 +315,19 @@ void draw_frame_overlay(const Game& game)
     ImGui::End();
 }
 
-} // namespace
-
-void debug_ui_attach(void* hwnd, const DebugUiRenderer& renderer)
+void attach(void*, GbtgGame* game)
 {
-    if (g_ready || hwnd == nullptr || renderer.init == nullptr)
+    GbtgGraphicsDevice device{};
+    device.size = sizeof(device);
+    if (g_ready || g_host->graphics_device(game, &device) == 0 || device.window == nullptr)
     {
+        return;
+    }
+    const Renderer* renderer = std::strcmp(device.backend, "d3d11") == 0 ? d3d11_renderer()
+        : std::strcmp(device.backend, "vulkan") == 0 ? vulkan_renderer() : nullptr;
+    if (renderer == nullptr)
+    {
+        log(GBTG_LOG_WARN, (std::string("no renderer for the ") + device.backend + " backend in this build").c_str());
         return;
     }
     IMGUI_CHECKVERSION();
@@ -334,15 +337,15 @@ void debug_ui_attach(void* hwnd, const DebugUiRenderer& renderer)
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
 #if defined(_WIN32)
-    if (!ImGui_ImplWin32_Init(hwnd))
+    if (!ImGui_ImplWin32_Init(device.window))
 #else
-    if (!ImGui_ImplSDL3_InitForVulkan(static_cast<SDL_Window*>(hwnd)))
+    if (!ImGui_ImplSDL3_InitForVulkan(static_cast<SDL_Window*>(device.window)))
 #endif
     {
         ImGui::DestroyContext();
         return;
     }
-    if (!renderer.init(renderer.user))
+    if (!renderer->init(device))
     {
 #if defined(_WIN32)
         ImGui_ImplWin32_Shutdown();
@@ -350,82 +353,88 @@ void debug_ui_attach(void* hwnd, const DebugUiRenderer& renderer)
         ImGui_ImplSDL3_Shutdown();
 #endif
         ImGui::DestroyContext();
+        log(GBTG_LOG_WARN, "the ImGui renderer did not start");
         return;
     }
     g_renderer = renderer;
     g_ready = true;
 }
 
-void debug_ui_shutdown()
+void detach(void*, GbtgGame*)
 {
     if (!g_ready)
     {
         return;
     }
-    g_renderer.shutdown();
+    g_renderer->shutdown();
 #if defined(_WIN32)
     ImGui_ImplWin32_Shutdown();
 #else
     ImGui_ImplSDL3_Shutdown();
 #endif
     ImGui::DestroyContext();
-    g_renderer = {};
+    g_renderer = nullptr;
     g_ready = false;
 }
 
-ImDrawData* debug_ui_draw_data()
+int window_event(void*, const void* event)
 {
-    return g_ready ? ImGui::GetDrawData() : nullptr;
-}
-
-bool debug_ui_menu_open()
-{
-    return g_ready && g_menu;
-}
-
-void debug_ui_toggle_menu()
-{
-    g_menu = !g_menu;
-}
-
-void debug_ui_toggle_overlay()
-{
-    g_overlay = !g_overlay;
-}
-
+    if (!g_ready)
+    {
+        return 0;
+    }
+    // F8 and F12 never reach the game; a held key's repeats toggle nothing.
 #if defined(_WIN32)
-bool debug_ui_wndproc(void* hwnd, unsigned msg, std::uintptr_t wparam, std::intptr_t lparam)
-{
-    if (!g_ready || !g_menu)
+    const auto& message = *static_cast<const GbtgWin32Message*>(event);
+    if (message.message == WM_KEYDOWN && (message.wparam == VK_F8 || message.wparam == VK_F12))
     {
-        return false;
+        if ((message.lparam & (1 << 30)) == 0)
+        {
+            bool& shown = message.wparam == VK_F8 ? g_menu : g_overlay;
+            shown = !shown;
+        }
+        return 1;
     }
-    const LRESULT handled = ImGui_ImplWin32_WndProcHandler(static_cast<HWND>(hwnd), msg, static_cast<WPARAM>(wparam),
-                                                           static_cast<LPARAM>(lparam));
-    return handled != 0;
-}
+    if (!g_menu)
+    {
+        return 0;
+    }
+    return ImGui_ImplWin32_WndProcHandler(static_cast<HWND>(message.hwnd), message.message,
+        WPARAM(message.wparam), LPARAM(message.lparam)) != 0 ? 1 : 0;
 #else
-bool debug_ui_sdl_event(const void* event)
-{
-    if (!g_ready || !g_menu)
+    const auto& sdl = *static_cast<const SDL_Event*>(event);
+    if (sdl.type == SDL_EVENT_KEY_DOWN && (sdl.key.key == SDLK_F8 || sdl.key.key == SDLK_F12))
     {
-        return false;
+        if (!sdl.key.repeat)
+        {
+            bool& shown = sdl.key.key == SDLK_F8 ? g_menu : g_overlay;
+            shown = !shown;
+        }
+        return 1;
     }
-    return ImGui_ImplSDL3_ProcessEvent(static_cast<const SDL_Event*>(event));
-}
+    if (!g_menu)
+    {
+        return 0;
+    }
+    return ImGui_ImplSDL3_ProcessEvent(&sdl) ? 1 : 0;
 #endif
+}
 
-void debug_ui_build(Game& game, float host_dt)
+int captures_input(void*)
+{
+    return g_ready && g_menu ? 1 : 0;
+}
+
+void build(void*, GbtgGame* game, float host_dt)
 {
     if (!g_ready)
     {
         return;
     }
-#if GBTG_OPTIMIZE
-    // GBTG_OPTIMIZE step 11: the render thread draws the previous ImGui frame while presenting it.
-    gfx_render_thread_wait_presented();
-#endif
-    g_avg.push(host_dt, game.clock.dt, game.clock.dt_raw);
+    GbtgRuntimeInfo info{};
+    info.size = sizeof(info);
+    g_host->runtime_info(game, &info);
+    g_avg.push(host_dt, info.dt, info.dt_raw);
     if (!g_freeze_history)
     {
         g_frame_history[g_history_cursor] = host_dt * 1000.f;
@@ -441,7 +450,7 @@ void debug_ui_build(Game& game, float host_dt)
     {
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     }
-    g_renderer.new_frame();
+    g_renderer->new_frame();
 #if defined(_WIN32)
     ImGui_ImplWin32_NewFrame();
 #else
@@ -479,7 +488,7 @@ void debug_ui_build(Game& game, float host_dt)
     }
     if (g_runtime)
     {
-        draw_runtime(game);
+        draw_runtime(game, info);
     }
     if (g_performance)
     {
@@ -487,23 +496,64 @@ void debug_ui_build(Game& game, float host_dt)
     }
     if (g_objects)
     {
-        draw_objects(game);
+        draw_objects(game, info);
     }
     if (g_resources)
     {
-        draw_resources(game);
+        draw_resources(game, info);
     }
     if (g_scenes)
     {
-        draw_scene_loader(game);
+        draw_scene_loader(game, info);
     }
     if (g_overlay)
     {
-        draw_frame_overlay(game);
+        draw_frame_overlay();
     }
     ImGui::Render();
 }
 
-} // namespace gbtg
+int has_draws(void*)
+{
+    if (!g_ready)
+    {
+        return 0;
+    }
+    const ImDrawData* data = ImGui::GetDrawData();
+    return data != nullptr && data->CmdListsCount > 0 ? 1 : 0;
+}
 
-#endif // GBTG_DEBUG_UI
+void render(void*, void* command)
+{
+    if (ImDrawData* data = g_ready ? ImGui::GetDrawData() : nullptr)
+    {
+        g_renderer->render(data, command);
+    }
+}
+
+} // namespace
+
+void log(int level, const char* message)
+{
+    g_host->log(g_host->plugin, level, message);
+}
+
+} // namespace debug_ui
+
+extern "C" GBTG_PLUGIN_EXPORT int gbtg_plugin_load(const GbtgPluginHost* host)
+{
+    // Built for another gbtg, or one without the overlay and diagnostics calls: stay unloaded.
+    if (host->api_version != GBTG_PLUGIN_API_VERSION ||
+        host->size < offsetof(GbtgPluginHost, request_scene) + sizeof(host->request_scene))
+    {
+        return 0;
+    }
+    debug_ui::g_host = host;
+    debug_ui::g_menu = debug_ui::setting_flag("OpenMenu", false);
+    debug_ui::g_overlay = debug_ui::setting_flag("TimingOverlay", debug_ui::g_overlay);
+    static const GbtgFeature feature = {"debug_ui", "F8 debug menu and F12 timing overlay (Dear ImGui)", nullptr,
+        nullptr, debug_ui::attach, debug_ui::detach, nullptr};
+    static const GbtgOverlay overlay = {"debug_ui", debug_ui::window_event, debug_ui::captures_input,
+        debug_ui::build, debug_ui::has_draws, debug_ui::render, nullptr};
+    return host->add_feature(host->plugin, &feature) != 0 && host->add_overlay(host->plugin, &overlay) != 0;
+}

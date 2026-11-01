@@ -19,7 +19,11 @@
 #include "../inspector/inspector_graphics.h"
 #endif
 
-#include "gbtg/debug_ui.h" // Defines GBTG_DEBUG_UI when the debug UI is enabled.
+#if defined(GBTG_INSPECTOR_APP)
+#include "gbtg/debug_ui.h"
+#elif !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -332,13 +336,24 @@ LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
 #endif
-#if defined(GBTG_DEBUG_UI)
+#if defined(GBTG_INSPECTOR_APP)
     if (debug_ui_wndproc(hwnd, msg, wp, lp))
     {
         return 0;
     }
     // Escape quits the process. While the menu bar is open it stays with ImGui.
     if (debug_ui_menu_open() && msg == WM_KEYDOWN && wp == VK_ESCAPE)
+    {
+        return 0;
+    }
+#elif !defined(GBTG_RETAIL_GAME_ONLY)
+    // Plugin overlays (the debug UI) see each message first. Escape quits the process unless an overlay has the keys.
+    const GbtgWin32Message message{hwnd, msg, wp, lp};
+    if (plugins_window_event(&message))
+    {
+        return 0;
+    }
+    if (plugins_capture_input() && msg == WM_KEYDOWN && wp == VK_ESCAPE)
     {
         return 0;
     }
@@ -805,12 +820,8 @@ bool gfx_init(const GfxConfig& cfg)
         gfx_shutdown();
         return false;
     }
-#if defined(GBTG_DEBUG_UI)
-    if (g.device && g.context
-#if !defined(GBTG_INSPECTOR_APP)
-        && g.hwnd && g.swap
-#endif
-        )
+#if defined(GBTG_INSPECTOR_APP)
+    if (g.device && g.context)
     {
         debug_ui_init(g.hwnd, g.device.Get(), g.context.Get());
     }
@@ -826,7 +837,7 @@ void reset_profile_queries();
 void gfx_shutdown()
 {
     reset_profile_queries();
-#if defined(GBTG_DEBUG_UI)
+#if defined(GBTG_INSPECTOR_APP)
     debug_ui_shutdown();
 #endif
     g.model_ps.Reset();
@@ -898,6 +909,20 @@ const char* gfx_backend_name()
 bool gfx_has_window()
 {
     return g.hwnd != nullptr;
+}
+
+bool gfx_overlay_device(GfxOverlayDevice& device)
+{
+    if (!g.ok || g.hwnd == nullptr || !g.swap)
+    {
+        return false;
+    }
+    device = {};
+    device.backend = "d3d11";
+    device.window = g.hwnd;
+    device.d3d11_device = g.device.Get();
+    device.d3d11_context = g.context.Get();
+    return true;
 }
 
 void gfx_pump(bool& quit)
@@ -2851,16 +2876,28 @@ void retain_last_frame()
     g.context->CopyResource(g.last_frame.Get(), back.Get());
 }
 
+// Host presentation over the frame about to be presented: the inspector's UI, or plugin overlays (the debug UI).
+void draw_overlays()
+{
+#if defined(GBTG_INSPECTOR_APP)
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
+    debug_ui_draw();
+#elif !defined(GBTG_RETAIL_GAME_ONLY)
+    if (plugins_overlay_has_draws())
+    {
+        g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
+        plugins_overlay_render(nullptr);
+    }
+#endif
+}
+
 void present_swap()
 {
     gfx_present_swap_notify(0);
     if (g.ok && g.swap)
     {
         retain_last_frame();
-#if defined(GBTG_DEBUG_UI)
-        g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
-        debug_ui_draw();
-#endif
+        draw_overlays();
         render_profile::Scope measurement(render_profile::Present);
         g.swap->Present(g.cfg.vsync, 0);
     }
@@ -3141,10 +3178,7 @@ void gfx_present_again()
         return;
     }
     g.context->CopyResource(back.Get(), g.last_frame.Get());
-#if defined(GBTG_DEBUG_UI)
-    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), nullptr);
-    debug_ui_draw();
-#endif
+    draw_overlays();
     g.swap->Present(g.cfg.vsync, 0);
 }
 

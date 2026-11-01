@@ -31,7 +31,6 @@ retail translation differs between them.
 | `src/engine/graphics/vulkan/vk_context.*` | Instance, device, VMA, buffers, images, barriers |
 | `src/engine/graphics/vulkan/vk_swapchain.*` | Window swapchain |
 | `src/engine/graphics/vulkan/vk_shader_compiler.*` | DXC → SPIR-V, register mapping, `cache/spirv/` |
-| `src/engine/graphics/vulkan/vk_debug_ui.*` | ImGui renderer half (`imgui_impl_vulkan`) |
 | `src/engine/graphics/vulkan/gfx_vulkan.cpp` | The `gfx_*` implementation |
 
 ## How it maps D3D11
@@ -43,8 +42,8 @@ retail translation differs between them.
 - **Clip space.** It is unchanged. The viewport is flipped (negative height), so D3D clip coordinates,
   clockwise front faces and the 0..1 depth range carry over.
 - **Back buffer.** The game renders into its own BGRA8 image and D24S8 depth-stencil (D32FS8 where D24S8
-  cannot be rendered). The swap blits that image onto the swapchain, stretched like DXGI does, and ImGui
-  draws over it. `gfx_present_again` blits the held frame again.
+  cannot be rendered). The swap blits that image onto the swapchain, stretched like DXGI does, and plugin
+  overlays (the `debug_ui` plugin's ImGui) draw over it. `gfx_present_again` blits the held frame again.
 - **Submission.** One command buffer is submitted, and waited on, at each swap and at each readback
   (`gfx_readback`, `gfx_end_native_target`, `gfx_read_native_target_depth`). Vertex, index, uniform and
   staging data share a ring that is reset after each wait. This is simple and correct, with no frames in flight.

@@ -104,6 +104,11 @@ void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>& vertex_prog
     backend().gfx_compiled_shader_permutations(vertex_programs, pixel_definitions);
 }
 
+bool gfx_overlay_device(GfxOverlayDevice& device)
+{
+    return backend().gfx_overlay_device(device);
+}
+
 void gfx_pump(bool& quit)
 {
     backend().gfx_pump(quit);

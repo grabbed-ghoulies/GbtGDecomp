@@ -14,8 +14,7 @@ struct RuntimeCinemaMindMovement
     std::span<u8> mind;
     std::span<const u8> actor_bytes;
     std::span<const u8> body;
-    std::span<const u8> body_actor_bytes;
-    Actor& actor;
+    Actor& actor; // Also body +8, whose radius the escape costs read.
     const RuntimePlayerAttachmentEligibility& eligibility;
     RuntimePlayerNavigationControl& navigation;
     RuntimeMindEscapePosition& escape;

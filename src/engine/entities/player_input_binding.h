@@ -17,6 +17,7 @@ struct RuntimePlayerInputBinding
     RuntimeInputActivationContext& activation;
     std::function<u32(std::span<u8>)> register_input; // Host address mapping for allocated device.
     std::function<u32(const void*)> address_of; // Actual intrusive link identities.
+    Actor& owner; // The native actor, whose mask_flag is this +0x93C word.
 };
 void bind_runtime_player_input(RuntimePlayerInputBinding& context); // Xbox 0x0002CAB0
 void register_runtime_controlled_player(RuntimePlayerInputBinding& context); // Xbox 0x0007F870

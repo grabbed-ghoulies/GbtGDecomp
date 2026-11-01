@@ -65,9 +65,10 @@ GhoulySpawnPool* collect_runtime_navigation_costs(i32 floor, const Vec3& center,
 
 // Xbox 0x0007B490
 GhoulySpawnPool* suspend_runtime_mind_target_costs(std::span<const u8> actor,
-    std::span<const u8> body, std::span<const u8> body_actor, std::span<const u8> target)
+    std::span<const u8> body, const Actor& body_actor, std::span<const u8> target)
 {
-    const float radius = float((static_cast<long double>(read_f32(body_actor, 0x38))
+    // Body +8's +0x38 is its native actor's radius_xz.
+    const float radius = float((static_cast<long double>(body_actor.radius_xz)
         * read_f32(body, 0x888) + read_f32(target, 0x38)) * 3.L);
     const Vec3 center{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
     auto* costs = collect_runtime_navigation_costs(target[0x19], center, radius);

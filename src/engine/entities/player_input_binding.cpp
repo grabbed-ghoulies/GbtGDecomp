@@ -97,6 +97,7 @@ void register_runtime_controlled_player(RuntimePlayerInputBinding& context)
         context.link.prev = tail;
         context.link.next = nullptr;
         put(context.actor, 0x93C, context.address_of(tail));
+        context.owner.mask_flag = i32(context.address_of(tail)); // Native alias of the +0x93C word.
         put(context.actor, 0x940, 0);
     }
     bind_runtime_player_input(context);

@@ -351,7 +351,7 @@ u32 update_runtime_cinema_mind_escape_motion(RuntimeCinemaMindMovement& context,
     randomize_runtime_mind_escape_heading(context.actor, context.escape.target, destination, heading, context.random);
     value(request, 0x2C, heading);
     auto* costs = suspend_runtime_mind_target_costs(context.actor_bytes, context.body,
-        context.body_actor_bytes, context.escape.target);
+        context.actor, context.escape.target);
     u32 failed;
     const u32 result = drive_runtime_player_navigation(context.navigation, destination, -1,
         2.5f, 0.f, read_f32(request, 0x20), 0, failed);
@@ -399,7 +399,7 @@ u32 update_runtime_cinema_mind_vertical_escape_motion(RuntimeCinemaMindMovement&
     randomize_runtime_mind_escape_heading(context.actor, context.escape.target, destination, heading, context.random);
     value(request, 0x38, heading);
     auto* costs = suspend_runtime_mind_target_costs(context.actor_bytes, context.body,
-        context.body_actor_bytes, context.escape.target);
+        context.actor, context.escape.target);
     const i32 floor = entity_detail::navigation_floor_index(destination, i32(read_u32(context.actor_bytes, 0xCEC)), 0);
     u32 failed;
     const u32 result = drive_runtime_mind_vertical_navigation(context.navigation, destination, floor,

@@ -101,7 +101,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
           {
               return services_.address_of(device.data());
           },
-          services.address_of},
+          services.address_of, player.actor},
       player_messages_{player.mind_events, feedback_, boost_, parent_, binding_, services.resume, services.game,
           player.actor_address, player.actor_bytes, *player.body_flags, target_, &action_target_, &event_source_,
           &actor_mind_, &body_state_view_, services.grids, services.nodes, player.mind_storage,
@@ -144,7 +144,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
       eligibility_{player.body, body_bits(player), player.actor, player.attached},
       escape_{player.actor, player.actor_bytes, {}, static_cast<const u8*>(services.markers),
           player.allowed, services.random, services.occupancy_initial},
-      movement_{player.mind, player.actor_bytes, player.body, player.actor_bytes, player.actor, eligibility_,
+      movement_{player.mind, player.actor_bytes, player.body, player.actor, eligibility_,
           navigation_control_, escape_, services.clock, player.room, player.allowed, services.random,
           services.occupancy_initial, nullptr, body_query_},
       spawn_{movement_, player.mind_action,

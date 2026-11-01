@@ -120,6 +120,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         std::span<u8> body = body_bytes;
         Actor native_actor;
         RuntimeBodyAttachedActor actor{actor_bytes, 0x12345678, {}};
+        actor.actor = &native_actor;
         u32 enabled = 1, value = 0x3F800001, argument = 9, name = 10;
         u32 player_enabled = 0, player_value = 0x40000001, player_argument = 11, player_name = 12;
         RuntimePlayerScriptOverrides overrides{enabled, value, argument, name,
@@ -139,7 +140,8 @@ void check_body_dependencies(SceneExecutableResources& executable)
         require(restore_runtime_player_script_overrides(actor, overrides)
             && notices.size() == 2 && notices[0] == std::array<u32, 5>{0x86, 10, 7, 9, 0}
             && notices[1] == std::array<u32, 5>{0x86, 12, 0x13, 11, 0}
-            && read_u32(actor_bytes, 0x930) == value && read_u32(actor_bytes, 0x978) == player_value,
+            && std::bit_cast<u32>(native_actor.animation_pause) == value
+            && read_u32(actor_bytes, 0x978) == player_value,
             "override restoration snapshots player mode but rereads globals after first virtual notice");
         notices.clear();
         require(restore_runtime_player_script_overrides(actor, overrides) && notices.size() == 1,

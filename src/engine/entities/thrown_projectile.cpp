@@ -538,6 +538,7 @@ void end_runtime_thrown_projectile_flight(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
     store8(bytes, 0x93C, 0);
+    weapon.actor.mask_flag = i32(u32(weapon.actor.mask_flag) & ~0xFFu); // Native alias of the +0x93C byte.
     if (bytes[0xD08] != 0)
     {
         store8(bytes, 0xD08, 0);

@@ -193,6 +193,8 @@
 #include "../scripts/script_event_tallies.h"
 #include "../frontend/scoreboard_hud.h"
 #include "../scripts/script_actor_query.h"
+#include "../entities/player_mind_messages.h"
+#include "../entities/player_attachment.h"
 #include "../entities/player_mind_target_control.h"
 #include "gbtg/model_runtime.h"
 #include <cmath>
@@ -13293,6 +13295,36 @@ void SceneActorServices::release_script_player_attachment()
     instance.refresh_views();
     release_runtime_player_attachment(0, 0, instance.attachment); // 0x0001B810, EAX the player's +0x95C
     activate_actor_bind_tree(*player); // 0x00112CC0, ESI the player
+}
+
+void SceneActorServices::send_player_through_exit(const Vec3& position, const Vec3& euler)
+{
+    auto& state = *state_;
+    Actor* player = find_runtime_script_player(player_link(), actor_addresses()); // DAT_00511B40 - 0x93C
+    if (player == nullptr)
+    {
+        return;
+    }
+    FactoryObject& object = state.object_of_actor(*player);
+    auto& instance = state.players->player(object);
+    instance.refresh_views();
+    if (read_u32(instance.attachment.body, 0x48) != 0) // The +0x95C body's held actor.
+    {
+        RuntimeBodyAttachedActor* held = instance.attachment.actions.attached;
+        if (held == nullptr)
+        {
+            unbound("the player's held actor (body +0x48) has no view");
+        }
+        const u32 leaving = 1;
+        std::memcpy(held->bytes.data() + 0x9A4, &leaving, 4);
+        let_go_runtime_player_attachment(instance.attachment); // 0x0001B6B0, EAX the player's +0x95C
+    }
+    std::array<u32, 9> message{};
+    clear_runtime_goal_message(message); // 0x00049DB0: message 0x4D
+    message[1] = 8; // The goal kind.
+    std::memcpy(&message[2], &position, sizeof(Vec3));
+    std::memcpy(&message[5], &euler, sizeof(Vec3));
+    state.object_message(object, message); // Player vtable +0xC
 }
 
 void SceneActorServices::hold_script_player_attachments(u32 release)

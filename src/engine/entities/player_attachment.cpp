@@ -242,6 +242,18 @@ bool release_runtime_player_attachment(i32 force, u32 reason, RuntimePlayerAttac
     return released;
 }
 
+// Xbox 0x0001B6B0
+bool let_go_runtime_player_attachment(RuntimePlayerAttachment& context)
+{
+    if (!release_runtime_player_attachment(0, 0, context)) // 0x0001B810, EBX the body
+    {
+        return false;
+    }
+    const u16 key = context.body_action_key(); // Body vtable +0x20
+    select_runtime_body_action(context.body, key, context.actions); // 0x00027650, EAX the key
+    return true;
+}
+
 // Xbox 0x0013A7C0
 bool replace_runtime_player_attachment(RuntimePlayerAttachment& context)
 {

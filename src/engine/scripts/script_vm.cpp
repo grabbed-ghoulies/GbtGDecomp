@@ -1248,10 +1248,21 @@ void script_tick_fired_vm(Game& g)
         // 0x00035960, EAX &DAT_00511B64 (the held scene order), EBX DAT_00510E58 (the current scene AID, not
         // the title written by type 0xE), wrapping.
         const std::span<const u8> order = g.factory_scene->actor_services->held_scene_order();
-        if (const char* next = next_scene_order_name(order, g.scene_script.name.c_str(), 1))
+        if (next_scene_order_name(order, g.scene_script.name.c_str(), 1) != nullptr)
         {
-            request_scene_aid(next, 1);
-            g_script_e790 = 0.f;
+            if (g_scene_entry_set == 0) // DAT_0050E784
+            {
+                request_scene_aid(next_scene_order_name(order, g.scene_script.name.c_str(), 1), 1); // 0x0011EB30
+                g_script_e790 = 0.f;
+            }
+            else
+            {
+                // Through a door: the player walks out to the next scene's entry pose, and the next scene is
+                // requested when the second below runs out.
+                g.factory_scene->actor_services->send_player_through_exit(g_scene_entry_position,
+                    g_scene_entry_euler);
+                g_script_e790 = 1.f; // DAT_0032B0F8
+            }
         }
         g_script_e78c = 1;
         g_script_e794 = g_script_e794 + 1;
@@ -1269,6 +1280,14 @@ void script_tick_fired_vm(Game& g)
         if (g_script_e790 <= 0.f)
         {
             g_script_e790 = 0.f;
+            // 0x00035960 (EAX DAT_00511B64, EBX DAT_00510E58, wrapping), then 0x0011EB30 in mode 1.
+            const std::span<const u8> order = g.factory_scene->actor_services->held_scene_order();
+            const char* next = next_scene_order_name(order, g.scene_script.name.c_str(), 1);
+            if (next == nullptr)
+            {
+                throw Error("0x00117140's fade requests the next scene with no scene after this one");
+            }
+            request_scene_aid(next, 1);
         }
     }
 }

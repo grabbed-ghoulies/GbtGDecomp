@@ -69,6 +69,10 @@ public:
     // Script type 0x2C: the 0x001292D0 player drops what it holds (0x0001B810 with 0, 0 on its +0x95C) and its bind
     // tree is activated (0x00112CC0, ESI the player). No player does nothing.
     void release_script_player_attachment();
+    // 0x00117140's scene end through a door (DAT_0050E784 set): the DAT_00511B40 player drops what its body holds
+    // (the held actor's +0x9A4 set 1, then 0x0001B6B0) and is sent goal message 0x4D of kind 8 with the next
+    // scene's entry position and euler (DAT_0050E76C..DAT_0050E780). No player does nothing.
+    void send_player_through_exit(const Vec3& position, const Vec3& euler);
     // Script type 0xA6: the 0x001292D0 player drops its held weapon (0x0013A860); when it does, 0x0012ECC0.
     void drop_script_player_weapon();
     // Script type 0x2E: the 0x001292D0 player's live attachments gain (`release` zero, 0x00042090) or lose

@@ -1,5 +1,6 @@
 #include "scoreboard_update.h"
 #include "../entities/powerup_flags.h"
+#include "dialogue_widget_update.h"
 #include "../camera/camera.h"
 #include "../camera/display_view.h"
 #include "../audio/listener_settings.h"
@@ -676,7 +677,16 @@ void update_runtime_brew_prompt(RuntimeScoreboardUpdate& context)
     if (step_runtime_hud_fade({globals.brew_visible, brew.intensity, as_float(globals.brew_99c),
         globals.brew_9a0, globals.brew_9a4}, 0, context)) // 0x00131C50, ESI DAT_00545994
     {
-        throw Error("untranslated Xbox 0x0012D540 / 0x00142460 (the brew prompt widget, 0x0012D290)");
+        if (brew.widget == nullptr) // DAT_005459F4
+        {
+            create_runtime_brew_widget(brew, context.hud.layout); // 0x0012D540
+        }
+        if (brew.widget != nullptr)
+        {
+            update_dialogue_widget(*brew.widget, nullptr, *brew.update); // 0x00142460, EAX 0, EDI DAT_005459F4
+        }
+        swell_runtime_hud_counter(brew.counter, brew.preset); // 0x0012EF60, ESI DAT_005459A8, EDI DAT_00312A1C
+        return;
     }
     if (brew.widget == nullptr) // DAT_005459F4
     {

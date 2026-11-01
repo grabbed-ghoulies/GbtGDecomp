@@ -1,6 +1,7 @@
 #include "scoreboard_hud.h"
 #include "../entities/powerup_flags.h"
 #include "scoreboard_draw.h"
+#include "dialogue_draw_outer.h"
 #include "../camera/camera.h"
 #include "../entities/body_hit_state.h"
 #include "../entities/bounded_channels.h"
@@ -996,9 +997,44 @@ void draw_runtime_meter(RuntimeScoreboardHud& context)
 // Xbox 0x0012D300
 void draw_runtime_brew_meter(RuntimeScoreboardHud& context)
 {
-    if (context.globals.brew_visible != 0 && (context.difficulty < 1 || context.difficulty > 2))
+    auto& globals = context.globals;
+    auto& brew = context.brew;
+    if (globals.brew_visible == 0 || (context.difficulty >= 1 && context.difficulty <= 2)) // DAT_005064D8
     {
-        untranslated("0x00131F00", "the brew meter draw 0x0012D300");
+        return;
+    }
+    auto& draw = draw_views(context);
+    const RuntimeHudFade fade{globals.brew_visible, brew.intensity, *reinterpret_cast<float*>(&globals.brew_99c),
+        globals.brew_9a0, globals.brew_9a4}; // DAT_00545994
+    const float x = float(context.width >> 1) + 45.f; // DAT_005096E8, DAT_0032B578
+    const float y = context.layout.inner_bottom - brew.half_widths[0] + 10.f; // DAT_0050974C, DAT_005459E8, DAT_0032B10C
+    float shown[2]{x, y};
+    float hidden[2]{x, y + 150.f}; // DAT_0032B444
+    float at[2];
+    if (!place_runtime_hud_element(fade, hidden, shown, at)) // 0x00131F00, EDI at
+    {
+        return;
+    }
+    const float scale[2]{1.f, 1.f}; // DAT_0032B0F8
+    const u32 color = 0xFFFFFFFFu;
+    draw_runtime_dialogue_sprite(brew.textures[0].data(), at, scale, 0.f, color, 0, *draw.immediate); // 0x0005CE30
+    if (brew.state == 1) // DAT_00545990
+    {
+        draw_runtime_dialogue_sprite(brew.textures[1].data(), at, scale, 0.f, color, 0, *draw.immediate); // DAT_005459E0
+    }
+    else if (brew.state == 2)
+    {
+        draw_runtime_dialogue_sprite(brew.textures[2].data(), at, scale, 0.f, color, 0, *draw.immediate); // DAT_005459E4
+        return;
+    }
+    const float step = brew.half_widths[0] + 10.f; // DAT_005459E8, DAT_0032B10C
+    shown[0] += step;
+    hidden[0] += step;
+    place_runtime_hud_element(fade, hidden, shown, at); // 0x00131F00
+    draw_runtime_hud_counter(brew.counter, at, brew.preset, 0, context, draw); // 0x0012F000, EAX DAT_005459A8
+    if (brew.widget != nullptr) // DAT_005459F4
+    {
+        draw_runtime_dialogue_widget(*brew.widget, 0, *brew.widget_draw); // 0x00142720
     }
 }
 

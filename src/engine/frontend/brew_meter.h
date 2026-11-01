@@ -4,6 +4,10 @@
 
 namespace gbtg
 {
+struct DialogueWidgetAllocationContext;
+struct DialogueWidgetUpdateContext;
+struct RuntimeDialogueOuterDrawContext;
+struct RuntimeHudLayout;
 // Butler's brew counter shown by the player strategy's brew prompt.
 struct RuntimeBrewMeter
 {
@@ -18,9 +22,15 @@ struct RuntimeBrewMeter
     AnimationResourceRegistry& registry;
     ResourceErrorState& error;
     std::span<const u8> address_zero; // A missing texture's width is read at address 8.
+    const u8* rows = nullptr; // 0x00312A30, "challengeMenu_restart": butlersBrew_No (B), butlersBrew_Yes (A).
+    DialogueWidgetAllocationContext* allocation = nullptr; // 0x00141DA0
+    DialogueWidgetUpdateContext* update = nullptr; // 0x00142460
+    RuntimeDialogueOuterDrawContext* widget_draw = nullptr; // 0x00142720
 };
 void acquire_runtime_brew_textures(RuntimeBrewMeter& meter); // Xbox 0x0012D090
 void show_runtime_brew_count(i32 count, RuntimeBrewMeter& meter); // Xbox 0x0012D4A0, EAX count
 void close_runtime_brew_meter(RuntimeBrewMeter& meter); // Xbox 0x0012D4E0
 void accept_runtime_brew_meter(RuntimeBrewMeter& meter); // Xbox 0x0012D510
+// The prompt's two rows into DAT_005459F4, at the HUD's inner bottom-left corner.
+void create_runtime_brew_widget(RuntimeBrewMeter& meter, const RuntimeHudLayout& layout); // Xbox 0x0012D540
 }

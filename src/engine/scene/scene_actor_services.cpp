@@ -694,7 +694,7 @@ struct SceneActorServices::State
     i32 brews_owned = 0; // DAT_00506C8C.
     i32 brews_required = 0; // DAT_00430D9C.
     u8 story_byte = 0; // **(DAT_00506C6C+8) +4.
-    u8 unlock_flags = 0; // **(DAT_00506C70+8).
+    u8& unlock_flags = g_runtime_profile.unlocks.bytes[0]; // **(DAT_00506C70+8), the profile's unlock byte.
     u32& intro_pending = g_545b38; // DAT_00545B38.
     std::array<char, 0x80>& intro_name = g_545b44; // DAT_00545B44.
     entity_detail::ListHead& cases = entity_detail::g_world.case_head; // DAT_00511B3C; its next is DAT_00511B40.
@@ -1454,6 +1454,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     brew = std::make_unique<RuntimeBrewMeter>(RuntimeBrewMeter{brew_state, brew_intensity, brew_counter,
         brew_textures, brew_half_widths, brew_widget, widget_context, data(0x00312A1C, 0x14), resources.registry,
         resources.error, address_zero});
+    brew->rows = data(0x00312A30, 0x310).data(); // "challengeMenu_restart": butlersBrew_No, butlersBrew_Yes
     health_display = std::make_unique<RuntimePlayerHealthDisplay>(RuntimePlayerHealthDisplay{health_active,
         health_style, health_intensity, health_counter, health_mode, health_textures, health_widths, override_health,
         story_byte, data(0x00313A40, 5 * 0x18), data(0x00313A18, 0x14), data(0x00313A2C, 0x14), resources.registry,
@@ -3789,6 +3790,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     dialogue_draw->panel_alpha = read_f32(data(0x0032B49C, 4), 0);
     dialogue_draw->outer = dialogue_outer.get();
     dialogue_outer->panel_line_width = read_u32(data(0x00425168, 4), 0);
+    brew->allocation = widget_allocation.get();
+    brew->update = widget_update.get();
+    brew->widget_draw = dialogue_outer.get();
     bind_scene_dialogue(game, *script_dialogue, *dialogue_outer);
     // The scene cutscene stack (DAT_004E1B40..DAT_004E1C54) that script node 0x13 starts (0x0004EDA0) and the
     // scene tick advances (0x0004EBD0), over this scene's cutscene context.
@@ -5940,7 +5944,6 @@ void SceneActorServices::State::reset_scene_data()
     brews_owned = 0;
     brews_required = 0;
     story_byte = 0;
-    unlock_flags = 0;
     intro_pending = 0;
     intro_name = {};
     // The queue and class limits are 0x00116DA0's, which 0x00116E00 runs before the script loads; clearing them

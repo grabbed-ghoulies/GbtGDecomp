@@ -1,4 +1,6 @@
 #include "brew_meter.h"
+#include "dialogue_widget_construction.h"
+#include "hud_layout.h"
 
 namespace gbtg
 {
@@ -63,5 +65,16 @@ void close_runtime_brew_meter(RuntimeBrewMeter& meter)
 void accept_runtime_brew_meter(RuntimeBrewMeter& meter)
 {
     set_meter_widget(2, meter);
+}
+
+// Xbox 0x0012D540
+void create_runtime_brew_widget(RuntimeBrewMeter& meter, const RuntimeHudLayout& layout)
+{
+    const float inset = 16.f; // DAT_0032B1F4
+    const std::array<float, 2> anchor{layout.inner_left + inset, layout.inner_bottom - inset};
+    const std::array<float, 2> row_step{0.f, -32.f}; // DAT_0032B600
+    const std::array<float, 2> origin{20.f, -16.f}; // DAT_0032B234, DAT_0032B5FC
+    create_resource_dialogue_widget(meter.widget, 0, meter.rows, anchor, row_step, origin, nullptr, 1.f, 0.75f,
+        "menutext", "aid_loctext_ghoulies_menu_menutext", 0x400C0, *meter.allocation); // 0x00141DA0, ESI DAT_005459F4
 }
 }

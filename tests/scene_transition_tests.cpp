@@ -11265,7 +11265,10 @@ int main(int argc, char** argv)
     };
     // --player-fight runs the --player-opening flow, then fights the imps until the script passes its imp gate.
     // --player-death runs the --player-opening flow, then leaves Cooper to the imps until he dies and the scene restarts.
-    const bool death_test = player_mode("--player-death");
+    // --player-brew: the death test with the brew unlocked (profile unlock bit 8). The restarted scene opens on the
+    // Butler's Brew prompt (player state 0x3F1): its meter (0x0012D300) and A/B widget (0x0012D290).
+    const bool brew_test = player_mode("--player-brew");
+    const bool death_test = player_mode("--player-death") || brew_test;
     const bool fight_test = player_mode("--player-fight") || death_test;
     // --player-controls runs the --player-opening flow, then checks run speed across frame rates and the right stick.
     const bool controls_test = player_mode("--player-controls");
@@ -13796,6 +13799,10 @@ int main(int argc, char** argv)
                     // (factory type 0x69) plays his dying animations, starts the scene's transition (0x0012C5D0)
                     // and restarts the scene (0x0008F650, 0x00134AE0).
                     const std::string fight_title = game.scene_name;
+                    if (brew_test)
+                    {
+                        gbtg::g_runtime_profile.unlocks.bytes[0] |= 8; // **(DAT_00506C70+8): the brew is unlocked.
+                    }
                     const auto cooper_health = [&]() -> int
                     {
                         for (const auto& mark : marked())
@@ -13852,6 +13859,78 @@ int main(int argc, char** argv)
                     if (restarted < 0)
                     {
                         throw gbtg::Error("the scene did not restart after Cooper's death: title " + game.scene_name);
+                    }
+                    if (brew_test)
+                    {
+                        // The restart's scene start (0x7D) moves Cooper to 0x3F1: the meter fades in with the brew
+                        // count and the widget's A/B rows; A drinks, doubling his health.
+                        const auto cooper_state = [&]() -> int
+                        {
+                            for (const auto& mark : marked())
+                            {
+                                if (mark.actor->class_key == 4)
+                                {
+                                    return mark.strategy.empty() ? 0 : gbtg::read_u16(mark.strategy, 0xE);
+                                }
+                            }
+                            return -1;
+                        };
+                        int prompt = -1;
+                        int drank = -1;
+                        int before = -1;
+                        for (int frame = 0; frame < player_ticks(3600) && drank < 0; ++frame)
+                        {
+                            gbtg::InputState input;
+                            const int state = cooper_state();
+                            if (prompt < 0 && state == 0x3F1)
+                            {
+                                prompt = frame;
+                                before = cooper_health();
+                                std::cout << "brew frame " << frame << ": Cooper waits in 0x3F1, health " << before
+                                          << "\n";
+                            }
+                            // A script page (the restarted opening's) holds Cooper in 0x3FB until A.
+                            const bool page = game.script_dialogue != nullptr
+                                && game.script_dialogue->dialogue.state.widget != nullptr
+                                && game.script_dialogue->dialogue.state.mode != 0;
+                            input.accept = (prompt < 0 && page && frame % 30 < 5)
+                                || (prompt >= 0 && frame - prompt == player_ticks(90));
+                            gbtg::gfx_begin_frame();
+                            game.tick(player_step, input);
+                            if (prompt >= 0 && (frame - prompt == player_ticks(45) || frame - prompt == player_ticks(85)
+                                || frame - prompt == player_ticks(100) || frame - prompt == player_ticks(130)))
+                            {
+                                gbtg::RgbaImage capture;
+                                if (gbtg::gfx_readback(capture))
+                                {
+                                    gbtg::write_bmp("cache/player_brew_" + std::to_string(frame - prompt) + ".bmp",
+                                        capture);
+                                }
+                            }
+                            gbtg::gfx_end_frame();
+                            if (prompt >= 0 && frame - prompt > player_ticks(130) && cooper_state() != 0x3F1)
+                            {
+                                drank = frame;
+                            }
+                        }
+                        if (prompt < 0)
+                        {
+                            throw gbtg::Error("the restarted scene never offered the brew (state 0x3F1)");
+                        }
+                        if (drank < 0)
+                        {
+                            throw gbtg::Error("A never took Cooper out of the brew prompt");
+                        }
+                        const int after = cooper_health();
+                        std::cout << "brew frame " << drank << ": Cooper left 0x3F1 (state " << cooper_state()
+                                  << "), health " << before << " -> " << after << "\n";
+                        if (after != before * 2)
+                        {
+                            throw gbtg::Error("the brew did not double Cooper's health");
+                        }
+                        std::cout << "PASS: the restarted scene offers the brew and A drinks it\n";
+                        gbtg::gfx_shutdown();
+                        return 0;
                     }
                     // The restarted scene runs on: its script passes the 0x6F player wait (node 0x254), which a
                     // failed native start (factory_scene->actor_start -1) holds forever.

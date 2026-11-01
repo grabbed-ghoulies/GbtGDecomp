@@ -161,7 +161,7 @@ void check_boot_shader_boundary()
     store(0xAC, 1.f);
     store(0xB0, 2.f);
     store(0xB4, 3.f);
-    std::array<u32, 3> dimensions{std::bit_cast<u32>(10.f), 0x12345678, 0x87654321};
+    std::array<u32, 3> dimensions{std::bit_cast<u32>(10.f), std::bit_cast<u32>(255.f), std::bit_cast<u32>(0.f)};
     u32 margin = std::bit_cast<u32>(2.f);
     RuntimeRelocationImage image{{}, 0, [&dimensions, &margin](u32 address) -> u8*
     {
@@ -172,16 +172,18 @@ void check_boot_shader_boundary()
         require(address >= 0x00424998 && address < 0x004249A4, "door bound table address");
         return reinterpret_cast<u8*>(dimensions.data()) + address - 0x00424998;
     }};
-    RuntimeDoorShadowBounds bounds{91.f, 92.f, 93.f, 94.f, 95, 96};
+    RuntimeDoorShadowBounds bounds{91.f, 92.f, 93.f, 94.f};
     require(select_runtime_door_shadow_bounds(door, {-1.f, 2.f, 3.f}, bounds, image) == 0 &&
-        bounds.depth_start == 91.f && bounds.left == 95,
+        bounds.depth_start == 91.f && bounds.opacity_start == 93.f,
         "camera on the door volume boundary suppresses drawing without changing outputs");
     require(select_runtime_door_shadow_bounds(door, {0.f, 0.f, -5.f}, bounds, image) == 1 &&
-        bounds.depth_start == 12.f && bounds.depth_end == 8.f && bounds.left == dimensions[1],
-        "near first door plane selects the forward fade and horizontal bounds");
+        bounds.depth_start == 12.f && bounds.depth_end == 8.f && bounds.opacity_start == 255.f
+        && bounds.opacity_end == 0.f,
+        "near first door plane selects the forward fade depth and opacity");
     require(select_runtime_door_shadow_bounds(door, {0.f, 0.f, 5.f}, bounds, image) == 1 &&
-        bounds.depth_start == 8.f && bounds.depth_end == 12.f && bounds.left == dimensions[2],
-        "near second door plane reverses the fade and horizontal bounds");
+        bounds.depth_start == 8.f && bounds.depth_end == 12.f && bounds.opacity_start == 0.f
+        && bounds.opacity_end == 255.f,
+        "near second door plane reverses the fade depth and opacity");
     require(select_runtime_door_shadow_bounds(door,
         {std::numeric_limits<float>::quiet_NaN(), 0.f, 0.f}, bounds, image) == 1,
         "unordered camera coordinates follow the outside-volume branch");

@@ -6,11 +6,12 @@
 
 namespace gbtg
 {
+// 0x0005AC40's outputs, from the door shape's 0x94-byte row at 0x00424994: the depth range (+4 ± DAT_0032B214) and
+// the opacity at either end (+8 and +0xC, ordered by the side the camera is on).
 struct RuntimeDoorShadowBounds
 {
-    float depth_start, depth_end;
-    float alpha_start, alpha_end;
-    u32 left, right;
+    float depth_start, depth_end; // EBX, EDI.
+    float opacity_start, opacity_end; // ESI, the stack pointer.
 };
 u32 select_runtime_door_shadow_bounds(std::span<const u8> row, const Vec3& camera,
     RuntimeDoorShadowBounds& bounds, const RuntimeRelocationImage& image); // Xbox 0x0005AC40

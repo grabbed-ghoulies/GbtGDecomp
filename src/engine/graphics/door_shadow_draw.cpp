@@ -33,21 +33,23 @@ u32 select_runtime_door_shadow_bounds(std::span<const u8> row, const Vec3& camer
     const u32 definition = 0x00424998 + read_u32(row, 0) * 0x94;
     const float depth = std::bit_cast<float>(image.word(definition));
     const float margin = std::bit_cast<float>(image.word(0x0032B214));
+    const float near_opacity = std::bit_cast<float>(image.word(definition, 4)); // DAT_0042499C.
+    const float far_opacity = std::bit_cast<float>(image.word(definition, 8)); // DAT_004249A0.
     const float first = scalar(0xA8) - z;
     const float second = scalar(0xB4) - z;
     if (second * second > first * first)
     {
         bounds.depth_start = depth + margin;
         bounds.depth_end = depth - margin;
-        bounds.left = image.word(definition, 4);
-        bounds.right = image.word(definition, 8);
+        bounds.opacity_start = near_opacity;
+        bounds.opacity_end = far_opacity;
     }
     else
     {
         bounds.depth_start = depth - margin;
         bounds.depth_end = depth + margin;
-        bounds.left = image.word(definition, 8);
-        bounds.right = image.word(definition, 4);
+        bounds.opacity_start = far_opacity;
+        bounds.opacity_end = near_opacity;
     }
     return 1;
 }
@@ -60,10 +62,11 @@ void draw_runtime_door_shadow(std::span<const u8> row, const float* view, const 
     const Vec3& camera, const RuntimeRelocationImage& image, DialogueD3DBoundaries& d3d)
 {
     RuntimeDoorShadowBounds bounds;
-    const float alpha = std::bit_cast<float>(image.word(0x00424994 + read_u32(row, 0) * 0x94));
-    const float margin = std::bit_cast<float>(image.word(0x0032B234));
-    bounds.alpha_start = alpha - margin;
-    bounds.alpha_end = alpha + margin;
+    // The quads' x: the shape's centre (DAT_00424994) less and plus the half width DAT_0032B234 (EDI, EBX).
+    const float centre = std::bit_cast<float>(image.word(0x00424994 + read_u32(row, 0) * 0x94));
+    const float half_width = std::bit_cast<float>(image.word(0x0032B234));
+    const u32 left = std::bit_cast<u32>(centre - half_width);
+    const u32 right = std::bit_cast<u32>(centre + half_width);
     if (select_runtime_door_shadow_bounds(row, camera, bounds, image) == 0)
     {
         return;
@@ -79,19 +82,19 @@ void draw_runtime_door_shadow(std::span<const u8> row, const float* view, const 
     *push++ = 8;
     *push++ = 0x44001818;
     const float depth_delta = bounds.depth_end - bounds.depth_start;
-    const float alpha_delta = bounds.alpha_end - bounds.alpha_start;
+    const float opacity_delta = bounds.opacity_end - bounds.opacity_start;
     float fraction = 0.f;
     do
     {
         const float depth = depth_delta * fraction + bounds.depth_start;
-        const long double opacity = static_cast<long double>(alpha_delta) * fraction + bounds.alpha_start;
+        const long double opacity = static_cast<long double>(opacity_delta) * fraction + bounds.opacity_start;
         const u32 color = u32(u8(truncate_runtime_float(opacity))) << 24;
         const u32 bottom = g_door_shadow_bottom; // DAT_005462A8.
         const u32 top = image.word(0x00425114);
-        const std::array<u32, 16> vertices{bounds.left, bottom, std::bit_cast<u32>(depth), color,
-            bounds.right, bottom, std::bit_cast<u32>(depth), color,
-            bounds.right, top, std::bit_cast<u32>(depth), color,
-            bounds.left, top, std::bit_cast<u32>(depth), color};
+        const std::array<u32, 16> vertices{left, bottom, std::bit_cast<u32>(depth), color,
+            right, bottom, std::bit_cast<u32>(depth), color,
+            right, top, std::bit_cast<u32>(depth), color,
+            left, top, std::bit_cast<u32>(depth), color};
         std::memcpy(push, vertices.data(), sizeof(vertices));
         push += vertices.size();
         fraction += std::bit_cast<float>(image.word(0x0032B1F8));

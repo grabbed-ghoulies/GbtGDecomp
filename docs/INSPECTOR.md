@@ -37,7 +37,39 @@ Builds configured with `-DGBTG_RETAIL_GAME_ONLY=OFF` add commands that make plug
 .\build-inspector\Release\gbtg-inspector.exe --write-loctext src\plugins\shader_warmup\loctext --out src\plugins\shader_warmup\files
 # Rebuilds the game's own loctext tables with the same writer and compares the bytes.
 .\build-inspector\Release\gbtg-inspector.exe --check-loctext OriginalFiles\loctext
+# Scene recipes (docs/PLUGINS.md, "Scene recipes"):
+# rebuilds every disc bundle with the bundle builder and compares the bytes;
+.\build-inspector\Release\gbtg-inspector.exe --check-bundle-builder OriginalFiles\bundles
+# writes a recipe that remakes a disc scene by reference under a new name;
+.\build-inspector\Release\gbtg-inspector.exe --recipe-from-scene aid_script_ghoulies_chapter1_scene1_2playcam --as aid_script_mine_hallway --out mine.scene
+# assembles a recipe's bundle (it holds disc resources: keep it local);
+.\build-inspector\Release\gbtg-inspector.exe --build-recipe mine.scene --out mine.bnl
+# opens a recipe in the scene builder; --resolve builds, loads and resolves its parts, then saves it.
+.\build-inspector\Release\gbtg-inspector.exe --recipe mine.scene --resolve --headless --frames 30
 ```
+
+### Scene builder
+
+In plugin builds, **Scene builder** (beside Sound player) opens the editor for a plugin's scene recipe. The inspector
+loads plugins as the game does (`--plugins-dir`, `--no-plugins`), and the builder saves into the plugin folder
+`--scene-plugin` names (default `plugins/my_scenes` beside the executable). Its tabs:
+
+- **Scene**: start an empty scene, or remake a disc scene by reference to edit; open, save, and build. **Build &
+  load** assembles the recipe from the disc and boots a new runtime on it (bundles and resources are read again).
+  **Build, load and resolve parts** first adds every AID the recipe names, then loads the scene; each resource the
+  native loader misses is added as a part from the AID index and the scene loads again, until it loads. A marker that
+  fails to construct fails the load while resolving, rather than being omitted. **Fallback** writes the parts' bundles
+  as fallbacks for the resources gameplay asks for later. **Export built .bnl** writes the assembled bundle into the
+  plugin's `bundles/` (it holds disc resources: keep it local).
+- **Parts**: the disc resources copied as they are, and the AID index (`cache/aid_index.tsv`: every disc bundle's
+  resources and the executable's objparams, built on first use) to add more by name and type.
+- **Markers**: the scene's marker rows, named by kind, with their id, position, rotation and field edits; duplicate,
+  reorder, delete, or place one at the inspection camera. Rows from any disc scene's markers can be added.
+- **Script**: the scene's nodes, named by type where known, with their field edits and bytes; reorder, duplicate,
+  delete, add a new node, or copy one from any disc scene's script.
+- **Resources**: other resources the scene owns, such as an objparams copy (from `default.xbe`) with edited fields.
+
+The scene must load as the game loads it: the builder never draws or simulates a scene of its own.
 
 The scene argument accepts the game's scene-order index or substring. The
 opening gameplay scene is selected by default. The scene browser uses the same

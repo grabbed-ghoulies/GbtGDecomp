@@ -161,6 +161,18 @@ typedef struct GbtgBundleInfo
     size_t gpu_bytes;
 } GbtgBundleInfo;
 
+/* A Features menu entry on game select that plays `scenes` (aid_script_ names) in order, then returns to game select,
+ * the way the menu's Credits play. The label is `key` in the aid_loctext_ resource `loctext` in the game's language,
+ * else `name` (UTF-8). A plugin.ini [Story] section adds one without a library. */
+typedef struct GbtgStory
+{
+    const char* name;
+    const char* loctext;
+    const char* key;
+    const char* const* scenes;
+    size_t scene_count;
+} GbtgStory;
+
 typedef struct GbtgPluginHost
 {
     uint32_t api_version; /* GBTG_PLUGIN_API_VERSION of the running gbtg. */
@@ -222,6 +234,9 @@ typedef struct GbtgPluginHost
     const char* (*scene_at)(const GbtgGame* game, size_t index);
     /* Queues `name` (an aid_script) the way the game requests its next script (0x0011EB30). */
     void (*request_scene)(GbtgGame* game, const char* name);
+
+    /* Adds a Features menu entry (GbtgStory); the host copies it. Returns 1 when added. Call from gbtg_plugin_load. */
+    int (*add_story)(void* plugin, const GbtgStory* story);
 } GbtgPluginHost;
 
 typedef int (*GbtgPluginLoad)(const GbtgPluginHost* host);

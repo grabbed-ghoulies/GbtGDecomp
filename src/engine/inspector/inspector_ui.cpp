@@ -590,6 +590,14 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
     {
         show_audio = true;
     }
+    if (extra_windows)
+    {
+        ImGui::SameLine();
+        if (ImGui::Button("Scene builder"))
+        {
+            show_scene_builder = true;
+        }
+    }
     if (ImGui::BeginTable("draws", 2, ImGuiTableFlags_BordersInnerV))
     {
         ImGui::TableNextColumn();
@@ -782,6 +790,10 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
             }
         }
         ImGui::End();
+    }
+    if (extra_windows)
+    {
+        extra_windows(session);
     }
     ImGui::Render();
 }

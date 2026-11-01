@@ -42,6 +42,9 @@ class InspectorSession
 public:
     ~InspectorSession();
     void load(const std::filesystem::path& directory, const std::string& scene);
+    // Releases the runtime and boots a new one on `scene`, so bundles and resources are read again (the scene
+    // builder's rebuilt recipes).
+    void restart(const std::filesystem::path& directory, const std::string& scene);
     void advance_loading();
     void present();
     void fail(const std::string& message);
@@ -61,6 +64,8 @@ public:
     int selection = -1;
     int selected_draw = -1;
     u32 loading_frames = 0;
+    // A marker that fails to construct fails the load instead of being omitted (the scene builder's resolve).
+    bool fail_on_marker_errors = false;
     u32 frozen_frame = 0;
     float frozen_time = 0.f;
 private:

@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,22 @@ const std::vector<LoadedPlugin>& loaded_plugins();
 std::filesystem::path plugin_disc_path(const std::filesystem::path& path);
 // The same for an Xbox path already mapped to host separators (xbox_host_path).
 std::string plugin_host_path(std::string path);
+// Whether a plugin's scene recipe (scenes/*.scene) makes the bundle at `path`, a host path under the game folder.
+bool plugin_recipe_exists(const std::filesystem::path& path);
+// Makes `recipe` (a scene recipe file) the source of its bundle, replacing any plugin's, as if a plugin shipped it.
+// The inspector's scene builder registers the recipe it edits this way. Returns the bundle's path under bundles/.
+std::string plugin_register_recipe(const std::filesystem::path& recipe);
+// The disc scene whose scene directory row (0x00116220) a recipe's scene uses ([Bundle] Transition), or null.
+const char* plugin_scene_transition(const char* scene);
+// The objparams (aid_objparams_*) the registered recipes add to the executable's pools, built from `executable`'s
+// own records and the disc.
+class SceneExecutableResources;
+std::vector<std::pair<std::string, std::vector<u8>>> plugin_executable_objparams(
+    const SceneExecutableResources& executable);
+// The disc bundles (relative to bundles/) a recipe's bundle opens with it ([Bundle] Fallback).
+std::vector<std::string> plugin_recipe_fallbacks(const std::filesystem::path& path);
+// That bundle, assembled from the disc; nullopt when no recipe makes it.
+std::optional<Bundle> plugin_recipe_bundle(const std::filesystem::path& path, const std::filesystem::path& game_dir);
 // Points every entry of `bundle` that a plugin's aid/ folder replaces at the plugin's loose resource.
 void plugin_patch_bundle(Bundle& bundle);
 
@@ -49,6 +66,25 @@ void plugins_frame(Game& game);
 // gfx_shutdown.
 void plugins_graphics_ready(Game& game);
 void plugins_graphics_shutdown(Game& game);
+
+// Plugin stories: Features menu entries that play a list of scenes (plugin_stories.cpp, gameselect_features.cpp).
+struct PluginStory
+{
+    std::string plugin;
+    std::string name; // The label when the loctext is missing (UTF-8).
+    std::string loctext; // The label's aid_loctext_ resource and key, in the game's language.
+    std::string key;
+    std::vector<std::string> scenes; // aid_script_ names, played in order; game select follows the last.
+};
+void add_plugin_story(PluginStory story);
+void reset_plugin_stories();
+const std::vector<PluginStory>& plugin_stories();
+// Boot binds the game the labels read their loctext from.
+void bind_plugin_stories(Game& game);
+std::u16string plugin_story_label(const PluginStory& story);
+// `key` from a plugin's aid_loctext_ resource in the game's language (0x000FF410); false when the resource (checked
+// first, as a missing one is a disc error) or the key is missing.
+bool plugin_loctext(Game& game, const std::string& resource, const std::string& key, std::u16string& out);
 
 // Plugin overlays (GbtgOverlay, such as the debug UI), drawn by the gfx backends over each presented frame.
 // A window message (GbtgWin32Message) or SDL_Event before the game sees it: true when an overlay took it.

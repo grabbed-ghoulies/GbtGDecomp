@@ -1,5 +1,8 @@
 #include "executable_resources.h"
 #include "ntsc_j_layout.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 #include <algorithm>
 #include <cstring>
 #include <sstream>
@@ -209,6 +212,21 @@ void SceneExecutableResources::read_pool(size_t pool, const char* type, u32 addr
         }
         records.push_back({std::move(name), cpu, {}, 0});
     }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Plugin objparams join the last objparams pool, so a retail name still resolves to its retail record first.
+    if (pool == 5)
+    {
+        for (auto& [added, bytes] : plugin_executable_objparams(*this))
+        {
+            if (bytes.size() < 2 || read_u16(bytes, 0) != bytes.size())
+            {
+                throw Error("plugin objparams size disagrees with its clone header: " + added);
+            }
+            const auto& stored = plugin_records_.emplace_back(std::move(bytes));
+            records.push_back({std::move(added), std::span<const u8>(stored), {}, 0});
+        }
+    }
+#endif
     register_executable_resource_pool(pools, records, type, active);
 }
 

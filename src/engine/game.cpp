@@ -117,7 +117,21 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
             }
             scene_index = index;
             // 0x0011EB30 queues the aid. 0x0011E4C0 loads it once the stream enters state 4.
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            // A full aid_script_ name outside the scene order, such as a plugin's scene (docs/PLUGINS.md).
+            if (scene_select.starts_with("aid_script_")
+                && std::find(scene_order.begin(), scene_order.end(), scene_select) == scene_order.end())
+            {
+                log::verbose("scene select %.*s", int(scene_select.size()), scene_select.data());
+                script_request(*this, scene_select);
+            }
+            else
+            {
+                script_request(*this, scene_order[index]);
+            }
+#else
             script_request(*this, scene_order[index]);
+#endif
         }
     }
 

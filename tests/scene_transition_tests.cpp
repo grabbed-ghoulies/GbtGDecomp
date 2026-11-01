@@ -25,6 +25,9 @@
 #include "../src/engine/cutscenes/door_registration.h"
 #include "../src/engine/entities/bg_break_key.h"
 #include "../src/engine/entities/ghouly_bg_break_setup.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../src/engine/plugins/plugins.h"
+#endif
 #include "gbtg/gfx.h"
 #include "gbtg/anim.h"
 #include "gbtg/loctext.h"
@@ -11186,6 +11189,14 @@ int main(int argc, char** argv)
     open_test_run(argc, argv);
     // Tests play at 10% master volume (AGENTS.md); the master voice takes it when it is created.
     gbtg::pcm_set_master_volume(0.1f);
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // GBTG_PLUGINS_DIR loads that folder's plugins as gbtg does (docs/PLUGINS.md), for --gameselect-feature on a
+    // plugin's story. Without it the tests load none.
+    if (const char* plugins = std::getenv("GBTG_PLUGINS_DIR"); plugins != nullptr && argc >= 2)
+    {
+        gbtg::load_plugins({std::filesystem::path(plugins)}, argv[1], std::filesystem::path(argv[0]).parent_path());
+    }
+#endif
     const bool audio_test = argc == 3 && std::string_view(argv[2]) == "--audio-preparation";
     const bool title_a_test = argc == 3 && std::string_view(argv[2]) == "--title-a";
     // --attract leaves the attract reel to play its clips and the scripts that follow, with no input.
@@ -14344,6 +14355,9 @@ int main(int argc, char** argv)
         }
         if (feature_test)
         {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            gbtg::plugins_boot(game); // Plugin stories read their labels from the game's loctext.
+#endif
             const char* wanted_text = std::getenv("GBTG_FEATURE");
             const std::string wanted = wanted_text != nullptr ? wanted_text : "Replay Chapter";
             const bool back = std::getenv("GBTG_FEATURE_BACK") != nullptr;
@@ -14468,9 +14482,35 @@ int main(int argc, char** argv)
                         gbtg::write_bmp("cache/gameselect_feature_" + std::to_string(frame - page_at) + ".bmp", image);
                     }
                 }
+                if (features_at >= 0 && frame - features_at == 60)
+                {
+                    gbtg::RgbaImage image;
+                    if (gbtg::gfx_readback(image))
+                    {
+                        gbtg::write_bmp("cache/gameselect_features_menu.bmp", image);
+                    }
+                }
                 if (chosen_at >= 0 && game.scene_script.name.find("gameselect") == std::string::npos)
                 {
                     started = game.scene_script.name; // A feature may start a script rather than a page.
+                    // GBTG_FEATURE_PLAY=N plays the started script N frames more and captures it
+                    // (cache/gameselect_feature_play.bmp), for a feature that starts a story.
+                    const char* play = std::getenv("GBTG_FEATURE_PLAY");
+                    for (int more = play != nullptr ? std::atoi(play) : 0; more > 0; --more)
+                    {
+                        gbtg::gfx_begin_frame();
+                        game.tick(1.f / 59.f, gbtg::InputState{});
+                        gbtg::gfx_end_frame();
+                    }
+                    if (play != nullptr)
+                    {
+                        gbtg::RgbaImage image;
+                        if (gbtg::gfx_readback(image))
+                        {
+                            gbtg::write_bmp("cache/gameselect_feature_play.bmp", image);
+                        }
+                        std::cout << "played " << play << " frames: scene " << game.scene_name << "\n";
+                    }
                     break;
                 }
                 if (acted_at >= 0 && frame - acted_at == 600)

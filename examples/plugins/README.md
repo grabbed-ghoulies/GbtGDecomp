@@ -7,5 +7,6 @@ and built with `cmake/GbtgPlugin.cmake`. Copy one to start a plugin repository o
 | Example | Shows |
 |---------|-------|
 | [scene_log](scene_log) | A feature in plain C with boot and frame hooks, reading a `plugin.ini` setting |
+| [dlc_story](dlc_story) | A data plugin (no library): a Features menu story and a scene of its own, as a recipe made with the inspector's scene builder |
 
 Plugins only load in gbtg builds configured with `-DGBTG_RETAIL_GAME_ONLY=OFF`.

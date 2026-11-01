@@ -14,6 +14,7 @@
 #include "../scene/background_ambient.h"
 #include "../scene/cutscene_scene_runtime.h"
 #include "../transitions/scene_transitions.h"
+#include "../entities/entity.h"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -268,6 +269,13 @@ void InspectorSession::load(const std::filesystem::path& directory, const std::s
                     aid = *found;
                 }
             }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            // A plugin's scene, outside the scene order (docs/PLUGINS.md).
+            if (aid.empty() && scene.starts_with("aid_script_"))
+            {
+                aid = scene;
+            }
+#endif
             if (aid.empty())
             {
                 throw Error("scene selection does not match the native scene directory");
@@ -282,6 +290,15 @@ void InspectorSession::load(const std::filesystem::path& directory, const std::s
     }
 }
 
+void InspectorSession::restart(const std::filesystem::path& directory, const std::string& scene)
+{
+    release();
+    // A load that threw part-way through construction can leave its objects linked on the native world lists
+    // (DAT_00511AA0..), which outlive the Game. The new runtime starts with none.
+    entity_detail::g_world = {};
+    load(directory, scene);
+}
+
 void InspectorSession::advance_loading()
 {
     if (state != InspectionState::Loading)
@@ -293,7 +310,9 @@ void InspectorSession::advance_loading()
         ++loading_frames;
         if (++attempt_pumps_ > 1200)
         {
-            throw Error("native scene initialization did not finish within 1200 loading pumps");
+            throw Error("native scene initialization did not finish within 1200 loading pumps (scene "
+                + game->scene_name + ", actor start " + std::to_string(game->factory_scene
+                ? game->factory_scene->actor_start : -1) + ")");
         }
         file_pump();
         // Loading uses the existing retail state machine, never a fabricated asset scene.
@@ -456,7 +475,7 @@ void InspectorSession::recover_marker_failure(const SceneInspectionFailure& fail
     }
     // Never render or resume the graph that failed mid-construction/draw. It may contain
     // incomplete registrations. A native scene request replaces that graph before Ready.
-    if (!game || !game->factory_scene || inspection.omitted.contains(failure.marker))
+    if (!game || !game->factory_scene || inspection.omitted.contains(failure.marker) || fail_on_marker_errors)
     {
         fail(failure.what());
         return;

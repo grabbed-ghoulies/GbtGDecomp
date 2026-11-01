@@ -3,6 +3,11 @@
 #include "inspector_ui.h"
 #include "inspector_graphics.h"
 #include "loctext_tool.h"
+#include "scene_build_tool.h"
+#include "scene_builder.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 #include "gbtg/gfx.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/host_config.h"
@@ -60,6 +65,20 @@ int main(int argc, char** argv)
         {
             return check_loctext_writer(loctext);
         }
+        if (const auto bundles = argument(argc, argv, "--check-bundle-builder"); !bundles.empty())
+        {
+            return check_bundle_builder(bundles);
+        }
+        if (const auto recipe = argument(argc, argv, "--build-recipe"); !recipe.empty())
+        {
+            return build_recipe_file(recipe, argument(argc, argv, "--game-dir", "OriginalFiles"),
+                argument(argc, argv, "--out", "scene.bnl"));
+        }
+        if (const auto scene = argument(argc, argv, "--recipe-from-scene"); !scene.empty())
+        {
+            return write_recipe_from_scene(scene, argument(argc, argv, "--as"),
+                argument(argc, argv, "--game-dir", "OriginalFiles"), argument(argc, argv, "--out", "scene.scene"));
+        }
 #endif
         GfxConfig config;
         config.width = std::stoi(argument(argc, argv, "--width", "1440"));
@@ -97,7 +116,48 @@ int main(int argc, char** argv)
             InspectorUI ui;
             ui.directory = argument(argc, argv, "--game-dir", "OriginalFiles");
             ui.depth_test = flag(argc, argv, "--depth-overlays");
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            // Plugins as the game loads them (docs/PLUGINS.md), so plugin scenes and files load here too, and the
+            // scene builder, which edits the recipes of the plugin in --scene-plugin.
+            const std::filesystem::path exe_dir = host_exe_dir(argv[0]);
+            const std::string plugins_dir = argument(argc, argv, "--plugins-dir");
+            if (!flag(argc, argv, "--no-plugins"))
+            {
+                load_plugins({plugins_dir.empty() ? exe_dir / "plugins" : std::filesystem::path(plugins_dir)},
+                    ui.directory, exe_dir);
+            }
+            else
+            {
+                load_plugins({}, ui.directory, exe_dir);
+            }
+            SceneBuilder builder(ui.directory, argument(argc, argv, "--scene-plugin",
+                (exe_dir / "plugins" / "my_scenes").string()));
+            if (const auto recipe = argument(argc, argv, "--recipe"); !recipe.empty())
+            {
+                builder.open_recipe(recipe);
+                plugin_register_recipe(recipe);
+                ui.show_scene_builder = true;
+                if (flag(argc, argv, "--resolve"))
+                {
+                    builder.resolve();
+                }
+            }
+            ui.extra_windows = [&builder, &ui](InspectorSession& inspected)
+            {
+                if (ui.show_scene_builder)
+                {
+                    builder.draw(inspected, ui.show_scene_builder);
+                }
+            };
+            // A --resolve run boots straight into its build; any other --recipe run opens on the recipe's scene.
+            if (!builder.busy())
+            {
+                session.load(ui.directory, argument(argc, argv, "--scene",
+                    builder.scene_name().empty() ? "chapter1_scene1_2playcam" : builder.scene_name()));
+            }
+#else
             session.load(ui.directory, argument(argc, argv, "--scene", "chapter1_scene1_2playcam"));
+#endif
             bool camera_arguments_applied = false;
             auto last = std::chrono::steady_clock::now();
             bool quit = false;
@@ -118,6 +178,18 @@ int main(int argc, char** argv)
                 const auto now = std::chrono::steady_clock::now();
                 const float dt = config.visible ? std::chrono::duration<float>(now - last).count() : 1.f / 60.f;
                 last = now;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+                if (!builder.restart_scene.empty())
+                {
+                    // The scene builder rebuilt its recipe: boot a new runtime so the bundle is assembled again.
+                    ui.release_capture();
+                    const std::string scene = builder.restart_scene;
+                    builder.restart_scene.clear();
+                    session.restart(ui.directory, scene);
+                    ui.sync_angles = true;
+                    camera_arguments_applied = false;
+                }
+#endif
                 if (!ui.load_request.empty() || ui.retry)
                 {
                     ui.release_capture();
@@ -184,6 +256,13 @@ int main(int argc, char** argv)
                     ui.capture = false;
                 }
                 inspector_finish_frame();
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+                // A scene builder build counts no frames until it has loaded.
+                if (builder.busy() || session.state == InspectionState::Loading)
+                {
+                    continue;
+                }
+#endif
                 if (remaining > 0 && --remaining == 0)
                 {
                     break;
@@ -238,6 +317,10 @@ int main(int argc, char** argv)
 #if !defined(GBTG_RETAIL_GAME_ONLY)
         log::error("       gbtg-inspector --write-loctext <source dir> --out <plugin dir>");
         log::error("       gbtg-inspector --check-loctext <game loctext dir>");
+        log::error("       gbtg-inspector --check-bundle-builder <game bundles dir>");
+        log::error("       gbtg-inspector --build-recipe <recipe> --game-dir DIR --out <file.bnl>");
+        log::error("       gbtg-inspector --recipe-from-scene <aid_script_...> --as <aid_script_...> --game-dir DIR "
+                   "--out <file.scene>");
 #endif
         return 1;
     }

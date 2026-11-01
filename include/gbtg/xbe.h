@@ -25,6 +25,7 @@ struct XbeInfo
 {
     std::filesystem::path path;
     u32 base = 0;
+    u32 timestamp = 0; // Header +0x114. Tells the builds apart: PAL and NTSC share one, NTSC-J has its own.
     u32 entry_decoded = 0;
     u32 thunk_decoded = 0;
     u32 title_id = 0;

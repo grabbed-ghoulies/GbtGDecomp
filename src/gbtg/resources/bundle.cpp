@@ -76,12 +76,18 @@ Bundle load_bundle(const std::filesystem::path& path)
     b.gpu_heap.assign(inflated.begin() + c_off[2], inflated.begin() + c_off[2] + c_sz[2]);
     inflated.clear();
     inflated.shrink_to_fit();
+    index_bundle_entries(b);
+    return b;
+}
 
+void index_bundle_entries(Bundle& b)
+{
     auto table = std::span<const u8>(b.file_table);
     auto meta = std::span<const u8>(b.res_meta);
-    b.entries.reserve(hdr.file_count);
+    b.entries.clear();
+    b.entries.reserve(b.file_count);
 
-    for (u16 i = 0; i < hdr.file_count; ++i)
+    for (u16 i = 0; i < b.file_count; ++i)
     {
         const size_t base = size_t(i) * 160;
         char namebuf[129]{};
@@ -124,7 +130,6 @@ Bundle load_bundle(const std::filesystem::path& path)
         e.gpu = std::span<const u8>(b.gpu_heap);
         b.entries.push_back(std::move(e));
     }
-    return b;
 }
 
 const BundleEntry* find_entry(const Bundle& b, std::string_view name)

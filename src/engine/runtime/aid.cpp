@@ -33,6 +33,17 @@ std::filesystem::path AidStore::demand_path(u32 hash) const
 #endif
 }
 
+bool AidStore::bundle_exists(std::string_view relative) const
+{
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    if (plugin_recipe_exists(game_dir / "bundles" / std::filesystem::path(relative)))
+    {
+        return true;
+    }
+#endif
+    return std::filesystem::exists(bundle_path(relative));
+}
+
 bool AidStore::demand_exists(u32 hash) const
 {
     return std::filesystem::exists(demand_path(hash));
@@ -88,9 +99,26 @@ const Bundle& AidStore::load_bundle_rel(std::string_view relative)
     {
         return it->second;
     }
-    bundles[key] = load_bundle(bundle_path(relative));
 #if !defined(GBTG_RETAIL_GAME_ONLY)
+    // A plugin's scene recipe assembles the bundle from the disc instead (docs/PLUGINS.md).
+    const std::filesystem::path recipe = game_dir / "bundles" / std::filesystem::path(relative);
+    if (auto built = plugin_recipe_bundle(recipe, game_dir))
+    {
+        Bundle& made = bundles[key];
+        made = std::move(*built);
+        plugin_patch_bundle(made);
+        // Its fallbacks open with it, as the player bundle opens with a scene (0x00124420): lookups find the
+        // resources gameplay asks for later than the load there.
+        for (const std::string& fallback : plugin_recipe_fallbacks(recipe))
+        {
+            load_bundle_rel(fallback);
+        }
+        return made;
+    }
+    bundles[key] = load_bundle(bundle_path(relative));
     plugin_patch_bundle(bundles[key]);
+#else
+    bundles[key] = load_bundle(bundle_path(relative));
 #endif
     return bundles[key];
 }

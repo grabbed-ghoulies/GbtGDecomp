@@ -158,7 +158,7 @@ void load_scene_contents(Game& g, std::string_view name)
     if (const auto rel = aid_to_bundle_rel(g.scene_name))
     {
         const auto path = g.aids.bundle_path(*rel);
-        if (std::filesystem::exists(path))
+        if (g.aids.bundle_exists(*rel))
         {
             g.scene_bundle = &g.aids.load_bundle_rel(*rel);
             log::verbose("loaded %s entries %zu", rel->c_str(), g.scene_bundle->entries.size());

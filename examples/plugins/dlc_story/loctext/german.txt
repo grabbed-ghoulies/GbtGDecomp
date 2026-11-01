@@ -1,0 +1,3 @@
+; DLC story plugin text (german). Build with: gbtg-inspector --write-loctext examples/plugins/dlc_story/loctext --out examples/plugins/dlc_story/files
+[aid_loctext_plugin_dlcstory]
+dlcstory__MenuItem = DLC-Geschichte

@@ -250,27 +250,12 @@ int host_loctext(GbtgGame* game, const char* resource, const char* key, char* ou
         return 0;
     }
     *out = '\0';
-    Game& state = game_of(game);
-    if (state.native_resources == nullptr || std::string_view(resource).substr(0, 12) != "aid_loctext_")
+    std::u16string text;
+    if (!plugin_loctext(game_of(game), resource, key, text))
     {
         return 0;
     }
-    // The native acquire treats a missing resource as a damaged disc (resource_error 2, which never returns), so a
-    // plugin's missing translation is checked here first, where the dialogue resource owner would read it.
-    const auto path = plugin_disc_path(state.aids.game_dir / "loctext" / language_folder(g_language)
-        / aid_hash_hex(aid_hash(resource)));
-    std::error_code ec;
-    if (!std::filesystem::is_regular_file(path, ec))
-    {
-        log::warn("plugin loctext %s: no %s file", resource, language_folder(g_language));
-        return 0;
-    }
-    char16_t text[0x400]{};
-    if (acquire_localtext_key(resource, key, text, state.native_resources->text) == 0)
-    {
-        return 0;
-    }
-    const std::string encoded = encode_utf8(text);
+    const std::string encoded = encode_utf8(text.c_str());
     const size_t length = (std::min)(encoded.size(), size - 1);
     std::copy_n(encoded.data(), length, out);
     out[length] = '\0';
@@ -363,6 +348,29 @@ void host_compiled_shaders(GbtgGame*, const GbtgShaderSink* sink)
             sink->pixel_definition(sink->context, definition.data());
         }
     }
+}
+
+int host_add_story(void* plugin, const GbtgStory* story)
+{
+    if (story == nullptr || story->scenes == nullptr || story->scene_count == 0)
+    {
+        return 0;
+    }
+    PluginStory added;
+    added.plugin = library_of(plugin).id;
+    added.name = story->name != nullptr ? story->name : library_of(plugin).id;
+    added.loctext = story->loctext != nullptr ? lower_copy(story->loctext) : std::string();
+    added.key = story->key != nullptr ? story->key : "";
+    for (size_t index = 0; index < story->scene_count; ++index)
+    {
+        if (story->scenes[index] != nullptr)
+        {
+            added.scenes.push_back(lower_copy(story->scenes[index]));
+        }
+    }
+    const size_t before = plugin_stories().size();
+    add_plugin_story(std::move(added));
+    return plugin_stories().size() > before ? 1 : 0;
 }
 
 const char* host_scene_name(const GbtgGame* game)
@@ -463,6 +471,7 @@ bool load_plugin_library(const LoadedPlugin& plugin, const std::filesystem::path
     host.compiled_shaders = host_compiled_shaders;
     host.scene_name = host_scene_name;
     host.frame = host_frame;
+    host.add_story = host_add_story;
     fill_overlay_calls(host);
     fill_diagnostics_calls(host);
     if (load(&host) == 0)

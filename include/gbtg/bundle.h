@@ -29,6 +29,8 @@ struct Bundle
 };
 
 Bundle load_bundle(const std::filesystem::path& path);
+// Rebuilds `entries` from the file table and the heaps (load_bundle's last step; also for built bundles).
+void index_bundle_entries(Bundle& b);
 void save_bundle(const Bundle& b, const std::filesystem::path& path);
 const BundleEntry* find_entry(const Bundle& b, std::string_view name);
 std::vector<const BundleEntry*> entries_of_type(const Bundle& b, ResourceType type);

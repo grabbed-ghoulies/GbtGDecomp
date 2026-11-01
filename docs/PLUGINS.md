@@ -11,6 +11,9 @@ A plugin is a folder with a `plugin.ini`. It can carry any of:
 - **A library** (`.dll` on Windows, `.so` elsewhere) with features, written against the C interface in
   `include/gbtg/plugin_api.h` (see [Plugin libraries](#plugin-libraries)). It can be built in a repository of its own
   (see [A plugin repository of its own](#a-plugin-repository-of-its-own)).
+- **Stories**: entries in game select's Features menu that play the plugin's scenes (see [Stories](#stories)).
+- **Scenes of its own**, as recipes that gbtg assembles from parts of the player's disc (see
+  [Scene recipes](#scene-recipes)); the inspector's scene builder makes them ([INSPECTOR.md](INSPECTOR.md)).
 - **Switches for compiled-in features** (see [Compiled-in features](#compiled-in-features)).
 
 ## Where plugins live
@@ -39,10 +42,13 @@ plugins/
     aid/aid_texture_ghoulies_foo   a loose resource named by its AID
     demand/0123abcd                any disc file, at its disc path
     bundles/aid_script/foo.bnl
+    scenes/my_scene.scene          a scene recipe (see Scene recipes)
 ```
 
 - **`plugin.ini`** is required. A folder without one is skipped with a warning. A UTF-8 byte order mark is fine.
-- **Disc paths.** Any file in a subfolder other than `aid/` replaces or adds the disc file at the same path under the
+- **`scenes/`** holds scene recipes: each makes the bundle its `[Bundle] Path` names, from the disc, when the game
+  opens it. A bundle file the same plugin ships at that path wins over its recipe.
+- **Disc paths.** Any file in a subfolder other than `aid/` and `scenes/` replaces or adds the disc file at the same path under the
   game folder. Matching ignores case. Files directly beside `plugin.ini` (the library, a readme) are the plugin's
   own, not disc files. Names starting with `.` are ignored.
 - **`aid/`** holds loose resources (the same format as `demand/` files, see [FORMATS.md](FORMATS.md)) named by their
@@ -110,6 +116,7 @@ The game is an opaque `GbtgGame*`. The host table gives the library:
 | `add_overlay`, `graphics_device` | Register an overlay (below), and the window and D3D11 or Vulkan device handles its renderer needs, from `graphics_ready` until `graphics_shutdown` returns. |
 | `runtime_info`, `native_objects`, `delayed_callbacks`, `resource_bundles` | Read-only diagnostics: the clock, script and presenter state, the native scene factory's objects, the delayed callback slots and the cached bundles. |
 | `scene_count`, `scene_at`, `request_scene` | The scene order, and a scene request the way the game queues its next script (0x0011EB30). |
+| `add_story` | A Features menu entry (`GbtgStory`), as a `[Story]` section adds one (see [Stories](#stories)). |
 
 An **overlay** (`GbtgOverlay`) is host presentation drawn over each presented frame, such as the debug UI:
 
@@ -140,8 +147,11 @@ gbtg_add_plugin(gbtg_my_plugin ID my_plugin
     FILES_DIR files)             # optional: loctext, AIDs and other disc files, copied as they are
 ```
 
+Without `SOURCES` the plugin is a data plugin: no library, only its `plugin.ini` and files, as the `dlc_story`
+example is. `EXTRA_DIRS scenes` copies folders as they are, such as its recipes.
+
 The plugin is laid out as gbtg reads it, in `<output>/<id>/`: the library (no `lib` prefix, as `plugin.ini` names
-it), `plugin.ini` and the contents of `FILES_DIR`. `<output>` is `OUTPUT_DIR` if given, else
+it), `plugin.ini`, the contents of `FILES_DIR` and each of `EXTRA_DIRS`. `<output>` is `OUTPUT_DIR` if given, else
 `GBTG_PLUGIN_OUTPUT_DIR` (for example a game's `plugins` folder), else `plugins/` beside `gbtg` when gbtg is in the
 same build (building `gbtg` then builds the plugin), else `<build>/plugins`. `cmake --install` puts it in
 `<prefix>/plugins/<id>/`, so `--prefix` is the folder holding `gbtg.exe`.
@@ -211,10 +221,98 @@ TimingOverlay = 1   ; optional: show or hide the timing overlay at startup; defa
 Off Windows, SDL3 is linked into gbtg statically, so gbtg exports its symbols (`ENABLE_EXPORTS`) and the plugin's
 SDL3 calls resolve to gbtg's copy when it loads.
 
+### DLC story example (`examples/plugins/dlc_story`)
+
+A data plugin with no library. Its `[Story]` adds "DLC Story" (its own loctext, `aid_loctext_plugin_dlcstory`, in
+five languages) to the bottom of game select's Features menu, and plays its scene, `scenes/impambush.scene`: the
+central hallway's imp fight from chapter 1 scene 1 without its tutorials, the imps placed closer in, two more imps on
+the plugin's own objparams (`aid_objparams_dlcstory_imp`, a copy of the imp's), and a skeleton from chapter 1 scene 3.
+The recipe was written with the scene builder's formats and resolved with `gbtg-inspector --recipe ... --resolve`;
+it holds references and edits only. The menu entry and the scene are checked by `gbtg-transition-tests
+--gameselect-feature` with `GBTG_PLUGINS_DIR`, `GBTG_FEATURE="DLC Story"` and `GBTG_FEATURE_PLAY=1500`, which plays
+the scene up to its door event (the event then waits for A).
+
 ### Scene log example (`examples/plugins/scene_log`)
 
 A feature library in C, as a standalone project: it logs each scene script the game loads, with the prefix from
 `[SceneLog] Prefix`. It ships with `Enabled = 0`; set `Enabled = 1` in `plugins/scene_log/plugin.ini` to try it.
+
+## Stories
+
+A story is an entry in game select's Features menu (`gameselect_features.cpp`, 0x000D85A0) that plays a list of
+scenes and returns to game select, the way the menu's Credits play (0x000D8420): the held scene order becomes game
+select, the story's scenes and game select again, and the first scene starts. A plugin adds one with a `[Story]`
+section (`[Story2]` and so on for more), or a library with `add_story`:
+
+```ini
+[Story]
+Name = DLC Story                         ; the label when the loctext is missing (UTF-8)
+Loctext = aid_loctext_plugin_dlcstory    ; the label: Key in this loctext, in the game's language
+Key = dlcstory__MenuItem
+Scenes = aid_script_dlcstory_impambush   ; comma separated, played in order
+```
+
+Stories are listed below the retail features. A scene is any `aid_script_` name the game can load: a disc scene, a
+bundle the plugin ships, or a recipe's.
+
+## Scene recipes
+
+A recipe (`scenes/*.scene` in a plugin) is a plugin's scene, or any bundle, as text. gbtg builds the bundle from the
+player's own disc when the game opens it (`AidStore::load_bundle_rel`), so a recipe holds references and edits, never
+retail bytes, and a plugin with recipes can be shared. The inspector's scene builder makes and edits them
+([INSPECTOR.md](INSPECTOR.md)); a recipe is also plain text to write by hand.
+
+```ini
+[Bundle]
+Path = aid_script/dlcstory_impambush.bnl                    ; the bundle it makes, under bundles/
+Transition = aid_script_ghoulies_chapter1_scene1_2playcam   ; whose transition and book clip it uses
+Fallback = aid_script/ghoulies_chapter1_scene1_2playcam.bnl ; bundles opened with it, comma separated
+
+[Parts]                                                     ; resources copied as they are: <bundle> <aid>
+aid_script/ghoulies_chapter1_scene1_2playcam.bnl aid_model_ghoulies_background_centralhallway_all
+
+[Script aid_script_dlcstory_impambush]                      ; the scene's script, node by node
+copy aid_script/ghoulies_chapter1_scene1_2playcam.bnl aid_script_ghoulies_chapter1_scene1_2playcam 0
+new 0x3d 1e000000                                           ; a new node: its type, then the bytes after its head
+
+[Markers aid_marker_dlcstory_impambush]                     ; the scene's markers, row by row
+copy aid_script/ghoulies_chapter1_scene1_2playcam.bnl aid_marker_ghoulies_chapter1_scene1_2playcam 2
+  id 30                                                     ; edits apply to the line above
+  position -15 -2 175
+  rotation 0 1.57 0
+  set 0x28 str aid_objparams_dlcstory_imp
+
+[Resource aid_objparams_dlcstory_imp]                       ; any other resource: one copy or one new
+copy default.xbe aid_objparams_ghoulies_actor_imp
+  set 0x10 u32 5
+```
+
+- **Items.** `copy <bundle> <aid> <n>` copies script node `n` (counting from 0) or the marker row with id `n`;
+  `new <type> [<hex>]` makes one. A `[Resource]` is one `copy <bundle> <aid>` or one `new <type> <hex>`. The script
+  ends with the `{8, 0}` terminator and the markers with their kind-0 row; the recipe adds both.
+- **Edits.** `set <offset> <kind> <value>` writes over the item, from its first byte (its size word). Kinds: `u8`,
+  `u16`, `u32`, `i32`, `f32`, `hex` and `str` (the text and a zero; the item keeps its size). `id`, `position` and
+  `rotation` write a marker row's id (+6), +0xC and +0x18. A `;` starts a comment, also inside a `str` value.
+- **Names.** The scene is its `[Script]` resource's name; its markers are `aid_marker_` and the rest of that name, as
+  0x0011CB80 names them. The executable keys some tables by scene name, so a plugin's scene takes their defaults: no
+  chapter (no chapter setup script unless named `aid_script_ghoulies_chapter<N>_...`), the default player, and no row
+  in the scene directory (0x00116220), which `Transition` fills with a disc scene's row. Without it the directory's
+  first row is used, as retail does for an unknown name.
+- **Objparams** live in the executable, not in bundles (pools 3 and 5). The source `default.xbe` stands for them, and
+  a `[Resource]` named `aid_objparams_...` joins the executable's last objparams pool instead of the bundle, where the
+  game finds it by name like its own. A retail name still resolves to the retail record, so give a copy a new name and
+  point a marker or script string at it with a `str` edit.
+- **Fallback.** Gameplay asks for some resources later than the load (an attack's animation, an event's cutscene).
+  The bundles `Fallback` names open with the scene, as the player bundle opens with a retail scene (0x00124420), and
+  the game finds those resources there. Without them, every resource the scene ever uses must be a part.
+- **Building.** The bundle is laid out as retail bundles are: the file table sorted by name and each chunk packed in
+  table order (`BundleBuilder`). `gbtg-inspector --check-bundle-builder OriginalFiles\bundles` rebuilds every disc
+  bundle with it and compares the bytes (161 of 161 match). Sources are disc bundles or bundle files plugins ship,
+  never other recipes, so a recipe may remake the disc bundle of its own name.
+- **Built bundles.** The scene builder can export the built `.bnl` into the plugin's `bundles/`, which then wins over
+  the recipe. It holds disc resources: keep it local, never commit or share it.
+
+`gbtg --scene <aid_script_...>` starts any scene by its full name, a plugin's included, in builds with plugins.
 
 ## Compiled-in features
 
@@ -255,6 +353,10 @@ The disc overlay sits on the file boundary, so translated code is unchanged:
 | `SceneDialogueResourceOwner` loctext and font loads | Text and fonts |
 | Sound bank file reads (`pcm_out.cpp`) | Sound bank files named by the game |
 | The loading screen's font | `font/069563d4` |
+| `AidStore::load_bundle_rel`, `bundle_exists` | Scene recipes and their fallbacks |
+| The executable's objparams pools (`executable_resources.cpp`) | Recipes' `aid_objparams_` resources |
+| The scene directory lookup (0x00116220) | Recipes' `Transition` |
+| The Features menu (0x000D85A0) | Stories |
 
 Not covered yet: `index_wavebanks` lists `xwavebank/` from the game folder only, so a plugin can't add a new wave
 bank, and `default.xbe` reads always use the game folder.

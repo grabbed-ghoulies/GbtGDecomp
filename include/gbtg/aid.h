@@ -23,6 +23,8 @@ struct AidStore
     void open(const std::filesystem::path& dir);
     const Bundle& load_bundle_rel(std::string_view relative);
     std::filesystem::path bundle_path(std::string_view relative) const;
+    // A disc bundle, or one a plugin's scene recipe makes.
+    bool bundle_exists(std::string_view relative) const;
     std::filesystem::path demand_path(u32 hash) const;
     bool demand_exists(u32 hash) const;
     const BundleEntry* load_aid(std::string_view name);

@@ -78,6 +78,7 @@ add_library(gbtg_lib STATIC
     src/gbtg/runtime/log.cpp
     src/gbtg/resources/resource.cpp
     src/gbtg/resources/bundle.cpp
+    src/gbtg/resources/bundle_builder.cpp
     src/gbtg/graphics/texture.cpp
     src/gbtg/models/model.cpp
     src/gbtg/text/language.cpp
@@ -947,6 +948,8 @@ else()
         src/engine/plugins/plugin_libraries.cpp
         src/engine/plugins/plugin_overlays.cpp
         src/engine/plugins/plugin_diagnostics.cpp
+        src/engine/plugins/plugin_stories.cpp
+        src/engine/plugins/scene_recipe.cpp
     )
     if(UNIX)
         target_link_libraries(gbtg PRIVATE ${CMAKE_DL_LIBS})
@@ -991,6 +994,7 @@ else()
     option(GBTG_BUILD_PLUGIN_EXAMPLES "Build the example plugins in examples/plugins" ON)
     if(GBTG_BUILD_PLUGIN_EXAMPLES)
         add_subdirectory(examples/plugins/scene_log)
+        add_subdirectory(examples/plugins/dlc_story)
     endif()
 endif()
 
@@ -1262,6 +1266,8 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
             src/engine/inspector/inspector_session.cpp
             src/engine/inspector/inspector_ui.cpp
             src/engine/inspector/loctext_tool.cpp
+            src/engine/inspector/scene_build_tool.cpp
+            src/engine/inspector/scene_builder.cpp
             src/engine/graphics/gfx_dispatch.cpp
             src/engine/graphics/gfx_null.cpp
             src/engine/graphics/gfx_d3d11.cpp

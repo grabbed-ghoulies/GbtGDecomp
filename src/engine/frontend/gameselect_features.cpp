@@ -24,6 +24,9 @@
 #include "../scene/gameselect_control.h"
 #include "../scene/scene_controls.h"
 #include "../transitions/native_book.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 
 #include <bit>
 #include <cstring>
@@ -217,9 +220,59 @@ void add_feature(const char* key, void (*action)(GameSelectControlServices&), Ga
         0), s); // 0x00143320, 0x001439C0
 }
 
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+// A plugin story (docs/PLUGINS.md, "Stories"), played the way open_credits plays the credits: the held order
+// becomes game select, the story's scenes and game select again, and the first scene starts (0x00083B90, mode 3).
+void open_plugin_story(const PluginStory& story, GameSelectControlServices& s)
+{
+    char script[0x80]{};
+    std::strcpy(script, story.scenes.front().c_str());
+    const char* gameselect = "aid_script_ghoulies_gameselect_gameselect"; // 0x00322B8C
+    std::vector<u8> heap((story.scenes.size() + 3) * 0x80, 0); // The last record stays cleared, ending the order.
+    std::strcpy(reinterpret_cast<char*>(heap.data()), gameselect);
+    for (size_t index = 0; index < story.scenes.size(); ++index)
+    {
+        std::strcpy(reinterpret_cast<char*>(heap.data() + (index + 1) * 0x80), story.scenes[index].c_str());
+    }
+    std::strcpy(reinterpret_cast<char*>(heap.data() + (story.scenes.size() + 1) * 0x80), gameselect);
+    if (s.scene_order_release != 0 && s.scene_order_held.data() != nullptr)
+    {
+        release_held_scene_order(s);
+    }
+    s.frontend.scene_order_heap = std::move(heap);
+    s.scene_order_held = s.frontend.scene_order_heap;
+    s.scene_order_release = 0x000358F0;
+    s.next_row = 8;
+    auto& w = open_widget(s);
+    copy_wide(s.selected_game, w.name);
+    if (read_u32(s.frontend.input, 0) == 3)
+    {
+        const i32 port = runtime_input_new_edge_port(0xFFFF, s.input);
+        set_runtime_player_port(port, 0x10, s.port_masks);
+    }
+    queue_runtime_gameselect_script(*w.owner, script, 3, s);
+    set_runtime_game_features_state(w, 3, s);
+}
+#endif
+
 // Xbox 0x000D85A0: the features, each added first, so the menu lists them last-added first.
 void add_features(GameSelectControlServices& s)
 {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Plugin stories, added before the retail features so the menu lists them last.
+    for (const PluginStory& story : plugin_stories())
+    {
+        const std::u16string label = plugin_story_label(story);
+        std::array<char16_t, 0x100> text{};
+        std::copy_n(label.begin(), std::min(label.size(), text.size() - 1), text.begin());
+        add_runtime_button_bat_menu_item(make_runtime_button_bat_menu_item(text.data(), {}, {}, {}, {},
+            [&s, &story](u32)
+            {
+                open_plugin_story(story, s);
+            },
+            0), s);
+    }
+#endif
     i32 finished = 0;
     for (size_t index = 0; index < 0x15; ++index) // DAT_004E194C .. DAT_004E19A4
     {

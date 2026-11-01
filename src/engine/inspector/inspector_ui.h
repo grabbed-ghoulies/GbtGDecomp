@@ -2,6 +2,8 @@
 #if defined(GBTG_INSPECTOR_APP)
 #include "inspector_session.h"
 
+#include <functional>
+
 namespace gbtg
 {
 struct InspectorUI
@@ -33,6 +35,9 @@ struct InspectorUI
     char scene_filter[160]{};
     char object_filter[160]{};
     char screenshot_path[260] = "inspector-viewport.bmp";
+    // Plugin builds: the scene builder's window (scene_builder.h), drawn by extra_windows.
+    bool show_scene_builder = false;
+    std::function<void(InspectorSession&)> extra_windows;
     void build(InspectorSession& session, void* viewport, float dt);
     void release_capture();
 };

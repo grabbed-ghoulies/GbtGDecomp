@@ -1,6 +1,9 @@
 #include "scene_transition.h"
 #include "scene_transitions.h"
 #include "native_book.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../plugins/plugins.h"
+#endif
 #include "book_map.h"
 #include "../audio/event_voices.h"
 #include "../audio/listener_settings.h"
@@ -159,6 +162,13 @@ i32 find_scene_directory_row(const char* scene)
     {
         std::strcpy(name, scene);
     }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // A plugin's scene has no row; its recipe names a disc scene to use the row of (docs/PLUGINS.md).
+    if (const char* alias = plugin_scene_transition(name))
+    {
+        std::snprintf(name, sizeof(name), "%s", alias);
+    }
+#endif
     for (u32 index = 0; index * 0x90 < 0x5E80; ++index)
     {
         if (transition_aid_equal(name, services().image.string(kDirectory + index * 0x90))) // 0x000357D0

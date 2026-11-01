@@ -4,6 +4,7 @@
 #include "../scripts/script_table_lookup.h"
 #include "../entities/player_mind_goals.h"
 #include "../entities/body_attachment_requests.h"
+#include <deque>
 #include <unordered_set>
 
 namespace gbtg
@@ -18,6 +19,11 @@ public:
     SceneExecutableResources(const SceneExecutableResources&) = delete;
     SceneExecutableResources& operator=(const SceneExecutableResources&) = delete;
     std::span<const u8> memory(u32 address, size_t size) const;
+    // The records of pool `pool` (0..6, in registration order).
+    const std::vector<ExecutableResourceRecord>& records(size_t pool) const
+    {
+        return records_[pool];
+    }
     const char* string(u32 address) const; // A NUL-terminated string in file-backed XBE memory.
     // The XBE address of a pointer into file-backed XBE memory; 0 when the pointer is elsewhere.
     u32 address_of(const void* pointer) const;
@@ -61,6 +67,10 @@ private:
         RuntimeMindGoalTable table;
     };
     std::vector<std::unique_ptr<DecodedGoalTable>> goal_tables_;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Objparams that plugins' scene recipes add (docs/PLUGINS.md), appended to pool 5.
+    std::deque<std::vector<u8>> plugin_records_;
+#endif
     void read_pool(size_t pool, const char* type, u32 address, u32 count, bool active);
     void decode_animation_table(const ExecutableResourceRecord& record);
 };

@@ -10,7 +10,7 @@ struct DialogueWidgetBatFactoryContext
 {
     ObjectFactoryRegistry& factory;
     std::span<ExecutableResourcePool> resources;
-    u8 configuration;
+    const u8& configuration; // Byte +4 of **(DAT_00506C6C+8); 0x0013B580 tests bit 0x40.
     std::vector<FactoryObject>& objects;
     const std::unordered_map<const u8*, Actor*>& actors; // native factory instance pointers
 };

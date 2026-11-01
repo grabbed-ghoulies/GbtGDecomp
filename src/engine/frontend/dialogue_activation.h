@@ -46,7 +46,7 @@ struct RuntimeDialogueActivationContext
     u32& pause_count; // DAT_00510CEC
     u32& frontend_pause_count; // DAT_004E173C
     u32& random;
-    u8 mode_flags;
+    const u8& mode_flags; // Byte +4 of **(DAT_00506C6C+8) (0x000584D0).
     u16 viewport_width;
     float viewport_bottom;
     float wrap_width; // DAT_0050973C

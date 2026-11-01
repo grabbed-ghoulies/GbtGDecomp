@@ -509,6 +509,9 @@ struct SceneActorServices::State
     std::vector<const char*> state_action_names; // 0x003390E4.
     std::vector<const char*> goal_flag_names; // 0x003397AC.
     std::span<u8>& story_bits = g_runtime_profile.progress.bytes; // *(DAT_00506C6C+8), the profile's 8 bytes.
+    u8& story_byte = g_runtime_profile.progress.bytes[4]; // Byte +4 of **(DAT_00506C6C+8).
+    u8& intro_bits = g_runtime_profile.progress.bytes[0]; // Byte 0 of **(DAT_00506C6C+8): the intros shown.
+    u8& unlock_flags = g_runtime_profile.unlocks.bytes[0]; // **(DAT_00506C70+8), the profile's unlock byte.
     std::array<u32, 5> port_devices{}; // DAT_0050E0F4.
     RuntimeCameraPulse pulse{}; // DAT_0050447C.
     std::unique_ptr<SceneMindServices> mind_services;
@@ -693,8 +696,6 @@ struct SceneActorServices::State
     std::unique_ptr<ScriptEventSequenceContext> event_sequence;
     i32 brews_owned = 0; // DAT_00506C8C.
     i32 brews_required = 0; // DAT_00430D9C.
-    u8 story_byte = 0; // **(DAT_00506C6C+8) +4.
-    u8& unlock_flags = g_runtime_profile.unlocks.bytes[0]; // **(DAT_00506C70+8), the profile's unlock byte.
     u32& intro_pending = g_545b38; // DAT_00545B38.
     std::array<char, 0x80>& intro_name = g_545b44; // DAT_00545B44.
     entity_detail::ListHead& cases = entity_detail::g_world.case_head; // DAT_00511B3C; its next is DAT_00511B40.
@@ -1354,7 +1355,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
       effects{effect_models, sounds, random, origin, default_euler},
       scares{scene.factory, image.pools, scene.objects, scare_flags, player_link, default_euler},
       intro_sound{reinterpret_cast<u32&>(health_style), intro_scale,
-          reinterpret_cast<i16&>(scoreboard_globals.health_second_voice), story_byte, sounds},
+          reinterpret_cast<i16&>(scoreboard_globals.health_second_voice), intro_bits, sounds},
       camera{scene.factory, image.pools, image.string(0x00314E50), data(0x00314EB0, 0x80), g_flags_ea9c,
           camera_players,
           [this](FactoryObject& object, const std::array<u32, 3>& message)
@@ -1516,7 +1517,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                     object_message(*object_of(owner->actor_bytes.data()), message);
                 }
             },
-            intro_scale, story_byte, random, clock,
+            intro_scale, intro_bits, random, clock,
             [this](u32 actor) -> NativePlayerInstance*
             {
                 for (auto* player : players->instances())
@@ -2153,7 +2154,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     emitter = std::make_unique<NativeSceneEmitterBindings>(NativeSceneEmitterBindings{*frame,
         g_actor_effect_nodes, clock, display_view, g_runtime_profile.challenges.bytes, g_scene_flags->bytes[0],
         g_flags_ea9c,
-        emitter_players, resume, story_byte, intro_notices, emitters,
+        emitter_players, resume, intro_bits, intro_notices, emitters,
         [this](u32 id, RuntimeFxEmitterPlayer& player, u32 kind, float amount, u32 extra)
         {
             if (powerup_awards == nullptr)
@@ -5943,7 +5944,6 @@ void SceneActorServices::State::reset_scene_data()
     difficulty = 0;
     brews_owned = 0;
     brews_required = 0;
-    story_byte = 0;
     intro_pending = 0;
     intro_name = {};
     // The queue and class limits are 0x00116DA0's, which 0x00116E00 runs before the script loads; clearing them

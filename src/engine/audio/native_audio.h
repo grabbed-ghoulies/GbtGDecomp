@@ -23,6 +23,10 @@ struct NativeAudioBootBoundaries
     std::function<void(void*, u32)> register_notification; // IXACTEngine_RegisterNotification (0x0015D0E0).
     // 0x0015BB30: CreateFile, GetFileSize, ReadFile and CloseHandle over a named file; the bytes and the file's size.
     std::function<std::vector<u8>(const char*)> load_file;
+    // The XACT category volumes and listener reverb the boot sets (DAT_004D9798..): 0x0003A1F0 (ESI the preset,
+    // through the resource registry) and 0x0015C1C0 (category, volume).
+    std::function<void(i32)> reverb_preset;
+    std::function<void(u32, i32)> category_volume;
 };
 // The audio state 0x0003A280 builds at boot.
 struct NativeAudioBanks

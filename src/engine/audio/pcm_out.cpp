@@ -8,6 +8,8 @@
 #include "../video/native_movies.h"
 #include "../video/movie_session.h"
 #include "wavebank_files.h"
+#include "listener_settings.h"
+#include "../scene/dialogue_resource_owner.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -1095,6 +1097,12 @@ void pcm_set_master_volume(float volume)
 #endif
 }
 
+AudioListenerSettings& native_audio_listener()
+{
+    static AudioListenerSettings listener = native_audio_listener_settings();
+    return listener;
+}
+
 AudioListenerSettings native_audio_listener_settings()
 {
     AudioListenerSettings settings;
@@ -1600,6 +1608,15 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
             throw Error(std::string("0x0015BB30 cannot open the sound bank file ") + name);
         }
         return std::vector<u8>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    };
+    boundaries.reverb_preset = [&game](i32 preset)
+    {
+        set_audio_reverb_preset(native_audio_listener(), preset, game.native_resources->registry,
+            game.native_resources->error); // 0x0003A1F0
+    };
+    boundaries.category_volume = [](u32 category, i32 volume)
+    {
+        set_audio_category_volume(native_audio_listener(), category, volume); // 0x0015C1C0
     };
     bind_native_audio_listener(banks.listener);
     initialize_native_audio(banks, boundaries);

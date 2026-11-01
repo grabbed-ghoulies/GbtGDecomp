@@ -946,7 +946,7 @@ struct SceneActorServices::State
     std::vector<FactoryObject> dialogue_bats;
     std::unique_ptr<DialogueWidgetAllocationContext> widget_allocation;
     std::unique_ptr<DialogueWidgetBatFactoryContext> widget_bats;
-    AudioListenerSettings listener = native_audio_listener_settings();
+    AudioListenerSettings& listener = native_audio_listener(); // DAT_004D9798.., shared with the boot.
     std::function<DialogueWidgetBatView(Actor*)> bat_views; // Live button-bat actor views.
     std::unordered_map<u32, std::function<void()>> widget_callbacks;
     std::unique_ptr<DialogueWidgetUpdateContext> widget_update;
@@ -12635,7 +12635,6 @@ void SceneActorServices::animate_light_records()
     animate_runtime_light_records(state.shaders, state.game.clock.frame, state.game.clock.time, state.random);
 }
 
-// Xbox 0x0012AA70
 // Xbox 0x0011B7F0, from the frame tick after the drift moves on.
 void SceneActorServices::rebuild_refraction_quad()
 {

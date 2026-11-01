@@ -246,6 +246,14 @@ void initialize_native_audio(NativeAudioBanks& banks, NativeAudioBootBoundaries&
     register_audio_bank_names("aid_xcuelist_ghoulies_default", banks, boundaries);
     load_audio_sound_banks("ghoulies", banks, boundaries);
     boundaries.register_wavebanks(); // 0x00039DD0
+    boundaries.reverb_preset(0x18); // 0x0003A1F0, ESI 0x18
+    // The event voices' words at DAT_004E0CE8 (+0, +4, +0xC, +0x1C, +0x20 of each 0x24 row) are cleared; the host's
+    // are zero from construction. Then three category volumes from DAT_00421C7C: {category, volume} pairs.
+    constexpr std::array<std::array<i32, 2>, 3> volumes{{{0, 0x55}, {1, 0x55}, {2, 0x78}}};
+    for (const auto& [category, volume] : volumes)
+    {
+        boundaries.category_volume(u32(category), volume); // 0x0015C1C0
+    }
 }
 
 std::string native_audio_cue_name(const NativeAudioBanks& banks, void* handle, u32 index)

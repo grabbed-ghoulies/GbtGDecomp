@@ -377,36 +377,6 @@ void pad_poll(float dt, const InputState& in)
     }
 }
 
-// Xbox 0x001083F0, kind 3. The mask is new when it is set at +0x38 and clear at +0x74.
-bool pad_edge(const PadSlot& slot, u16 mask)
-{
-    return (slot.cur.buttons & mask) != 0 && (slot.prev.buttons & mask) == 0;
-}
-
-// Xbox 0x00107F50. The port whose new edge matches a bit of the mask, or -1.
-int pad_edge_port(u16 mask)
-{
-    if (mask == 0)
-    {
-        return -1;
-    }
-    for (u16 bit = 1; bit != 0 && bit <= 0x8000; bit = u16(bit << 1))
-    {
-        if ((mask & bit) == 0)
-        {
-            continue;
-        }
-        for (int port = 0; port < kPadPorts; ++port)
-        {
-            if (pad_edge(g_pads[port], bit))
-            {
-                return port;
-            }
-        }
-    }
-    return -1;
-}
-
 void shift_sample(PadSlot& slot)
 {
     // Xbox 0x000FA110.

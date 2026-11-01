@@ -8,6 +8,8 @@ namespace gbtg
 {
 struct Game;
 AudioListenerSettings native_audio_listener_settings();
+// The one XACT category-volume and reverb state (DAT_004D9798..) the boot and the scene services share.
+AudioListenerSettings& native_audio_listener();
 // Host heap (DAT_004D9784 / DAT_004D9788) and XACT sound sources as XAudio2 submix voices.
 AudioCoreMemory native_audio_core_memory();
 AudioCoreSourceBoundaries native_audio_core_source_boundaries();

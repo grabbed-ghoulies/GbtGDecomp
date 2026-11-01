@@ -87,6 +87,14 @@ void gfx_end_native_target(RgbaImage&)
 {
 }
 
+void gfx_begin_native_scene_target(u32, int, int)
+{
+}
+
+void gfx_end_native_scene_target(RgbaImage&)
+{
+}
+
 void gfx_release_sprite(const RgbaImage&)
 {
 }

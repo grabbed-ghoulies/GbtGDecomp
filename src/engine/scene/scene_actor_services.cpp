@@ -25,6 +25,7 @@
 #include "scene_light_grid.h"
 #include "../graphics/scene_point_light_pass.h"
 #include "../graphics/refraction_pass.h"
+#include "../graphics/shadow_volume_pass.h"
 #include "../video/movie_startup.h"
 #include "attract_control.h"
 #include "gameselect_control.h"
@@ -223,7 +224,6 @@ extern float& g_4312d0; // DAT_004312D0.
 extern i32& g_4312d4; // DAT_004312D4.
 extern i32& g_4312d8; // DAT_004312D8.
 extern u32 g_flag_0650; // DAT_00510650.
-extern i32 g_50ec00; // DAT_0050EC00.
 extern u32 g_flag_10b4; // DAT_005110B4.
 void scene_set_audio_level(float level); // Xbox 0x00038110, scene.cpp.
 
@@ -779,6 +779,7 @@ struct SceneActorServices::State
     // slot use. The part tables (0x00044CA0, boot) and sector settings (0x000FEF60) load with the services.
     std::array<char, 0x100> room{}; // DAT_00545D40.
     std::array<BackgroundRegion, 8> background_regions{}; // DAT_0050EAA0, stride 0x2C.
+    RuntimeShadowVolumeTargets shadow_volume_targets{}; // DAT_0050EC04..DAT_0050EC0C.
     i32 background_region_count = 0; // DAT_0050EC00.
     std::array<std::span<u8>, 4> sector_grids{}; // DAT_0050D770.
     i32 sector_count = 0; // DAT_0050D780.
@@ -1266,7 +1267,10 @@ struct SceneActorServices::State
     // The recorded SetRenderTarget: draws go to the texture behind a surface until the back buffer returns, then
     // the rendered pixels are written to the texture's data (linear 32-bit) and it is decoded again.
     void present_render_target(std::uintptr_t color, std::uintptr_t depth);
+    void close_render_target();
+    void end_render_target(RgbaImage& rendered);
     u32 render_target_depth_texture = 0; // A texture surface given as the open target's depth.
+    bool render_target_scene = false; // The open target shares the back buffer's depth-stencil.
     void copy_back_buffer(u32 texture);
     u32 render_target_texture = 0;
     std::unordered_set<const u8*> movie_textures;
@@ -4587,6 +4591,16 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         d3d_device.outer().release(handle);
     };
+    // Boot 0x0011C3F0 -> 0x00119160: the shadow volumes' depth ramp, and the regions cleared.
+    create_runtime_shadow_ramp(shadow_volume_targets, background_regions, background_region_count,
+        [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool)
+        {
+            return snapshot_d3d.create_texture(width, height, levels, usage, format, pool); // D3D 0x00177840
+        },
+        [this](u32 texture)
+        {
+            return resources.memory.tail(resources.d3d.resources.at(texture).data); // D3DTexture_LockRect
+        });
     snapshots = std::make_unique<RuntimeActorSnapshots>(RuntimeActorSnapshots{*display_setup, snapshot_d3d,
         deferred_states[(0x00181C70 - 0x00181968) / 4], depth_function, cull_mode,
         [this](Actor& actor, const AnimationMatrix& world, u32 kind)
@@ -10826,13 +10840,22 @@ void SceneActorServices::State::present_view(i32 view)
                 draw_runtime_light_cones(draw); // 0x0011AF90
             }
         },
-        []()
+        [this]()
         {
-            // 0x00119230.
-            if (g_50ec00 != 0 && g_50484c < 1)
-            {
-                unbound("shadow volume draw 0x00119230 body");
-            }
+            RuntimeBackgroundClothDraw draw{*point_light_pass, *display_setup, shadow_projector, cloth_ramp_texture,
+                cloth_water_phase,
+                [this](u32 address)
+                {
+                    return resources.memory.pointer(address);
+                },
+                [this]()
+                {
+                    return background_cloth_scene().background_model();
+                }};
+            RuntimeShadowVolumes volumes{background_regions, background_region_count, shadow_volume_targets,
+                g_50484c};
+            draw_runtime_shadow_volumes(volumes, draw); // 0x00119230
+
         },
         [this]()
         {
@@ -11093,9 +11116,10 @@ ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object
         reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), draw_matrices[&actor]};
 }
 
-void SceneActorServices::State::present_render_target(std::uintptr_t color, std::uintptr_t depth)
+// The open texture target's texels (and its depth texture's words) written back, then the back buffer again.
+void SceneActorServices::State::close_render_target()
 {
-    if (color == SceneD3DDevice::kBackBuffer && render_target_depth_texture != 0)
+    if (render_target_depth_texture != 0)
     {
         // The target's depth surface aliases a LIN_A8R8G8B8 texture (boot 0x000620C0's DAT_005047E8): its texels
         // take the target's D24S8 words.
@@ -11114,43 +11138,59 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
         movie_textures.insert(resources.memory.pointer(render_target_depth_texture));
         render_target_depth_texture = 0;
     }
+    if (render_target_texture != 0 && created_textures.contains(render_target_texture))
+    {
+        // A created swizzled A8R8G8B8 (or linear) texture takes the rendered rows in its own texel order.
+        RgbaImage rendered;
+        end_render_target(rendered);
+        const auto& record = resources.d3d.resources.at(render_target_texture);
+        const auto texels = resources.memory.tail(record.data).first(size_t(record.header[0]) * record.header[1] * 4);
+        if (rendered.width == i32(record.header[0]) && rendered.height == i32(record.header[1]))
+        {
+            if (record.header[4] == 6)
+            {
+                swizzle_nv2a_into(texels, rendered.bgra, record.header[0], record.header[1], 4);
+            }
+            else
+            {
+                std::memcpy(texels.data(), rendered.bgra.data(), texels.size());
+            }
+        }
+        movie_textures.insert(resources.memory.pointer(render_target_texture));
+        render_target_texture = 0;
+        return;
+    }
+    if (render_target_texture != 0)
+    {
+        RgbaImage rendered;
+        end_render_target(rendered);
+        const RuntimeMovieLockedSurface surface = lock_movie_texture(render_target_texture);
+        const size_t row = size_t(rendered.width) * 4;
+        for (int y = 0; y < rendered.height; ++y)
+        {
+            std::memcpy(surface.pixels + size_t(y) * size_t(surface.pitch), rendered.bgra.data() + size_t(y) * row,
+                row);
+        }
+        render_target_texture = 0;
+    }
+}
+
+void SceneActorServices::State::end_render_target(RgbaImage& rendered)
+{
+    if (render_target_scene)
+    {
+        gfx_end_native_scene_target(rendered);
+        render_target_scene = false;
+        return;
+    }
+    gfx_end_native_target(rendered);
+}
+
+void SceneActorServices::State::present_render_target(std::uintptr_t color, std::uintptr_t depth)
+{
     if (color == SceneD3DDevice::kBackBuffer)
     {
-        if (render_target_texture != 0 && created_textures.contains(render_target_texture))
-        {
-            // A created swizzled A8R8G8B8 (or linear) texture takes the rendered rows in its own texel order.
-            RgbaImage rendered;
-            gfx_end_native_target(rendered);
-            const auto& record = resources.d3d.resources.at(render_target_texture);
-            const auto texels = resources.memory.tail(record.data).first(size_t(record.header[0]) * record.header[1] * 4);
-            if (rendered.width == i32(record.header[0]) && rendered.height == i32(record.header[1]))
-            {
-                if (record.header[4] == 6)
-                {
-                    swizzle_nv2a_into(texels, rendered.bgra, record.header[0], record.header[1], 4);
-                }
-                else
-                {
-                    std::memcpy(texels.data(), rendered.bgra.data(), texels.size());
-                }
-            }
-            movie_textures.insert(resources.memory.pointer(render_target_texture));
-            render_target_texture = 0;
-            return;
-        }
-        if (render_target_texture != 0)
-        {
-            RgbaImage rendered;
-            gfx_end_native_target(rendered);
-            const RuntimeMovieLockedSurface surface = lock_movie_texture(render_target_texture);
-            const size_t row = size_t(rendered.width) * 4;
-            for (int y = 0; y < rendered.height; ++y)
-            {
-                std::memcpy(surface.pixels + size_t(y) * size_t(surface.pitch), rendered.bgra.data() + size_t(y) * row,
-                    row);
-            }
-            render_target_texture = 0;
-        }
+        close_render_target();
         return;
     }
     const auto found = d3d_device.surface_textures.find(color);
@@ -11160,7 +11200,9 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
     }
     if (render_target_texture != 0)
     {
-        throw Error("render target set while another texture target is open");
+        // A texture target set over an open one (0x00119230's book page 0, then page 1): the open one is written
+        // back first.
+        close_render_target();
     }
     const u32 texture = u32(found->second);
     const auto registered = resources.d3d.resources.find(texture);
@@ -11168,9 +11210,20 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
     {
         throw Error("render target surface is not a registered texture");
     }
+    render_target_texture = texture;
+    // A book page with the device's own depth surface (0x00119230's pages over DAT_0050EC0C) draws against the
+    // back buffer's depth-stencil. Other texture targets keep a depth buffer of their own for now.
+    const u8* record = resources.memory.pointer(texture);
+    if (depth == SceneD3DDevice::kDepthBuffer
+        && (record == glow_targets.page_texture || record == glow_targets.depth_texture))
+    {
+        gfx_begin_native_scene_target(texture, i32(registered->second.header[0]),
+            i32(registered->second.header[1]));
+        render_target_scene = true;
+        return;
+    }
     // A null depth surface (D3DDevice_SetRenderTarget(surface, NULL)) leaves the target without a depth buffer.
     gfx_begin_native_target(i32(registered->second.header[0]), i32(registered->second.header[1]), depth != 0);
-    render_target_texture = texture;
     const auto depth_texture = d3d_device.surface_textures.find(depth);
     if (depth_texture != d3d_device.surface_textures.end())
     {

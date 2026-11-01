@@ -298,6 +298,28 @@ struct NativeRenderTarget
 };
 NativeRenderTarget native_target;
 
+// A texture target that shares the back buffer's depth-stencil (D3DDevice_SetRenderTarget onto a texture with the
+// device's own depth surface): native draws go to a colour surface shaped like the back buffer, under the same
+// fitted viewport, and ending scales the frame's area down into the texture.
+struct NativeSceneSurface
+{
+    D3D11_TEXTURE2D_DESC desc{}; // The colour surface's, matching the back buffer.
+    ComPtr<ID3D11Texture2D> color;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    ComPtr<ID3D11Texture2D> resolved;
+    ComPtr<ID3D11Texture2D> staging;
+};
+struct NativeSceneTarget
+{
+    int width = 0; // The texture's size.
+    int height = 0;
+    bool rendering = false;
+    D3D11_VIEWPORT saved_viewport{};
+    std::unordered_map<u32, NativeSceneSurface> surfaces; // By texture, each keeping its contents between opens.
+    NativeSceneSurface* open = nullptr;
+};
+NativeSceneTarget scene_target;
+
 LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
 #if defined(GBTG_INSPECTOR_APP)
@@ -2536,6 +2558,131 @@ void gfx_end_native_target(RgbaImage& output)
     native_target.rendering = false;
 }
 
+void gfx_begin_native_scene_target(u32 key, int width, int height)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    if (native_target.rendering || scene_target.rendering)
+    {
+        throw Error("native render target is already bound");
+    }
+    ComPtr<ID3D11Resource> back;
+    g.rtv->GetResource(back.GetAddressOf());
+    ComPtr<ID3D11Texture2D> back_texture;
+    if (FAILED(back.As(&back_texture)))
+    {
+        throw Error("native scene target: the back buffer is not a 2D texture");
+    }
+    D3D11_TEXTURE2D_DESC desc{};
+    back_texture->GetDesc(&desc);
+    NativeSceneSurface& surface = scene_target.surfaces[key];
+    if (!surface.color || surface.desc.Width != desc.Width || surface.desc.Height != desc.Height
+        || surface.desc.Format != desc.Format || surface.desc.SampleDesc.Count != desc.SampleDesc.Count)
+    {
+        surface = NativeSceneSurface{};
+        D3D11_TEXTURE2D_DESC color = desc;
+        color.MipLevels = 1;
+        color.ArraySize = 1;
+        color.BindFlags = D3D11_BIND_RENDER_TARGET;
+        color.Usage = D3D11_USAGE_DEFAULT;
+        color.CPUAccessFlags = 0;
+        color.MiscFlags = 0;
+        if (FAILED(g.device->CreateTexture2D(&color, nullptr, surface.color.GetAddressOf())) ||
+            FAILED(g.device->CreateRenderTargetView(surface.color.Get(), nullptr, surface.rtv.GetAddressOf())))
+        {
+            throw Error("native scene target creation failed");
+        }
+        D3D11_TEXTURE2D_DESC single = color;
+        single.SampleDesc.Count = 1;
+        single.SampleDesc.Quality = 0;
+        single.BindFlags = 0;
+        if (color.SampleDesc.Count > 1 &&
+            FAILED(g.device->CreateTexture2D(&single, nullptr, surface.resolved.GetAddressOf())))
+        {
+            throw Error("native scene target resolve creation failed");
+        }
+        single.Usage = D3D11_USAGE_STAGING;
+        single.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (FAILED(g.device->CreateTexture2D(&single, nullptr, surface.staging.GetAddressOf())))
+        {
+            throw Error("native scene target staging creation failed");
+        }
+        surface.desc = desc;
+    }
+    scene_target.open = &surface;
+    scene_target.width = width;
+    scene_target.height = height;
+    UINT viewports = 1;
+    g.context->RSGetViewports(&viewports, &scene_target.saved_viewport);
+    g.context->OMSetRenderTargets(1, surface.rtv.GetAddressOf(), g.dsv.Get());
+    scene_target.rendering = true;
+    present_hud_viewport();
+}
+
+void gfx_end_native_scene_target(RgbaImage& output)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    if (!scene_target.rendering || scene_target.open == nullptr)
+    {
+        throw Error("native scene target is not bound");
+    }
+    NativeSceneSurface& surface = *scene_target.open;
+    if (surface.resolved)
+    {
+        g.context->ResolveSubresource(surface.resolved.Get(), 0, surface.color.Get(), 0, surface.desc.Format);
+        g.context->CopyResource(surface.staging.Get(), surface.resolved.Get());
+    }
+    else
+    {
+        g.context->CopyResource(surface.staging.Get(), surface.color.Get());
+    }
+    // The fitted 640x480 area present_hud_viewport draws the frame into, sampled at each texel's centre.
+    D3D11_VIEWPORT area{};
+    UINT viewports = 1;
+    present_hud_viewport();
+    g.context->RSGetViewports(&viewports, &area);
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(g.context->Map(surface.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    {
+        throw Error("native scene target readback failed");
+    }
+    output.width = scene_target.width;
+    output.height = scene_target.height;
+    output.bgra.resize(size_t(output.width) * size_t(output.height) * 4);
+    const int limit_x = int(surface.desc.Width) - 1;
+    const int limit_y = int(surface.desc.Height) - 1;
+    for (int y = 0; y < output.height; ++y)
+    {
+        const int source_y = std::clamp(int(area.TopLeftY + (float(y) + 0.5f) * area.Height / float(output.height)),
+            0, limit_y);
+        const u8* row = static_cast<const u8*>(mapped.pData) + size_t(source_y) * mapped.RowPitch;
+        for (int x = 0; x < output.width; ++x)
+        {
+            const int source_x = std::clamp(int(area.TopLeftX + (float(x) + 0.5f) * area.Width / float(output.width)),
+                0, limit_x);
+            std::memcpy(output.bgra.data() + (size_t(y) * size_t(output.width) + size_t(x)) * 4,
+                row + size_t(source_x) * 4, 4);
+        }
+    }
+    g.context->Unmap(surface.staging.Get(), 0);
+    if (surface.desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM || surface.desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
+    {
+        for (size_t index = 0; index < output.bgra.size(); index += 4)
+        {
+            std::swap(output.bgra[index], output.bgra[index + 2]);
+        }
+    }
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
+    g.context->RSSetViewports(1, &scene_target.saved_viewport);
+    scene_target.rendering = false;
+    scene_target.open = nullptr;
+}
+
 void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth)
 {
     if (!g.ok)
@@ -2544,7 +2691,8 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
     }
     present_hud_viewport();
     const UINT depth_flags = ((flags & 1) != 0 ? D3D11_CLEAR_DEPTH : 0) | ((flags & 2) != 0 ? D3D11_CLEAR_STENCIL : 0);
-    ID3D11RenderTargetView* target = native_target.rendering ? native_target.rtv.Get() : g.rtv.Get();
+    ID3D11RenderTargetView* target = native_target.rendering ? native_target.rtv.Get()
+        : scene_target.rendering ? scene_target.open->rtv.Get() : g.rtv.Get();
     ID3D11DepthStencilView* depth_view = native_target.rendering
         ? (native_target.depth_bound ? native_target.dsv.Get() : nullptr) : g.dsv.Get();
     // A single rectangle over the whole 640x480 back buffer (the full view's fitted rectangle) clears as a whole.

@@ -31,6 +31,8 @@ namespace gbtg
     X(gfx_clear_native)                      \
     X(gfx_begin_native_target)               \
     X(gfx_end_native_target)                 \
+    X(gfx_begin_native_scene_target)         \
+    X(gfx_end_native_scene_target)           \
     X(gfx_read_native_target_depth)          \
     X(gfx_size)                              \
     X(gfx_end_frame)                         \

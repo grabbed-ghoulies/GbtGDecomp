@@ -29,9 +29,10 @@ struct BackgroundRegion
     const u8* source = nullptr; // +0
     Vec3 first{}; // +4
     Vec3 second{}; // +0x10
-    std::array<u8, 8> retained{}; // +0x1C
-    float distance = 0.f; // +0x24
-    u32 retained_28 = 0;
+    float near_depth = 0.f; // +0x1C, the nearest corner behind the view plane (0x0013C760), 0 when one is in front.
+    float far_depth = 0.f; // +0x20, the farthest corner behind it.
+    float distance = 0.f; // +0x24, the corners' separation; 0x00118FD0 divides by it.
+    u32 behind = 0; // +0x28, 1 when a corner is behind the view plane (0x00119110).
 };
 
 void actor_model_bounds_low(const Actor& actor, Vec3& output); // Xbox 0x0003DBF0

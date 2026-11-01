@@ -208,6 +208,15 @@ struct GfxVulkan
     bool target_has_depth = true; // False while a target with no depth surface is open: no depth or stencil test.
     Viewport target_saved_viewport;
 
+    // A texture target that shares the back buffer's depth-stencil, between gfx_begin_native_scene_target and
+    // gfx_end_native_scene_target: a colour image shaped like frame_color, drawn under the fitted viewport.
+    std::unordered_map<u32, vk::Image> scene_target_colors; // By texture, each keeping its contents between opens.
+    vk::Image* scene_target_open = nullptr;
+    bool scene_target_rendering = false;
+    int scene_target_width = 0; // The texture's size.
+    int scene_target_height = 0;
+    Viewport scene_target_saved_viewport;
+
     // Open dynamic rendering, onto target_* while target_rendering, else frame_*.
     bool rendering = false;
     VkPipeline bound_pipeline = VK_NULL_HANDLE;
@@ -407,7 +416,7 @@ void end_rendering()
 
 const vk::Image& render_color()
 {
-    return g.target_rendering ? g.target_color : g.frame_color;
+    return g.target_rendering ? g.target_color : g.scene_target_rendering ? *g.scene_target_open : g.frame_color;
 }
 
 const vk::Image& render_depth()
@@ -2443,6 +2452,79 @@ void gfx_end_native_target(RgbaImage& output)
     output.bgra.assign(buffer.mapped, buffer.mapped + bytes);
     g.target_rendering = false;
     g.viewport = g.target_saved_viewport;
+}
+
+void gfx_begin_native_scene_target(u32 key, int width, int height)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    if (g.target_rendering || g.scene_target_rendering)
+    {
+        throw Error("native render target is already bound");
+    }
+    end_rendering();
+    vk::Image& surface = g.scene_target_colors[key];
+    if (surface.width != g.frame_color.width || surface.height != g.frame_color.height)
+    {
+        retire(surface);
+        surface = vk::image_create(g.context, g.frame_color.width, g.frame_color.height,
+            VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT);
+        ensure_recording();
+        vk::image_barrier(g.command, surface.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL);
+    }
+    g.scene_target_open = &surface;
+    g.scene_target_width = width;
+    g.scene_target_height = height;
+    g.scene_target_saved_viewport = g.viewport;
+    g.scene_target_rendering = true;
+    present_hud_viewport();
+}
+
+void gfx_end_native_scene_target(RgbaImage& output)
+{
+    if (!g.ok)
+    {
+        return;
+    }
+    if (!g.scene_target_rendering)
+    {
+        throw Error("native scene target is not bound");
+    }
+    const vk::Image& color = *g.scene_target_open;
+    const VkDeviceSize bytes = VkDeviceSize(color.width) * VkDeviceSize(color.height) * 4;
+    vk::Buffer& buffer = readback_buffer(bytes);
+    ensure_recording();
+    end_rendering();
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {u32(color.width), u32(color.height), 1};
+    vkCmdCopyImageToBuffer(g.command, color.image, VK_IMAGE_LAYOUT_GENERAL, buffer.buffer, 1, &copy);
+    vk::memory_barrier(g.command);
+    submit();
+    // The fitted 640x480 area the frame is drawn into, sampled at each texel's centre.
+    const Viewport area = hud_viewport();
+    output.width = g.scene_target_width;
+    output.height = g.scene_target_height;
+    output.bgra.resize(size_t(output.width) * size_t(output.height) * 4);
+    for (int y = 0; y < output.height; ++y)
+    {
+        const int source_y = std::clamp(int(area.y + (float(y) + 0.5f) * area.height / float(output.height)), 0,
+            color.height - 1);
+        for (int x = 0; x < output.width; ++x)
+        {
+            const int source_x = std::clamp(int(area.x + (float(x) + 0.5f) * area.width / float(output.width)), 0,
+                color.width - 1);
+            std::memcpy(output.bgra.data() + (size_t(y) * size_t(output.width) + size_t(x)) * 4,
+                buffer.mapped + (size_t(source_y) * size_t(color.width) + size_t(source_x)) * 4, 4);
+        }
+    }
+    g.scene_target_rendering = false;
+    g.scene_target_open = nullptr;
+    g.viewport = g.scene_target_saved_viewport;
 }
 
 // D3DDevice_Clear over the 640x480 back buffer: flags 1 depth, 2 stencil, 0xF0 colour.

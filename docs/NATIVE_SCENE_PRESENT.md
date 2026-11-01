@@ -148,13 +148,28 @@ Gates translated, bodies raise when they open (none open in the opening):
 | `0x000ED390` effect draw | each `DAT_00506930` word | The port's table has 150 entries; retail loops to `0x00506C50` (200) |
 | `0x000EBCB0` trails | live type-2 trail records | Pool is native |
 | `0x0011AF90` light cones | `DAT_00510560` and a background | Translated (`light_cones.cpp`); the Medusa's gaze opens it |
-| `0x00119230` shadow volumes | `DAT_0050EC00`, `DAT_0050484C < 1` | Only cleared natively |
+| `0x00119230` shadow volumes | `DAT_0050EC00`, `DAT_0050484C < 1` | Translated (`shadow_volume_pass.cpp`); 12 scenes have regions (see below) |
 | `0x0011BA50` refraction | `DAT_00510580`, `DAT_00510650 == 0` | `0x0011B7A0` (scene start) not run |
 | `0x000615E0` screen effects | `DAT_00504478`, `DAT_005044A4`, `DAT_005044B0` | `0x00060BC0`..`0x000619D0` not translated |
 | caption / front-end widgets | `DAT_004DE9AC`, `DAT_004DE9A0`, `DAT_004E17C8 == 6` | Front-end writers not native |
 | `0x00132290` HUD | `DAT_005493E0` | `0x00132040` (scene start) not run |
 | `0x0011DB50` phase overlay | `DAT_00510CF4` with `DAT_00510E30` / `E40` / `E24` | Legacy scene-phase pointers |
 | `0x00048550` capture | `DAT_005462A0` | `0x00048260` / `0x00048860` not translated |
+
+**Shadow volumes `0x00119230`** draw each background region (`DAT_0050EAA0`, count `DAT_0050EC00`, filled by the
+background construction) through the volume vertex shader (`DAT_0042735C`) with the depth ramp `0x00119160` creates
+at boot: the region's stencil, then its back faces into book page 0 and its front faces into page 1, and a screen
+quad (`DAT_00430B00`, FVF `0xA00404`) that compares the pages where the stencil is set, in the first region's colour.
+On screen it is a translucent volume (chapter3c_scene12_1's lab, on its right). Twelve scenes have regions:
+chapter2a scenes 6_2, 7_2, 8_1, 10_1, 11_1 and 12_2, chapter2b 3_2 and 5_1, chapter3a 8_1 and chapter3c 3_2, 12_1
+and 14_1. Before 2026-11-01 the gate read a stale copy of `DAT_0050EC00` and the pass never ran.
+
+The pages are drawn with the device's own depth surface (`DAT_0050EC0C`), so the stencil marks the volumes made are
+tested. The port's texture targets otherwise get a depth buffer of their own; a book page set with the device's depth
+surface opens a scene target instead (`gfx_begin_native_scene_target`): a colour surface shaped like the back buffer,
+bound with the back buffer's depth-stencil under the fitted viewport, scaled down into the page when it closes.
+Dialogue targets (`0x000629D0`) and the point-light surface (`0x00062B00`) also pair a texture with the device's depth
+on retail; they still get their own depth buffer.
 
 **Transition `0x0012C490`** is translated up to its dispatch. With a transition
 running (`DAT_0054632C`) and no dialogue page, it reads the slot's handler

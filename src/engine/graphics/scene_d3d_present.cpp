@@ -1120,6 +1120,7 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
     bool textured = false;
     bool second_set = false;
     bool volume_sets = false;
+    bool four_sets = false;
     switch (draw.format)
     {
     case 0x002: // D3DFVF_XYZ.
@@ -1148,6 +1149,12 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
         pretransformed = true;
         textured = true;
         volume_sets = true;
+        break;
+    case 0xA00404: // D3DFVF_XYZRHW | D3DFVF_TEX4, sets 2 and 3 four-dimensional (0x00119230's quad).
+        stride = 64;
+        pretransformed = true;
+        textured = true;
+        four_sets = true;
         break;
     default:
         throw Error("fixed-function draw uses vertex format " + std::to_string(draw.format));
@@ -1239,6 +1246,19 @@ void present_fixed(const SceneD3DFixedDraw& draw, const SceneD3DPresentContext& 
                 std::memcpy(coordinate, data + offset + 24 + (set - 1) * 12, 12);
                 vertex.uv[set] = {coordinate[0], coordinate[1]};
                 vertex.uv_zw[set] = {coordinate[2], 1.f};
+            }
+        }
+        if (four_sets)
+        {
+            // Sets 0 and 1 at +0x10 and +0x18, sets 2 and 3 (four coordinates each) at +0x20 and +0x30.
+            std::memcpy(vertex.uv[0].data(), data + offset + 16, 8);
+            std::memcpy(vertex.uv[1].data(), data + offset + 24, 8);
+            for (u32 set = 2; set < 4; ++set)
+            {
+                float coordinate[4];
+                std::memcpy(coordinate, data + offset + 32 + (set - 2) * 16, 16);
+                vertex.uv[set] = {coordinate[0], coordinate[1]};
+                vertex.uv_zw[set] = {coordinate[2], coordinate[3]};
             }
         }
         shaded.push_back(vertex);

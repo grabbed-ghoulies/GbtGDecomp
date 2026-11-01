@@ -33,6 +33,9 @@ struct DialogueD3DBoundaries
     std::function<void(i32, float, float, float, float)> vertex_data4f; // D3D 0x00172C60 (register, x, y, z, w).
     std::function<void(i32, float, float)> vertex_data2f; // D3D 0x00172C20 (register, a, b).
     std::function<void()> end; // D3DDevice_End, D3D 0x00172D50.
+    // D3DDevice_GetProjectionViewportMatrix (D3D 0x00173FA0): device +0x970, the projection times the viewport scale
+    // D3D_UpdateProjectionViewportTransform (0x00171210) keeps.
+    std::function<void(float*)> projection_viewport;
 };
 struct DialogueRenderFrame
 {

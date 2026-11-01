@@ -139,6 +139,13 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
 // stencil neither test nor write.
 void gfx_begin_native_target(int width, int height, bool depth);
 void gfx_end_native_target(RgbaImage& output);
+// D3DDevice_SetRenderTarget onto a texture surface with the device's own depth surface: native draws and clears go
+// to a colour surface shaped like the back buffer, depth-testing and stencilling against the back buffer's
+// depth-stencil under the same fitted viewport. Ending scales the frame's 640x480 area down to width x height BGRA.
+// Each `key` (the texture's address) keeps its own surface, which holds what was last drawn into it: the texture's
+// memory is not loaded back, so a user clears it before drawing (0x00119230 does, before its first region).
+void gfx_begin_native_scene_target(u32 key, int width, int height);
+void gfx_end_native_scene_target(RgbaImage& output);
 // The open texture target's depth-stencil as the Xbox D24S8 words its memory holds (depth << 8 | stencil),
 // width x height in rows. Empty without a device.
 void gfx_read_native_target_depth(std::vector<u32>& output);

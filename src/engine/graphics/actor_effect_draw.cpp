@@ -58,6 +58,8 @@ void draw_actor_effect_particle(ActorEffectNode& effect, size_t particle, Billbo
     case 0:
         queue_billboard(queue, effect.texture.data(), color, frame, position, size.data(), spin.z);
         return;
+    case 2:
+        throw Error("untranslated Xbox 0x0005CA10 (an effect's mode 2 sprite, 0x000EFEA0)");
     }
 }
 

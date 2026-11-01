@@ -97,6 +97,32 @@ SceneD3DDevice::SceneD3DDevice()
         const auto& stored = found == transforms_.end() ? kIdentity : found->second;
         std::memcpy(matrix, stored.data(), sizeof(stored));
     };
+    dialogue_.projection_viewport = [this](float* matrix)
+    {
+        // 0x00171210: x by half the viewport width, y by minus half its height, z by the depth range in buffer
+        // units, then offset by the half width, half height and MinZ (the viewport's X and Y are not added). The
+        // device has no supersampling (+0x958 / +0x95C 1) and no w-buffer (DAT_00181DAC 2).
+        const auto word = [this](u32 index)
+        {
+            const auto found = render_states_.find(kViewport + index);
+            return found == render_states_.end() ? 0u : found->second;
+        };
+        const float width = float(word(2)) * 0.5f; // DAT_0032B0F4
+        const float height = float(word(3)) * -0.5f; // DAT_0032B1C4
+        const float near_z = std::bit_cast<float>(word(4));
+        const float far_z = std::bit_cast<float>(word(5));
+        std::array<float, 16> scale{};
+        scale[0] = width;
+        scale[5] = height;
+        scale[10] = (far_z - near_z) * kDepthScale;
+        scale[12] = width;
+        scale[13] = -height;
+        scale[14] = kDepthScale * near_z;
+        scale[15] = 1.f; // DAT_0032B0F8
+        const auto found = transforms_.find(1);
+        const auto& projection = found == transforms_.end() ? kIdentity : found->second;
+        multiply_runtime_graphics_matrices(matrix, projection.data(), scale.data()); // 0x00177AF0
+    };
     dialogue_.viewport = [this](std::span<const u32, 6> viewport)
     {
         for (u32 index = 0; index < 6; ++index)
@@ -129,7 +155,8 @@ SceneD3DDevice::SceneD3DDevice()
             const u32 slot = reg + index;
             if (slot >= constants_.size())
             {
-                throw Error("D3D vertex constant outside the device");
+                throw Error("D3D vertex constant outside the device: register " + std::to_string(reg) + ", count "
+                    + std::to_string(count));
             }
             std::memcpy(constants_[slot].data(), data + index * 4, 16);
         }

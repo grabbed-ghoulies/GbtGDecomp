@@ -168,6 +168,16 @@ void gfx_end_native_target(RgbaImage& output)
     backend().gfx_end_native_target(output);
 }
 
+void gfx_begin_native_scene_target(u32 key, int width, int height)
+{
+    backend().gfx_begin_native_scene_target(key, width, height);
+}
+
+void gfx_end_native_scene_target(RgbaImage& output)
+{
+    backend().gfx_end_native_scene_target(output);
+}
+
 void gfx_read_native_target_depth(std::vector<u32>& output)
 {
     backend().gfx_read_native_target_depth(output);

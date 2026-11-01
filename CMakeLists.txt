@@ -545,6 +545,7 @@ add_executable(gbtg
     src/engine/graphics/shader_schedule_cost_inputs.cpp
     src/engine/graphics/shader_rewrite_context.cpp
     src/engine/runtime/native_cpp_exception.cpp
+    src/engine/runtime/throw_trace.cpp
     src/engine/graphics/shader_register_rewrite.cpp
     src/engine/graphics/shader_reorder.cpp
     src/engine/graphics/shader_rewrite_outputs.cpp

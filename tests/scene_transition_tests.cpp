@@ -1,5 +1,6 @@
 #include <unordered_set>
 #include "gbtg/engine_internal.h"
+#include "../src/engine/runtime/throw_trace.h"
 #include "../src/engine/scene/cutscene_scene_runtime.h"
 #include "../src/engine/scene/gameselect_control.h"
 #include "../src/engine/scene/scene_controls.h"
@@ -11186,6 +11187,7 @@ void start_saved_game(gbtg::Game& game, const std::string& label)
 
 int main(int argc, char** argv)
 {
+    gbtg::install_out_of_range_trace(); // A failed .at() lookup prints where it was thrown.
     open_test_run(argc, argv);
     // Tests play at 10% master volume (AGENTS.md); the master voice takes it when it is created.
     gbtg::pcm_set_master_volume(0.1f);

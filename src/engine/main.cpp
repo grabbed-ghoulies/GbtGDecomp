@@ -8,6 +8,7 @@
 #include "gbtg/platform.h"
 
 #include "graphics/render_profile.h"
+#include "runtime/throw_trace.h"
 #include "saves/save_root.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "plugins/plugins.h"
@@ -57,6 +58,7 @@ int int_arg(int argc, char** argv, const std::string& key, int def)
 
 int main(int argc, char** argv)
 {
+    gbtg::install_out_of_range_trace(); // A failed .at() lookup prints where it was thrown.
     try
     {
         gbtg::log::set_verbose(has_flag(argc, argv, "--verbose"));

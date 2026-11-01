@@ -952,6 +952,8 @@ else()
         src/engine/plugins/plugin_diagnostics.cpp
         src/engine/plugins/plugin_stories.cpp
         src/engine/plugins/scene_recipe.cpp
+        src/engine/plugins/rare_replay_feature.cpp
+        src/engine/runtime/rare_replay.cpp
     )
     if(UNIX)
         target_link_libraries(gbtg PRIVATE ${CMAKE_DL_LIBS})
@@ -964,6 +966,8 @@ else()
         SOURCES src/plugins/shader_warmup/shader_warmup_plugin.cpp src/plugins/shader_warmup/shader_manifest.cpp
         PLUGIN_INI src/plugins/shader_warmup/plugin.ini
         FILES_DIR src/plugins/shader_warmup/files)
+    # Rare Replay: switches on the compiled-in rare_replay feature, a 60 Hz logic tick (a data plugin, no library).
+    gbtg_add_plugin(gbtg_rare_replay ID rare_replay PLUGIN_INI src/plugins/rare_replay/plugin.ini)
     # Debug UI: the F8 menu and F12 timing overlay (Dear ImGui), drawn as a plugin overlay. It needs a D3D11 or
     # Vulkan backend.
     if(DEFINED GBTG_IMGUI_SOURCES)

@@ -1,4 +1,7 @@
 #include "scene_controls.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include "chapter5_countdown.h"
 
 #include <bit>
@@ -897,7 +900,12 @@ void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& c
     const float time = read_f32(state, 0x20) + runtime_frame_step(context.frame_clock());
     std::memcpy(state.data() + 0x20, &time, 4);
     const u32 countdown = word(state, 0x34);
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay: +0x34 counts retail ticks.
+    if (countdown != 0 && rare_replay_retail_tick())
+#else
     if (countdown != 0)
+#endif
     {
         put_word(state, 0x34, countdown - 1);
         if (countdown - 1 == 0)

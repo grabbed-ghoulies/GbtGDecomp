@@ -1,4 +1,7 @@
 #include "body_apply.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include <cstring>
 
 namespace gbtg
@@ -27,7 +30,12 @@ void apply_runtime_body(std::span<u8> body, RuntimeBodyApplyContext& context)
     apply_runtime_body_actor_bounds(body, channels.actor, context.actor_bytes,
         context.flags, context.bound, context.shapes);
     u16 frames = read_u16(body, 0x880);
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay: +0x880 counts retail ticks.
+    if (frames != 0 && rare_replay_retail_tick())
+#else
     if (frames != 0)
+#endif
     {
         --frames;
         std::memcpy(body.data() + 0x880, &frames, 2);

@@ -1,4 +1,7 @@
 #include "background_morphs.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include "../graphics/background_cloth.h"
 #include "../graphics/vector_normalize.h"
 
@@ -142,6 +145,13 @@ void step_runtime_background_morphs(RuntimeBackgroundMorphs* morphs)
     {
         return;
     }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay: each call pulls a fixed step and counts it, so the morphs step on retail ticks.
+    if (!rare_replay_retail_tick())
+    {
+        return;
+    }
+#endif
     constexpr float kRate = 0.008f; // DAT_0032B344
     for (auto& morph : morphs->records)
     {

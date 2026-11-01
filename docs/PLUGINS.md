@@ -221,6 +221,58 @@ TimingOverlay = 1   ; optional: show or hide the timing overlay at startup; defa
 Off Windows, SDL3 is linked into gbtg statically, so gbtg exports its symbols (`ENABLE_EXPORTS`) and the plugin's
 SDL3 calls resolve to gbtg's copy when it loads.
 
+### Rare Replay (`src/plugins/rare_replay`)
+
+The game's logic ticks at 60 Hz, as the Rare Replay release does, instead of retail's 30 Hz. Retail presents with
+`D3DPRESENT_INTERVAL_TWO` (0x000FC310 stores 2, 0x001548B0 passes it to the device), so a tick is two 60 Hz fields and
+0x000FC030 makes the step 1/30 s. This data plugin switches on the compiled-in `rare_replay` feature
+(`runtime/rare_replay.cpp`): the platform loop ticks every field, so the step is 1/60 s. Rare Replay's own code is not
+available, so this follows the retail code.
+
+Most of the game scales by the step (`DAT_005096C0`: 43 files, about 130 reads), and those parts need nothing:
+movement, gravity and hit pushes, animation, cutscenes, the script's timer conditions (0x00117100), the body timers
+(0x0001F600), the pad's repeat timers (0x00154BA0), the camera, effects and spray particles, the cloth solver, the
+spawn queue's intervals, ambient steps and scare timers, transition durations. The code that counts ticks instead asks
+`rare_replay_retail_tick()`, true on each tick that completes one of retail's 1/30 s ticks (every second tick at
+60 Hz, every tick without the plugin), so its counts keep their retail meaning:
+
+| Site | Counts | With Rare Replay |
+|------|--------|------------------|
+| `entities/body_apply.cpp` (body +0x880) | A body's frame countdown that clears +0x87E | Counts retail ticks |
+| `scene/scene_controls.cpp`, walkabout control +0x34 (0x00080600) | The ticks until the next walkabout track | Counts retail ticks |
+| `transitions/book_map.cpp`, `map_countdown` | 5 ticks before the book map sets `DAT_0050EA9C` 0x2000 | Counts retail ticks |
+| `transitions/scene_transitions.cpp`, `flag_delay` | 15 ticks before a transition sets `DAT_0050EA9C` 0x2000 | Counts retail ticks |
+| `scene/background_morphs.cpp` (0x001137E0) | A fixed pull of 0.008 a tick over 100 steps | Steps on retail ticks |
+| `frontend/scoreboard_update.cpp`, `damage_6e0` and `meter_bc8` | The HUD's damage flash and meter countdowns | Count retail ticks |
+| `entities/bg_break_key.cpp` | The broken piece's spin, added to its yaw each tick and decayed by 0.992 | Half a turn and the square root of the decay a 60 Hz tick |
+| `graphics/effect_notifications.cpp` (0x000EE560) | Effect sounds at most every 5 frames (`DAT_004DEA58`) | 5 retail ticks |
+| `scene/lighting.cpp` via `animate_light_records` (0x000FDDA0) | Light flicker and pulses on frame-counter masks, a random roll each | Animate on retail ticks, with the retail frame count |
+| `runtime/clock.cpp`, `update_holds` (0x000F9F60) | The frames each pad button is held | Counts retail ticks |
+| `scene/scene_gameplay_time.cpp` (0x0012B1F0), timers +0x10 and +0xC | The frame count beside the gameplay time (its seconds scale by the step) | Counts retail ticks |
+| `graphics/point_graph_solver.cpp`, graph +0x1C8 | 10 frames of cloth warm-up | Counts retail ticks |
+| `transitions/scene_transitions.cpp`, `count_down` | A transition's time counts down by the step; the fade (0x0012BC80) and slime handlers wait for it to be below zero and not exactly zero | A step that lands exactly on zero goes just below it: at 1/60 s the attract's first fade landed on 0.0 and never ended |
+
+Counted but left alone:
+
+- **Reference, pause and hold counts** (the body's +0x309..+0x30C, +0x258, +0x338, strategy +0x1C, `pause_count`,
+  `override_count`, players' `paused`, door and ghoul intro `camera_hold`): they count requests, not time.
+- **Input stamps**: `refresh_runtime_input_device` (0x00109470) stores the frame number to tell one tick's input from
+  the next. Every 60 Hz tick has its own number, so it works as before.
+- **The frame counter itself** (`DAT_004DEA58`, `clock.frame`): it still counts every tick. Its time-keeping readers
+  are above; the sound bank choice (`pcm_out.cpp`) only uses it as a varying number.
+- **Actor tick counts** (`actor_frame_update.cpp` +0x928's `ticks`, `player_update.cpp` +0x928, `weapon_actor.cpp`):
+  counted but nothing translated reads them yet. A reader that treats them as time needs the gate.
+- **One-tick waits** (the transition's `loading_frames`, `g_50484c`): they hold a step for one tick, so they last
+  1/60 s instead of 1/30 s. The scenes start a fraction of a second sooner.
+- **The retail `clock.delayed` callback slots** (`DAT_004DEA64`, counted in ticks): nothing schedules one.
+
+Random rolls happen at events (spawns, hits, breaks, choices), not as chances each tick, apart from the light flicker
+above; a roll found later inside a per-tick update needs the gate too. Each tick waits for its 60 Hz field, so VSync
+at 60 Hz or more shows every tick.
+
+The attract reel at 30 Hz and 60 Hz shows the same shots at the same game times; its second script starts at 116.03 s
+at 30 Hz and 115.71 s at 60 Hz, as each of its waits ends on a tick (up to 1/30 s late at 30 Hz, 1/60 s at 60 Hz).
+
 ### DLC story example (`examples/plugins/dlc_story`)
 
 A data plugin with no library. Its `[Story]` adds "DLC Story" (its own loctext, `aid_loctext_plugin_dlcstory`, in
@@ -357,6 +409,7 @@ The disc overlay sits on the file boundary, so translated code is unchanged:
 | The executable's objparams pools (`executable_resources.cpp`) | Recipes' `aid_objparams_` resources |
 | The scene directory lookup (0x00116220) | Recipes' `Transition` |
 | The Features menu (0x000D85A0) | Stories |
+| The platform loop's fields a tick, and the tick-counted sites in "Rare Replay" | Rare Replay |
 
 Not covered yet: `index_wavebanks` lists `xwavebank/` from the game folder only, so a plugin can't add a new wave
 bank, and `default.xbe` reads always use the game folder.

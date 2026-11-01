@@ -586,8 +586,11 @@ bool gfx_init(const GfxConfig& cfg)
         }
     }
 
+    // The flip model: Present waits for the vertical blank in a window too, where the blit model can tear under
+    // composition (variable refresh, monitors of different rates). The back buffer's contents after a Present are
+    // undefined; gfx_present_again copies the held frame back before presenting again.
     DXGI_SWAP_CHAIN_DESC sc{};
-    sc.BufferCount = 1;
+    sc.BufferCount = 2;
     sc.BufferDesc.Width = u32(width);
     sc.BufferDesc.Height = u32(height);
     sc.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -595,7 +598,7 @@ bool gfx_init(const GfxConfig& cfg)
     sc.OutputWindow = g.hwnd;
     sc.SampleDesc.Count = 1;
     sc.Windowed = TRUE;
-    sc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    sc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
     const D3D_FEATURE_LEVEL want = D3D_FEATURE_LEVEL_11_0;
     D3D_FEATURE_LEVEL got{};
@@ -615,6 +618,15 @@ bool gfx_init(const GfxConfig& cfg)
         log::error("d3d11: device create failed");
         gfx_shutdown();
         return false;
+    }
+    if (g.swap)
+    {
+        // One frame in flight: each Present waits for its own vertical blank instead of queueing frames ahead.
+        ComPtr<IDXGIDevice1> latency;
+        if (SUCCEEDED(g.device.As(&latency)))
+        {
+            latency->SetMaximumFrameLatency(1);
+        }
     }
     if (render_profile::enabled)
     {

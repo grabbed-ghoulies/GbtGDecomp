@@ -1,4 +1,7 @@
 #include "bg_break_key.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include "actor_lookup.h"
 #include "actor_render_registration.h"
 #include "actor_sound_pose.h"
@@ -10,6 +13,7 @@
 #include "../camera/display_view.h"
 #include "../camera/entity_camera.h"
 #include "../camera/view_initialization.h"
+#include <cmath>
 #include <cstring>
 
 namespace gbtg
@@ -215,12 +219,19 @@ void update_runtime_bg_break_key(RuntimeBgBreakKey& context)
         set(bytes, field::velocity, velocity);
         actor_set_world_position(key, position); // 0x00041730, EDI the key
     }
-    const Vec3 turned{key.euler.x, get(bytes, field::spin) + key.euler.y, key.euler.z};
+    float spin = get(bytes, field::spin);
+    float decay = 0.992f; // DAT_0032B670.
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay: the spin and its decay are per retail tick; a shorter tick turns and decays that part of one.
+    spin *= rare_replay_tick_fraction();
+    decay = std::pow(decay, rare_replay_tick_fraction());
+#endif
+    const Vec3 turned{key.euler.x, spin + key.euler.y, key.euler.z};
     wrap_runtime_euler(turned, key.euler); // 0x00105AA0
     const u32 stale = 0;
     std::memcpy(context.key->bytes.get() + 0x2A8, &stale, 4); // Key +0x2A8, the actor's transform.
     key.xform_valid = 0;
-    set(bytes, field::spin, get(bytes, field::spin) * 0.992f); // DAT_0032B670.
+    set(bytes, field::spin, get(bytes, field::spin) * decay);
     const Vec3 eye = get(bytes, field::eye);
     context.camera.position = eye;
     const Vec3 position = get(bytes, field::position);

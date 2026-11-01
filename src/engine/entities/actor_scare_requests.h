@@ -15,7 +15,7 @@ struct ActorScareContext
     std::span<ExecutableResourcePool> resources;
     std::vector<FactoryObject>& objects;
     u32& flags;
-    u32& player_address; // DAT_00511B40, original actor+0x93C token
+    std::function<u32()> player_address; // DAT_00511B40, the first case node (the player's actor +0x93C), or 0
     const Vec3& default_euler; // DAT_0050DD74
 };
 void broadcast_actor_world_message(std::span<const u32> message); // Xbox 0x00122CE0, EDI the message

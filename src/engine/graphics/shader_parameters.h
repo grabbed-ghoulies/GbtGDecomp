@@ -23,6 +23,13 @@ struct RuntimeShaderTextureParameter
 RuntimeShaderTextureParameter* create_shader_parameter(RuntimeModelInstance& model, const char* shader,
     const char* name); // Xbox 0x000F8540, EBX the model
 void set_shader_texture(RuntimeShaderInstance& shader, u32 index, u32 texture); // Xbox 0x0015B2B0
+// Entry `index` of the model's texture list (its resource block of kind 7), a texture's native address. `pointer`
+// resolves the list's native address.
+u32 runtime_model_texture_address(const RuntimeModelInstance& model, u32 index,
+    const std::function<const u8*(u32)>& pointer); // Xbox 0x000F9B00, EAX the model, EDI the index
+// The texture the named shader's entry of that name selects from the model's texture list, or 0.
+u32 find_actor_shader_texture(const RuntimeModelInstance* model, const char* shader, const char* name,
+    const std::function<const u8*(u32)>& pointer); // Xbox 0x00040B70, EAX the actor (+0x204 the model)
 void release_shader_parameter(RuntimeShaderTextureParameter* parameter); // Xbox 0x000F85D0, EAX the parameter
 // `texture_bytes` gives a texture's bytes by its native address (+0x10 rate, +0x11 frames, +0x13 frame shown).
 void set_shader_parameter_texture(RuntimeShaderTextureParameter& parameter, u32 texture, u32 mode,

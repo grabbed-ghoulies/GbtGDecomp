@@ -588,7 +588,6 @@ i32 entity_record_movement_probe(Vec3& kept, Vec3& candidate, u32 param, i32 kin
 // Clears the text-page cursor and the markup gates, builds the 92 wide token
 // names (0x00056DF0), resets the sprite slots (0x00057400), and drops the
 // loaded icon. DAT_004e60c0 becomes IconMIN (0x36).
-void text_initialize_tokens(); // Xbox 0x00057D40
 
 // cam_11c480 calls this once the script tables are clear. Zeros the 40
 // light-volume slots, allocates the 16x16 grid, and plants the default

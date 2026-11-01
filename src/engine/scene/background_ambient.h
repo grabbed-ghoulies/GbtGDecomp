@@ -1,4 +1,5 @@
 #pragma once
+#include "../camera/cutscene_impulse.h"
 
 #include "gbtg/entity.h"
 #include <span>
@@ -18,6 +19,8 @@ struct RuntimeBackgroundAmbient
     std::span<float, 12> matrix_scratch; // DAT_004DD798.
 };
 RuntimeBackgroundAmbient runtime_background_ambient();
+// The lightning flash words (DAT_0050E7BC..DAT_0050E7D0) a cutscene event starts through 0x00118840.
+CutsceneCameraImpulse ambient_flash_state();
 void initialize_background_ambient_nodes(const Actor& actor, u32& random,
     RuntimeBackgroundAmbient& state); // Xbox 0x000432B0
 }

@@ -79,7 +79,8 @@ void request_actor_scare_at(const Vec3& position, u32 actor_address, float inten
         auto parameters = clone_executable_resource(context.resources, "aid_objparams_ghoulies_misc_scare");
         if (parameters.bytes != nullptr)
         {
-            if (context.player_address != 0 && context.player_address != 0x93C)
+            const u32 player = context.player_address(); // DAT_00511B40
+            if (player != 0 && player != 0x93C)
             {
                 if (intensity == 0.f)
                 {

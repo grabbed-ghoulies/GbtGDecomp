@@ -7,6 +7,8 @@
 #include "entity.h"
 #include "ghouly_spawn_scheduler.h"
 #include "actor_lookup.h"
+#include "body_animation_commands.h"
+#include <algorithm>
 
 namespace gbtg
 {
@@ -431,6 +433,20 @@ bool construct_animated_light_view(FactoryObject& object, std::span<const u8> pa
 void release_animated_light_view(FactoryObject& object)
 {
     active_owner->release_animated_light(object);
+}
+bool construct_scare_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    return active_owner->construct_scare(object, parameters);
+}
+void release_scare_view(FactoryObject& object)
+{
+    active_owner->release_scare(object);
+}
+const ObjectFactoryVtable* scare_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00504E50, scare_actor_object_sizes, construct_scare_view,
+        release_scare_view};
+    return &table;
 }
 const ObjectFactoryVtable* animated_light_lifecycle()
 {
@@ -1103,6 +1119,7 @@ void NativeSceneActorClassOwner::install(std::span<ObjectFactoryType> types)
     types[0x10] = {2, afterimage_lifecycle}; // Getter 0x000690A0.
     types[0x12] = {2, bone_debris_lifecycle}; // Getter 0x00067E60.
     types[0x13] = {2, animated_light_lifecycle}; // Getter 0x0006C260.
+    types[0x1C] = {2, scare_lifecycle}; // Getter 0x0006FCC0.
     types[0xB] = {2, weapon_lifecycle}; // Getter 0x00145900.
     types[0xAA] = {0xB, chair_weapon_lifecycle}; // Getter 0x000CEF70.
     types[0xA7] = {0xB, thrown_projectile_lifecycle}; // Getter 0x000CB570.
@@ -1329,6 +1346,66 @@ void NativeSceneActorClassOwner::update_animated_light(FactoryObject& object)
 void NativeSceneActorClassOwner::queue_animated_light_glow(FactoryObject& object)
 {
     queue_runtime_animated_light_glow(*animated_lights_.at(object.bytes.get()));
+}
+
+bool NativeSceneActorClassOwner::construct_scare(FactoryObject& object, std::span<const u8> parameters)
+{
+    if (bindings_.clock == nullptr || bindings_.view == nullptr || bindings_.tint == nullptr
+        || bindings_.runtime_flags == nullptr || !bindings_.case_player_flag)
+    {
+        throw Error("the scare class (type 0x1C) is not bound");
+    }
+    auto& view = bindings_.actors.view(object);
+    auto& startup = bindings_.actors.bindings.startup;
+    auto context = std::make_unique<RuntimeScareActor>(RuntimeScareActor{{object.bytes.get(), object.size},
+        view.bat.actor, view.animation, startup.registry, startup.error, bindings_.random, *bindings_.clock,
+        *bindings_.view, *bindings_.tint, *bindings_.runtime_flags, bindings_.streams, bindings_.effects,
+        bindings_.case_player_flag,
+        [this](std::span<const u32> message, const Vec3& position, float radius)
+        {
+            // DAT_00511B38's player nodes, in list order, for 0x00122D80.
+            const auto marks = bindings_.marks();
+            std::vector<RuntimeActorProximityNode> nodes;
+            nodes.reserve(marks.size());
+            for (const auto& mark : marks)
+            {
+                nodes.push_back(RuntimeActorProximityNode{nullptr, *mark.actor,
+                    [this, address = mark.address](std::span<const u32> words)
+                    {
+                        std::array<u32, 0x42> buffer{};
+                        std::copy_n(words.begin(), std::min<size_t>(words.size(), buffer.size()), buffer.begin());
+                        bindings_.message(address, buffer);
+                    }});
+            }
+            for (size_t index = 1; index < nodes.size(); ++index)
+            {
+                nodes[index - 1].next = &nodes[index];
+            }
+            broadcast_runtime_actor_proximity(nodes.empty() ? nullptr : nodes.data(), message, position, radius);
+        },
+        bindings_.texture_bytes});
+    auto* scare = context.get();
+    scares_.emplace(object.bytes.get(), std::move(context));
+    return initialize_runtime_scare_actor(*scare, parameters);
+}
+
+void NativeSceneActorClassOwner::release_scare(FactoryObject& object)
+{
+    release_runtime_scare_actor(*scares_.at(object.bytes.get()));
+    if (!defer_release)
+    {
+        scares_.erase(object.bytes.get());
+    }
+}
+
+void NativeSceneActorClassOwner::update_scare(FactoryObject& object)
+{
+    update_runtime_scare_actor(*scares_.at(object.bytes.get()));
+}
+
+bool NativeSceneActorClassOwner::face_scare(FactoryObject& object)
+{
+    return face_runtime_scare_actor(*scares_.at(object.bytes.get()));
 }
 
 bool NativeSceneActorClassOwner::construct_weapon(FactoryObject& object, std::span<const u8> parameters)
@@ -1740,6 +1817,7 @@ void NativeSceneActorClassOwner::release_view(const u8* bytes)
     afterimages_.erase(bytes);
     bone_debris_.erase(bytes);
     animated_lights_.erase(bytes);
+    scares_.erase(bytes);
     weapons_.erase(bytes);
 }
 

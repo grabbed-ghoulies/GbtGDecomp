@@ -4,6 +4,7 @@
 namespace gbtg
 {
 std::function<std::vector<RuntimeLoadingActor>()> g_loading_actors;
+std::function<bool()> g_live_actors_pending;
 
 std::vector<RuntimeLoadingActor> runtime_loading_actors()
 {
@@ -29,7 +30,11 @@ bool actor_loading_complete()
     {
         return false;
     }
-    if (entity_detail::g_world.view.next != nullptr)
+    if (!g_live_actors_pending)
+    {
+        throw Error("DAT_00511B08 is read with no scene bound");
+    }
+    if (g_live_actors_pending()) // DAT_00511B0C
     {
         return false;
     }

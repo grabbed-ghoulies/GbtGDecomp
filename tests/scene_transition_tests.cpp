@@ -2641,7 +2641,7 @@ void check_spawn_receiver_dependencies()
     i32 pal = 0;
     i32 pal_override = 0;
     ActorTrailContext trails{factory, objects, 0x10000, pause, delta, scale, pal, pal_override, ""};
-    ActorScareContext scares{factory, {}, objects, flags, player, euler};
+    ActorScareContext scares{factory, {}, objects, flags, [&player]() { return player; }, euler};
     AudioCoreSources audio_sources{};
     AudioCoreCues audio_cues{audio_sources};
     AudioEventVoices voices{audio_cues, {}, {}, {}, 0, origin, euler};
@@ -3312,7 +3312,12 @@ void check_actor_loading()
         }
         g_actor_creation_options = saved;
         u32 random = 0;
-        CutsceneCameraImpulse impulse{0.f, 0.f, 0.f, 10.f, 0};
+        float progress = 0.f;
+        float retained = 0.f;
+        float amount_word = 0.f;
+        float scale = 10.f;
+        i32 active = 0;
+        CutsceneCameraImpulse impulse{progress, retained, amount_word, scale, active};
         begin_cutscene_camera_impulse(impulse, random);
         const float amount = (std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f) * 10.f;
         if (random != 0x3C6EF35Fu || impulse.active != 1 || impulse.progress != 1.f
@@ -6457,13 +6462,18 @@ void check_actor_loading()
         throw Error("unfinished load was released or requested twice");
     }
     pending->flags_2c = 1;
-    int view_token = 0;
-    entity_detail::g_world.view.next = &view_token;
+    // DAT_00511B0C: actors waiting on the scene's live list.
+    bool live_pending = true;
+    const auto saved_live_pending = g_live_actors_pending;
+    g_live_actors_pending = [&live_pending]()
+    {
+        return live_pending;
+    };
     if (script_handle_actor_actions(game, node) != 0)
     {
         throw Error("pending world-view registration did not hold loading");
     }
-    entity_detail::g_world.view.next = nullptr;
+    live_pending = false;
     // One DAT_00511B38 actor: its goal-ring front kind and its +0x984 / +0x98C words.
     u16 actor_state = 2;
     u32 word_984 = 0;
@@ -6534,6 +6544,7 @@ void check_actor_loading()
         throw Error("releasing the final spawn record left a stale load-list entry");
     }
     g_loading_actors = saved_loading;
+    g_live_actors_pending = saved_live_pending;
     g_side_list = {};
     g_ghouly_controllers.clear();
 }

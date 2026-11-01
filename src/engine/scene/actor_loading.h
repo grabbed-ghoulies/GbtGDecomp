@@ -31,6 +31,9 @@ struct RuntimeLoadingActor
 };
 // The native scene's DAT_00511B38 walk, in list order. Unset outside a native scene.
 extern std::function<std::vector<RuntimeLoadingActor>()> g_loading_actors;
+// DAT_00511B0C nonzero: actors wait on the scene's live list (DAT_00511B08) to be activated. Unset outside a
+// native scene.
+extern std::function<bool()> g_live_actors_pending;
 std::vector<RuntimeLoadingActor> runtime_loading_actors(); // The native walk; raises with no scene bound.
 bool actor_loading_complete(); // Xbox 0x001412F0
 }

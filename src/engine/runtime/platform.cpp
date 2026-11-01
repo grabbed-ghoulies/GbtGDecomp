@@ -29,6 +29,21 @@ namespace gbtg
 {
 namespace
 {
+#if defined(_WIN32)
+// Whether the foreground window belongs to this process (the game window, whichever backend made it).
+bool host_input_focused()
+{
+    const HWND foreground = GetForegroundWindow();
+    if (foreground == nullptr)
+    {
+        return false;
+    }
+    DWORD process = 0;
+    GetWindowThreadProcessId(foreground, &process);
+    return process == GetCurrentProcessId();
+}
+#endif
+
 // One 60 Hz NTSC field, the unit 0x000FC030 counts the step in (DAT_005096C0 = fields / 60).
 constexpr std::chrono::duration<double> kLogicStep{1.0 / 60.0};
 // D3DPRESENT_INTERVAL_TWO: the fewest fields between two swaps, so the usual step is 1/30 s.
@@ -270,13 +285,20 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         }
 #if defined(_WIN32)
         // Xbox pad is read in frame_tick. On PC the host copies the keyboard into that same pad state.
+        // The keyboard and pads count only while a window of this process has the focus; a headless run (no
+        // visible window) reads none, so its result does not depend on what is pressed elsewhere.
+        const bool focused = gfx_cfg.visible && host_input_focused();
+        const auto key = [focused](int code)
+        {
+            return focused && (GetAsyncKeyState(code) & 0x8000) != 0;
+        };
 #if defined(GBTG_DEBUG_UI)
         // F8 and F12 never enter InputState. While the menu bar is open, keyboard
         // mappings stay clear so the scene list can use those keys.
         static bool f8_down = false;
         static bool f12_down = false;
-        const bool f8 = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
-        const bool f12 = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+        const bool f8 = key(VK_F8);
+        const bool f12 = key(VK_F12);
         if (f8 && !f8_down)
         {
             debug_ui_toggle_menu();
@@ -290,46 +312,46 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         if (!debug_ui_menu_open())
         {
 #endif
-        if (GetAsyncKeyState(VK_UP) & 0x8000)
+        if (key(VK_UP))
         {
             in.up = true;
         }
-        if (GetAsyncKeyState(VK_DOWN) & 0x8000)
+        if (key(VK_DOWN))
         {
             in.down = true;
         }
-        if (GetAsyncKeyState(VK_LEFT) & 0x8000)
+        if (key(VK_LEFT))
         {
             in.left = true;
         }
-        if (GetAsyncKeyState(VK_RIGHT) & 0x8000)
+        if (key(VK_RIGHT))
         {
             in.right = true;
         }
-        if (GetAsyncKeyState(VK_RETURN) & 0x8000)
+        if (key(VK_RETURN))
         {
             in.accept = true;
         }
-        if (GetAsyncKeyState(VK_BACK) & 0x8000 || GetAsyncKeyState('B') & 0x8000)
+        if (key(VK_BACK) || key('B'))
         {
             in.back = true;
         }
         // Start is its own bit. Enter stays A so the two are never down together.
-        if (GetAsyncKeyState(VK_SPACE) & 0x8000)
+        if (key(VK_SPACE))
         {
             in.start = true;
         }
         // 0x00014C10. X is bit 0x0400 (keyboard code 5). '[' and ']' stand in for
         // the trigger bits 0x4000 and 0x8000 (codes 9 and 10).
-        if (GetAsyncKeyState('X') & 0x8000)
+        if (key('X'))
         {
             in.page = true;
         }
-        if (GetAsyncKeyState(VK_OEM_4) & 0x8000)
+        if (key(VK_OEM_4))
         {
             in.caret_left = true;
         }
-        if (GetAsyncKeyState(VK_OEM_6) & 0x8000)
+        if (key(VK_OEM_6))
         {
             in.caret_right = true;
         }
@@ -341,10 +363,10 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         if (!debug_ui_menu_open())
 #endif
         {
-            const auto axis = [](int negative, int positive) -> i16
+            const auto axis = [&key](int negative, int positive) -> i16
             {
-                const bool low = (GetAsyncKeyState(negative) & 0x8000) != 0;
-                const bool high = (GetAsyncKeyState(positive) & 0x8000) != 0;
+                const bool low = key(negative);
+                const bool high = key(positive);
                 return i16(high == low ? 0 : high ? 32767 : -32767);
             };
             in.pads[0].lx = axis('A', 'D');
@@ -357,7 +379,7 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         for (DWORD port = 0; port < 4; ++port)
         {
             XINPUT_STATE state{};
-            if (XInputGetState(port, &state) != 0)
+            if (!focused || XInputGetState(port, &state) != 0)
             {
                 continue;
             }

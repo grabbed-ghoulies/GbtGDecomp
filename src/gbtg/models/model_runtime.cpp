@@ -4,6 +4,7 @@
 #include <new>
 #include <bit>
 #include <cmath>
+#include <cstring>
 
 namespace gbtg
 {
@@ -733,6 +734,23 @@ void tick_runtime_model_shader_animations(RuntimeModelShaderAnimations& animatio
 const RuntimeShaderCpuEntry* runtime_shader_entry(const RuntimeShaderCpu& shader, u32 index)
 {
     return &shader.entries[index];
+}
+
+// Xbox 0x0015B270
+i32 runtime_shader_entry_word(const RuntimeShaderCpu& shader, const char* name)
+{
+    const RuntimeShaderCpuEntry* entry = nullptr;
+    if (!find_runtime_shader_entry(shader, name, entry)) // 0x0015B0E0
+    {
+        return -1;
+    }
+    if (shader.records == nullptr)
+    {
+        throw Error("0x0015B270 reads the records of a shader without them (+8 is 0)");
+    }
+    i32 word;
+    std::memcpy(&word, shader.records + size_t(entry->value) * 0x1C, 4);
+    return word;
 }
 
 // Xbox 0x0015B0E0. A miss does not write the output.

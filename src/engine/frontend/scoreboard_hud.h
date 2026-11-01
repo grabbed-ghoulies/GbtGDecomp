@@ -66,7 +66,7 @@ struct RuntimeScoreboardGlobals
     float meter_bc0 = 0.f; // DAT_00433BC0.
     u32 meter_bc8 = 0; // DAT_00433BC8 (written by code not yet translated).
     u32 meter_drawn = 0; // DAT_00433BCC.
-    u32 meter_bd0 = 0; // DAT_00433BD0.
+    u32 meter_bd0 = 0; // DAT_00433BD0: 0x0007DF50 sets it for a held kind-4 weapon; 0x0012ED30 buzzes and clears it.
     float meter_bd4 = 0.f; // DAT_00433BD4, half the gauge texture's +8 width.
     float meter_bd8 = 0.f; // DAT_00433BD8.
     // DAT_00433BE4..DAT_00433C6C: the health display's words that RuntimePlayerHealthDisplay does not view.

@@ -445,7 +445,6 @@ struct SceneActorServices::State
     i32 pal = 0;
     i32 pal_override = 0;
     u32 scare_flags = 0;
-    u32 player_link = 0; // DAT_00511B40.
     ActorScareContext scares;
     // Shared actor state.
     std::unordered_map<ActorFrameAttachment*, const u8*> frame_objects;
@@ -685,7 +684,6 @@ struct SceneActorServices::State
     std::unordered_map<const Actor*, RuntimeScriptMindQuery*> target_queries;
     std::unordered_map<u32, std::pair<RuntimePlayerTargetView*, RuntimeMindTarget*>> embedded_targets;
     RuntimeScriptMindQuery absent_target_query{}; // Actors whose +0x95C is not a player body.
-    u32 attachment_notice = 0; // DAT_00433BD0.
     const void* script_records = nullptr; // DAT_0051108C.
     std::string goal_scratch; // DAT_00508EB8.
     std::vector<FactoryObject> callout_objects;
@@ -907,7 +905,7 @@ struct SceneActorServices::State
     void bind_pause_services();
     RuntimeModelRenderContext model_renderer{}; // DAT_004370A0..
     RuntimeSceneFog fog{}; // DAT_00509AFC..
-    CutsceneCameraImpulse camera_impulse{}; // DAT_0050E7BC..
+    CutsceneCameraImpulse camera_impulse = ambient_flash_state(); // DAT_0050E7BC..DAT_0050E7D0, the lightning flash.
     CutsceneCameraEventAsset camera_event_asset{}; // DAT_004E1C4C..
     Vec3 listener_position{};
     u32 movie_flag_38 = 0;
@@ -1362,7 +1360,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
       effect_models{resources.registry, resources.error, resources.model_views, deferred, fence, resources.copy_types,
           shaders, *scratch, heap_free},
       effects{effect_models, sounds, random, origin, default_euler},
-      scares{scene.factory, image.pools, scene.objects, scare_flags, player_link, default_euler},
+      scares{scene.factory, image.pools, scene.objects, scare_flags,
+          [this]() -> u32
+          {
+              return cases.next == nullptr ? 0u : address_of(cases.next); // DAT_00511B40
+          },
+          default_euler},
       intro_sound{reinterpret_cast<u32&>(health_style), intro_scale,
           reinterpret_cast<i16&>(scoreboard_globals.health_second_voice), intro_bits, sounds},
       camera{scene.factory, image.pools, image.string(0x00314E50), data(0x00314EB0, 0x80), g_flags_ea9c,
@@ -2607,6 +2610,21 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](u32 texture) -> u8*
         {
             return resources.memory.pointer(texture);
+        },
+        &clock, &display_view, &screen_tint, &g_flags_ea9c,
+        [this]() -> u32
+        {
+            // DAT_00511B40 and its body's +0x15C: byte 5 bit 4.
+            if (cases.next == nullptr)
+            {
+                return 0;
+            }
+            const EntityBitBlock* bits = case_body_bits(static_cast<const entity_detail::ListHead*>(cases.next));
+            if (bits == nullptr)
+            {
+                unbound("the case player's body bits (+0x95C +0x15C)");
+            }
+            return (bits->bytes[5] >> 4) & 1u;
         }});
     classes->install(scene.types);
     classes->defer_release = true;
@@ -5421,7 +5439,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         targets, target_views, target_eligibility, target_addresses, target_queries, embedded_targets, query,
         view_invert,
-        data(0x002FFF24, 0x10), read_f32(data(0x004275B8, 4), 0), attachment_notice,
+        data(0x002FFF24, 0x10), read_f32(data(0x004275B8, 4), 0),
+        scoreboard_globals.meter_bd0, // DAT_00433BD0, the meter buzzer 0x0012ED30 plays and clears
         statsheet, data(0x00433D5C, 0xC), powerup_rows[11].active, player_damage,
         [this](u32 address) -> const u8*
         {
@@ -5486,6 +5505,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             }
         }
         return {};
+    };
+    // 0x001412F0's test of DAT_00511B0C: actors wait on the live list to be activated.
+    g_live_actors_pending = [this]()
+    {
+        return live_actors.next != nullptr;
     };
     // 0x001412F0's walk of DAT_00511B38: each player's +0x980 goal ring front (an empty ring reads address zero,
     // as retail does), +0x984 and +0x98C.
@@ -5918,7 +5942,6 @@ void SceneActorServices::State::reset_scene_data()
     effect_sound_frame = 0;
     frame_effect_scratch = {};
     scare_flags = 0;
-    player_link = 0;
     player_damage = 0;
     collision_push_contacts = {};
     body_slide_contacts = {};
@@ -5956,7 +5979,6 @@ void SceneActorServices::State::reset_scene_data()
     // decay_index is DAT_0051248C, the script's title mode: only 0x001287F0 clears it (script_set_default_name).
     // A clear here ran after a restarted scene's first title, so its next title with the same id looked active.
     targets = nullptr;
-    attachment_notice = 0;
     goal_scratch.clear();
     brews_taken = 0;
     brew_accepted = 0;
@@ -6959,6 +6981,7 @@ SceneActorServices::State::~State()
         active_services = nullptr;
         g_actor_pause = nullptr;
         g_loading_actors = nullptr;
+        g_live_actors_pending = nullptr;
         g_spawn_trigger_players = nullptr;
         g_runtime_invisibility = nullptr;
         g_chapter5_countdown = nullptr;
@@ -7905,6 +7928,26 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             frame->decay_enabled = decay_enabled[decay_index];
             classes->update_motion_blur(updated);
             store_actor_model_animation_view(updated_view);
+        };
+        // Xbox 0x00070370
+        dispatch_base_actor_word_message(base_of(object).base, message, word_messages);
+        if (message[0] == 0x23)
+        {
+            unregister_actor_segment_probes(view.render);
+            clear_actor_shape_probe(view.bat.actor, view.shape);
+        }
+        return;
+    }
+    if (type == 0x1C)
+    {
+        // Getter 0x0006FCC0: +0x10 is 0x0006FF90 (the actor update 0x000420D0 first) and +0xC is 0x00070370.
+        auto& view = actors->view(object);
+        const u8* bytes = object.bytes.get();
+        actor_updates[&view.bat.actor] = [this, bytes](Actor&)
+        {
+            auto& updated = *object_of(bytes);
+            update_base_actor(updated); // 0x000420D0
+            classes->update_scare(updated);
         };
         // Xbox 0x00070370
         dispatch_base_actor_word_message(base_of(object).base, message, word_messages);
@@ -10275,6 +10318,16 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
                 classes->draw_bone_debris(*object, pass, draw);
                 return;
             }
+            // Type 0x1C +0x14 is 0x000702C0: the scare turns to the camera, then the actor draw 0x0003C9E0; with
+            // the camera inside it draws nothing.
+            if (type == 0x1C)
+            {
+                if (classes->face_scare(*object))
+                {
+                    draw_scene_actor(*object, actor, pass);
+                }
+                return;
+            }
             // Type 0x13 +0x14 is 0x0006C7C0: the light's glow billboard, then the actor draw 0x0003C9E0.
             if (type == 0x13)
             {
@@ -10447,6 +10500,11 @@ u32 SceneActorServices::State::actor_visible(Actor& actor, i32 pass, i32 view)
     if (object.type == 0xD)
     {
         return classes->emitter_visible(object, u32(pass), u32(view)) ? 1u : 0u;
+    }
+    if (object.type == 0x1C)
+    {
+        // The scare's getter 0x0006FCC0 puts 0x000CFFD0 at +0x18: it returns 1, always visible.
+        return 1;
     }
     if (object.type != 2 && object.type != 5 && object.type != 0xF && object.type != 0x10 && object.type != 0x12
         && object.type != 0x13 && object.type != 0x15 && object.type != 0x16 && object.type != 0x17
@@ -10937,7 +10995,8 @@ void SceneActorServices::State::present_view(i32 view)
 
 // Actor vtable +0x38, which 0x00121DC0 calls when set. Getters 0x0003C080 (type 2, the base every class below
 // starts from, clears it), 0x00042BC0 (4), 0x00027F60 (5), 0x00109DD0 (0xD), 0x0006D4A0 (0x15), 0x0006EE20 (0x1A),
-// 0x0006DBD0 (0x1F), 0x00069620 (0x23), 0x000704D0 (0x1B), 0x000711A0 (0x20) and 0x000CEF70 (0xAA) leave it 0.
+// 0x0006DBD0 (0x1F), 0x00069620 (0x23), 0x000704D0 (0x1B), 0x000711A0 (0x20), 0x0006FCC0 (0x1C) and 0x000CEF70 (0xAA)
+// leave it 0.
 void SceneActorServices::State::view_refresh_slot(Actor& actor)
 {
     for (const auto& [bytes, native] : actors->actors)
@@ -10950,7 +11009,7 @@ void SceneActorServices::State::view_refresh_slot(Actor& actor)
                 || type == 0x13 || type == 0x15 || type == 0x16 || type == 0x17
                 || type == 0x1A || type == 0x1F || type == 0x23 || type == 0x25 || type == 0x24 || type == 0x26
                 || type == 0x1E || type == 0x1D || type == 0x18 || type == 0x19 || type == 0x1B || type == 0x21 || type == 0x20
-                || type == 0xAA || type == 0xA9 || type == 0xA8 || type == 0xA7
+                || type == 0x1C || type == 0xAA || type == 0xA9 || type == 0xA8 || type == 0xA7
                 || type == 0xA0 || type == 0xA1 || type == 0xA2 || type == 0xA3 || type == 0xA5 || type == 0xA6)
             {
                 return;

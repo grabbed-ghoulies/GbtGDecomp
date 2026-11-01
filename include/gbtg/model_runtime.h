@@ -84,6 +84,7 @@ struct RuntimeShaderCpu
 {
     std::span<const RuntimeShaderCpuEntry> entries; // +0x24, count +0x28
     std::span<const std::array<u8, 0x48>> initial_parameters; // +4, count +0x10
+    const u8* records = nullptr; // +8, 0x1C-byte records an entry's value indexes (0x0015B270 reads the first word)
     u32 zero_word_count = 0; // +0xC
     u32 instance_size = 0; // +0x44
 };
@@ -225,6 +226,8 @@ void copy_runtime_node_shader_parameters(const RuntimeModelNode& node,
 
 const RuntimeShaderCpuEntry* runtime_shader_entry(const RuntimeShaderCpu& shader,
     u32 index); // Xbox 0x0015B0C0
+// The first word of the record the named entry's value indexes, or -1 without the entry.
+i32 runtime_shader_entry_word(const RuntimeShaderCpu& shader, const char* name); // Xbox 0x0015B270
 bool find_runtime_shader_entry(const RuntimeShaderCpu& shader, const char* name,
     const RuntimeShaderCpuEntry*& result); // Xbox 0x0015B0E0
 bool find_runtime_shader_parameter(const RuntimeShaderCpu& shader, RuntimeShaderInstance& instance,

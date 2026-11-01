@@ -1,6 +1,7 @@
 #include "shader_parameters.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/model_runtime.h"
+#include <cstring>
 
 namespace gbtg
 {
@@ -31,6 +32,50 @@ RuntimeShaderTextureParameter* create_shader_parameter(RuntimeModelInstance& mod
     parameter->shader = model.tree_storage.shader_nodes.at(node->copy_offset).primary; // model + node +0xC + 0x2A4
     parameter->index = u32(entry->value);
     return parameter;
+}
+
+// Xbox 0x000F9B00
+u32 runtime_model_texture_address(const RuntimeModelInstance& model, u32 index,
+    const std::function<const u8*(u32)>& pointer)
+{
+    for (const RuntimeModelResourceBlock& block : model.source->blocks)
+    {
+        if (block.type == 7)
+        {
+            u32 list;
+            std::memcpy(&list, block.data + 4, 4);
+            u32 texture;
+            std::memcpy(&texture, pointer(list) + size_t(index) * 4, 4);
+            return texture;
+        }
+    }
+    throw Error("0x000F9B00 reads the texture list of a model without one (address 4 + 4 index)");
+}
+
+// Xbox 0x00040B70
+u32 find_actor_shader_texture(const RuntimeModelInstance* model, const char* shader, const char* name,
+    const std::function<const u8*(u32)>& pointer)
+{
+    if (model == nullptr) // Actor +0x204
+    {
+        return 0;
+    }
+    const RuntimeModelTree* tree = model->source->tree; // *(*(model + 0) + 0x10) + 0x24
+    if (tree == nullptr)
+    {
+        return 0;
+    }
+    RuntimeModelNode* node = nullptr;
+    if (!find_runtime_model_named_node(*tree, shader, node) || node == nullptr) // 0x001568E0
+    {
+        return 0;
+    }
+    const i32 index = runtime_shader_entry_word(*node->shader_cpu, name); // 0x0015B270, the node's +0x20
+    if (index == -1)
+    {
+        return 0;
+    }
+    return runtime_model_texture_address(*model, u32(index), pointer); // 0x000F9B00
 }
 
 // Xbox 0x0015B2B0: the shader instance's texture word for the parameter.

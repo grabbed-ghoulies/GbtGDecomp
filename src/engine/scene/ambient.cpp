@@ -275,6 +275,11 @@ void amb_sample_extra(AudioEventVoices* voices)
 
 } // namespace
 
+CutsceneCameraImpulse ambient_flash_state()
+{
+    return {g_amb_blend, g_amb_fade, g_amb_goal, g_amb_rate, g_amb_gate};
+}
+
 RuntimeBackgroundAmbient runtime_background_ambient()
 {
     return {g_amb_emitters, g_amb_count, g_amb_vary_point, g_amb_vary,

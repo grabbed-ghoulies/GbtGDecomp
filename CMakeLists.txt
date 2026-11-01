@@ -317,6 +317,7 @@ add_library(gbtg_lib STATIC
     src/engine/entities/body_look_for_weapon_state.cpp
     src/engine/entities/body_slide_state.cpp
     src/engine/entities/animated_light.cpp
+    src/engine/entities/scare_actor.cpp
     src/engine/entities/body_swing_state.cpp
     src/engine/entities/actor_runtime_queries.cpp
     src/engine/entities/actor_view_visibility.cpp
@@ -697,7 +698,6 @@ add_executable(gbtg
     src/engine/frontend/gameselect_progress.cpp
     src/engine/frontend/button_bat_menu.cpp
     src/engine/frontend/input_stack.cpp
-    src/engine/frontend/text_tokens.cpp
     src/engine/scene/lighting.cpp
     src/engine/scene/ambient.cpp
     src/engine/scene/scene_resources.cpp

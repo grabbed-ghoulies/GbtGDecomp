@@ -25,6 +25,7 @@
 #include "sss_door.h"
 #include "bone_debris_actor.h"
 #include "animated_light.h"
+#include "scare_actor.h"
 #include "../graphics/effect_collision_response.h"
 
 namespace gbtg
@@ -110,6 +111,13 @@ struct NativeSceneActorClassBindings
     const char* default_name;
     // The after-image (type 0x11) and bone debris (type 0x12) shader textures: a texture's bytes by its address.
     std::function<u8*(u32)> texture_bytes;
+    // The scare (type 0x1C): the actor clock, the view (DAT_005077A8), the screen tint (DAT_00504450), the
+    // runtime flags (DAT_0050EA9C) and the case player's body +0x15C byte 5 bit 4 (0 without a case player).
+    const RuntimeActorClock* clock = nullptr;
+    entity_detail::DisplayView* const* view = nullptr;
+    RuntimeScreenTint* tint = nullptr;
+    u32* runtime_flags = nullptr;
+    std::function<u32()> case_player_flag;
 };
 // Native contexts for the retail area/trigger classes, over the existing
 // actor lifecycle owner. All referenced scene services must outlive this owner.
@@ -221,6 +229,10 @@ public:
     void release_animated_light(FactoryObject& object); // Xbox 0x0006C540.
     void update_animated_light(FactoryObject& object); // Type 0x13 vtable +0x10 after 0x000420D0, Xbox 0x0006C5A0.
     void queue_animated_light_glow(FactoryObject& object); // Type 0x13 vtable +0x14 before 0x0003C9E0, 0x0006C7C0.
+    bool construct_scare(FactoryObject& object, std::span<const u8> parameters); // Type 0x1C, Xbox 0x0006FD20.
+    void release_scare(FactoryObject& object); // Xbox 0x0006FF20.
+    void update_scare(FactoryObject& object); // Type 0x1C vtable +0x10 after 0x000420D0, Xbox 0x0006FF90.
+    bool face_scare(FactoryObject& object); // Type 0x1C vtable +0x14 before 0x0003C9E0, Xbox 0x000702C0.
     // A weapon's +0x998 collision state slot (0x0013F150); `bytes` must be a weapon of this owner.
     RuntimeBodyCollisionState*& weapon_markers(const u8* bytes);
     bool owns_weapon(const u8* bytes) const;
@@ -256,6 +268,7 @@ private:
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAvatarAfterimage>> afterimages_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeBoneDebris>> bone_debris_;
     std::unordered_map<const u8*, std::unique_ptr<RuntimeAnimatedLight>> animated_lights_;
+    std::unordered_map<const u8*, std::unique_ptr<RuntimeScareActor>> scares_;
     std::unordered_map<const u8*, std::unique_ptr<WeaponInstance>> weapons_;
 };
 }

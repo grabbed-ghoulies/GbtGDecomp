@@ -61,6 +61,7 @@ public:
                 output.parameters.size() * 0x48);
         }
         output.cpu.initial_parameters = output.parameters;
+        output.cpu.records = image.word(address, 8) == 0 ? nullptr : image.pointer(image.word(address, 8));
         output.entries.resize(image.word(address, 0x28));
         for (u32 index = 0; index < output.entries.size(); ++index)
         {

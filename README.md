@@ -25,6 +25,10 @@ You must supply your own extracted retail copy of the game. This repository does
 not distribute Xbox executables, disc images, original assets, Microsoft XDK
 headers or the RAD Bink SDK.
 
+The PAL and NTSC (USA) releases are supported; they are the same build. The
+NTSC-J (Japan) release is a later build with a different executable layout and
+does not run yet. See [Regional releases](docs/REGIONS.md).
+
 Place the extracted disc files in `OriginalFiles/`, or pass another directory
 with `--game-dir`. The runtime expects an extracted directory, not an ISO:
 

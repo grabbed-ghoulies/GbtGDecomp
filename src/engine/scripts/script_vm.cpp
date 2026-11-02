@@ -325,7 +325,7 @@ bool script_seek_node_type(const SceneScript& script, u32& cursor, u32 type)
 
 
 // Xbox 0x00128BC0
-int script_handle_title_actions(Game& g, const ScriptNode& node, u32& cursor, int param_2, int param_3)
+int script_handle_title_actions(Game& g, const ScriptNode& node, u32& cursor, int live_7d, int ending)
 {
     switch (node.type)
     {
@@ -355,11 +355,11 @@ int script_handle_title_actions(Game& g, const ScriptNode& node, u32& cursor, in
         const u32 at_8 = node_u32(g.scene_script, node, 8);
         const u32 at_c = node_u32(g.scene_script, node, 0xc);
         script_activate_title(g, node_cstr(g.scene_script, node, 0x10), i32(at_8), i32(at_c));
-        if (param_3 != 0 && at_8 == 0)
+        if (ending != 0 && at_8 == 0)
         {
             return 0;
         }
-        if (param_2 == 0 && param_3 == 0)
+        if (live_7d == 0 && ending == 0)
         {
             return 0;
         }
@@ -379,7 +379,7 @@ int script_handle_title_actions(Game& g, const ScriptNode& node, u32& cursor, in
         }
         return 2;
     case 0x10:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             if (g_gate_251c == 0)
             {
@@ -390,7 +390,7 @@ int script_handle_title_actions(Game& g, const ScriptNode& node, u32& cursor, in
         }
         return 2;
     case 0x11:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             g_gate_251c = g_gate_251c + 1;
             return 2;
@@ -430,16 +430,18 @@ int script_handle_title_actions(Game& g, const ScriptNode& node, u32& cursor, in
 // Xbox 0x00128A00
 int script_execute_fired_action(Game& g, u32& offset)
 {
-    int param_2 = 0;
+    // The handlers' two flags (Ghidra's param_2 and param_3): a type 0x7D live event is pending, and, without one,
+    // the scene's end gate (0x00123B00) is set.
+    int live_7d = 0;
     for (LiveScript* live = g_live_scripts; live != nullptr; live = live->next)
     {
         if (live->type == 0x7d)
         {
-            param_2 = 1;
+            live_7d = 1;
             break;
         }
     }
-    const int param_3 = param_2 == 0 && script_end_gate_set() ? 1 : 0;
+    const int ending = live_7d == 0 && script_end_gate_set() ? 1 : 0;
     while (true)
     {
         auto node = script_node_at(g.scene_script, offset);
@@ -447,7 +449,7 @@ int script_execute_fired_action(Game& g, u32& offset)
         {
             return 0;
         }
-        int handler = script_handle_title_actions(g, *node, offset, param_2, param_3);
+        int handler = script_handle_title_actions(g, *node, offset, live_7d, ending);
         if (handler == 3)
         {
             handler = script_handle_actor_state(g, *node);
@@ -462,7 +464,7 @@ int script_execute_fired_action(Game& g, u32& offset)
         }
         if (handler == 3)
         {
-            handler = script_handle_pair_updates(g, *node, param_2);
+            handler = script_handle_pair_updates(g, *node, live_7d);
         }
         if (handler == 3)
         {
@@ -474,11 +476,11 @@ int script_execute_fired_action(Game& g, u32& offset)
         }
         if (handler == 3)
         {
-            handler = script_handle_action_links(g, *node, param_2, param_3);
+            handler = script_handle_action_links(g, *node, live_7d, ending);
         }
         if (handler == 3)
         {
-            handler = script_handle_scene_actions(g, *node, param_2, param_3);
+            handler = script_handle_scene_actions(g, *node, live_7d, ending);
         }
         if (handler == 3)
         {
@@ -490,7 +492,7 @@ int script_execute_fired_action(Game& g, u32& offset)
         }
         if (handler == 3)
         {
-            handler = script_handle_resource_actions(g, *node, param_2);
+            handler = script_handle_resource_actions(g, *node, live_7d);
         }
         if (handler == 3)
         {
@@ -498,15 +500,15 @@ int script_execute_fired_action(Game& g, u32& offset)
         }
         if (handler == 3)
         {
-            handler = script_handle_cutscene_actions(g, *node, param_3);
+            handler = script_handle_cutscene_actions(g, *node, ending);
         }
         if (handler == 3)
         {
-            handler = script_handle_actor_effects(g, *node, param_2, param_3);
+            handler = script_handle_actor_effects(g, *node, live_7d, ending);
         }
         if (handler == 3)
         {
-            handler = script_handle_world_actions(g, *node, param_2, param_3);
+            handler = script_handle_world_actions(g, *node, live_7d, ending);
         }
         if (handler == 3)
         {

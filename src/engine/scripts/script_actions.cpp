@@ -612,13 +612,13 @@ i32 g_pair_slot_count = 0;
 // 0x000F96F0. The object is the dword at link-0x730, then the dword at
 // link-0x624. A null object skips that call. Both paths return 2.
 // Xbox 0x00124FC0
-int script_handle_pair_updates(Game& g, const ScriptNode& node, int param_2)
+int script_handle_pair_updates(Game& g, const ScriptNode& node, int live_7d)
 {
     if (node.type != 0x98)
     {
         return 3;
     }
-    if (param_2 != 0)
+    if (live_7d != 0)
     {
         const u8 index = node_u8(g.scene_script, node, 8);
         const u8 value = node_u8(g.scene_script, node, 0xC);
@@ -1097,14 +1097,14 @@ bool script_node_is_last_action(const SceneScript& script, const ScriptNode& nod
 
 
 // Xbox 0x001259B0
-int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int param_3)
+int script_handle_action_links(Game& g, const ScriptNode& node, int live_7d, int ending)
 {
     const u32 type = node.type;
     if (type != 0x29)
     {
         if (type == 0x4f)
         {
-            if (param_2 == 0)
+            if (live_7d == 0)
             {
                 const size_t slot = size_t(g_queued_tag_count);
                 g_queued_tags.resize(slot + 1);
@@ -1130,7 +1130,7 @@ int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int
         }
         return 3;
     }
-    if ((param_2 != 0) && (param_3 == 0))
+    if ((live_7d != 0) && (ending == 0))
     {
         if (g_runtime_doors == nullptr)
         {
@@ -1232,9 +1232,9 @@ void mark_runtime_one_type_actors(u16 tag, i32 keep)
 // their header (0x00125C80 .. 0x00126100) and queue it through 0x000D05D0. A handled type returns 2. The second
 // argument is unused.
 // Xbox 0x00126140
-int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, int param_3)
+int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, int ending)
 {
-    (void)param_2;
+    (void)live_7d;
     auto push_named = [&](u32 gate, u32 key_at, u16* words, u32& count)
     {
         if (node_u32(g.scene_script, node, gate) != 0)
@@ -1247,7 +1247,7 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     switch (node.type)
     {
     case 0x17:
-        if (param_3 != 0)
+        if (ending != 0)
         {
             return 0;
         }
@@ -1913,7 +1913,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
 // A nonzero dword at node+0xC calls 0x000F29D0; zero calls 0x000F29F0. Both
 // take ECX = the dword at node+8.
 // Xbox 0x00126E10
-int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
+int script_handle_resource_actions(Game& g, const ScriptNode& node, int live_7d)
 {
     switch (node.type)
     {
@@ -2019,7 +2019,7 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
         }
     }
     case 0x67:
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             const size_t slot = size_t(g_gate_2440);
             g_gate_2420.resize(slot + 1);
@@ -2581,12 +2581,12 @@ int play_script_walk_in_cutscene(Game& g, const ScriptNode& node)
 }
 
 // Xbox 0x001274B0
-int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
+int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int ending)
 {
     switch (node.type)
     {
     case 0x13:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             auto& cutscenes = scene_cutscene_runtime(g);
             if (g_flag_2470 == 0)
@@ -2644,14 +2644,14 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         }
         return 2;
     case 0x14:
-        if (param_3 != 0)
+        if (ending != 0)
         {
             return 2;
         }
         // Native dependency binding, not a substitute implementation of the
         // retail dialogue calls. Missing ownership must not skip this node.
         return execute_runtime_script_dialogue(g.scene_script.bytes.data() + node.offset,
-            param_3, scene_dialogue_context(g));
+            ending, scene_dialogue_context(g));
     case 0x15:
     {
         // 0x00106D50 (EDI node+8, the byte at node+0x88, the dword at node+0x8C and 1) loads the movie event into
@@ -2669,7 +2669,7 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         return 2;
     }
     case 0x16:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             if (g_flag_2470 != 0)
             {
@@ -2690,7 +2690,7 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         }
         return 2;
     case 0x53:
-        if (param_3 != 0)
+        if (ending != 0)
         {
             return 2;
         }
@@ -2828,12 +2828,12 @@ void remember_script_player_weapon(const char* name, i32 value)
 // is pushed for 0x0013A860. A zero return returns 2. Nonzero calls 0x0012ECC0
 // and returns 2.
 // Xbox 0x00127BC0
-int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, int param_3)
+int script_handle_actor_effects(Game& g, const ScriptNode& node, int live_7d, int ending)
 {
     switch (node.type)
     {
     case 0x2c:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             SceneActorServices* actors = script_scene_actors(g);
             if (actors == nullptr)
@@ -2844,7 +2844,7 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         }
         return 2;
     case 0x2d:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             SceneActorServices* actors = script_scene_actors(g);
             if (actors == nullptr)
@@ -2896,7 +2896,7 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
     case 0x31:
     {
         const std::string name = node_cstr(g.scene_script, node, 8);
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             remember_script_player_weapon(name.c_str(), 0); // 0x00123AD0, EAX node+8, ECX 0
             return 2;
@@ -2908,7 +2908,7 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 0x46:
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             g_flag_30d08 = 0;
             g_byte_30d14[0] = 0;
@@ -3004,7 +3004,7 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
     }
     case 0xa6:
     {
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             g_flag_30d08 = 0;
             g_byte_30d14[0] = 0;
@@ -3227,7 +3227,7 @@ SceneActorServices& boot_scene_actors(Game& g)
 }
 
 // Xbox 0x00128050
-int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, int param_3)
+int script_handle_world_actions(Game& g, const ScriptNode& node, int live_7d, int ending)
 {
     switch (node.type)
     {
@@ -3238,7 +3238,7 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 2:
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             const std::string key = node_cstr(g.scene_script, node, 8);
             request_scene_object(g_scene_object_requests, key.c_str());
@@ -3315,10 +3315,10 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
     }
     case 0xa:
     {
-        // The scene's name (0x000FF0A0 into DAT_00507E78, 0x0011DCF0), shown when node+0x48 is set and param_3 is 0.
+        // The scene's name (0x000FF0A0 into DAT_00507E78, 0x0011DCF0), shown when node+0x48 is set and ending is 0.
         const std::string key = node_cstr(g.scene_script, node, 8);
         boot_scene_actors(g).show_script_scene_name(key.c_str(), node_u32(g.scene_script, node, 0x48),
-            param_3, std::bit_cast<float>(node_u32(g.scene_script, node, 0x4C)),
+            ending, std::bit_cast<float>(node_u32(g.scene_script, node, 0x4C)),
             std::bit_cast<float>(node_u32(g.scene_script, node, 0x50)));
         return 2;
     }

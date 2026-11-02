@@ -55,7 +55,7 @@ int script_handle_actor_messages(Game& g, const ScriptNode& node); // Xbox 0x001
 // 0x000F96F0. The object is the dword at link-0x730, then the dword at
 // link-0x624. A null object skips that call. Both paths return 2.
 // Xbox 0x00124FC0
-int script_handle_pair_updates(Game& g, const ScriptNode& node, int param_2); // Xbox 0x00124FC0
+int script_handle_pair_updates(Game& g, const ScriptNode& node, int live_7d); // Xbox 0x00124FC0
 
 // Its cases are described above its definition in script_actions.cpp.
 int script_handle_condition_setup(Game& g, const ScriptNode& node); // Xbox 0x001251E0
@@ -81,7 +81,7 @@ extern float g_script_6544;
 // DAT_004DEA58, the input refresh frame.
 
 // Its cases are described above its definition in script_actions.cpp.
-int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int param_3); // Xbox 0x001259B0
+int script_handle_action_links(Game& g, const ScriptNode& node, int live_7d, int ending); // Xbox 0x001259B0
 bool script_node_is_last_action(const SceneScript& script, const ScriptNode& node); // Xbox 0x000532E0
 struct AudioBankStreams;
 AudioBankStreams& scene_music_streams(Game& g); // The native scene's bank streams (DAT_004DF370..).
@@ -93,7 +93,7 @@ struct ScriptDoorStartContext
 void script_apply_scene_door_states(ScriptDoorStartContext& context); // Xbox 0x00125B80
 
 // Its cases are described above its definition in script_actions.cpp.
-int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, int param_3); // Xbox 0x00126140
+int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, int ending); // Xbox 0x00126140
 
 // Xbox 0x001269D0. Handler 9. The dword at node+4 is the type. Type 0x49 ORs
 // the dword at node+8 into DAT_0050EA9C and returns 2. Type 0x4A clears those
@@ -105,7 +105,7 @@ int script_handle_flag_bits(Game& g, const ScriptNode& node); // Xbox 0x001269D0
 int script_handle_actor_actions(Game& g, const ScriptNode& node); // Xbox 0x00126A10
 
 // Its cases are described above its definition in script_actions.cpp.
-int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2); // Xbox 0x00126E10
+int script_handle_resource_actions(Game& g, const ScriptNode& node, int live_7d); // Xbox 0x00126E10
 
 // DAT_00512470. Type 0x13 sets this when the dword at node+0x88 is nonzero.
 // Type 0x16 sets it when the dword at node+0x8C is nonzero. Type 0x53 sets it
@@ -136,7 +136,7 @@ void reset_scene_script_runtime(Game& g); // Xbox 0x00116E00
 int script_handle_event_actions(Game& g, const ScriptNode& node); // Xbox 0x00127340
 
 // Its cases are described above its definition in script_actions.cpp.
-int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3); // Xbox 0x001274B0
+int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int ending); // Xbox 0x001274B0
 
 // DAT_00430d08. Types 0x46 and 0xA6 store 0 when the second argument is zero.
 // The same path stores a zero byte at DAT_00430d14. 0x0011EB30 clears both
@@ -150,7 +150,7 @@ void remember_script_player_weapon(const char* name, i32 value); // Xbox 0x00123
 void restore_script_story_bits(bool restore); // Xbox 0x001272B0, EAX restore
 
 // Its cases are described above its definition in script_actions.cpp.
-int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, int param_3); // Xbox 0x00127BC0
+int script_handle_actor_effects(Game& g, const ScriptNode& node, int live_7d, int ending); // Xbox 0x00127BC0
 
 // DAT_00430D10. Type 0x7 stores the dword at node+8. entity.cpp keeps a
 // private copy of this address.
@@ -224,7 +224,7 @@ extern float g_camera_light_24;
 extern float g_camera_light_28;
 
 // Its cases are described above its definition in script_actions.cpp.
-int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, int param_3); // Xbox 0x00128050
+int script_handle_world_actions(Game& g, const ScriptNode& node, int live_7d, int ending); // Xbox 0x00128050
 
 // Its cases are described above its definition in script_actions.cpp.
 int script_handle_broadcast_actions(Game& g, const ScriptNode& node); // Xbox 0x00128770

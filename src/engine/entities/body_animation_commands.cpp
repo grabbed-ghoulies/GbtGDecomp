@@ -4,6 +4,7 @@
 #include "actor_render_registration.h"
 #include "player_mind_events.h"
 #include "gbtg/sound_runtime.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -543,7 +544,7 @@ float runtime_body_random_range(u32& random, float low, float high)
 void command_runtime_body_random_timer(std::span<u8> body, float low, float high, u32& random)
 {
     const float value = runtime_body_random_range(random, low, high);
-    if (read_f32(body, 0x34) <= value)
+    if (get(body, body_field::move_hold_time) <= value)
     {
         std::memcpy(body.data() + 0x34, &value, 4);
         return;

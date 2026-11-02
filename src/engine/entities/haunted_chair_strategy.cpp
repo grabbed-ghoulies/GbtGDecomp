@@ -9,6 +9,7 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -54,7 +55,7 @@ void change_state(u16 state, RuntimeHauntedChairStrategy& context)
 bool body_settled(RuntimeHauntedChairStrategy& context)
 {
     const std::span<const u8> body = goals_of(context).entry.body;
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f; // DAT_0032B100.
+    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f; // DAT_0032B100.
 }
 
 bool selected(RuntimeHauntedChairStrategy& context)

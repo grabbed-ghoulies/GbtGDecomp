@@ -4,6 +4,7 @@
 #include "entity.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <xmmintrin.h>
@@ -79,10 +80,10 @@ void runtime_actor_overlay_anchor(const Actor& actor, Vec3& position, float& hei
 // Xbox 0x0001E2A0
 u32 runtime_body_health_color(std::span<const u8> body)
 {
-    const u16 maximum = read_u16(body, 0x96);
+    const u16 maximum = get(body, body_field::max_energy);
     if (maximum != 0)
     {
-        const float ratio = float(i32(read_u16(body, 0x94))) / float(i32(maximum));
+        const float ratio = float(i32(get(body, body_field::energy))) / float(i32(maximum));
         if (0.25f > ratio) // DAT_0032B104.
         {
             return 0xFF2020FF; // DAT_00217D60.
@@ -267,7 +268,7 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
         color = (runtime_body_health_color(body) & 0x00FFFFFFu) | (u32(body[0xA5]) << 24);
         lateral = 0.0f;
         digit_rise = 2.0f; // DAT_0032B110.
-        value = i32(read_u16(body, 0x94));
+        value = i32(get(body, body_field::energy));
         size = read_f32(body, 0xBC);
     }
     float sprite_size[2]{size, size};

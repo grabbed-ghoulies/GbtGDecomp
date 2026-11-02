@@ -13,6 +13,7 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "../graphics/actor_effect_stream.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <string>
@@ -316,7 +317,8 @@ void update_knocked(RuntimeVampireStrategy& context)
     case 1:
     {
         const std::span<const u8> body = body_of_actor(context);
-        if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f) // DAT_0032B100; LAHF; JP.
+        if (get(body, body_field::move_holds) == 0 &&
+            get(body, body_field::move_hold_time) == 0.f) // DAT_0032B100; LAHF; JP.
         {
             set_knocked_stage(2, context);
         }

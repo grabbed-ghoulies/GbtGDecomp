@@ -2,6 +2,7 @@
 #include "body_gravity_motion.h"
 #include "player_goal_cleanup.h"
 #include "player_mind_requests.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -44,12 +45,12 @@ void enter_phase(std::span<u8> state, u32 phase, float speed, RuntimeSlideStateC
     if (0 < current && current < 4)
     {
         put_word(body, 0x334, read_u32(body, 0x330));
-        put_word(body, 0x338, read_u32(body, 0x338) - 1);
+        set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
     }
     set(state, field::phase, phase);
     put_word(body, 0x330, read_u32(body, 0x334));
-    put_float(body, 0x334, speed);
-    put_word(body, 0x338, read_u32(body, 0x338) + 1);
+    set(body, body_field::ease_rate, speed);
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
 }
 
 // 0x0003A9E0, ECX the record at +0x1C (index 0) or +0x20 (index 1).
@@ -70,9 +71,10 @@ void start_animation(std::span<const u8> state, size_t index, RuntimeSlideStateC
 void push_along_heading(RuntimeSlideStateContext& context)
 {
     const auto body = context.body;
-    const u8 mode = read_u16(body, 0x880) == 0 ? body[0x874] : body[0x87E];
+    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
+                                                                        : get(body, body_field::surface_override);
     float scale = 1.f; // DAT_0032B0F8.
-    if ((read_u32(body, 0x878) & (1u << (mode & 0x1F))) != 0)
+    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= context.mode_scales.size())
         {
@@ -225,7 +227,7 @@ void destroy_runtime_slide_state(std::span<u8> state, RuntimeSlideStateContext& 
     if (0 < phase && phase < 4)
     {
         put_word(body, 0x334, read_u32(body, 0x330));
-        put_word(body, 0x338, read_u32(body, 0x338) - 1);
+        set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
     }
     set(state, field::phase, 0);
     if (get(state, field::sounding) != 0)

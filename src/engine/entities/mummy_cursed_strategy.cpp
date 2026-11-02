@@ -22,6 +22,7 @@
 #include "../navigation/navigation.h"
 #include "gbtg/entity.h"
 #include "gbtg/model_runtime.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -623,7 +624,7 @@ bool victim_pulled(RuntimeMummyCursedStrategy& context)
     }
     const u32 victim = get(strategy, field::victim);
     const std::span<u8> body = context.body_at(victim);
-    if (read_u16(body, 0x94) == 0)
+    if (get(body, body_field::energy) == 0)
     {
         return false;
     }

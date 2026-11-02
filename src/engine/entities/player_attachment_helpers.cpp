@@ -6,6 +6,7 @@
 #include "actor_transform.h"
 #include "actor_bind_tree.h"
 #include "gbtg/model_runtime.h"
+#include "body_fields.h"
 #include <cstring>
 #include <new>
 
@@ -14,7 +15,7 @@ namespace gbtg
 // Xbox 0x0001D3D0
 float runtime_player_body_attachment_radius(const RuntimePlayerAttachmentEligibility& context)
 {
-    const float margin = context.body_actor.radius_xz * read_f32(context.body, 0x78);
+    const float margin = context.body_actor.radius_xz * get(context.body, body_field::reach);
     const auto* attached = context.attached;
     if (attached != nullptr && attached->bytes[0x93D] == 1
         && attached->actor->model != nullptr && attached->actor->model->cpu.data() != nullptr)
@@ -30,7 +31,7 @@ bool runtime_player_body_allows_attachment(const RuntimePlayerAttachmentEligibil
     const Actor& target)
 {
     const auto body = context.body;
-    if (body[0x6A] != 0 || read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f
+    if (body[0x6A] != 0 || get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f
         || context.attached != nullptr)
     {
         return false;
@@ -53,8 +54,8 @@ bool runtime_player_attachment_is_in_range(const RuntimePlayerAttachmentEligibil
     const Actor& target)
 {
     const auto body = context.body;
-    const float reach = read_f32(body, 0x888) * context.body_actor.radius_xz;
-    const float margin = read_f32(body, 0x78) * context.body_actor.radius_xz;
+    const float reach = get(body, body_field::radius_scale) * context.body_actor.radius_xz;
+    const float margin = get(body, body_field::reach) * context.body_actor.radius_xz;
     float model_radius = 0.f;
     const auto* attached = context.attached;
     if (attached != nullptr && attached->bytes[0x93D] == 1
@@ -101,7 +102,7 @@ bool runtime_player_body_target_is_near(const RuntimePlayerAttachmentEligibility
     std::span<const u8> target_body, const Actor& target_actor)
 {
     const auto body = context.body;
-    const float margin = context.body_actor.radius_xz * read_f32(body, 0x78);
+    const float margin = context.body_actor.radius_xz * get(body, body_field::reach);
     float model_radius = 0.f;
     const auto* attached = context.attached;
     if (attached != nullptr && attached->bytes[0x93D] == 1
@@ -109,7 +110,7 @@ bool runtime_player_body_target_is_near(const RuntimePlayerAttachmentEligibility
     {
         model_radius = actor_model_radius(*attached->actor);
     }
-    const float reach = read_f32(body, 0x888) * context.body_actor.radius_xz;
+    const float reach = get(body, body_field::radius_scale) * context.body_actor.radius_xz;
     const Vec3 owner = actor_world_position(context.body_actor);
     const float target_reach = target_actor.radius_xz * read_f32(target_body, 0x888);
     const Vec3 target = actor_world_position(target_actor);
@@ -125,7 +126,7 @@ bool runtime_player_body_point_is_near(const RuntimePlayerAttachmentEligibility&
     std::span<const u8> target)
 {
     const auto body = context.body;
-    const float margin = context.body_actor.radius_xz * read_f32(body, 0x78);
+    const float margin = context.body_actor.radius_xz * get(body, body_field::reach);
     float model_radius = 0.f;
     const auto* attached = context.attached;
     if (attached != nullptr && attached->bytes[0x93D] == 1
@@ -133,7 +134,7 @@ bool runtime_player_body_point_is_near(const RuntimePlayerAttachmentEligibility&
     {
         model_radius = actor_model_radius(*attached->actor);
     }
-    const float reach = read_f32(body, 0x888) * context.body_actor.radius_xz;
+    const float reach = get(body, body_field::radius_scale) * context.body_actor.radius_xz;
     const Vec3 owner = actor_world_position(context.body_actor);
     const float range = ((model_radius + margin) + get(target, mind_target_field::shape_radius)) + reach;
     const float dz = owner.z - get(target, mind_target_field::shape_position).z;

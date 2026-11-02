@@ -5,6 +5,7 @@
 #include "body_orientation.h"
 #include "player_mind_events.h"
 #include "../graphics/actor_effect_nodes.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -26,11 +27,6 @@ u32 body_address_of(std::span<const u8> state)
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_half(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
 }
 
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
@@ -56,13 +52,13 @@ std::span<u8> effect_tokens(std::span<u8> state)
 // Body +0x30, +0x6B, +0x309..+0x30C and +0x338 step together.
 void step_counters(std::span<u8> body, i32 step)
 {
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + step));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + step));
     body[0x6B] = u8(body[0x6B] + step);
     for (size_t index = 0; index < 4; ++index)
     {
         body[0x309 + index] = u8(body[0x309 + index] + step);
     }
-    put_word(body, 0x338, read_u32(body, 0x338) + u32(step));
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + u32(step));
 }
 
 // {0x6E, actor, attacker, taken, `knocked`, 0, 1, 0} to every actor (0x00122C70).
@@ -147,7 +143,7 @@ bool initialize_runtime_hit_stream_state(std::span<u8> state, std::span<const u8
     body[0x38] = 1;
     body[0x39] = 1;
     put_word(body, 0x330, read_u32(body, 0x334));
-    put_float(body, 0x334, 7.f); // DAT_0032B284.
+    set(body, body_field::ease_rate, 7.f); // DAT_0032B284.
     context.bits.bytes[2] |= 2;
     return true;
 }
@@ -249,7 +245,7 @@ void tick_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateCon
     }
     if (facing && attacker != 0 && actor.animation_pause == 0.f)
     {
-        if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+        if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
         {
             const Actor* source = context.actor_at(attacker);
             if (source == nullptr)
@@ -373,12 +369,12 @@ u16 drain_runtime_hit_stream(std::span<u8> state, u32& taken, RuntimeHitStreamSt
             }
             if (whole != 0)
             {
-                const i32 left = i32(read_u16(body, 0x94)) - i32(whole);
-                put_half(body, 0x94, left < 1 ? 0 : u16(left));
+                const i32 left = i32(get(body, body_field::energy)) - i32(whole);
+                set(body, body_field::energy, left < 1 ? 0 : u16(left));
             }
         }
     }
-    return read_u16(body, 0x94);
+    return get(body, body_field::energy);
 }
 
 void install_runtime_hit_stream_state_class(std::span<ObjectFactoryType> types,

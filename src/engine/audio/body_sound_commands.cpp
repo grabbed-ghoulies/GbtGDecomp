@@ -2,6 +2,7 @@
 #include "sound_names.h"
 #include "bank_lookup.h"
 #include "gbtg/anim.h"
+#include "../entities/body_fields.h"
 #include <bit>
 
 namespace gbtg
@@ -36,7 +37,8 @@ float runtime_body_step_speed(std::span<const u8> body, const Actor& actor, cons
 void format_runtime_body_step_sound(char* output, std::span<const u8> body,
     u32 alternate, std::span<const char* const> names, const FootstepSoundNames& sounds)
 {
-    const u8 surface = read_u16(body, 0x880) == 0 ? body[0x874] : body[0x87E];
+    const u8 surface = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
+                                                                           : get(body, body_field::surface_override);
     const u16 tag = read_u16(body, 0x87C);
     output[0] = 0;
     if (surface != 0)

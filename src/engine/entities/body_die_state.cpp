@@ -1,6 +1,7 @@
 #include "body_die_state.h"
 #include "body_orientation.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -145,7 +146,7 @@ void tick_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context
             put_float(body, 0x734, 0.f);
             put_float(body, 0x72C, 0.f);
         }
-        else if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+        else if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
         {
             const Actor* other = context.actor_at(target);
             if (other == nullptr)

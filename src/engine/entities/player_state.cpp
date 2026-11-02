@@ -1,5 +1,6 @@
 #include "player_state.h"
 #include "entity_heap.h"
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -113,7 +114,7 @@ void leave_runtime_player_strategy(std::span<u8> strategy, u16 old_state, u16 ne
         {
             const u32 one = 1;
             std::memcpy(strategy.data() + 0x38, &one, 4);
-            const u16 value = u16(read_u16(body, 0x30) + 1);
+            const u16 value = u16(get(body, body_field::move_holds) + 1);
             std::memcpy(body.data() + 0x30, &value, 2);
         }
         break;

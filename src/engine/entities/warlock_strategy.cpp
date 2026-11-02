@@ -23,6 +23,7 @@
 #include "../camera/view_initialization.h"
 #include "../navigation/occupancy.h"
 #include "../navigation/spawn_candidates.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -554,10 +555,10 @@ void pick_attack_limit(RuntimeWarlockStrategy& context)
     const std::span<u8> body = body_of(context);
     set(strategy, field::attacks, 0);
     size_t row = 0;
-    const u16 full = read_u16(body, 0x96);
+    const u16 full = get(body, body_field::max_energy);
     if (full != 0)
     {
-        const float share = float(read_u16(body, 0x94)) / float(full);
+        const float share = float(get(body, body_field::energy)) / float(full);
         if (0.25f > share) // DAT_0032B104.
         {
             row = 3;

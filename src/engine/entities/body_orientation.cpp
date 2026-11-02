@@ -5,6 +5,7 @@
 #include "actor_transform.h"
 #include "../camera/entity_camera.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -31,7 +32,7 @@ float runtime_actor_relative_point_angle(const Actor& actor, const Vec3& point)
 // Xbox 0x00134510
 void face_runtime_body_point(std::span<u8> body, const Actor& actor, const Vec3& point)
 {
-    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
     {
         const float angle = runtime_actor_direction_to_point(actor, point);
         const Vec3 rotation{0.f, angle, 0.f};
@@ -43,7 +44,7 @@ void face_runtime_body_point(std::span<u8> body, const Actor& actor, const Vec3&
 void face_runtime_body_target(std::span<u8> body, const Actor& actor,
     std::span<const u8> target)
 {
-    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
     {
         const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
         face_runtime_body_point(body, actor, point);
@@ -138,7 +139,7 @@ i32 runtime_direction_lean(const Vec3& direction, float heading, float& tilt, fl
 void settle_runtime_body_turn(std::span<u8> body, const Actor& actor)
 {
     float x = 0.f;
-    float y = read_f32(body, 0x730);
+    float y = get(body, body_field::euler).y;
     float z = 0.f;
     if (body[0x19E] != 0)
     {

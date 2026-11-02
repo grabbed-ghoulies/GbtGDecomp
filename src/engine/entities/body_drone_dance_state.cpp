@@ -6,6 +6,7 @@
 #include "../camera/camera_body_slots.h"
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -22,16 +23,6 @@ std::function<RuntimeDroneDanceStateContext&(u32)> drone_dance_context_of;
 u32 body_address_of(std::span<const u8> state)
 {
     return read_u32(state, 8);
-}
-
-void put_half(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
-void put_body_vec3(std::span<u8> body, size_t offset, const Vec3& value)
-{
-    std::memcpy(body.data() + offset, &value, sizeof(value));
 }
 
 void copy_name(char* target, const char* source)
@@ -69,7 +60,7 @@ void count_down(std::span<u8> state, RetailField<float, Offset> timer, const Run
 // Body +0x318 takes the glide's velocity.
 void copy_velocity(std::span<const u8> state, const RuntimeDroneDanceStateContext& context)
 {
-    put_body_vec3(context.body, 0x318, get(state, field::velocity));
+    set(context.body, body_field::velocity, get(state, field::velocity));
 }
 
 bool construct_drone_dance_state_view(FactoryObject& object, std::span<const u8> parameters)
@@ -104,7 +95,7 @@ bool initialize_runtime_drone_dance_state(std::span<u8> state, std::span<const u
     RuntimeDroneDanceStateContext& context)
 {
     const auto body = context.body;
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + 1));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
     body[0x38] = 0;
     body[0x39] = 0;
     copy_name(field_data(state, field::dance), context.string_at(get(parameters, parameter::dance)));
@@ -129,7 +120,7 @@ bool initialize_runtime_drone_dance_state(std::span<u8> state, std::span<const u
 // Xbox 0x0008E120
 void destroy_runtime_drone_dance_state(std::span<u8>, RuntimeDroneDanceStateContext& context)
 {
-    put_half(context.body, 0x30, u16(read_u16(context.body, 0x30) - 1));
+    set(context.body, body_field::move_holds, u16(get(context.body, body_field::move_holds) - 1));
 }
 
 // Xbox 0x0008E130
@@ -161,7 +152,7 @@ void tick_runtime_drone_dance_state(std::span<u8> state, RuntimeDroneDanceStateC
             step_runtime_angle_toward(to.z, from.z, fraction)}; // 0x001013A0
         wrap_runtime_euler(euler, actor.euler); // 0x00105AA0
         actor.xform_valid = 0; // Actor +0x2A8.
-        put_body_vec3(context.body, 0x72C, actor_world_euler(actor)); // 0x00041820 into body +0x72C
+        set(context.body, body_field::euler, actor_world_euler(actor)); // 0x00041820 into body +0x72C
         copy_velocity(state, context);
         if (get(state, field::left) == 0.f) // DAT_0032B100
         {

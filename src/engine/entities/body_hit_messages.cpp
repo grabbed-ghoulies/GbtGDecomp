@@ -5,6 +5,7 @@
 #include "player_overlay.h"
 #include "player_mind_events.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <cstring>
 #include <bit>
 
@@ -241,7 +242,7 @@ void receive_runtime_body_impact(std::span<u8> body, std::span<u8> message,
     {
         const u16 tag = find_runtime_player_tag_index(0x64, tag_rows, tag_names);
         std::array<u8, 0x68> damage{};
-        if ((flags.bytes[4] & 0x10) == 0 && read_u16(body, 0x94) != 0)
+        if ((flags.bytes[4] & 0x10) == 0 && get(body, body_field::energy) != 0)
         {
             damage[0] = 1;
             damage[2] = 0x65;
@@ -400,7 +401,7 @@ void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
         throw Error("body front hit 0x00022FB0: the sender has no +0xD8C holder (retail reads its +0xCF4)");
     }
     std::array<u8, 0x68> damage{};
-    const u32 health = read_u16(body, 0x94);
+    const u32 health = get(body, body_field::energy);
     const u16 actor_class = read_u16(host->bytes, 0xCF4);
     // Retail leaves this slot (the 0x1A message's +8) unwritten on the class path.
     u32 actor_amount = 0;
@@ -822,7 +823,7 @@ void receive_runtime_body_health_notice(std::span<u8> body, std::span<u8> messag
     const u32 amount = read_u32(message, 8);
     if (amount != 0)
     {
-        const i32 remaining = std::bit_cast<i32>(u32(read_u16(body, 0x94)) - amount);
+        const i32 remaining = std::bit_cast<i32>(u32(get(body, body_field::energy)) - amount);
         const u16 health = u16(remaining) & u16((remaining < 1) - 1);
         std::memcpy(body.data() + 0x94, &health, 2);
     }
@@ -875,12 +876,12 @@ void receive_runtime_body_health_notice(std::span<u8> body, std::span<u8> messag
 // Xbox 0x00134E50
 void request_runtime_body_lethal_action(std::span<u8> body, RuntimeBodyActionSelection& actions)
 {
-    if (read_u16(body, 0x94) != 0)
+    if (get(body, body_field::energy) != 0)
     {
         u32 output;
         const u16 zero = 0;
         if (actions.table == nullptr || find_runtime_script_table_row(actions.table, 0x6B, output) == nullptr ||
-            read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f)
+            get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f)
         {
             std::memcpy(body.data() + 0x94, &zero, 2);
         }

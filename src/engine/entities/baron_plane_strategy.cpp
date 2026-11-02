@@ -15,6 +15,7 @@
 #include "../scene/cutscene_scene_runtime.h"
 #include "../scene/scene_markers.h"
 #include "../scripts/script_conditions.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -309,7 +310,7 @@ const std::array<float, 4>& runtime_baron_plane_row(std::span<const u8> body, Ru
         {1.f, 1.f, std::bit_cast<float>(5u), 250.f},
     }};
     const auto& rows = live_actives(context) > 1 ? crowded_rows : alone_rows;
-    const u16 energy = read_u16(body, 0x94);
+    const u16 energy = get(body, body_field::energy);
     if (energy > 0x78)
     {
         return rows[0];

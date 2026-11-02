@@ -5,6 +5,7 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "gbtg/entity.h"
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -129,10 +130,10 @@ void enter_runtime_ribs_state(u16 state, u16 previous, RuntimeRibsStrategy& cont
     put_float(request->bytes, 0x14, 25.f); // DAT_00428890.
     put_float(request->bytes, 0x18, 60.f); // DAT_00428894.
     put_float(request->bytes, 0x1C, 65.f); // DAT_00428898.
-    const u16 full = read_u16(body, 0x96);
+    const u16 full = get(body, body_field::max_energy);
     if (full != 0)
     {
-        const float fraction = float(read_u16(body, 0x94)) / float(full);
+        const float fraction = float(get(body, body_field::energy)) / float(full);
         if (fraction <= 0.75f) // DAT_0032B2AC.
         {
             if (fraction <= 0.5f) // DAT_0032B0F4.

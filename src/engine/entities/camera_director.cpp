@@ -10,6 +10,7 @@
 #include "../runtime/crt_sort.h"
 #include "../scripts/script_conditions.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <climits>
 #include <cmath>
@@ -473,7 +474,7 @@ bool camera_director_scene_start_pending()
 // Xbox 0x00020000
 void release_runtime_body_hold(std::span<u8> body, const std::function<void(std::span<const u32>)>& message)
 {
-    const u32 holds = read_u32(body, 0x258) - 1;
+    const u32 holds = get(body, body_field::holds) - 1;
     std::memcpy(body.data() + 0x258, &holds, 4);
     if (holds == 0)
     {
@@ -536,7 +537,7 @@ void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
             }
             else
             {
-                const u32 holds = read_u32(context.body, 0x258) + 1;
+                const u32 holds = get(context.body, body_field::holds) + 1;
                 std::memcpy(context.body.data() + 0x258, &holds, 4);
             }
             std::memcpy(strategy.data() + 0x40, bytes.data() + 0x2A0, 4);

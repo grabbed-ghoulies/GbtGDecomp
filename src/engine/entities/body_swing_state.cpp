@@ -13,6 +13,7 @@
 #include "ghouly_spawn_record.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
+#include "body_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -566,8 +567,8 @@ void release_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext&
     }
     if (get(state, field::counted) != 0)
     {
-        const u32 count = read_u32(body, 0x258) - 1;
-        put_word(body, 0x258, count);
+        const u32 count = get(body, body_field::holds) - 1;
+        set(body, body_field::holds, count);
         if (count == 0)
         {
             send_words(context.body_message, {0x4A});
@@ -766,9 +767,9 @@ bool initialize_runtime_swing_state(std::span<u8> state, std::span<const u8> par
     set(state, field::start_euler, actor_world_euler(context.pickup.actor)); // 0x00041820, EDI +0x58
     adjust_body_counters(body, 1);
     increment_runtime_body_latches(body, context.pickup.actor, *context.pickup.latches); // 0x0001FC40, ECX body
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + 1));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
     set_runtime_body_shape_mode(0, context.shape); // 0x0001FEB0, BL 0
-    put_word(body, 0x258, read_u32(body, 0x258) + 1);
+    set(body, body_field::holds, get(body, body_field::holds) + 1);
     context.pickup.bits.bytes[7] |= 2; // Body +0x15C -> +8, byte 7.
     set(state, field::trail_timer, 0.f);
     set(state, field::counted, 1);
@@ -783,7 +784,7 @@ void destroy_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& 
     const auto body = context.pickup.body;
     adjust_body_counters(body, -1);
     decrement_runtime_body_latches(body, context.pickup.actor, *context.pickup.latches); // 0x0001FD20, ECX body
-    put_half(body, 0x30, u16(read_u16(body, 0x30) - 1));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
     set_runtime_body_shape_mode(get(state, field::shape_mode), context.shape); // 0x0001FEB0, BL state +0x120
     context.pickup.bits.bytes[7] &= 0xFD;
     const u32 weapon = mind_weapon(context);
@@ -793,8 +794,8 @@ void destroy_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& 
     }
     if (get(state, field::counted) != 0)
     {
-        const u32 count = read_u32(body, 0x258) - 1;
-        put_word(body, 0x258, count);
+        const u32 count = get(body, body_field::holds) - 1;
+        set(body, body_field::holds, count);
         if (count == 0)
         {
             send_words(context.body_message, {0x4A});

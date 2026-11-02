@@ -2,6 +2,7 @@
 #include <bit>
 #include <cstring>
 #include "body_action_ids.h"
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -20,7 +21,7 @@ void process_runtime_body_direct_reaction(std::span<u8> body,
         if (amount != 0)
         {
             const u16 minimum = u16(!runtime_body_has_death_action(context.actions.actions.table, context.death_actions));
-            if (read_u16(body, 0x94) < minimum)
+            if (get(body, body_field::energy) < minimum)
             {
                 std::memcpy(body.data() + 0x94, &minimum, 2);
             }
@@ -112,7 +113,7 @@ void process_runtime_body_surviving_hit(std::span<u8> body,
             context.second_source != nullptr ? context.second_source->actor : nullptr,
             context.second_source_live, context.player_damage, damage[1], read_u16(damage, 0x64),
             context.tables, context.amount_keys);
-        const i32 remaining = std::bit_cast<i32>(u32(read_u16(body, 0x94)) - amount);
+        const i32 remaining = std::bit_cast<i32>(u32(get(body, body_field::energy)) - amount);
         if (remaining > 0)
         {
             process_runtime_body_reaction_hit(body, damage, result, 0x69, phase, context);
@@ -137,7 +138,7 @@ void process_runtime_body_surviving_hit(std::span<u8> body,
 void process_runtime_body_timer_hit(std::span<u8> body,
     std::span<const u8> damage, u32 phase, RuntimeBodyDamageProcessor& context)
 {
-    if (phase == 0 && read_u16(body, 0x94) != 0)
+    if (phase == 0 && get(body, body_field::energy) != 0)
     {
         const u32 second = read_u32(damage, 0x38);
         const u32 amount = runtime_body_damage_amount(body, context.actor,
@@ -189,7 +190,7 @@ void process_runtime_body_lethal_hit(std::span<u8> body,
     std::span<const u8> damage, std::span<u32, 3> result,
     RuntimeBodyDamageProcessor& context)
 {
-    const u32 health = read_u16(body, 0x94);
+    const u32 health = get(body, body_field::energy);
     if ((context.flags.bytes[0] & 0x80) == 0 &&
         ((context.actor.mask_mode != 2 && context.actor.mask_flag == 0) ||
             runtime_player_damage_enabled(context.actor, context.player_blocked, context.player_modes, context.player_mode) != 0)
@@ -241,7 +242,7 @@ bool select_runtime_body_death_motion(std::span<u8> body, const Vec3& direction,
     float first, float second, float third, float fourth,
     RuntimeBodyDamageProcessor& context)
 {
-    if (read_u16(body, 0x94) == 0)
+    if (get(body, body_field::energy) == 0)
     {
         if (runtime_body_death_effect_selected(context.attributes, context.random))
         {
@@ -431,7 +432,7 @@ void process_runtime_body_reaction_hit(std::span<u8> body,
         if (amount != 0)
         {
             const u16 minimum = u16(!runtime_body_has_death_action(context.actions.actions.table, context.death_actions));
-            if (read_u16(body, 0x94) < minimum)
+            if (get(body, body_field::energy) < minimum)
             {
                 std::memcpy(body.data() + 0x94, &minimum, 2);
             }
@@ -649,7 +650,7 @@ void process_runtime_body_action_hit(std::span<u8> body,
     std::span<const u8> damage, std::span<u32, 3> result,
     RuntimeBodyDamageProcessor& context)
 {
-    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f && body[0x6A] == 0)
+    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f && body[0x6A] == 0)
     {
         const u16 key = context.defensive_action();
         auto& actions = context.actions.actions;
@@ -699,7 +700,7 @@ void process_runtime_body_health_hit(std::span<u8> body,
             if (find_runtime_script_table_row(actions.table, 0x80, parameters) != nullptr)
             {
                 const u32 amount = subtract_runtime_body_damage_health(body, context.actor,
-                    context.flags, read_u16(body, 0x94), 1, context.player_blocked,
+                    context.flags, get(body, body_field::energy), 1, context.player_blocked,
                     context.player_modes, context.player_mode);
                 const u32 zero = 0;
                 const u32 pulse = 0x3F7D70A4;

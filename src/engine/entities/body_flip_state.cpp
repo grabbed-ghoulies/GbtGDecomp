@@ -1,5 +1,6 @@
 #include "body_flip_state.h"
 #include "player_goal_cleanup.h"
+#include "body_fields.h"
 
 #include <cstring>
 #include <unordered_map>
@@ -85,8 +86,8 @@ bool initialize_runtime_flip_state(std::span<u8> state, std::span<const u8> para
     step_counters(body, 1);
     body[0x6B] = u8(body[0x6B] + 1);
     context.actor.anchor.y += 115.f; // Actor +0x40, DAT_0032B5AC.
-    set(state, field::gravity, read_f32(body, 0x324));
-    put_float(body, 0x324, -200.f); // DAT_0032B224.
+    set(state, field::gravity, get(body, body_field::gravity));
+    set(body, body_field::gravity, -200.f); // DAT_0032B224.
     increment_runtime_body_latch_mask(body, 1, context.actor, context.latches); // The inlined 0x0001F3F0, byte 0.
     set(state, field::latched, 1u);
     return true;
@@ -97,7 +98,7 @@ void destroy_runtime_flip_state(std::span<u8> state, RuntimeFlipStateContext& co
 {
     const auto body = context.body;
     body[0x6B] = u8(body[0x6B] - 1);
-    put_float(body, 0x324, get(state, field::gravity));
+    set(body, body_field::gravity, get(state, field::gravity));
     step_counters(body, -1);
     if (get(state, field::latched) != 0)
     {
@@ -111,7 +112,8 @@ void steer_runtime_flip_state(std::span<const u8> state, RuntimeFlipStateContext
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (context.input != nullptr && read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (context.input != nullptr && get(body, body_field::move_holds) == 0 &&
+        get(body, body_field::move_hold_time) == 0.f)
     {
         runtime_input_axes(*context.input, axes, context.input_state); // 0x001085F0
     }

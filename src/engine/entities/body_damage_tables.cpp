@@ -2,6 +2,7 @@
 #include "gbtg/anim.h"
 #include "player_mind_events.h"
 #include "actor_shape_bounds.h"
+#include "body_fields.h"
 #include <bit>
 #include <immintrin.h>
 #include <cstring>
@@ -293,7 +294,7 @@ u32 runtime_body_damage_amount(std::span<const u8> body, const Actor& actor,
     }
     if (amount != 0 && live_player)
     {
-        return read_u16(body, 0x94);
+        return get(body, body_field::energy);
     }
     if (key == 0x3F)
     {

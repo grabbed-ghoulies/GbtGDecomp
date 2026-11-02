@@ -12,6 +12,7 @@
 #include "segment_records.h"
 #include "../graphics/actor_effect_nodes.h"
 #include "gbtg/actor_runtime.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -323,7 +324,7 @@ float runtime_flamethrower_aim_pitch(RuntimeFlamethrowerStateContext& context)
     const auto target = context.target_at(address);
     const Actor& actor = context.actor;
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const float eye = read_f32(context.body, 0x884) * actor.radius_y + position.y;
+    const float eye = get(context.body, body_field::height_scale) * actor.radius_y + position.y;
     const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x,
         (get(target, mind_target_field::shape_height) * 0.25f + get(target, mind_target_field::shape_position).y) - eye, // DAT_0032B104.
         get(target, mind_target_field::shape_position).z - position.z};

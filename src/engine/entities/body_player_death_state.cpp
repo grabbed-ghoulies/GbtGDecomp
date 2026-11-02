@@ -10,6 +10,7 @@
 #include "../scripts/script_vm.h"
 #include "../scripts/script_chapter.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -108,7 +109,7 @@ bool initialize_runtime_player_death_state(std::span<u8> state, std::span<const 
     ++body[0x30A];
     ++body[0x309];
     ++body[0x30B];
-    const u16 count = u16(read_u16(body, 0x30) + 1);
+    const u16 count = u16(get(body, body_field::move_holds) + 1);
     std::memcpy(body.data() + 0x30, &count, 2);
     body[0x38] = 1;
     body[0x39] = 1;
@@ -179,7 +180,7 @@ void destroy_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathC
 {
     auto& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
-    const u16 count = u16(read_u16(body, 0x30) - 1);
+    const u16 count = u16(get(body, body_field::move_holds) - 1);
     std::memcpy(body.data() + 0x30, &count, 2);
     --body[0x309];
     --body[0x30A];

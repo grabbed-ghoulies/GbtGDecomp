@@ -2,6 +2,7 @@
 #include "mind_fields.h"
 #include "../runtime/link_exchange.h"
 #include "body_message_helpers.h"
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -283,8 +284,9 @@ bool runtime_strategy_target_attackable(float range, RuntimeStrategyLink& link, 
     RuntimePlayerStrategyGoals& goals = checks.goals;
     const std::span<const u8> body = goals.entry.body;
     const EntityBitBlock& bits = *goals.body_bits;
-    if (body[0x6B] != 0 || body[0x6A] != 0 || read_f32(body, 0x70) > 0.f || read_u16(body, 0x30) != 0
-        || read_f32(body, 0x34) != 0.f || (bits.bytes[3] & 8) != 0)
+    if (body[0x6B] != 0 || body[0x6A] != 0 || get(body, body_field::unk_70) > 0.f ||
+        get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f ||
+        (bits.bytes[3] & 8) != 0)
     {
         return false;
     }

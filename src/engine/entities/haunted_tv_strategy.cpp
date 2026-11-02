@@ -18,6 +18,7 @@
 #include "../scripts/script_conditions.h"
 #include "../scripts/script_vm.h"
 #include "gbtg/model_runtime.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -207,7 +208,7 @@ void start_runtime_haunted_tv_attack(RuntimeHauntedTvStrategy& context)
     }
     const u8* row = find_runtime_attachment_first_request(*context.attack_tables.at(context.attack_resource.data()),
         0x65); // 0x0001C560
-    put_word(body, 0x84, row == nullptr ? 0u : context.address_of(row));
+    set(body, body_field::hit_record, row == nullptr ? 0u : context.address_of(row));
     put_word(body, 0x88, 0);
     step_byte(body, 0x6A, 1);
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
@@ -238,7 +239,7 @@ void end_runtime_haunted_tv_attack(RuntimeHauntedTvStrategy& context)
     {
         deactivate_runtime_body_contact_shapes(*context.collision, 0); // 0x0013F4D0, EAX 0
     }
-    put_word(body, 0x84, 0);
+    set(body, body_field::hit_record, 0);
     put_word(body, 0x88, 0);
     step_byte(body, 0x6A, -1);
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
@@ -472,7 +473,7 @@ bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHaun
         return false;
     }
     const std::span<const u8> body = context.views.body_of(target.actor).bytes; // Target +0x10 actor's +0x95C.
-    if (read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f) // DAT_0032B100.
+    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f) // DAT_0032B100.
     {
         return false;
     }

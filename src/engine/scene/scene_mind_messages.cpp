@@ -3,6 +3,7 @@
 #include "../entities/body_action_ids.h"
 #include "../entities/entity.h"
 #include "../camera/display_view.h"
+#include "../entities/body_fields.h"
 #include <cstddef>
 #include <cstring>
 
@@ -431,7 +432,7 @@ void SceneMindMessages::refresh()
     };
     tables_ = player_.animation_resource.data() == nullptr ? nullptr
         : services_.attack_tables.at(player_.animation_resource.data());
-    body_query_.state = i16(read_u16(body, 0x30));
+    body_query_.state = i16(get(body, body_field::move_holds));
     std::memcpy(&body_query_.state_time, body.data() + 0x34, 4);
     body_query_.case_actor = player_.attached != nullptr ? player_.attached->actor : nullptr;
     body_query_.node = nullptr;
@@ -440,8 +441,8 @@ void SceneMindMessages::refresh()
     body_query_.suspended = body[0x6B];
     body_query_.permitted = body[0x6C];
     std::memcpy(&body_query_.timer, body.data() + 0x70, 4);
-    body_query_.energy = i16(read_u16(body, 0x94));
-    body_query_.maximum_energy = i16(read_u16(body, 0x96));
+    body_query_.energy = i16(get(body, body_field::energy));
+    body_query_.maximum_energy = i16(get(body, body_field::max_energy));
     body_query_.bits = player_.body_flags;
     target_ = object_at(get(mind, mind_field::target_record), "mind +0x10 target");
     parent_.target_bytes = target_;
@@ -450,7 +451,7 @@ void SceneMindMessages::refresh()
     action_target_ = object_at(get(mind, mind_field::action_record), "mind +0x14 action target");
     actor_mind_ = mind;
     // Body +0x84 is an attackdata request row (0x0001D2E0), stride 0x24 or more, by its data address.
-    const u32 request = read_u32(body, 0x84);
+    const u32 request = get(body, body_field::hit_record);
     body_state_view_ = request == 0 ? std::span<const u8>() : std::span<const u8>(services_.resolve(request), 0x24);
     body_state_ = body_state_view_.data();
     cinema_.floor = i32(read_u32(player_.actor_bytes, 0xCEC));
@@ -575,7 +576,7 @@ i32 SceneCameraMindParent::update(std::span<const u8> request)
     const auto mind = player_.mind;
     tables_ = player_.animation_resource.data() == nullptr ? nullptr
         : services_.attack_tables.at(player_.animation_resource.data());
-    body_query_.state = i16(read_u16(body, 0x30));
+    body_query_.state = i16(get(body, body_field::move_holds));
     std::memcpy(&body_query_.state_time, body.data() + 0x34, 4);
     body_query_.case_actor = player_.attached != nullptr ? player_.attached->actor : nullptr;
     body_query_.node = nullptr;
@@ -584,14 +585,14 @@ i32 SceneCameraMindParent::update(std::span<const u8> request)
     body_query_.suspended = body[0x6B];
     body_query_.permitted = body[0x6C];
     std::memcpy(&body_query_.timer, body.data() + 0x70, 4);
-    body_query_.energy = i16(read_u16(body, 0x94));
-    body_query_.maximum_energy = i16(read_u16(body, 0x96));
+    body_query_.energy = i16(get(body, body_field::energy));
+    body_query_.maximum_energy = i16(get(body, body_field::max_energy));
     body_query_.bits = player_.body_flags;
     const u32 target = get(mind, mind_field::target_record);
     target_ = target == 0 ? std::span<const u8>{} : services_.bytes_at(target);
     parent_.target_bytes = target_;
     parent_.target_actor = target_.empty() ? nullptr : services_.actor_at(target);
-    const u32 state = read_u32(body, 0x84);
+    const u32 state = get(body, body_field::hit_record);
     body_state_view_ = state == 0 ? std::span<const u8>() : std::span<const u8>(services_.resolve(state), 0x24);
     body_state_ = body_state_view_.data();
     return update_runtime_parent_mind_request(parent_, request); // 0x000295E0

@@ -10,6 +10,7 @@
 #include "../navigation/navigation.h"
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -114,7 +115,8 @@ bool runtime_mind_target_climbing(const RuntimeMindTarget& target, RuntimeSpider
         return false;
     }
     const std::span<const u8> body = context.views.body_of(target.actor).bytes; // Target +0x10 actor's +0x95C.
-    const u8 kind = read_u16(body, 0x880) == 0 ? body[0x874] : body[0x87E];
+    const u8 kind = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
+                                                                        : get(body, body_field::surface_override);
     return kind == 0xC;
 }
 
@@ -295,7 +297,7 @@ void choose_runtime_spider_attack(const RuntimeMindTarget& target, RuntimeSpider
 void end_runtime_spider_web(const RuntimeMindTarget& target, RuntimeSpiderStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    if (read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f) // DAT_0032B100.
+    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f) // DAT_0032B100.
     {
         return;
     }

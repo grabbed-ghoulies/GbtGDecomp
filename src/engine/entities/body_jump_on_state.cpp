@@ -14,6 +14,7 @@
 #include "player_mind_targets.h"
 #include "../navigation/navigation.h"
 #include "../navigation/spawn_candidates.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -288,7 +289,7 @@ bool initialize_runtime_jump_on_state(std::span<u8> state, std::span<const u8> p
     RuntimeJumpOnStateContext& context)
 {
     const std::span<u8> body = context.body;
-    put_u16(body, 0x30, u16(read_u16(body, 0x30) + 1));
+    put_u16(body, 0x30, u16(get(body, body_field::move_holds) + 1));
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + 1);
@@ -331,7 +332,7 @@ void destroy_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContex
 {
     const std::span<u8> body = context.body;
     const u32 target = mind_target(context);
-    put_u16(body, 0x30, u16(read_u16(body, 0x30) - 1));
+    put_u16(body, 0x30, u16(get(body, body_field::move_holds) - 1));
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] - 1);
@@ -342,7 +343,7 @@ void destroy_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContex
     {
         hold_runtime_jump_on_body(1, state, context); // The inlined 0x0009A420 release.
     }
-    if (target != 0 && read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (target != 0 && get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
     {
         const std::span<const u8> record_bytes = context.target_at(target);
         const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
@@ -687,7 +688,7 @@ bool step_runtime_jump_off_leap(std::span<u8> state, RuntimeJumpOnStateContext& 
     place_on_leap(state, context);
     const u32 target = mind_target(context);
     const std::span<u8> body = context.body;
-    if (target != 0 && read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (target != 0 && get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
     {
         const std::span<const u8> record_bytes = context.target_at(target);
         const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
@@ -821,7 +822,7 @@ void start_runtime_ride(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& con
     put_float(ride_bytes, 0x3C, 0.f);
     attach_runtime_ride(context); // 0x00099DF0
     context.actor.model_flags &= 0xFFFDFFFDu; // Actor +0x1F0.
-    put_word(context.body, 0x258, read_u32(context.body, 0x258) + 1);
+    set(context.body, body_field::holds, get(context.body, body_field::holds) + 1);
     set(ride_bytes, ride::phase, 0u);
     set_runtime_ride_phase(ride_bytes, 1, context); // 0x00099CA0
 }
@@ -842,8 +843,8 @@ Actor* end_runtime_ride(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& con
     set(ride_bytes, ride::phase, 0u);
     Actor* host = detach_runtime_ride(context); // 0x00099EE0
     context.actor.model_flags |= 0x20002u;
-    const u32 count = read_u32(context.body, 0x258) - 1;
-    put_word(context.body, 0x258, count);
+    const u32 count = get(context.body, body_field::holds) - 1;
+    set(context.body, body_field::holds, count);
     if (count == 0)
     {
         const std::array<u32, 2> message{0x4A, 0}; // Word 1 is the caller's stack slot.
@@ -1271,7 +1272,7 @@ bool find_runtime_jump_landing(const RuntimeJumpOnPeer& from, float extra, Vec3&
         }
     }
     const float inner = read_f32(from.body, 0x888) * scale + (sword + body_reach);
-    const float minimum = context.actor.radius_xz * read_f32(context.body, 0x888) + inner;
+    const float minimum = context.actor.radius_xz * get(context.body, body_field::radius_scale) + inner;
     return entity_detail::select_navigation_spawn_position(i32(read_u32(context.actor_bytes, 0xCEC)), nullptr,
         center, minimum, minimum + extra, nullptr, nullptr, 0, 0, output, context.random,
         context.occupancy_initial); // 0x00111420, EAX 0

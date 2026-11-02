@@ -2,6 +2,7 @@
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_mind_events.h"
+#include "body_fields.h"
 
 #include <cmath>
 #include <cstring>
@@ -146,7 +147,8 @@ void tick_runtime_hover_state(std::span<u8> state, RuntimeHoverStateContext& con
         put_float(body, 0x40, point.y);
         put_float(body, 0x44, point.z);
     }
-    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f && get(state, field::turns) != 0)
+    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f &&
+        get(state, field::turns) != 0)
     {
         turn_runtime_hover_state(context); // 0x00097E60, EAX actor
     }

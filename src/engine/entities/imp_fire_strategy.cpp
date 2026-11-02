@@ -8,6 +8,7 @@
 #include "../navigation/mind_navigation_angles.h"
 #include "../navigation/player_avoidance.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <cmath>
@@ -51,7 +52,7 @@ bool requests_pending(RuntimeImpFireStrategy& context)
 
 bool body_settled(std::span<const u8> body)
 {
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
 }
 
 void change_state(u16 state, RuntimeImpFireStrategy& context)
@@ -324,7 +325,7 @@ u32 engage_runtime_imp_fire_target(const RuntimeMindTarget& target, RuntimeImpFi
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<const u8> body = body_of_actor(context);
     const EntityBitBlock& bits = *goals.body_bits;
-    if (body[0x6B] != 0 || body[0x6A] != 0 || read_f32(body, 0x70) > 0.f || !body_settled(body)
+    if (body[0x6B] != 0 || body[0x6A] != 0 || get(body, body_field::unk_70) > 0.f || !body_settled(body)
         || (bits.bytes[3] & 8) != 0 || runtime_body_bit_set(bits, 0x2C) || runtime_body_bit_set(bits, 0x2A))
     {
         return 0;

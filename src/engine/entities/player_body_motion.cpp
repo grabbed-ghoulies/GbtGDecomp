@@ -3,6 +3,7 @@
 #include "actor_transform.h"
 #include "body_animation_setup.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <cmath>
@@ -14,7 +15,7 @@ namespace gbtg
 void add_runtime_player_body_movement(std::span<u8> body, const Vec3& movement,
     const Actor& actor, const RuntimeActorClock& clock)
 {
-    const Vec3 previous{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+    const Vec3 previous = get(body, body_field::position);
     const float step = runtime_frame_step(clock);
     const float rate = runtime_actor_rate(actor);
     const float maximum = float(static_cast<long double>(rate) * step * 50.f); // DAT_0032B1E0.
@@ -54,8 +55,8 @@ bool runtime_player_body_can_select_action(std::span<const u8> body,
             return false;
         }
     }
-    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f
-        && read_u32(body, 0x258) == 0 && body[0x6A] == 0)
+    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f
+        && get(body, body_field::holds) == 0 && body[0x6A] == 0)
     {
         constexpr std::array<u32, 8> blockers{48, 44, 30, 49, 46, 42, 52, 54}; // DAT_002FFE80.
         for (const u32 bit : blockers)
@@ -310,7 +311,7 @@ void ease_runtime_body_rotation(std::span<u8> body, Actor& actor,
     if (read_u32(body, 0x728) != 0)
     {
         const Vec3 current = actor_world_euler(actor);
-        const Vec3 target{read_f32(body, 0x72C), read_f32(body, 0x730), read_f32(body, 0x734)};
+        const Vec3 target = get(body, body_field::euler);
         const float elapsed = float(static_cast<long double>(runtime_actor_rate(actor)) * runtime_frame_step(clock));
         const float minimum = read_f32(body, 0x71C);
         const float maximum = read_f32(body, 0x720);
@@ -533,7 +534,7 @@ bool initialize_runtime_player_body(std::span<u8> body, std::span<const u8> para
     collect_runtime_player_body_shapes(context.nodes, context.shapes);
     if (read_f32(parameters, 0x7C8) == 0.f)
     {
-        const u32 counter = read_u32(body, 0x258) + 1u;
+        const u32 counter = get(body, body_field::holds) + 1u;
         std::memcpy(body.data() + 0x258, &counter, 4);
     }
     return true;

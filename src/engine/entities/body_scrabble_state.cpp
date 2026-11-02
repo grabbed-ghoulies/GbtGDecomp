@@ -3,6 +3,7 @@
 #include "actor_transform.h"
 #include "body_gravity_motion.h"
 #include "player_mind_events.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -53,9 +54,10 @@ void face_goal_point(RuntimeScrabbleStateContext& context)
 void run_along_heading(RuntimeScrabbleStateContext& context)
 {
     const auto body = context.body;
-    const u8 mode = read_u16(body, 0x880) == 0 ? body[0x874] : body[0x87E];
+    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
+                                                                        : get(body, body_field::surface_override);
     float scale = 1.f; // DAT_0032B0F8.
-    if ((read_u32(body, 0x878) & (1u << (mode & 0x1F))) != 0)
+    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= context.mode_scales.size())
         {
@@ -103,8 +105,8 @@ bool initialize_runtime_scrabble_state(std::span<u8> state, RuntimeScrabbleState
 {
     const auto body = context.body;
     put_word(body, 0x330, read_u32(body, 0x334));
-    put_float(body, 0x334, std::bit_cast<float>(0x3E4CCCCDu)); // DAT_0032B1AC.
-    put_word(body, 0x338, read_u32(body, 0x338) + 1);
+    set(body, body_field::ease_rate, std::bit_cast<float>(0x3E4CCCCDu)); // DAT_0032B1AC.
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
     context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
     const float roll = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
     const float duration = roll * 0.f + 2.f; // DAT_0032B100, DAT_0032B110.
@@ -118,7 +120,7 @@ void destroy_runtime_scrabble_state(RuntimeScrabbleStateContext& context)
 {
     const auto body = context.body;
     put_word(body, 0x334, read_u32(body, 0x330));
-    put_word(body, 0x338, read_u32(body, 0x338) - 1);
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
 }
 
 // Xbox 0x0009F170

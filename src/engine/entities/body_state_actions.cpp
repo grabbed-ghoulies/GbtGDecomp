@@ -15,6 +15,7 @@
 #include "body_hold_state.h"
 #include "body_throw_state.h"
 #include "gbtg/entity.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <unordered_map>
@@ -561,7 +562,7 @@ bool initialize_runtime_stand_alert(std::span<u8> state, std::span<const u8> par
     }
     if (word(state, 0x28) != 0)
     {
-        put_word(body, 0x258, word(body, 0x258) + 1);
+        set(body, body_field::holds, get(body, body_field::holds) + 1);
     }
     if (word(state, 0x3C) != 0 && context.secondary != nullptr)
     {
@@ -607,8 +608,8 @@ void destroy_runtime_stand_alert(std::span<u8> state, RuntimeBodyStateContext& c
     set_runtime_body_shape_mode(state[0x4C], context);
     if (word(state, 0x28) != 0)
     {
-        const u32 count = word(body, 0x258) - 1;
-        put_word(body, 0x258, count);
+        const u32 count = get(body, body_field::holds) - 1;
+        set(body, body_field::holds, count);
         if (count == 0)
         {
             const u32 message[]{0x4A};

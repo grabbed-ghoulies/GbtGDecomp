@@ -11,6 +11,7 @@
 #include "player_mind_events.h"
 #include "../navigation/player_avoidance.h"
 #include "../scripts/script_conditions.h"
+#include "body_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -83,7 +84,7 @@ bool reactions_enabled(RuntimePlayerStrategyGoals& context, u32 force = 0)
 
 bool body_settled(std::span<const u8> body)
 {
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
 }
 
 bool roll(u32& random, float chance)
@@ -512,7 +513,7 @@ void queue_runtime_tutorial_notice(const Actor& actor, u32 id, RuntimeTutorialNo
 u32 notice_runtime_strategy_target(u32 id, RuntimeStrategyTargetChecks& context)
 {
     std::span<const u8> body = context.goals.entry.body;
-    if (read_u16(body, 0x94) == 0 && read_u16(body, 0x96) != 0)
+    if (get(body, body_field::energy) == 0 && get(body, body_field::max_energy) != 0)
     {
         return 0;
     }

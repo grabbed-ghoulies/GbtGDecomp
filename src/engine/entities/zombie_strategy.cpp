@@ -9,6 +9,7 @@
 #include "player_strategy.h"
 #include "../navigation/mind_navigation_angles.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -16,11 +17,6 @@ namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -57,7 +53,7 @@ bool requests_pending(RuntimeZombieStrategy& context)
 bool body_settled(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
 }
 
 // Mind +0x10: the current target record, or null.

@@ -9,6 +9,7 @@
 #include "player_parent_lifecycle.h"
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
+#include "body_fields.h"
 #include <cmath>
 #include <cstring>
 
@@ -207,7 +208,7 @@ float target_gap(std::span<const u8> record, RuntimeGenericStrategy& context)
     const float dz = position.z - read_f32(record, 0x28);
     const float scale = actor.radius_xz; // Body +8, +0x38.
     const float distance = float(std::sqrt(double(dx) * dx + double(dy) * dy + double(dz) * dz));
-    float reach = read_f32(body, 0x78) * scale;
+    float reach = get(body, body_field::reach) * scale;
     float weapon_radius = 0.f;
     const RuntimeBodyAttachedActor* weapon = weapon_of(context);
     const u8 kind = weapon == nullptr ? 0 : weapon->bytes[0x93D];
@@ -223,7 +224,7 @@ float target_gap(std::span<const u8> record, RuntimeGenericStrategy& context)
         }
     }
     reach += weapon_radius;
-    const float gap = distance - (read_f32(body, 0x888) * scale + reach + read_f32(record, 0x38));
+    const float gap = distance - (get(body, body_field::radius_scale) * scale + reach + read_f32(record, 0x38));
     return 0.f >= gap ? 0.f : gap;
 }
 

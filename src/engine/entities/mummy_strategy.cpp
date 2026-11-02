@@ -12,6 +12,7 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "../navigation/spawn_candidates.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <string>
@@ -512,7 +513,7 @@ void enter_runtime_mummy_state(u16 state, u16 previous, RuntimeMummyStrategy& co
         set(strategy, field::unk_3C, 0u);
         body[0x328] = 5;
         strategy[0x1A] = 1;
-        if (read_u32(body, 0x48) == 0)
+        if (get(body, body_field::attached) == 0)
         {
             load_goal(context.goal_ankh_getout, context);
         }

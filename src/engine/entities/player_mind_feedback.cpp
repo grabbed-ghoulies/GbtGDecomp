@@ -4,6 +4,7 @@
 #include "actor_transform.h"
 #include "entity_heap.h"
 #include "gbtg/entity.h"
+#include "body_fields.h"
 #include <new>
 #include <bit>
 #include <cstring>
@@ -79,9 +80,9 @@ void select_runtime_player_mind_alert(std::span<u8> mind, std::span<const u8> bo
         set(mind, mind_field::alert_mode, 0x42);
         return;
     }
-    const u16 maximum = read_u16(body, 0x96);
+    const u16 maximum = get(body, body_field::max_energy);
     const bool low_health = maximum != 0 &&
-        float(read_u16(body, 0x94)) / float(maximum) <= 0.25f;
+        float(get(body, body_field::energy)) / float(maximum) <= 0.25f;
     if (player_link == 0)
     {
         if ((flags.bytes[4] & 0x40) != 0)
@@ -130,12 +131,12 @@ void update_runtime_player_mind_health_display(std::span<const u8> mind,
     std::span<const u8> body, const EntityBitBlock& flags, RuntimePlayerHealthDisplay& display)
 {
     if (get(mind, mind_field::target_mode) != 0 || (flags.bytes[5] & 1) != 0 || display.override_health != 0 ||
-        read_u16(body, 0x94) <= 10)
+        get(body, body_field::energy) <= 10)
     {
         display.intensity = 2.f;
         acquire_runtime_player_health_textures(display);
     }
-    set_runtime_player_health_display(display, read_u16(body, 0x94), read_f32(mind, 0x15C) > 0.f ? 1 : 0);
+    set_runtime_player_health_display(display, get(body, body_field::energy), read_f32(mind, 0x15C) > 0.f ? 1 : 0);
 }
 
 // Xbox 0x0007FB10

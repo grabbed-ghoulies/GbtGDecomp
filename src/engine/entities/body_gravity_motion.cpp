@@ -1,6 +1,7 @@
 #include "body_gravity_motion.h"
 #include "actor_sound_pose.h"
 #include "player_overlay.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -71,7 +72,7 @@ void step_runtime_gravity_motion(std::span<u8> body, std::span<const u8> actor_b
     std::span<float, 8> phases, float ratio_scale, float backward_lower,
     float turn_threshold, u32 limit, u32 reverse)
 {
-    const Vec3 start{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+    const Vec3 start = get(body, body_field::position);
     const Vec3 velocity = actor.anchor;
     const float elapsed = runtime_frame_step(clock) * runtime_actor_rate(actor);
     const auto* controller = animation.controller.get();

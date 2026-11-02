@@ -16,6 +16,7 @@
 #include "../navigation/mind_navigation_angles.h"
 #include "../navigation/navigation.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -136,7 +137,7 @@ void leave_phase(std::span<u8> state, u32 phase, RuntimeKnockdownContext& contex
 // The inline release of the getting-up count: body +0x69 drops once while the body lives.
 void release_getting_up(std::span<u8> state, RuntimeKnockdownContext& context)
 {
-    if (read_u32(state, 0xE0) == 0 && read_u16(context.body, 0x94) != 0)
+    if (read_u32(state, 0xE0) == 0 && get(context.body, body_field::energy) != 0)
     {
         context.body[0x69] = u8(context.body[0x69] - 1);
         put_word(state, 0xE0, 1);
@@ -249,7 +250,7 @@ void launch_runtime_knockdown(std::span<u8> state, float distance, float height,
     float flight;
     runtime_knockdown_launch(read_f32(state, 0xA8) + std::bit_cast<float>(0x40490FDBu), height, span, 0.1f, time,
         0.1f, velocity, gravity, flight, context.random); // DAT_0032B148, DAT_0032B254.
-    put_float(body, 0x324, gravity);
+    set(body, body_field::gravity, gravity);
     put_float(state, 0xB0, flight);
     put_float(state, 0xAC, pitch * std::bit_cast<float>(0x3C8EFA35u)); // DAT_0032B0FC.
     context.actor.anchor = velocity;
@@ -324,7 +325,7 @@ void enter_runtime_knockdown_phase(std::span<u8> state, u32 phase, RuntimeKnockd
         put_float(state, 0xB4, slot_position(context.animation));
         notify_down(context);
         signal_runtime_knockdown(read_vec(state, 0xD0), std::bit_cast<float>(0x3FC90FDBu), 0.f, context);
-        if (read_u16(body, 0x94) != 0)
+        if (get(body, body_field::energy) != 0)
         {
             return;
         }
@@ -335,7 +336,7 @@ void enter_runtime_knockdown_phase(std::span<u8> state, u32 phase, RuntimeKnockd
     {
         set_runtime_body_shape_mode(2, context.shape);
         actor.anchor = Vec3{0.f, 0.f, 0.f};
-        put_float(body, 0x324, 0.f);
+        set(body, body_field::gravity, 0.f);
         start_record(state, read_u32(state, 0x44) != 0 ? 3 : 2, context);
         put_float(state, 0xB8, actor.euler.x);
         put_float(state, 0xBC, actor.euler.y);
@@ -372,7 +373,7 @@ void enter_runtime_knockdown_phase(std::span<u8> state, u32 phase, RuntimeKnockd
         start_record(state, 6, context);
         notify_down(context);
         put_vec(state, 0xD0, read_vec(body, 0x178));
-        if (read_u16(body, 0x94) != 0)
+        if (get(body, body_field::energy) != 0)
         {
             return;
         }
@@ -384,7 +385,7 @@ void enter_runtime_knockdown_phase(std::span<u8> state, u32 phase, RuntimeKnockd
             clear_runtime_body_contacts(context);
             put_word(state, 0x2C, 0);
         }
-        if (read_u16(body, 0x94) == 0)
+        if (get(body, body_field::energy) == 0)
         {
             const float end = read_f32(state, 0xE8);
             put_float(state, 0x20, end < 0.f ? 1.f : end); // DAT_0032B0F8.
@@ -407,7 +408,7 @@ bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8>
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + 1));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
     adjust_body_counters(body, 1);
     body[0x38] = 1;
     body[0x39] = 1;
@@ -461,7 +462,7 @@ bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8>
     {
         context.bits.bytes[bit >> 3] |= u8(1u << (bit & 7));
     }
-    if (read_u16(body, 0x94) == 0 && read_u16(body, 0x96) != 0)
+    if (get(body, body_field::energy) == 0 && get(body, body_field::max_energy) != 0)
     {
         context.bits.bytes[3] |= 8;
         notify_runtime_body_death_once(body, context.actor_address, context.game);
@@ -475,7 +476,7 @@ bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8>
         put_word(state, 0xE4, 1);
         break;
     case 2:
-        put_word(state, 0xE4, read_u16(body, 0x94) == 0 ? 1 : 0);
+        put_word(state, 0xE4, get(body, body_field::energy) == 0 ? 1 : 0);
         break;
     default:
         break;
@@ -502,7 +503,7 @@ void destroy_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContex
         put_word(state, 0x2C, 0);
     }
     body[0x717] = state[0x30];
-    put_half(body, 0x30, u16(read_u16(body, 0x30) - 1));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
     put_word(body, 0x324, read_u32(state, 0xA0));
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
@@ -711,9 +712,9 @@ void sweep_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& conte
     const i32 amount = i32(damage) * hits;
     if (0 < amount)
     {
-        const i32 left = i32(read_u16(body, 0x94)) - amount;
+        const i32 left = i32(get(body, body_field::energy)) - amount;
         const u16 health = left < 1 ? 0 : u16(left);
-        put_half(body, 0x94, health);
+        set(body, body_field::energy, health);
         if (health == 0)
         {
             context.bits.bytes[3] |= 8;
@@ -779,7 +780,7 @@ void bounce_runtime_knockdown(std::span<u8> state, std::span<const u8> record, R
     const float nz = read_f32(record, 0x14);
     put_vec(state, 0xD0, read_vec(record, 0));
     body[0x254] = record[0x1E];
-    const bool dead = read_u16(body, 0x94) == 0;
+    const bool dead = get(body, body_field::energy) == 0;
     bool bounce = false;
     if (read_u32(state, 0x48) != 0)
     {
@@ -842,7 +843,7 @@ void end_runtime_knockdown(std::span<u8> state, u16 key, RuntimeKnockdownContext
         put_word(state, 0x2C, 0);
     }
     float end;
-    if (read_u16(body, 0x94) == 0)
+    if (get(body, body_field::energy) == 0)
     {
         end = 1.f; // DAT_0032B0F8.
         if (0.f <= read_f32(state, 0xE8))
@@ -856,7 +857,7 @@ void end_runtime_knockdown(std::span<u8> state, u16 key, RuntimeKnockdownContext
     }
     put_float(state, 0x20, end);
     put_half(state, 0x5E, key);
-    if (read_u16(body, 0x94) == 0)
+    if (get(body, body_field::energy) == 0)
     {
         // The message is the key's own stack slot.
         const u32 message[]{0x35};
@@ -868,7 +869,7 @@ void end_runtime_knockdown(std::span<u8> state, u16 key, RuntimeKnockdownContext
 void finish_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
-    if (read_u16(body, 0x94) != 0)
+    if (get(body, body_field::energy) != 0)
     {
         if (context.table != nullptr) // Body +0x73C, held as its native view.
         {
@@ -1104,7 +1105,7 @@ void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCon
         inside = !(box[0] > position.x) && position.x < box[3] && !(box[1] > position.y)
             && position.y < top + 1.f && !(box[2] > position.z) && position.z < box[5];
     }
-    if (inside && read_u16(body, 0x94) != 0 && read_u32(state, 0x34) == 1
+    if (inside && get(body, body_field::energy) != 0 && read_u32(state, 0x34) == 1
         && !(timer < read_f32(state, 0xB0) * 0.8f)) // DAT_0032B244.
     {
         end_runtime_knockdown(state, read_u16(state, 0x56), context);
@@ -1131,7 +1132,7 @@ void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCon
         {
             put_vec(state, 0xD0, actor_world_position(context.actor));
         }
-        if ((read_u32(state, 0x34) != 1 || read_u16(body, 0x94) == 0) && read_u32(state, 0x3C) != 0)
+        if ((read_u32(state, 0x34) != 1 || get(body, body_field::energy) == 0) && read_u32(state, 0x3C) != 0)
         {
             enter_runtime_knockdown_phase(state, 2, context);
             return;
@@ -1194,7 +1195,7 @@ void tick_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& 
     case 3:
         if (runtime_actor_animation_slot_complete(context.animation, 0))
         {
-            if (read_u32(state, 0x34) == 1 && read_u16(body, 0x94) != 0)
+            if (read_u32(state, 0x34) == 1 && get(body, body_field::energy) != 0)
             {
                 end_runtime_knockdown(state, read_u16(state, 0x56), context);
                 finish_runtime_knockdown(state, context);
@@ -1255,7 +1256,7 @@ void tick_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& 
         start_record(state, 6, context);
         notify_down(context);
         put_vec(state, 0xD0, read_vec(body, 0x178));
-        if (read_u16(body, 0x94) == 0 && has_action(context, 0x69))
+        if (get(body, body_field::energy) == 0 && has_action(context, 0x69))
         {
             put_half(state, 0x5C, 0x69);
         }

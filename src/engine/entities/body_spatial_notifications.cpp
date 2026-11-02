@@ -3,6 +3,7 @@
 #include "actor_transform.h"
 #include "entity_heap.h"
 #include "shape_copy.h"
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -12,8 +13,8 @@ void notify_runtime_body_spatial_shape(std::span<const u8> body,
     std::span<u8, 0x20> scratch, RuntimeBodySpatialNotifications& context)
 {
     const Vec3 position = actor_world_position(context.actor);
-    const float height = context.actor.radius_y * read_f32(body, 0x884);
-    const float radius = context.actor.radius_xz * read_f32(body, 0x888);
+    const float height = context.actor.radius_y * get(body, body_field::height_scale);
+    const float radius = context.actor.radius_xz * get(body, body_field::radius_scale);
     std::memcpy(scratch.data() + 4, &position, 12);
     const u32 zero = 0;
     std::memcpy(scratch.data() + 0x10, &zero, 4);

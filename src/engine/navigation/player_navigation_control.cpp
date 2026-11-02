@@ -2,6 +2,7 @@
 #include "../entities/actor_transform.h"
 #include "../entities/body_shape_push.h"
 #include "gbtg/anim.h"
+#include "../entities/body_fields.h"
 #include <bit>
 
 namespace gbtg
@@ -188,7 +189,7 @@ u32 drive_runtime_player_navigation(RuntimePlayerNavigationControl& context,
         approach = 2.5f;
     }
     const auto body = context.navigation.body;
-    if (read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.0f)
+    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.0f)
     {
         return 0;
     }

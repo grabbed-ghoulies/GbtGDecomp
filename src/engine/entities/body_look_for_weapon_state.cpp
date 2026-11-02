@@ -5,6 +5,7 @@
 #include "body_orientation.h"
 #include "player_mind_requests.h"
 #include "../graphics/billboard_queue.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -255,7 +256,7 @@ void draw_runtime_look_for_weapon_state(std::span<const u8> state, RuntimeLookFo
 // Xbox 0x001345B0, EBX body, ESI target
 void face_runtime_body_actor(std::span<u8> body, const Actor& actor, const Actor& target)
 {
-    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
     {
         face_runtime_body_point(body, actor, actor_world_position(target)); // 0x000412A0, 0x00134510
     }

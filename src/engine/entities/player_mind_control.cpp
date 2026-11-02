@@ -3,6 +3,7 @@
 #include "gbtg/anim.h"
 #include "actor_live_attachments.h"
 #include "shape_copy.h"
+#include "body_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -21,8 +22,8 @@ std::span<u8> refresh_runtime_player_shape_target(RuntimePlayerMindShapeTarget& 
     {
         return {};
     }
-    if ((body[0x6B] == 0 && body[0x6A] == 0 && !(read_f32(body, 0x70) > 0.f)
-        && read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f
+    if ((body[0x6B] == 0 && body[0x6A] == 0 && !(get(body, body_field::unk_70) > 0.f)
+        && get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f
         && (context.flags.bytes[3] & 8) == 0
         && !runtime_body_bit_set(context.flags, 0x2C)
         && !runtime_body_bit_set(context.flags, 0x2A)) || (context.flags.bytes[5] & 0x80) != 0)
@@ -100,7 +101,7 @@ void update_runtime_player_mind_gaze(RuntimePlayerMindGaze& context,
 {
     auto mind = context.mind;
     auto body = context.body;
-    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
     {
         if (get(mind, mind_field::gaze_point_set) == 0)
         {
@@ -572,7 +573,7 @@ bool update_runtime_player_boost_timer(RuntimeMindBoost& boost,
         {
             put_float(boost.boost, 4, 0.f);
             auto body = boost.attachment.body;
-            if (read_u16(body, 0x94) != 0)
+            if (get(body, body_field::energy) != 0)
             {
                 control.flags.bytes[5] &= 0xEF;
                 --body[0x309];

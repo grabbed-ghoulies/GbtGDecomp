@@ -9,6 +9,7 @@
 #include "player_mind_events.h"
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -33,11 +34,6 @@ u32 body_address_of(std::span<const u8> state)
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_half(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
 }
 
 // The four input counters (+0x309 .. +0x30C) move together.
@@ -136,7 +132,7 @@ bool initialize_runtime_spawn_ghouly_state(std::span<u8> state, std::span<const 
     body[0x6D] = u8(body[0x6D] + 1);
     step_inputs(body, 1);
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + 1));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
     body[0x38] = 1;
     body[0x39] = 1;
     RuntimeBodyStateContext shape = context.state();
@@ -161,7 +157,7 @@ void destroy_runtime_spawn_ghouly_state(std::span<u8> state, RuntimeSpawnGhoulyS
     step_live_holds(-1, context);
     body[0x6D] = u8(body[0x6D] - 1);
     decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
-    put_half(body, 0x30, u16(read_u16(body, 0x30) - 1));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
     RuntimeBodyStateContext shape = context.state();
     set_runtime_body_shape_mode(get(state, field::shape_mode), shape); // 0x0001FEB0, BL state +0x18
     spawn_animations.erase(state.data());

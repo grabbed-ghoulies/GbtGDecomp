@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../entities/body_fields.h"
 
 // The player and background updates, owned effects, script actor queries and actor matrix bindings.
 namespace gbtg
@@ -701,18 +702,18 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::case_actors(
         auto view = std::make_unique<SceneCaseActor>();
         const auto body = std::span<const u8>(owner->body);
         auto& mind = view->mind;
-        mind.state = i16(read_u16(body, 0x30));
-        mind.state_time = read_f32(body, 0x34);
-        const u32 case_actor = read_u32(body, 0x48);
+        mind.state = i16(get(body, body_field::move_holds));
+        mind.state_time = get(body, body_field::move_hold_time);
+        const u32 case_actor = get(body, body_field::attached);
         mind.case_actor = case_actor == 0 ? nullptr : actors->actors.at(scene.resolve_address(case_actor, 0).data());
         mind.node = nullptr;
         mind.blocked = body[0x69];
         mind.active = body[0x6A];
         mind.suspended = body[0x6B];
         mind.permitted = body[0x6C];
-        mind.timer = read_f32(body, 0x70);
-        mind.energy = i16(read_u16(body, 0x94));
-        mind.maximum_energy = i16(read_u16(body, 0x96));
+        mind.timer = get(body, body_field::unk_70);
+        mind.energy = i16(get(body, body_field::energy));
+        mind.maximum_energy = i16(get(body, body_field::max_energy));
         mind.bits = owner->body_bits;
         view->tag = read_u16(owner->actor_bytes, 6);
         void* marker = read_u32(owner->actor_bytes, 0xCE0) != 0 ? static_cast<void*>(owner->actor_bytes.data() + 0xCE0)
@@ -758,9 +759,9 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor
         }
         const auto body = std::span<const u8>(owner->body);
         auto& mind = view->mind;
-        mind.state = i16(read_u16(body, 0x30));
-        mind.state_time = read_f32(body, 0x34);
-        mind.case_actor = actor_at_address(read_u32(body, 0x48));
+        mind.state = i16(get(body, body_field::move_holds));
+        mind.state_time = get(body, body_field::move_hold_time);
+        mind.case_actor = actor_at_address(get(body, body_field::attached));
         // Body +0x5C (the attachment request tables) and its +0x2C, read for flag 0x100000.
         mind.node = nullptr;
         if (owner->animation_resource.data() != nullptr)
@@ -777,9 +778,9 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor
         mind.active = body[0x6A];
         mind.suspended = body[0x6B];
         mind.permitted = body[0x6C];
-        mind.timer = read_f32(body, 0x70);
-        mind.energy = i16(read_u16(body, 0x94));
-        mind.maximum_energy = i16(read_u16(body, 0x96));
+        mind.timer = get(body, body_field::unk_70);
+        mind.energy = i16(get(body, body_field::energy));
+        mind.maximum_energy = i16(get(body, body_field::max_energy));
         mind.bits = owner->body_bits;
         view->tag = read_u16(owner->actor_bytes, 6);
         // Actor +0x958 (the mind): +0xC the reference source (0x00028C10), +0x10 the target record whose +0x10

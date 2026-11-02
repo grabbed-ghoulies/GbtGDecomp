@@ -4,6 +4,7 @@
 #include "../scene/scene_types.h"
 #include "../scripts/script_conditions.h"
 #include "gbtg/object_factory.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -34,7 +35,7 @@ void step_holds(std::span<u8> body, i32 step)
     {
         body[offset] = u8(body[offset] + step);
     }
-    const u16 count = u16(read_u16(body, 0x30) + step);
+    const u16 count = u16(get(body, body_field::move_holds) + step);
     std::memcpy(body.data() + 0x30, &count, 2);
 }
 

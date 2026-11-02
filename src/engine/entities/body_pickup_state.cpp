@@ -9,6 +9,7 @@
 #include "../camera/camera_mind_rig.h"
 #include "../scripts/script_conditions.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -93,7 +94,7 @@ float runtime_pickup_grab_point(std::span<const u8> weapon, u16 host_class)
 void release_runtime_pickup_weapon(RuntimePickupStateContext& context)
 {
     const auto body = context.body;
-    const u32 weapon = read_u32(body, 0x48);
+    const u32 weapon = get(body, body_field::attached);
     if (weapon == 0)
     {
         return;
@@ -157,7 +158,7 @@ void approach_runtime_pickup(std::span<const u8> state, RuntimePlayerAttachmentA
     RuntimePickupStateContext& context)
 {
     const auto body = context.body;
-    const Vec3 position{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+    const Vec3 position = get(body, body_field::position);
     Vec3 point;
     float radius = 0.f;
     i32 index = 0;
@@ -235,7 +236,7 @@ void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& c
     const MinaPlayer* player = first_player(context.animation);
     const float position = player == nullptr ? 0.f : player->position;
     const float end = get(state, pickup_state_field::release_point);
-    const bool taken_empty = get(state, pickup_state_field::taken) != 0 && read_u32(body, 0x48) == 0;
+    const bool taken_empty = get(state, pickup_state_field::taken) != 0 && get(body, body_field::attached) == 0;
     if (context.input == nullptr || context.input_state == nullptr)
     {
         throw Error("pick-up state stick check without the tick's input device");
@@ -322,7 +323,7 @@ void destroy_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& 
         throw Error("lift state has no DAT_00511AA4 latch view for 0x0001FD20");
     }
     decrement_runtime_body_latches(body, context.actor, *context.latches); // 0x0001FD20, ECX body
-    if (read_u32(body, 0x48) != 0)
+    if (get(body, body_field::attached) != 0)
     {
         release_runtime_pickup_weapon(context); // Inlined as in 0x0009DEA0.
         return;

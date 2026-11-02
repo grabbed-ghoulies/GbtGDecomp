@@ -2,6 +2,7 @@
 #include "actor_transform.h"
 #include "player_goal_cleanup.h"
 #include "../audio/listener_settings.h"
+#include "body_fields.h"
 #include <array>
 #include <cstring>
 
@@ -178,7 +179,7 @@ bool initialize_runtime_drone_appear_state(std::span<u8> state, std::span<const 
     RuntimeDroneAppearStateContext& context)
 {
     const std::span<u8> body = context.body;
-    put_u16(body, 0x30, u16(read_u16(body, 0x30) + 1));
+    put_u16(body, 0x30, u16(get(body, body_field::move_holds) + 1));
     body[0x38] = 1;
     body[0x39] = 1;
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
@@ -207,7 +208,7 @@ void destroy_runtime_drone_appear_state(std::span<u8> state, RuntimeDroneAppearS
         scale_runtime_drone_appear(state, context.actor); // 0x0008D690
     }
     decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
-    put_u16(body, 0x30, u16(read_u16(body, 0x30) - 1));
+    put_u16(body, 0x30, u16(get(body, body_field::move_holds) - 1));
     context.bits.bytes[1] = u8(context.bits.bytes[1] & 0xF7);
     if (get(state, field::appear) == 0)
     {

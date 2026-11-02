@@ -3,6 +3,7 @@
 #include "body_message_helpers.h"
 #include "../audio/body_sound_commands.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <cstring>
 
@@ -18,8 +19,9 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
 // The inlined surface-mode scale: DAT_00217EC0[mode] when body +0x878 has the mode's bit, otherwise 1.
 float surface_mode_scale(std::span<const u8> body, std::span<const float> mode_scales)
 {
-    const u8 mode = read_u16(body, 0x880) == 0 ? body[0x874] : body[0x87E];
-    if ((read_u32(body, 0x878) & (1u << (mode & 0x1F))) != 0)
+    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
+                                                                        : get(body, body_field::surface_override);
+    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= mode_scales.size())
         {
@@ -179,8 +181,8 @@ void select_runtime_walk_alert_band(std::span<u8> state, RuntimeWalkAlertTick& c
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = read_f32(body, 0x318);
-    const float vz = read_f32(body, 0x320);
+    const float vx = get(body, body_field::velocity).x;
+    const float vz = get(body, body_field::velocity).z;
     const float speed = float(retail_square_root(x * x + z * z));
     static_cast<void>(retail_square_root(vz * vz + vx * vx)); // Popped unused.
     const i32 band = runtime_walk_alert_band(state, body, context.actor, speed, context.tables,
@@ -205,7 +207,8 @@ void steer_runtime_walk_alert(std::span<const u8> state, RuntimeWalkAlertTick& c
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (context.input == nullptr || read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f)
+    if (context.input == nullptr || get(body, body_field::move_holds) != 0 ||
+        get(body, body_field::move_hold_time) != 0.f)
     {
         axes = {0.f, 0.f};
     }
@@ -266,8 +269,8 @@ void select_runtime_walk_alert_key(std::span<u8> state, RuntimeWalkAlertTick& co
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = read_f32(body, 0x318);
-    const float vz = read_f32(body, 0x320);
+    const float vx = get(body, body_field::velocity).x;
+    const float vz = get(body, body_field::velocity).z;
     if ((context.flags.bytes[7] & 8) == 0 && read_u16(state, 0x1C) != 0)
     {
         const bool alert = context.mind_present && context.mind_alert != 0;
@@ -320,7 +323,8 @@ void steer_runtime_fly_state(std::span<const u8> state, RuntimeWalkAlertTick& co
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (context.input == nullptr || read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f)
+    if (context.input == nullptr || get(body, body_field::move_holds) != 0 ||
+        get(body, body_field::move_hold_time) != 0.f)
     {
         axes = {0.f, 0.f};
     }
@@ -344,7 +348,7 @@ void steer_runtime_fly_state(std::span<const u8> state, RuntimeWalkAlertTick& co
         angle = float(retail_atan2(axes[1], axes[0])); // 0x001530E0
     }
     float rise;
-    if (read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f)
+    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f)
     {
         rise = 0.f;
     }
@@ -455,8 +459,8 @@ void select_runtime_fly_band(std::span<u8> state, RuntimeWalkAlertTick& context)
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = read_f32(body, 0x318);
-    const float vz = read_f32(body, 0x320);
+    const float vx = get(body, body_field::velocity).x;
+    const float vz = get(body, body_field::velocity).z;
     const float speed = float(retail_square_root(x * x + z * z)); // 0x00152B30
     const float steered = float(retail_square_root(vz * vz + vx * vx));
     const i32 steered_band = runtime_walk_alert_band(state, body, context.actor, steered, context.tables,
@@ -484,9 +488,9 @@ void select_runtime_fly_key(std::span<u8> state, RuntimeWalkAlertTick& context)
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = read_f32(body, 0x318);
-    const float vy = read_f32(body, 0x31C);
-    const float vz = read_f32(body, 0x320);
+    const float vx = get(body, body_field::velocity).x;
+    const float vy = get(body, body_field::velocity).y;
+    const float vz = get(body, body_field::velocity).z;
     if (read_u16(state, 0x1C) != 0 && context.mind_present && context.mind_alert != 0)
     {
         context.actions.animation.retain_position = 1; // Actor +0x84.
@@ -538,7 +542,7 @@ void stop_runtime_walk_alert(std::span<u8> body, std::span<u8> message, u32 key,
     {
         return;
     }
-    if (read_u16(body, 0x94) == 0)
+    if (get(body, body_field::energy) == 0)
     {
         const u32 none = 0;
         std::memcpy(message.data() + 8, &none, 4);

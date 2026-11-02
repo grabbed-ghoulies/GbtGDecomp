@@ -11,6 +11,7 @@
 #include "gbtg/actor_runtime.h"
 #include "gbtg/anim.h"
 #include "gbtg/object_factory.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -244,7 +245,7 @@ bool initialize_runtime_slam_smash_state(std::span<u8> state, std::span<const u8
     body[0x38] = 1;
     body[0x39] = 1;
     set(state, field::shape_mode, u32(set_runtime_body_shape_mode(4, context.shape))); // 0x0001FEB0, BL 4
-    const u32 holds = read_u32(body, 0x258) + 1;
+    const u32 holds = get(body, body_field::holds) + 1;
     std::memcpy(body.data() + 0x258, &holds, 4);
     set(state, field::start, actor_world_position(context.actor)); // 0x000412A0
     set(state, field::phase, 1u);
@@ -258,7 +259,7 @@ void destroy_runtime_slam_smash_state(std::span<u8> state, RuntimeSlamSmashState
     const auto body = context.body;
     body[0x6A] = u8(body[0x6A] - 1);
     set_runtime_body_shape_mode(u8(get(state, field::shape_mode)), context.shape); // 0x0001FEB0, BL +0x3C
-    const u32 holds = read_u32(body, 0x258) - 1;
+    const u32 holds = get(body, body_field::holds) - 1;
     std::memcpy(body.data() + 0x258, &holds, 4);
     if (holds == 0)
     {

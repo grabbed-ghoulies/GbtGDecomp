@@ -1,4 +1,5 @@
 #include "body_message_helpers.h"
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -136,7 +137,7 @@ void clear_runtime_body_actor_reference(std::span<u8> body, u32 address,
     }
     else
     {
-        if (read_u32(body, 0x48) == address)
+        if (get(body, body_field::attached) == address)
         {
             primary.attached = nullptr;
             std::memcpy(body.data() + 0x48, &zero, 4);
@@ -192,7 +193,7 @@ void reselect_runtime_body_action(std::span<u8> body, RuntimeBodyActionMessages&
 // Xbox 0x0001F750
 bool runtime_body_latches_block(std::span<const u8> body, const Actor& actor, u32 mask)
 {
-    if (read_u16(body, 0x94) == 0 || !(actor.animation_pause > 0.f))
+    if (get(body, body_field::energy) == 0 || !(actor.animation_pause > 0.f))
     {
         for (u32 index = 0; index < 6; ++index)
         {
@@ -257,7 +258,7 @@ bool notify_runtime_body_action_key(std::span<u8> body, u16 key, RuntimeBodyActi
 void reset_runtime_body_action(std::span<u8> body, std::span<const u8> settings,
     RuntimeBodyActionMessages& context)
 {
-    if (read_u16(body, 0x94) != 0)
+    if (get(body, body_field::energy) != 0)
     {
         const u32 second = read_u32(settings, 0x1AC);
         const u32 first = read_u32(settings, 0x1A8);

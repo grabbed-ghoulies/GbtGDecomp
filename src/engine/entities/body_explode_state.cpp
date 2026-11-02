@@ -11,6 +11,7 @@
 #include "player_goal_cleanup.h"
 #include "player_mind_requests.h"
 #include "segment_records.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -39,11 +40,6 @@ u32 body_address_of(std::span<const u8> state)
 }
 
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
 }
@@ -108,9 +104,9 @@ bool initialize_runtime_explode_state(std::span<u8> state, RuntimeExplodeStateCo
     const std::span<u8> body = knockdown.body;
     step_counters(body, 1);
     increment_runtime_body_latches(body, knockdown.actor, context.latches); // The inlined 0x0001FC40.
-    put_word(body, 0x338, read_u32(body, 0x338) + 1);
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
     put_word(body, 0x330, read_u32(body, 0x334));
-    put_float(body, 0x334, 0.f);
+    set(body, body_field::ease_rate, 0.f);
     unregister_actor_segment_probes(context.render); // 0x0003E850
     body[0x38] = 1;
     body[0x39] = 1;
@@ -126,7 +122,7 @@ void destroy_runtime_explode_state(std::span<u8> state, RuntimeExplodeStateConte
     step_counters(body, -1);
     decrement_runtime_body_latches(body, knockdown.actor, context.latches); // The inlined 0x0001FD20.
     put_word(body, 0x334, read_u32(body, 0x330));
-    put_word(body, 0x338, read_u32(body, 0x338) - 1);
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
     GhoulySpawnPool*& overrides = overrides_of(state);
     if (overrides != nullptr)
     {
@@ -203,7 +199,7 @@ bool blast_runtime_explode_contacts(std::span<u8> state, Actor& actor, RuntimeEx
         }
     }
     Vec3 center = actor_world_position(actor); // 0x000412A0, ESI actor
-    center.y = knockdown.actor.radius_y * read_f32(body, 0x884) * kHalf + center.y;
+    center.y = knockdown.actor.radius_y * get(body, body_field::height_scale) * kHalf + center.y;
     GhoulySpawnPool*& overrides = overrides_of(state);
     if (overrides != nullptr)
     {

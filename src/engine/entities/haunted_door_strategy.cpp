@@ -14,6 +14,7 @@
 #include "../navigation/navigation.h"
 #include "../scripts/script_vm.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -118,7 +119,7 @@ void step_byte(std::span<u8> bytes, size_t offset, i32 step)
 bool body_settled(RuntimeHauntedDoorStrategy& context)
 {
     const std::span<const u8> body = body_of(context);
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
 }
 
 const AnimationRecord& overlay_record(RuntimeHauntedDoorStrategy& context, const char* reader)
@@ -282,7 +283,7 @@ void begin_runtime_haunted_door_attack(RuntimeHauntedDoorStrategy& context)
             row = find_runtime_attachment_second_request(tables, 0xCF); // 0x0001C5A0, EBX 0xCF
         }
     }
-    put_word(body, 0x84, row == nullptr ? 0u : context.address_of(row));
+    set(body, body_field::hit_record, row == nullptr ? 0u : context.address_of(row));
     put_word(body, 0x88, 0);
     step_byte(body, 0x6A, 1);
     start_runtime_body_animation_record(overlay_record(context, "0x000AFB20"), context.actions); // 0x0001AFA0
@@ -301,7 +302,7 @@ void end_runtime_haunted_door_attack(RuntimeHauntedDoorStrategy& context)
         return;
     }
     const std::span<u8> body = body_of(context);
-    put_word(body, 0x84, 0);
+    set(body, body_field::hit_record, 0);
     put_word(body, 0x88, 0);
     step_byte(body, 0x6A, -1);
     const i32 slot = i32(overlay_record(context, "0x000AFB90").slot);

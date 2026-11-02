@@ -6,6 +6,7 @@
 #include "player_mind_requests.h"
 #include "gbtg/anim.h"
 #include "gbtg/object_factory.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -99,7 +100,7 @@ Actor& actor_at(u32 address, RuntimeBandagedStateContext& context)
 // The body's held actor (+0x48) render bins.
 ActorRenderRegistration& held_render(RuntimeBandagedStateContext& context)
 {
-    return context.actor_view(read_u32(context.body, 0x48)).render;
+    return context.actor_view(get(context.body, body_field::attached)).render;
 }
 
 // The +0x309..+0x30C counts move by `step`.
@@ -163,7 +164,7 @@ bool initialize_runtime_bandaged_state(std::span<u8> state, std::span<const u8> 
     RuntimeBandagedStateContext& context)
 {
     const auto body = context.body;
-    set(state, field::scale, context.actor.radius_y * read_f32(body, 0x884) * kScaleShare);
+    set(state, field::scale, context.actor.radius_y * get(body, body_field::height_scale) * kScaleShare);
     body[0x38] = 1;
     body[0x39] = 1;
     release_runtime_player_attachment(0, 0, context.attachment); // 0x0001B810, EAX body
@@ -284,7 +285,7 @@ void tick_runtime_bandaged_state(std::span<u8> state, RuntimeBandagedStateContex
     case 4:
         if (runtime_actor_animation_slot_complete(context.animation, 0)) // 0x0003B290, EAX actor, ECX 0
         {
-            if (read_u16(body, 0x94) == 0)
+            if (get(body, body_field::energy) == 0)
             {
                 select_runtime_body_recovery_action(state, 0, context.recovery); // 0x00133F50, EAX body
                 return;
@@ -348,7 +349,7 @@ void set_runtime_bandaged_phase(u32 phase, std::span<u8> state, RuntimeBandagedS
     case 1:
     {
         spawn_runtime_bandage_wrap(state, context); // 0x0008AC30
-        put_half(body, 0x30, u16(read_u16(body, 0x30) + 1));
+        set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
         set(state, field::held, 1u);
         request_actor_sound(actor, 5, kWrapSound, context.sounds); // 0x00041D00, EDX actor, ECX 5
         const std::array<u32, 3> words{0x68, context.actor_address, read_u32(body, 0x270)};
@@ -402,7 +403,7 @@ void hide_runtime_bandaged_body(std::span<u8> state, RuntimeBandagedStateContext
     put_word(body, 0x310, 1);
     spawn_runtime_mummified_avatar(state, context); // 0x0008AE30, EBX state
     unregister_actor_render_bins(context.render); // 0x0003CBB0, EDI actor
-    if (read_u32(body, 0x48) != 0)
+    if (get(body, body_field::attached) != 0)
     {
         unregister_actor_render_bins(held_render(context)); // 0x0003CBB0, EDI body +0x48
     }
@@ -422,7 +423,7 @@ void release_runtime_bandaged_state(std::span<u8> state, RuntimeBandagedStateCon
         {
             register_actor_render_bins(context.render); // 0x0003CAE0
         }
-        if (read_u32(body, 0x48) != 0)
+        if (get(body, body_field::attached) != 0)
         {
             register_actor_render_bins(held_render(context)); // 0x0003CAE0
         }
@@ -430,7 +431,7 @@ void release_runtime_bandaged_state(std::span<u8> state, RuntimeBandagedStateCon
     }
     if (get(state, field::held) != 0)
     {
-        put_half(body, 0x30, u16(read_u16(body, 0x30) - 1));
+        set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
         set(state, field::held, 0u);
     }
     if (const u32 mummified = get(state, field::mummified); mummified != 0)
@@ -577,7 +578,7 @@ void start_runtime_bandage_bits(u32 actor_address, std::span<const u8> state, Ru
 // Xbox 0x0008B140, EAX state, ECX body
 bool runtime_bandaged_escape_due(std::span<u8> state, RuntimeBandagedStateContext& context)
 {
-    if (read_u16(context.body, 0x94) == 0)
+    if (get(context.body, body_field::energy) == 0)
     {
         return true;
     }

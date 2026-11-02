@@ -9,6 +9,7 @@
 #include "player_mind_requests.h"
 #include "../camera/entity_camera.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -35,11 +36,6 @@ u32 body_address_of(std::span<const u8> state)
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, sizeof(value));
 }
 
 // The inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
@@ -279,7 +275,7 @@ void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& con
     {
         if (target != 0)
         {
-            put_vec3(body, 0x72C, runtime_shoot_turn(context.target_at(target), context)); // 0x000A0320
+            set(body, body_field::euler, runtime_shoot_turn(context.target_at(target), context)); // 0x000A0320
         }
         else
         {
@@ -314,7 +310,7 @@ void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& con
         const Vec3 point{read_f32(record, 0x20), read_f32(record, 0x30) * 0.5f + read_f32(record, 0x24),
             read_f32(record, 0x28)}; // DAT_0032B0F4.
         fire_runtime_shoot_state(state, target, read_f32(record, 0x38), point, context); // 0x0009FF90
-        put_vec3(body, 0x72C, runtime_shoot_turn(record, context)); // 0x000A0320
+        set(body, body_field::euler, runtime_shoot_turn(record, context)); // 0x000A0320
         bool changed = false;
         if (target != get(state, field::last_target))
         {
@@ -451,7 +447,7 @@ void aim_runtime_shoot_state(std::span<u8> state, std::span<const u8> target, Ru
     const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_height) * 0.75f + get(target, mind_target_field::shape_position).y,
         get(target, mind_target_field::shape_position).z}; // DAT_0032B2AC.
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const float eye = actor.radius_y * read_f32(context.body, 0x884) * 0.75f + position.y;
+    const float eye = actor.radius_y * get(context.body, body_field::height_scale) * 0.75f + position.y;
     const Vec3 direction{point.x - position.x, point.y - eye, point.z - position.z};
     float pitch = 0.f;
     runtime_direction_pitch(direction, pitch); // 0x00106000

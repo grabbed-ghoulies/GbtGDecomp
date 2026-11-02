@@ -2,6 +2,7 @@
 #include "player_mind_targets.h"
 #include "body_message_helpers.h"
 #include "shape_copy.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -15,7 +16,7 @@ u32 runtime_body_target_height(std::span<const u8> body, const Actor& actor,
     {
         copy_actor_shape(shape, target.data() + 0x1C);
     }
-    const float height = actor.radius_y * read_f32(body, 0x884);
+    const float height = actor.radius_y * get(body, body_field::height_scale);
     const float radius = get(target, mind_target_field::shape_height);
     const Vec3 position = actor_world_position(actor);
     const float difference = (get(target, mind_target_field::shape_position).y + radius) - (position.y + height);
@@ -35,8 +36,8 @@ bool runtime_body_accepts_target_request(std::span<const u8> body,
     const EntityBitBlock& flags, u16 owner_class)
 {
     if (body[0x6B] == 0 && (body[0x6A] == 0 || body[0x6C] != 0)
-        && !(read_f32(body, 0x70) > 0.f) && read_u16(body, 0x30) == 0
-        && read_f32(body, 0x34) == 0.f && (flags.bytes[3] & 8) == 0)
+        && !(get(body, body_field::unk_70) > 0.f) && get(body, body_field::move_holds) == 0
+        && get(body, body_field::move_hold_time) == 0.f && (flags.bytes[3] & 8) == 0)
     {
         if (!runtime_body_bit_set(flags, 0x2C))
         {

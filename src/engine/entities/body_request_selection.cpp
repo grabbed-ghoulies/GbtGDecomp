@@ -8,6 +8,7 @@
 #include "player_mind_target_control.h"
 #include "player_strategy_goals.h"
 #include "../audio/listener_settings.h"
+#include "body_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -38,7 +39,7 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
     auto body = context.body.body;
     std::array<float, 2> axes;
     runtime_input_secondary_axes(context.input, axes, context.input_state);
-    const bool active = read_u16(body, 0x94) != 0 && !(read_f32(mind, 0x15C) > 0.f);
+    const bool active = get(body, body_field::energy) != 0 && !(read_f32(mind, 0x15C) > 0.f);
     auto* attached = context.body.actions.attached;
     update_runtime_player_input_direction(mind.subspan(0x94), axes,
         runtime_frame_step(control.clock), attached != nullptr && attached->bytes[0x93D] == 4);

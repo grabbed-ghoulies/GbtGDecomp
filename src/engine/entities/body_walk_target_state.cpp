@@ -6,6 +6,7 @@
 #include "player_mind_events.h"
 #include "../audio/body_sound_commands.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cmath>
@@ -67,8 +68,9 @@ float wrap_signed(float value)
 // The inlined surface-mode scale: DAT_00217EC0[mode] when body +0x878 has the mode's bit, otherwise 1.
 float surface_mode_scale(std::span<const u8> body, std::span<const float> mode_scales)
 {
-    const u8 mode = read_u16(body, 0x880) == 0 ? body[0x874] : body[0x87E];
-    if ((read_u32(body, 0x878) & (1u << (mode & 0x1F))) != 0)
+    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
+                                                                        : get(body, body_field::surface_override);
+    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= mode_scales.size())
         {
@@ -286,7 +288,8 @@ void steer_runtime_body_by_stick(RuntimeWalkTargetTick& context)
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (context.input == nullptr || read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f)
+    if (context.input == nullptr || get(body, body_field::move_holds) != 0 ||
+        get(body, body_field::move_hold_time) != 0.f)
     {
         axes = {0.f, 0.f};
     }
@@ -504,14 +507,14 @@ void settle_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& cont
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = read_f32(body, 0x318);
-    const float vy = read_f32(body, 0x31C);
-    const float vz = read_f32(body, 0x320);
+    const float vx = get(body, body_field::velocity).x;
+    const float vy = get(body, body_field::velocity).y;
+    const float vz = get(body, body_field::velocity).z;
     const bool alert = !context.mind.empty() && get(context.mind, mind_field::target_mode) != 0;
     if (!alert && get(state, field::arrival_delay) == 0.f) // DAT_0032B100.
     {
         // x87: body +0x730 - actor +0x18, stored as a float.
-        const float turn = float(static_cast<long double>(read_f32(body, 0x730))
+        const float turn = float(static_cast<long double>(get(body, body_field::euler).y)
             - static_cast<long double>(context.actor.euler.y));
         const float magnitude = animation_absolute(wrap_signed(turn));
         if (std::bit_cast<float>(0x3E860A92u) >= magnitude) // DAT_0032B340.
@@ -656,7 +659,7 @@ u32 runtime_fly_alert_direction(RuntimeWalkTargetTick& context)
 void steer_runtime_fly_alert(RuntimeWalkTargetTick& context)
 {
     const auto body = context.body;
-    const bool settled = read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    const bool settled = get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
     std::array<float, 2> axes{};
     if (context.input != nullptr && settled)
     {
@@ -781,14 +784,14 @@ void settle_runtime_fly_alert(std::span<u8> state, RuntimeWalkTargetTick& contex
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = read_f32(body, 0x318);
-    const float vy = read_f32(body, 0x31C);
-    const float vz = read_f32(body, 0x320);
+    const float vx = get(body, body_field::velocity).x;
+    const float vy = get(body, body_field::velocity).y;
+    const float vz = get(body, body_field::velocity).z;
     const bool alert = !context.mind.empty() && get(context.mind, mind_field::target_mode) != 0;
     if (!alert && get(state, fly::arrival_delay) == 0.f) // DAT_0032B100.
     {
         // x87: body +0x730 - actor +0x18, stored as a float.
-        const float turn = float(static_cast<long double>(read_f32(body, 0x730))
+        const float turn = float(static_cast<long double>(get(body, body_field::euler).y)
             - static_cast<long double>(context.actor.euler.y));
         const float magnitude = animation_absolute(wrap_signed(turn));
         if (std::bit_cast<float>(0x3E860A92u) >= magnitude) // DAT_0032B340.
@@ -830,7 +833,8 @@ void tick_runtime_fly_alert(std::span<u8> state, RuntimeWalkTargetTick& context,
         store_target_position(context.body, context.actor_position(target)); // 0x000412A0, EDI body +0x3C.
     }
     steer_runtime_fly_alert(context); // 0x000923B0, EBX input
-    if (read_u16(context.body, 0x30) == 0 && read_f32(context.body, 0x34) == 0.f && (ground & 0x40) == 0)
+    if (get(context.body, body_field::move_holds) == 0 && get(context.body, body_field::move_hold_time) == 0.f &&
+        (ground & 0x40) == 0)
     {
         aim_runtime_fly_alert(context); // 0x00092280
     }

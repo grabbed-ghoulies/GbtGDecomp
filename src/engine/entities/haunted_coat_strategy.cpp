@@ -16,6 +16,7 @@
 #include "../navigation/player_avoidance.h"
 #include "../scripts/script_vm.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -78,11 +79,6 @@ std::span<const u8> target_bytes(const RuntimeMindTarget* target, const char* re
         throw Error(std::string(reader) + " reads the haunted coat's target record through address zero");
     }
     return target->bytes;
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
 }
 
 void put_u16(std::span<u8> bytes, size_t offset, u16 value)
@@ -278,11 +274,11 @@ bool runtime_haunted_coat_attack_ready(RuntimeMindTarget* target, RuntimeHaunted
     {
         settled = false;
     }
-    else if (read_f32(body, 0x70) > 0.f)
+    else if (get(body, body_field::unk_70) > 0.f)
     {
         settled = false;
     }
-    else if (read_u16(body, 0x30) != 0 || !(read_f32(body, 0x34) == 0.f))
+    else if (get(body, body_field::move_holds) != 0 || !(get(body, body_field::move_hold_time) == 0.f))
     {
         settled = false;
     }
@@ -333,8 +329,8 @@ void wake_runtime_haunted_coat(u32 release, RuntimeHauntedCoatStrategy& context)
     script_queue_event(goals.game, {reinterpret_cast<const u8*>(event.data()), sizeof(event)}); // 0x00116810, EDI
     if (get(strategy, field::on_wall) != 0)
     {
-        const u32 count = read_u32(body, 0x258) - 1;
-        put_word(body, 0x258, count);
+        const u32 count = get(body, body_field::holds) - 1;
+        set(body, body_field::holds, count);
         if (count == 0)
         {
             const std::array<u32, 2> message{0x4A, tag}; // Word 1 is the event's stack slot.
@@ -374,7 +370,7 @@ bool initialize_runtime_haunted_coat_strategy(RuntimeHauntedCoatStrategy& contex
     select_runtime_body_action(body, key, context.actions); // The inlined 0x00027650 over body +0x73C.
     if (get(strategy, field::on_wall) != 0)
     {
-        put_word(body, 0x258, read_u32(body, 0x258) + 1);
+        set(body, body_field::holds, get(body, body_field::holds) + 1);
     }
     return true;
 }

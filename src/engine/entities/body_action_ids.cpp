@@ -3,6 +3,7 @@
 #include <bit>
 #include "actor_transform.h"
 #include "../runtime/name_lookup.h"
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -12,7 +13,7 @@ u16 runtime_player_body_primary_id(std::span<const u8> body, const RuntimeBodyAc
     const RuntimePlayerGoalRing* goals, std::span<const u8> address_zero,
     const std::function<u16()>& primary_id, u16 retained_key)
 {
-    if (read_u16(body, 0x94) == 0 && table != nullptr)
+    if (get(body, body_field::energy) == 0 && table != nullptr)
     {
         u32 output;
         if (find_runtime_script_table_row(table, 0x6A, output) != nullptr)
@@ -61,7 +62,7 @@ u32 runtime_player_goal_flag_name_id(const char* name, const char* const* names)
 // Xbox 0x00024C20
 bool runtime_body_timer_is_idle(std::span<const u8> body)
 {
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
 }
 
 // Xbox 0x00145FF0
@@ -577,7 +578,7 @@ u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
             {
                 const Vec3 source = actor_world_position(owner);
                 const Vec3 target = actor_world_position(*attached.actor);
-                const float height = (read_f32(body, 0x884) * owner.radius_y)
+                const float height = (get(body, body_field::height_scale) * owner.radius_y)
                     * std::bit_cast<float>(0x3F59999Au);
                 if (target.y - source.y >= height && runtime_body_has_action_id(table, 0xC7))
                 {
@@ -599,7 +600,7 @@ u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
             {
                 const Vec3 source = actor_world_position(owner);
                 const Vec3 target = actor_world_position(*attached.actor);
-                const float height = (read_f32(body, 0x884) * owner.radius_y)
+                const float height = (get(body, body_field::height_scale) * owner.radius_y)
                     * std::bit_cast<float>(0x3EB33333u);
                 if (target.y - source.y >= height && runtime_body_has_action_id(table, 0xC4))
                 {

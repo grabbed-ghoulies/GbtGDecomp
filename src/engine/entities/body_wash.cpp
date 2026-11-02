@@ -2,6 +2,7 @@
 #include "body_timers.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -65,11 +66,11 @@ bool tick_runtime_body_oscillator(std::span<u8> oscillator, float elapsed,
 // Xbox 0x0001E270
 float runtime_body_health_fraction(std::span<const u8> body)
 {
-    if (read_u16(body, 0x96) == 0)
+    if (get(body, body_field::max_energy) == 0)
     {
         return 1.f;
     }
-    return float(read_u16(body, 0x94)) / float(read_u16(body, 0x96));
+    return float(get(body, body_field::energy)) / float(get(body, body_field::max_energy));
 }
 
 // Xbox 0x0001E770
@@ -93,9 +94,9 @@ bool runtime_body_actor_requires_wash(std::span<const u8> actor, const u8* bound
 // Xbox 0x0001E300
 void update_runtime_body_wash_health(std::span<const u8> body, std::span<u8> wash)
 {
-    if (read_u16(body, 0x96) != 0)
+    if (get(body, body_field::max_energy) != 0)
     {
-        const float fraction = float(read_u16(body, 0x94)) / float(read_u16(body, 0x96));
+        const float fraction = float(get(body, body_field::energy)) / float(get(body, body_field::max_energy));
         if (0.25f > fraction)
         {
             wash_store(wash, 0x40, 4.f);

@@ -1,6 +1,7 @@
 #include "player_body_messages.h"
 #include "actor_transform.h"
 #include "player_mind_events.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -18,8 +19,8 @@ void begin_runtime_player_body_control(std::span<u8> body, std::span<const u8> m
     {
     case 3:
     {
-        const u16 health = read_u16(body, 0x94);
-        const u16 maximum = u16(read_u16(body, 0x96) + read_u32(message, 0xC));
+        const u16 health = get(body, body_field::energy);
+        const u16 maximum = u16(get(body, body_field::max_energy) + read_u32(message, 0xC));
         std::memcpy(body.data() + 0x94, &maximum, 2);
         std::memcpy(body.data() + 0x96, &maximum, 2);
         const u16 updated = u16(health + read_u16(message, 0xC));
@@ -33,7 +34,7 @@ void begin_runtime_player_body_control(std::span<u8> body, std::span<const u8> m
     }
     case 4:
     {
-        const u16 health = read_u16(body, 0x94);
+        const u16 health = get(body, body_field::energy);
         const u32 zero = 0;
         if (health != 0)
         {
@@ -97,7 +98,7 @@ void end_runtime_player_body_control(std::span<u8> body, std::span<const u8> mes
     {
     case 4:
     {
-        if (read_u16(body, 0x94) != 0 && read_u32(body, 0x948) != 0)
+        if (get(body, body_field::energy) != 0 && read_u32(body, 0x948) != 0)
         {
             const u16 health = u16(read_u32(body, 0x948));
             std::memcpy(body.data() + 0x94, &health, 2);
@@ -250,7 +251,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         return;
     case 0x23:
         dispatch_runtime_parent_body_message(body, message, views.parent, parent);
-        if (read_u32(body, 0x258) == 0)
+        if (get(body, body_field::holds) == 0)
         {
             separate_runtime_player_body_contacts(body, parent.actor, processor.flags,
                 context.mask, context.floor, parent.default_position);
@@ -316,7 +317,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         return;
     }
     case 0x4A:
-        if (read_u32(body, 0x258) == 0)
+        if (get(body, body_field::holds) == 0)
         {
             separate_runtime_player_body_contacts(body, parent.actor, processor.flags,
                 context.mask, context.floor, parent.default_position);

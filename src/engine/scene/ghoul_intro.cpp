@@ -10,6 +10,7 @@
 #include "../runtime/name_lookup.h"
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
+#include "../entities/body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -19,16 +20,6 @@ namespace
 {
 constexpr const char* kIntroView = "ghouly_intro"; // 0x00321808.
 constexpr const char* kIntroDitty = "XACT_SOUNDBANK_GSTREAMSDITTIES_GHOULINTRODITTY"; // 0x0030C790.
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 // The scene step: 0 while DAT_004312DC is above 0, else DAT_005096C0 * DAT_004312C4.
 float frame_step(const RuntimeGhoulIntroContext& context)
@@ -319,8 +310,8 @@ void place_runtime_ghoul_intro_camera(i32 shot, const Actor& actor, float height
         heading = actor.euler.y; // Actor +0x18.
     }
     const std::span<const u8> body = context.body(actor);
-    const float reach = actor.radius_xz * read_f32(body, 0x888) * distance; // Body +8 +0x38.
-    const float rise = actor.radius_y * read_f32(body, 0x884) * height; // Body +8 +0x34.
+    const float reach = actor.radius_xz * get(body, body_field::radius_scale) * distance; // Body +8 +0x38.
+    const float rise = actor.radius_y * get(body, body_field::height_scale) * height; // Body +8 +0x34.
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float angle = float(static_cast<long double>(heading) + turn);
     const float x = float(retail_sin(angle)) * reach + position.x; // 0x00153320

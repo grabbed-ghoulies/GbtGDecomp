@@ -3,6 +3,7 @@
 #include "body_orientation.h"
 #include "entity.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -162,7 +163,7 @@ void turn_runtime_struggle_body(bool targeted, std::span<u8> state, RuntimeStrug
 void update_runtime_struggle_animation(std::span<u8> state, RuntimeStruggleTick& context)
 {
     const float facing = read_f32(context.actor_bytes, 0x18);
-    const float heading = read_f32(context.body, 0x730);
+    const float heading = get(context.body, body_field::euler).y;
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.actor);
     const float timer = read_f32(state, 0x2C);
@@ -252,7 +253,8 @@ void tick_runtime_struggle_state(std::span<u8> state, RuntimeStruggleTick& conte
         std::memcpy(body.data() + 0x3C, &point, 12);
         targeted = true;
     }
-    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f && (context.flags.bytes[0] & 0x40) == 0)
+    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f &&
+        (context.flags.bytes[0] & 0x40) == 0)
     {
         turn_runtime_struggle_body(targeted, state, context);
     }

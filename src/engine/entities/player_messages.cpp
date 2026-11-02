@@ -1,6 +1,7 @@
 #include "player_messages.h"
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -300,7 +301,7 @@ u32 handle_runtime_player_pause_message(std::span<u8> actor, u32 id, RuntimePlay
 // Xbox 0x00029490
 void register_runtime_player_navigation(std::span<const u8> actor, RuntimePlayerNavigationRegistration& context)
 {
-    const float radius = context.body_owner.radius_xz * read_f32(context.body, 0x888);
+    const float radius = context.body_owner.radius_xz * get(context.body, body_field::radius_scale);
     if (radius != 0.0f)
     {
         const Vec3 center{read_f32(actor, 0xCC0), read_f32(actor, 0xCC4), read_f32(actor, 0xCC8)};

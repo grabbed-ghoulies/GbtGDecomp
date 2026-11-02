@@ -13,6 +13,7 @@
 #include "gbtg/anim.h"
 #include "../navigation/mind_navigation_angles.h"
 #include "../navigation/mind_navigation_costs.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <xmmintrin.h>
@@ -92,13 +93,13 @@ u32 update_runtime_cinema_mind_timed_motion(RuntimeCinemaMindMovement& context,
     std::span<const u8> request, const RuntimeBodyDamageTables& tables,
     std::span<const float> mode_scales)
 {
-    if (read_u16(context.body, 0x30) != 0 || read_f32(context.body, 0x34) != 0.f)
+    if (get(context.body, body_field::move_holds) != 0 || get(context.body, body_field::move_hold_time) != 0.f)
     {
         return 0;
     }
-    const u8 mode = context.body[read_u16(context.body, 0x880) == 0 ? 0x874 : 0x87E];
+    const u8 mode = context.body[get(context.body, body_field::surface_override_frames) == 0 ? 0x874 : 0x87E];
     float multiplier = 1.f;
-    if ((read_u32(context.body, 0x878) & (1u << (mode & 31))) != 0)
+    if ((get(context.body, body_field::scaled_surfaces) & (1u << (mode & 31))) != 0)
     {
         multiplier = mode_scales[mode]; // DAT_00217EC0.
     }
@@ -175,7 +176,7 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
     {
         return true;
     }
-    if (read_u16(context.body, 0x30) == 0 && read_f32(context.body, 0x34) == 0.f)
+    if (get(context.body, body_field::move_holds) == 0 && get(context.body, body_field::move_hold_time) == 0.f)
     {
         if (read_u32(request, 0x14) != 0 || context.target->bytes[0x15] == 0)
         {
@@ -248,7 +249,7 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
     {
         const float body_radius = context.eligibility.body_actor.radius_xz;
         radius = runtime_player_body_attachment_radius(context.eligibility)
-            + read_f32(context.body, 0x888) * body_radius;
+            + get(context.body, body_field::radius_scale) * body_radius;
         radius = radius + read_f32(request, 0x18);
         radius = radius + read_f32(shape, 0x1C);
         radius = radius + 1.f;

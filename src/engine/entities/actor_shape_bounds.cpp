@@ -4,6 +4,7 @@
 #include "entity_heap.h"
 #include "shape_copy.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <cmath>
 #include <bit>
 #include <cstring>
@@ -403,9 +404,9 @@ void apply_runtime_body_actor_bounds(std::span<const u8> body, Actor& actor,
             bound_store(second.data(), 8, position.y);
             bound_store(second.data(), 0xC, position.z);
             bound_store(second.data(), 0x10, 0.f);
-            bound_store(second.data(), 0x14, actor.radius_y * read_f32(body, 0x884));
+            bound_store(second.data(), 0x14, actor.radius_y * get(body, body_field::height_scale));
             bound_store(second.data(), 0x18, 0.f);
-            bound_store(second.data(), 0x1C, actor.radius_xz * read_f32(body, 0x888));
+            bound_store(second.data(), 0x1C, actor.radius_xz * get(body, body_field::radius_scale));
             if ((flags.bytes[7] & 1) != 0)
             {
                 bound_header(first.data());

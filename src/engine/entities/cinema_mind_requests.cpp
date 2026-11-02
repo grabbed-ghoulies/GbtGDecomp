@@ -7,6 +7,7 @@
 #include "body_damage_motion.h"
 #include "player_mind_control.h"
 #include "player_mind_feedback.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -49,7 +50,7 @@ u32 face_runtime_cinema_mind_target(std::span<const u8> mind, std::span<u8> body
     {
         return 1;
     }
-    if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
     {
         const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
         face_runtime_body_point(body, actor, point);

@@ -19,6 +19,7 @@
 #include "../graphics/world_sprite_passes.h"
 #include "../navigation/player_avoidance.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -115,7 +116,7 @@ bool aid_name(const char* name)
 // Body +0x30 and the four +0x309..+0x30C counters the constructor raises and the destructor drops.
 void adjust_body_counters(std::span<u8> body, i32 step)
 {
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + step));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + step));
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + step);
@@ -542,7 +543,7 @@ void place_beam(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
     if (get(state, field::spawn_found) == 0)
     {
         const Vec3 origin = actor_world_position(actor); // 0x000412A0
-        const float reach = actor.radius_xz * read_f32(context.body, 0x888) * 3.f; // DAT_0032B260.
+        const float reach = actor.radius_xz * get(context.body, body_field::radius_scale) * 3.f; // DAT_0032B260.
         Vec3 point = get(state, field::spawn_point);
         RuntimeNavigationHeadingSearch search{origin, i32(read_u32(context.actor_bytes, 0xCEC)), reach,
             reach + 5.f, nullptr, nullptr, &point, 1, 0, 0, context.random, context.occupancy_initial};
@@ -867,7 +868,7 @@ bool initialize_runtime_generate_ghouly_state(std::span<u8> state, std::span<con
     copy_name(state, field::bolt_texture_name, parameters, parameter::bolt_texture);
     copy_name(state, field::spark_texture_name, parameters, parameter::spark_texture);
     const auto body = context.body;
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + 1));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
     for (size_t offset : {size_t(0x30B), size_t(0x309), size_t(0x30A), size_t(0x30C)})
     {
         body[offset] = u8(body[offset] + 1);

@@ -1,4 +1,5 @@
 #include "body_apply.h"
+#include "body_fields.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../runtime/rare_replay.h"
 #endif
@@ -29,7 +30,7 @@ void apply_runtime_body(std::span<u8> body, RuntimeBodyApplyContext& context)
     update_runtime_body_model_anchors(body, context.anchors);
     apply_runtime_body_actor_bounds(body, channels.actor, context.actor_bytes,
         context.flags, context.bound, context.shapes);
-    u16 frames = read_u16(body, 0x880);
+    u16 frames = get(body, body_field::surface_override_frames);
 #if !defined(GBTG_RETAIL_GAME_ONLY)
     // Rare Replay: +0x880 counts retail ticks.
     if (frames != 0 && rare_replay_retail_tick())
@@ -49,9 +50,9 @@ void apply_runtime_body(std::span<u8> body, RuntimeBodyApplyContext& context)
     {
         const float step = runtime_frame_step(channels.clock);
         const float rate = runtime_actor_rate(channels.actor);
-        if (read_f32(body, 0x70) > 0.f)
+        if (get(body, body_field::unk_70) > 0.f)
         {
-            const float timer = read_f32(body, 0x70) - rate * step;
+            const float timer = get(body, body_field::unk_70) - rate * step;
             apply_store_float(body, 0x70, timer);
             if (timer <= 0.f)
             {
@@ -63,9 +64,9 @@ void apply_runtime_body(std::span<u8> body, RuntimeBodyApplyContext& context)
         context.second_recipient, context.first, channels.clock);
     const float step = runtime_frame_step(channels.clock);
     const float rate = runtime_actor_rate(channels.actor);
-    if (read_f32(body, 0x34) > 0.f)
+    if (get(body, body_field::move_hold_time) > 0.f)
     {
-        const float timer = read_f32(body, 0x34) - rate * step;
+        const float timer = get(body, body_field::move_hold_time) - rate * step;
         apply_store_float(body, 0x34, timer);
         if (timer <= 0.f)
         {

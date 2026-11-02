@@ -1,6 +1,7 @@
 #include "body_move_action_slots.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -112,7 +113,7 @@ void tick_runtime_xz_gravity_action(std::span<u8> action, std::span<u8> body, Ac
     const Vec3 velocity = actor.anchor; // Actor +0x3C.
     std::memcpy(body.data() + 0x318, &velocity.x, 4);
     std::memcpy(body.data() + 0x320, &velocity.z, 4);
-    const float vertical = rate * step * read_f32(body, 0x324) + velocity.y;
+    const float vertical = rate * step * get(body, body_field::gravity) + velocity.y;
     std::memcpy(body.data() + 0x31C, &vertical, 4);
     actor.anchor = Vec3{velocity.x, vertical, velocity.z};
 }
@@ -152,8 +153,8 @@ void update_runtime_gravity_velocity(std::span<const u8> body, Actor& actor,
     const Vec3 target = read_vec3(body, 0x318);
     const float step = runtime_frame_step(clock);
     const float rate = runtime_actor_rate(actor);
-    ease_runtime_planar_velocity(velocity, target, read_f32(body, 0x334), steps);
-    velocity.y = rate * step * read_f32(body, 0x324) + velocity.y;
+    ease_runtime_planar_velocity(velocity, target, get(body, body_field::ease_rate), steps);
+    velocity.y = rate * step * get(body, body_field::gravity) + velocity.y;
     actor.anchor = velocity;
 }
 
@@ -272,7 +273,7 @@ void follow_runtime_stand_focus(std::span<u8> action, RuntimeStandActionContext&
     context.aim(offset, from, focus, target, read_f32(context.tunables, 0), speed,
         read_f32(context.tunables, 4)); // DAT_004275BC, DAT_004275C0.
     Vec3 rate{read_f32(action, 0x20), read_f32(action, 0x24), read_f32(action, 0x28)};
-    ease_runtime_vector_toward(rate, offset, read_f32(context.body, 0x334), context.steps);
+    ease_runtime_vector_toward(rate, offset, get(context.body, body_field::ease_rate), context.steps);
     std::memcpy(action.data() + 0x20, &rate, 12);
     if (read_u32(context.tunables, 0xC) != 0) // DAT_004275C8.
     {

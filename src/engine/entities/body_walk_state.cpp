@@ -5,6 +5,7 @@
 #include "player_attachment_helpers.h"
 #include "../camera/camera_body_slots.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -115,8 +116,9 @@ void walk_state_object_sizes(ObjectSizes& output)
 void place_runtime_walk_object(std::span<const u8> state, std::span<const u8> body, const Actor& actor, i32 index,
     Vec3& position, Vec3& euler)
 {
-    const float reach = actor.radius_xz * read_f32(body, 0x888) + 2.f; // DAT_0032B110.
-    const float height = actor.radius_y * read_f32(body, 0x884) * std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
+    const float reach = actor.radius_xz * get(body, body_field::radius_scale) + 2.f; // DAT_0032B110.
+    const float height =
+        actor.radius_y * get(body, body_field::height_scale) * std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
     position = Vec3{0.f, height, 0.f};
     const float orbit = read_f32(state, slot_offset(index));
     const float side = float(retail_sin(orbit));

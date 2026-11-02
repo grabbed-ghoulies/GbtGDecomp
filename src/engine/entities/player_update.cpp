@@ -5,6 +5,7 @@
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
 #include "../navigation/navigation.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -73,7 +74,8 @@ void track_runtime_player_room(RuntimePlayerRoomTracking& context)
         {
             put(actor, 0xCB8, 1);
         }
-        else if (read_u16(context.body, 0x30) == 0 && read_f32(context.body, 0x34) == 0.0f)
+        else if (get(context.body, body_field::move_holds) == 0 &&
+                 get(context.body, body_field::move_hold_time) == 0.0f)
         {
             put_float(actor, 0xCAC, position.x);
             put_float(actor, 0xCB0, position.y);
@@ -215,7 +217,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     context.body_bits->bytes[0] &= 0xFD;
     if (paused == 0)
     {
-        if (read_u32(body, 0x258) == 0)
+        if (get(body, body_field::holds) == 0)
         {
             const u32 filter = actor.model_flags;
             actor.model_flags = 0;
@@ -242,7 +244,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         else
         {
             body[0x716] = 0;
-            const Vec3 local{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+            const Vec3 local = get(body, body_field::position);
             const Vec3 world = actor_world_position(actor);
             const Vec3 delta{local.x - world.x, local.y - world.y, local.z - world.z};
             record_runtime_body_motion(body.subspan(0x340, 4 + 0x50 * 12), delta, owner, clock);
@@ -333,7 +335,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         }
         else
         {
-            radius = owner.radius_xz * read_f32(body, 0x888);
+            radius = owner.radius_xz * get(body, body_field::radius_scale);
         }
         entity_detail::NavigationPathSearch* search;
         i32 preferred;

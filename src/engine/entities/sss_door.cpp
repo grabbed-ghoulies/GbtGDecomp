@@ -9,6 +9,7 @@
 #include "../scene/trophy_heads_control.h"
 #include "gbtg/anim.h"
 #include "gbtg/entity.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -199,7 +200,7 @@ bool runtime_sss_door_triggered(RuntimeSssDoor& context)
         return false;
     }
     const auto body = context.player_body(*player); // Player +0x95C.
-    if (read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f)
+    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f)
     {
         return false;
     }

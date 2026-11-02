@@ -23,6 +23,7 @@
 #include "../frontend/scoreboard_draw.h"
 #include "../scripts/script_vm.h"
 #include "../runtime/name_lookup.h"
+#include "../entities/body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -725,7 +726,7 @@ void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlStat
     if (control.player != 0)
     {
         const std::span<u8> body = services.player_body(control.player);
-        set_runtime_player_health_display(services.health, i32(read_u16(body, 0x94)), 0); // 0x00130710, EDI
+        set_runtime_player_health_display(services.health, i32(get(body, body_field::energy)), 0); // 0x00130710, EDI
         services.health_intensity = 2.f; // DAT_0032B110
         acquire_runtime_player_health_textures(services.health); // 0x0012FE10
     }

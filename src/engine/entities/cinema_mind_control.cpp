@@ -1,5 +1,6 @@
 #include "cinema_mind_control.h"
 #include "mind_fields.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -44,7 +45,7 @@ void update_runtime_cinema_mind_sound(std::span<u8> mind,
     const i32 count = i32(read_u32(mind, 0x88));
     if (count != 0)
     {
-        if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+        if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
         {
             const float step = runtime_frame_step(clock);
             const float rate = runtime_actor_rate(actor);

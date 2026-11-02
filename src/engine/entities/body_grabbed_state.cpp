@@ -1,6 +1,7 @@
 #include "body_grabbed_state.h"
 #include "actor_live_attachments.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -26,7 +27,7 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
 
 void step_holds(std::span<u8> body, entity_detail::ListHead& live_attachments, i32 step)
 {
-    const u16 count = u16(read_u16(body, 0x30) + step);
+    const u16 count = u16(get(body, body_field::move_holds) + step);
     std::memcpy(body.data() + 0x30, &count, 2);
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
@@ -112,7 +113,7 @@ void destroy_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateConte
     const std::span<u8> body = pickup.body;
     if (word(state, 0x1C) != 0)
     {
-        const u16 count = u16(read_u16(body, 0x30) - 1);
+        const u16 count = u16(get(body, body_field::move_holds) - 1);
         std::memcpy(body.data() + 0x30, &count, 2);
         put_word(state, 0x1C, 0);
     }
@@ -182,7 +183,7 @@ void tick_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateContext&
     }
     if (crossed(*player, read_f32(state, 0x18)) && word(state, 0x1C) != 0)
     {
-        const u16 count = u16(read_u16(body, 0x30) - 1);
+        const u16 count = u16(get(body, body_field::move_holds) - 1);
         std::memcpy(body.data() + 0x30, &count, 2);
         put_word(state, 0x1C, 0);
     }

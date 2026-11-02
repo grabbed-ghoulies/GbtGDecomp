@@ -23,6 +23,7 @@
 #include "shape_transform.h"
 #include "gbtg/anim.h"
 #include "gbtg/object_factory.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -414,7 +415,7 @@ void step_runtime_blood_suck_state(std::span<u8> state, RuntimeBloodSuckStateCon
         }
         RuntimeBloodSuckTarget target = target_of(state, context, "blood suck state 0x0008B9C0");
         const Vec3 position = actor_world_position(context.actor); // 0x000412A0
-        const float height = context.actor.radius_y * read_f32(context.body, 0x884) * kHoldHeight;
+        const float height = context.actor.radius_y * get(context.body, body_field::height_scale) * kHoldHeight;
         const float slot = runtime_actor_animation_slot_position(context.animation, 0); // The inlined 0x0003B1B0.
         const Vec3 start = get(state, field::grab_start);
         const float from = get(state, field::grab_position);
@@ -438,7 +439,7 @@ void step_runtime_blood_suck_state(std::span<u8> state, RuntimeBloodSuckStateCon
     }
     RuntimeBloodSuckTarget target = target_of(state, context, "blood suck state 0x0008B9C0");
     Vec3 point = actor_world_position(context.actor); // 0x000412A0
-    point.y = context.actor.radius_y * read_f32(context.body, 0x884) * kHoldHeight;
+    point.y = context.actor.radius_y * get(context.body, body_field::height_scale) * kHoldHeight;
     const Vec3 euler{0.f, context.actor.euler.y + kPi, 0.f};
     Actor& held = *target.peer.actor;
     actor_set_world_position(held, point); // 0x00041730, EDI target, ESI point

@@ -6,6 +6,7 @@
 #include "../scripts/script_vm.h"
 #include "../runtime/name_lookup.h"
 #include "../graphics/actor_effect_stream.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <cmath>
@@ -148,7 +149,7 @@ float runtime_player_target_radius(std::span<const u8> body, const Actor& body_a
     const RuntimeBodyAttachedActor* attached, const Actor& target)
 {
     const float radius = body_actor.radius_xz;
-    const float margin = read_f32(body, 0x78) * radius;
+    const float margin = get(body, body_field::reach) * radius;
     float model_radius = 0.f;
     const u8 category = attached == nullptr ? 0 : attached->bytes[0x93D];
     if (category == 1 && attached->actor->model != nullptr &&
@@ -157,7 +158,7 @@ float runtime_player_target_radius(std::span<const u8> body, const Actor& body_a
         model_radius = actor_model_radius(*attached->actor);
     }
     const float model_margin = model_radius + margin;
-    return read_f32(body, 0x888) * radius + model_margin + target.radius_xz;
+    return get(body, body_field::radius_scale) * radius + model_margin + target.radius_xz;
 }
 
 // Xbox 0x00129C20
@@ -198,7 +199,7 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
             float radius;
             if (read_u32(request, 0x14) == 0)
             {
-                radius = context.body_actor.radius_xz * read_f32(body, 0x888) +
+                radius = context.body_actor.radius_xz * get(body, body_field::radius_scale) +
                     get(context.target_bytes, mind_target_field::shape_radius);
             }
             else

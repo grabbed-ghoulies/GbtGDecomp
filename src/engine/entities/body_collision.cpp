@@ -7,6 +7,7 @@
 #include "segment_records.h"
 #include "entity_heap.h"
 #include "../navigation/navigation.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -55,7 +56,7 @@ bool separate_runtime_player_world_contacts(std::span<const u8> body, Actor& act
 void separate_runtime_player_body_contacts(std::span<u8>& body, Actor& actor,
     EntityBitBlock& bits, const EntityMaskHost& mask, i32 floor, const Vec3& stationary)
 {
-    Vec3 position{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+    Vec3 position = get(body, body_field::position);
     const float radius = read_f32(body, 0x894) * actor.radius_xz;
     const float height = (read_f32(body, 0x8A4) * actor.radius_xz + radius) + 0.5f;
     Vec3 probe{position.x, position.y + height, position.z};
@@ -288,9 +289,9 @@ u8 push_runtime_body_sphere(RuntimeBodyCollision& context, RuntimeBodyCollisionS
         }
     }
     std::span<u8> body = context.body;
-    put_float(body, 0x18, read_f32(body, 0x18) + move_x);
-    put_float(body, 0x1C, read_f32(body, 0x1C) + move_y);
-    put_float(body, 0x20, read_f32(body, 0x20) + move_z);
+    put_float(body, 0x18, get(body, body_field::position).x + move_x);
+    put_float(body, 0x1C, get(body, body_field::position).y + move_y);
+    put_float(body, 0x20, get(body, body_field::position).z + move_z);
     return 1;
 }
 
@@ -300,7 +301,7 @@ void push_runtime_body_spheres(RuntimeBodyCollision& context)
     std::span<u8> body = context.body;
     if (context.spheres != nullptr && body[0x715] != 0)
     {
-        Vec3 position{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+        Vec3 position = get(body, body_field::position);
         float world[12];
         actor_build_world_matrix(context.owner, world, &position);
         RuntimeBodyCollisionSphere* end = context.spheres + body[0x714];

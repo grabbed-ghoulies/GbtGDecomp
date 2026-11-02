@@ -1,6 +1,7 @@
 #include "body_shape_push.h"
 #include "actor_transform.h"
 #include "gbtg/model_runtime.h"
+#include "body_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -264,8 +265,8 @@ void push_runtime_player_body_shapes(std::span<u8> body, Actor& actor, Vec3& pos
     {
         const Vec3 previous = position;
         push_runtime_collision_point(position, position, &actor,
-            actor.radius_y * read_f32(body, 0x884),
-            actor.radius_xz * read_f32(body, 0x888), context);
+            actor.radius_y * get(body, body_field::height_scale),
+            actor.radius_xz * get(body, body_field::radius_scale), context);
         push = Vec3{position.x - previous.x, position.y - previous.y, position.z - previous.z};
     }
     else

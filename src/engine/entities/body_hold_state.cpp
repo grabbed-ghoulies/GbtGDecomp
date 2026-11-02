@@ -1,6 +1,7 @@
 #include "body_hold_state.h"
 #include "actor_live_attachments.h"
 #include "body_orientation.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -22,7 +23,7 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
 void adjust_hold_counters(std::span<u8> body, i32 step)
 {
     body[0x6B] = u8(body[0x6B] + step);
-    const u16 held = u16(read_u16(body, 0x30) + step);
+    const u16 held = u16(get(body, body_field::move_holds) + step);
     std::memcpy(body.data() + 0x30, &held, 2);
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {

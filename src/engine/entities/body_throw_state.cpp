@@ -11,6 +11,7 @@
 #include "player_mind_events.h"
 #include "../camera/camera_mind_rig.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -20,24 +21,9 @@ namespace gbtg
 {
 namespace
 {
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 Vec3 read_vector(std::span<const u8> bytes, size_t offset)
 {
     return Vec3{read_f32(bytes, offset), read_f32(bytes, offset + 4), read_f32(bytes, offset + 8)};
-}
-
-void put_vector(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, 12);
 }
 
 void adjust_body_counters(std::span<u8> body, i32 step)
@@ -67,7 +53,7 @@ const MinaPlayer* first_player(const ActorAnimationState& animation)
 // The aim's lift above the actor: half the actor's +0x34 height scaled by body +0x884 (DAT_0032B0F4).
 float throw_lift(const RuntimeThrowStateContext& context)
 {
-    return context.actor.radius_y * read_f32(context.body, 0x884) * 0.5f;
+    return context.actor.radius_y * get(context.body, body_field::height_scale) * 0.5f;
 }
 }
 
@@ -154,7 +140,7 @@ void turn_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& con
     {
         normalize_euler_angles(context.actor.euler, euler); // 0x00105AA0
         context.actor.xform_valid = 0; // +0x2A8.
-        put_vector(context.body, 0x72C, actor_world_euler(context.actor)); // 0x00041820, actor +0x95C -> +0x72C
+        set(context.body, body_field::euler, actor_world_euler(context.actor)); // 0x00041820, actor +0x95C -> +0x72C
     }
 }
 
@@ -163,7 +149,8 @@ void aim_runtime_throw_by_stick(Vec3& aim, RuntimeThrowStateContext& context)
 {
     const auto body = context.body;
     std::array<float, 2> axes{0.f, 0.f};
-    if (context.own_input != nullptr && read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (context.own_input != nullptr && get(body, body_field::move_holds) == 0 &&
+        get(body, body_field::move_hold_time) == 0.f)
     {
         runtime_input_secondary_axes(*context.own_input, axes, context.input_state); // 0x001088D0
     }

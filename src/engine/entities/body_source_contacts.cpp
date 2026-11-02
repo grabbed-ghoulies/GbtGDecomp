@@ -1,6 +1,7 @@
 #include "body_source_contacts.h"
 #include "segment_records.h"
 #include "body_action_ids.h"
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -67,7 +68,7 @@ void receive_runtime_body_source_contact(std::span<u8> body, std::span<u8> messa
                 can_override = false;
             }
         }
-        if (can_override && read_u32(body, 0x258) == 0 && (processor.flags.bytes[7] & 2) == 0)
+        if (can_override && get(body, body_field::holds) == 0 && (processor.flags.bytes[7] & 2) == 0)
         {
             const u32 one = 1;
             std::memcpy(damage.data() + 0x10, &one, 4);

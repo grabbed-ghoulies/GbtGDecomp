@@ -2,6 +2,7 @@
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
 #include "../scripts/script_vm.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -23,7 +24,7 @@ bool request_runtime_mind_boost(RuntimeMindBoost& context)
     {
         if ((runtime_player_can_resume_strategy(context.actor_bytes, context.resume) != 0
                 || (context.story_word & 0x80) != 0)
-            && read_u16(body, 0x94) != 0 && (context.flags.bytes[7] & 2) == 0
+            && get(body, body_field::energy) != 0 && (context.flags.bytes[7] & 2) == 0
             && (context.flags.bytes[7] & 4) == 0)
         {
             const u16 key = context.range_action_key();
@@ -80,7 +81,7 @@ bool request_runtime_mind_turn(RuntimeMindBoost& context, const Vec3& point)
     if ((read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0)
         && !(read_f32(context.boost, 4) > 0.f)
         && (context.flags.bytes[7] & 2) == 0 && (context.flags.bytes[7] & 4) == 0
-        && read_u16(body, 0x94) != 0)
+        && get(body, body_field::energy) != 0)
     {
         if (runtime_body_timer_is_idle(body) && body[0x6A] == 0)
         {

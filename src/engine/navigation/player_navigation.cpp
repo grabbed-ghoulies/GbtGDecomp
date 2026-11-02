@@ -2,6 +2,7 @@
 #include "path_routes.h"
 #include "../entities/actor_transform.h"
 #include "../entities/body_shape_push.h"
+#include "../entities/body_fields.h"
 
 namespace gbtg
 {
@@ -70,7 +71,7 @@ u32 request_runtime_player_navigation_path(RuntimePlayerNavigation& context,
         }
         begin_navigation_path_search(*search, start_cell, finish_cell);
         const float elapsed = runtime_actor_step(context.actor, context.clock);
-        update_navigation_path_search(*search, read_u32(context.body, 0x878), elapsed);
+        update_navigation_path_search(*search, get(context.body, body_field::scaled_surfaces), elapsed);
         if (registration != nullptr)
         {
             increment_navigation_cell_counts(*registration, u32(context.floor));

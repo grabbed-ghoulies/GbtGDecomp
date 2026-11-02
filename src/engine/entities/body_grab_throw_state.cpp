@@ -30,6 +30,7 @@
 #include "../navigation/navigation.h"
 #include "../scene/scene_markers.h"
 #include "gbtg/object_factory.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -506,7 +507,7 @@ void throw_runtime_grab_throw_victim(std::span<u8> state, RuntimeGrabThrowStateC
     Vec3 place = actor_world_position(victim_actor); // 0x000412A0
     point.y = place.y;
     const EntityMaskHost host{victim_actor.mask_flag, victim_actor.goal_ring, victim_actor.mask_mode};
-    const float radius = read_f32(context.body, 0x888) * context.actor.radius_xz;
+    const float radius = get(context.body, body_field::radius_scale) * context.actor.radius_xz;
     if (entity_collect_sphere_contacts(point, radius, 4, camera_collision_mask(host)) != 0) // 0x001227E0, 0x0001FE00
     {
         auto contacts = entity_merge_contact_records(); // 0x00122310
@@ -514,7 +515,8 @@ void throw_runtime_grab_throw_victim(std::span<u8> state, RuntimeGrabThrowStateC
         {
             Vec3 separated;
             separate_runtime_segment_contacts(contacts, point,
-                context.actor.radius_xz * read_f32(context.body, 0x888), separated, actor_transform_origin); // 0x000FC3F0
+                                              context.actor.radius_xz * get(context.body, body_field::radius_scale),
+                                              separated, actor_transform_origin); // 0x000FC3F0
             point = separated;
         }
         engine_heap_free(contacts.block); // 0x000663E0

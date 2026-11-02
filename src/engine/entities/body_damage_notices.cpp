@@ -1,6 +1,7 @@
 #include "body_damage_notices.h"
 #include "actor_live_attachments.h"
 #include "../scripts/script_conditions.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -76,7 +77,7 @@ u32 subtract_runtime_body_damage_health(std::span<u8> body, const Actor& actor,
     }
     if (amount != 0)
     {
-        const u32 difference = u32(read_u16(body, 0x94)) - amount;
+        const u32 difference = u32(get(body, body_field::energy)) - amount;
         const u16 health = std::bit_cast<i32>(difference) <= 0 ? 0 : u16(difference);
         std::memcpy(body.data() + 0x94, &health, 2);
     }

@@ -1,5 +1,6 @@
 #include "body_move_actions.h"
 #include "player_children.h"
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -92,7 +93,7 @@ void raise_runtime_body_speed_limit(std::span<u8> body)
     std::memcpy(body.data() + 0x330, body.data() + 0x334, 4);
     const float limit = 70.f; // DAT_0032B2C4.
     std::memcpy(body.data() + 0x334, &limit, 4);
-    const u32 holders = read_u32(body, 0x338) + 1;
+    const u32 holders = get(body, body_field::ease_rate_swaps) + 1;
     std::memcpy(body.data() + 0x338, &holders, 4);
 }
 
@@ -100,7 +101,7 @@ void raise_runtime_body_speed_limit(std::span<u8> body)
 void restore_runtime_body_speed_limit(std::span<u8> body)
 {
     std::memcpy(body.data() + 0x334, body.data() + 0x330, 4);
-    const u32 holders = read_u32(body, 0x338) - 1;
+    const u32 holders = get(body, body_field::ease_rate_swaps) - 1;
     std::memcpy(body.data() + 0x338, &holders, 4);
 }
 

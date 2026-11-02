@@ -1,4 +1,5 @@
 #include "body_message_dispatch.h"
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -69,7 +70,7 @@ void dispatch_runtime_parent_body_message(std::span<u8> body, std::span<u8> mess
         set_runtime_actor_body_euler(context.actor, euler);
         body[0x6B] = 0;
         body[0x6A] = 0;
-        const u16 health = read_u16(body, 0x96);
+        const u16 health = get(body, body_field::max_energy);
         std::memcpy(body.data() + 0x94, &health, 2);
         clear_runtime_body_bit(context.animation.flags, 0x1B);
         select_runtime_body_action(body, read_u16(body, 0x74A), actions);
@@ -100,8 +101,8 @@ void dispatch_runtime_parent_body_message(std::span<u8> body, std::span<u8> mess
         query.x = position.x;
         query.y = position.y;
         query.z = position.z;
-        query.height = context.actor.radius_y * read_f32(body, 0x884);
-        query.radius = context.actor.radius_xz * read_f32(body, 0x888);
+        query.height = context.actor.radius_y * get(body, body_field::height_scale);
+        query.radius = context.actor.radius_xz * get(body, body_field::radius_scale);
         Vec3 push;
         if (entity_cylinder_collision_push(query, *views.cylinder, offset, push) != 0)
         {

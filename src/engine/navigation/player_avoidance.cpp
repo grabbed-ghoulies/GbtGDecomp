@@ -3,6 +3,7 @@
 #include "../entities/body_damage_motion.h"
 #include "../entities/player_mind_events.h"
 #include "gbtg/anim.h"
+#include "../entities/body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -90,7 +91,7 @@ float randomize_runtime_navigation_heading(float heading, float width, u32& rand
 // Xbox 0x0007F980
 bool avoid_runtime_player_navigation(RuntimePlayerNavigationAvoidance& context)
 {
-    if (read_u16(context.body, 0x30) != 0 || read_f32(context.body, 0x34) != 0.f)
+    if (get(context.body, body_field::move_holds) != 0 || get(context.body, body_field::move_hold_time) != 0.f)
     {
         return false;
     }

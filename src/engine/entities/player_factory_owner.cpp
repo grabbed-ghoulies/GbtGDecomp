@@ -6,6 +6,7 @@
 #include "actor_attachment_events.h"
 #include "body_request_selection.h"
 #include "player_attachment_helpers.h"
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -1919,8 +1920,9 @@ void NativePlayerInstance::refresh_body_views()
     actor.euler_out = body.empty() ? nullptr : &body_output;
     if (!body.empty())
     {
-        body_output.position = Vec3{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
-        body_output.euler = Vec3{read_f32(body, 0x72C), read_f32(body, 0x730), read_f32(body, 0x734)};
+        body_output.position = get(body, body_field::position);
+        body_output.euler =
+            get(body, body_field::euler);
     }
     if (body_flags != nullptr)
     {

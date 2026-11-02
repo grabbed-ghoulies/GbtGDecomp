@@ -5,6 +5,7 @@
 #include "actor_transform.h"
 #include "../navigation/navigation.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -15,7 +16,7 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
 {
     auto& body = context.body;
     auto& actor = context.actor;
-    const u8 surface = body[0x874];
+    const u8 surface = get(body, body_field::surface);
     const bool was_grounded = (context.flags->bytes[5] & 2) != 0;
     const bool was_supported = (context.flags->bytes[2] & 0x20) != 0;
     i32 maximum_passes = 3;
@@ -32,7 +33,7 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
     }
     const Vec3 start = actor_world_position(actor);
     const float actor_radius = actor.radius_xz;
-    Vec3 proposed{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+    Vec3 proposed = get(body, body_field::position);
     push_runtime_player_body_shapes(body, actor, proposed, context.shapes, context.push);
     const float radius = read_f32(body, 0x894) * actor_radius;
     const float height = (read_f32(body, 0x8A4) * actor_radius + radius) + 0.5f;
@@ -72,7 +73,8 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
                     const float dz = first.z - other.z;
                     if (low > dx || dx > high || low > dy || dy > high || low > dz || dz > high)
                     {
-                        Vec3 desired{read_f32(body, 0x18) - start.x, 0.f, read_f32(body, 0x20) - start.z};
+                        Vec3 desired{get(body, body_field::position).x - start.x, 0.f,
+                                     get(body, body_field::position).z - start.z};
                         Vec3 actual{upper.x - start.x, 0.f, upper.z - start.z};
                         float squared = desired.x * desired.x + desired.z * desired.z;
                         if (squared != 0.f)

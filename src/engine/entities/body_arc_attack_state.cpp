@@ -15,6 +15,7 @@
 #include "gbtg/actor_runtime.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <unordered_map>
@@ -89,11 +90,6 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, 12);
-}
-
 void step_byte(std::span<u8> bytes, size_t offset, i32 step)
 {
     bytes[offset] = u8(bytes[offset] + step);
@@ -107,7 +103,7 @@ void put_half(std::span<u8> bytes, size_t offset, u16 value)
 
 void adjust_body_counters(std::span<u8> body, i32 step)
 {
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + step));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + step));
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         step_byte(body, offset, step);
@@ -141,7 +137,7 @@ float slot_position(const ActorAnimationState& animation)
 void set_velocity(RuntimeArcAttackStateContext& context, const Vec3& velocity)
 {
     context.actor.anchor = velocity; // Actor +0x3C.
-    put_vec3(context.body, 0x318, velocity);
+    set(context.body, body_field::velocity, velocity);
 }
 
 void send_callout(RuntimeArcAttackStateContext& context, i32 id, const RuntimeActorCreationOptions* options)
@@ -290,7 +286,7 @@ void hit_runtime_arc_attack(std::span<u8> state, const Vec3& normal, const Vec3&
                         read_u32(context.bytes_at(victim), 0xCE0)) && context.player_damage != 0; // 0x00028D20
                     if (amount != 0 && live)
                     {
-                        amount = read_u16(body, 0x94);
+                        amount = get(body, body_field::energy);
                     }
                 }
             }
@@ -355,7 +351,7 @@ bool spin_runtime_arc_attack(std::span<u8> state, RuntimeArcAttackStateContext& 
     euler.x = after;
     wrap_runtime_euler(euler, actor.euler); // 0x00105AA0, EDI actor +0x14
     actor.xform_valid = 0; // Actor +0x2A8.
-    put_vec3(context.body, 0x72C, actor_world_euler(actor)); // 0x00041820 into body +0x72C
+    set(context.body, body_field::euler, actor_world_euler(actor)); // 0x00041820 into body +0x72C
     if (after <= 0.f && before > 0.f)
     {
         return true;
@@ -379,7 +375,7 @@ void face_runtime_arc_attack_target(std::span<u8> state, RuntimeArcAttackStateCo
     float yaw = 0.f;
     runtime_direction_angle(Vec3{target.x - position.x, target.y - position.y, target.z - position.z},
         yaw); // 0x00105F90
-    put_vec3(context.body, 0x72C, Vec3{0.f, yaw, 0.f});
+    set(context.body, body_field::euler, Vec3{0.f, yaw, 0.f});
 }
 
 // Xbox 0x00089AB0, EAX state, ECX body, ESI actor: the body rises by the lift height through the lift animation;
@@ -390,7 +386,7 @@ bool rise_runtime_arc_attack(std::span<u8> state, RuntimeArcAttackStateContext& 
     const float lifted = get(state, field::lift_height) + origin.y;
     const float start = get(state, field::lift_start);
     const float fraction = (slot_position(context.animation) - start) / (1.f - start); // DAT_0032B0F8.
-    put_vec3(context.body, 0x18, Vec3{(origin.x - origin.x) * fraction + origin.x,
+    set(context.body, body_field::position, Vec3{(origin.x - origin.x) * fraction + origin.x,
         (lifted - origin.y) * fraction + origin.y, (origin.z - origin.z) * fraction + origin.z});
     // The rest is 0x0003B290's test of slot 0, inlined.
     return runtime_actor_animation_slot_complete(context.animation, 0);
@@ -429,7 +425,7 @@ void launch_runtime_arc_attack(std::span<u8> state, RuntimeArcAttackStateContext
         gravity); // 0x00140D80
     const float rise = get(state, field::flat) == 0 ? velocity.y : 0.f;
     set_velocity(context, Vec3{velocity.x, rise, velocity.z});
-    put_float(context.body, 0x324, gravity);
+    set(context.body, body_field::gravity, gravity);
     float yaw = get(state, field::launch_yaw);
     runtime_direction_angle(Vec3{target.x - position.x, target.y - position.y, target.z - position.z},
         yaw); // 0x00105F90, EBX state +0x24
@@ -446,7 +442,7 @@ void retreat_runtime_arc_attack(std::span<u8> state, RuntimeArcAttackStateContex
     const float dz = start.z - position.z;
     const float dx = start.x - position.x;
     float distance = float(retail_square_root(dz * dz + dx * dx) * 0.5L); // 0x00152B30, DAT_0032B0F4
-    const float reach = actor.radius_xz * read_f32(context.body, 0x888);
+    const float reach = actor.radius_xz * get(context.body, body_field::radius_scale);
     const float nearest = reach * 3.f; // DAT_0032B260.
     const float farthest = reach * 6.f; // DAT_0032B218.
     if (nearest > distance)
@@ -463,7 +459,7 @@ void retreat_runtime_arc_attack(std::span<u8> state, RuntimeArcAttackStateContex
     const float gravity = get(state, field::retreat_gravity);
     const Vec3 velocity = runtime_ballistic_velocity(target, position, get(state, field::retreat_speed),
         gravity); // 0x00140D80
-    put_float(context.body, 0x324, gravity);
+    set(context.body, body_field::gravity, gravity);
     set_velocity(context, velocity);
     set(state, field::phase, 5);
     start_runtime_arc_attack_animation(state, context); // 0x00089700
@@ -533,7 +529,7 @@ void fly_runtime_arc_attack(std::span<u8> state, RuntimeArcAttackStateContext& c
     }
     if (0.001f > get(state, field::settle_timer)) // DAT_0032B1A4.
     {
-        put_float(context.body, 0x324, get(state, field::landing_gravity));
+        set(context.body, body_field::gravity, get(state, field::landing_gravity));
         set(state, field::settled, 1);
     }
 }
@@ -607,7 +603,7 @@ bool initialize_runtime_arc_attack_state(std::span<u8> state, std::span<const u8
     Actor& actor = context.actor;
     arc_attack_records[state.data()] = ArcAttackRecords{};
     set(state, field::target, context.mind.empty() ? 0u : get(context.mind, mind_field::action_record));
-    set(state, field::saved_gravity, read_f32(body, 0x324));
+    set(state, field::saved_gravity, get(body, body_field::gravity));
     set(state, field::start, actor_world_position(actor)); // 0x000412A0, EDI state +0x64
     set(state, field::take_off_time, get(parameters, parameter::take_off_time));
     set(state, field::lift_start, get(parameters, parameter::lift_start));
@@ -647,7 +643,7 @@ bool initialize_runtime_arc_attack_state(std::span<u8> state, std::span<const u8
     set(state, field::zero_gravity, get(parameters, parameter::zero_gravity));
     if (get(state, field::zero_gravity) != 0)
     {
-        put_float(body, 0x324, 0.f);
+        set(body, body_field::gravity, 0.f);
     }
     set(state, field::retreat, get(parameters, parameter::retreat));
     set(state, field::retreat_speed, get(parameters, parameter::retreat_speed));
@@ -677,7 +673,7 @@ bool initialize_runtime_arc_attack_state(std::span<u8> state, std::span<const u8
     set_velocity(context, Vec3{0.f, 0.f, 0.f});
     if (get(state, field::zero_gravity) != 0)
     {
-        put_float(body, 0x324, 0.f);
+        set(body, body_field::gravity, 0.f);
     }
     return true;
 }
@@ -687,7 +683,7 @@ void destroy_runtime_arc_attack_state(std::span<u8> state, RuntimeArcAttackState
 {
     const auto body = context.body;
     adjust_body_counters(body, -1);
-    put_float(body, 0x324, get(state, field::saved_gravity));
+    set(body, body_field::gravity, get(state, field::saved_gravity));
     set_runtime_body_shape_mode(u8(get(state, field::shape_mode)), context.shape); // 0x0001FEB0, BL state +0x60
     step_byte(body, 0x6A, -1);
     if (get(state, field::shapes_active) != 0)
@@ -777,7 +773,7 @@ void tick_runtime_arc_attack_state(std::span<u8> state, RuntimeArcAttackStateCon
         {
             set(state, field::phase, 2);
             start_runtime_arc_attack_animation(state, context); // 0x00089700
-            put_float(context.body, 0x324, 0.f);
+            set(context.body, body_field::gravity, 0.f);
             set_velocity(context, actor_transform_origin); // DAT_0050DD80.
             set(state, field::lift_origin, actor_world_position(actor)); // 0x000412A0, EDI state +0x1AC
             request_actor_sound(actor, 1, field_data(state, field::take_off_sound), context.sounds); // 0x00041D00

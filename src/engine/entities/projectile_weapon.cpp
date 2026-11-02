@@ -27,6 +27,7 @@
 #include "entity_heap.h"
 #include "../frontend/player_health_display.h"
 #include "../frontend/scoreboard_update.h"
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -357,7 +358,7 @@ void leave_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state,
         // Holder +0x95C -> +0x4C and +0x14 cleared.
         weapon.services.hold_secondary(*owner, 0);
         const auto body = weapon.services.body_of(weapon.services.actor_address(*owner));
-        if (read_u32(body, 0x48) == weapon.self_address())
+        if (get(body, body_field::attached) == weapon.self_address())
         {
             weapon.services.empty_hand(*owner); // 0x0001B680, ECX the holder's body
         }

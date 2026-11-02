@@ -12,6 +12,7 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "gbtg/actor_runtime.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -188,10 +189,10 @@ void recover_runtime_hunchback(RuntimeHunchbackStrategy& context)
 float runtime_hunchback_stun_time(RuntimeHunchbackStrategy& context)
 {
     const std::span<const u8> body = body_of(context);
-    const u16 most = read_u16(body, 0x96);
+    const u16 most = get(body, body_field::max_energy);
     if (most != 0)
     {
-        const float health = float(i32(read_u16(body, 0x94))) / float(i32(most));
+        const float health = float(i32(get(body, body_field::energy))) / float(i32(most));
         if (0.25f > health) // DAT_0032B104.
         {
             return parameter(context, 0x28);
@@ -626,7 +627,7 @@ void dispatch_runtime_hunchback_message(std::span<const u32> message, RuntimeHun
             return;
         }
         const std::span<u8> body = body_of(context);
-        const float held = read_f32(body, 0x34);
+        const float held = get(body, body_field::move_hold_time);
         const float longest = time >= held ? time : held;
         std::memcpy(body.data() + 0x34, &longest, 4);
         return;

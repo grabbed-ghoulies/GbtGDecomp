@@ -1,0 +1,52 @@
+#pragma once
+#include "gbtg/retail_field.h"
+
+namespace gbtg
+{
+// The body record (actor +0x95C, built by 0x00024C50): the most-read fields, at their retail offsets (see
+// docs/RETAIL_LAYOUTS.md). +8 is the body's actor. The record's size isn't settled by the dumps, so these descriptors
+// carry no size check; offsets not named here are still read literally.
+namespace body_field
+{
+// The body's world position: 0x000412A0 copies the actor's into it.
+constexpr RetailField<Vec3, 0x18> position{};
+// Raised while something holds the body still (states raise it with the +0x309..+0x30C counters and drop it when they
+// end). With it clear and move_hold_time at zero nothing moves the body (0x00024C20).
+constexpr RetailField<u16, 0x30> move_holds{};
+// Seconds the body is held still: decays to zero (0x00025AE0), and a random hold only ever lengthens it (0x0001AE50).
+constexpr RetailField<float, 0x34> move_hold_time{};
+// The actor the body holds or carries (a held weapon, the Baron's cane), by address.
+constexpr RetailField<u32, 0x48> attached{};
+// Decays to zero (0x00025AE0); message 0x4E sets it (0x000253B0), and a target request waits while it is positive
+// (0x0001D180).
+constexpr RetailField<float, 0x70> unk_70{};
+// The body's reach, scaled by the actor's +0x38 radius (0x0001D3D0, 0x000ADCC0).
+constexpr RetailField<float, 0x78> reach{};
+// The current hit record (its +0x18 is the hit's turn window), by address.
+constexpr RetailField<u32, 0x84> hit_record{};
+constexpr RetailField<u16, 0x94> energy{};
+constexpr RetailField<u16, 0x96> max_energy{}; // restored into energy on revival (0x000253B0)
+// Counts holds on the body; the last release sends it message 0x4A.
+constexpr RetailField<u32, 0x258> holds{};
+// The velocity the actor's +0x3C eases toward, at ease_rate (move action 0x5A).
+constexpr RetailField<Vec3, 0x318> velocity{};
+constexpr RetailField<float, 0x324> gravity{};
+// ease_rate as it was before a state swapped in its own (0x000957A0, 0x0007FD30); restored when the state ends.
+constexpr RetailField<float, 0x330> saved_ease_rate{};
+constexpr RetailField<float, 0x334> ease_rate{};
+// Raised with each ease_rate swap and lowered when it is given back.
+constexpr RetailField<u32, 0x338> ease_rate_swaps{};
+// The body's euler angles (pitch, yaw, roll): 0x00041820 copies the actor's into it.
+constexpr RetailField<Vec3, 0x72C> euler{};
+// The surface the body stands on, or surface_override while surface_override_frames counts down (0x00025AE0 clears
+// the override when it reaches zero).
+constexpr RetailField<u8, 0x874> surface{};
+// Surfaces whose DAT_00217EC0 row scales the body's motion, one bit per surface.
+constexpr RetailField<u32, 0x878> scaled_surfaces{};
+constexpr RetailField<u8, 0x87E> surface_override{};
+constexpr RetailField<u16, 0x880> surface_override_frames{};
+// The body's height and radius scales over the actor's +0x34 and +0x38 (parameters +0x190 and +0x194, 0x00024C50).
+constexpr RetailField<float, 0x884> height_scale{};
+constexpr RetailField<float, 0x888> radius_scale{};
+} // namespace body_field
+} // namespace gbtg

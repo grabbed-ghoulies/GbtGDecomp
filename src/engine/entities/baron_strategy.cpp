@@ -19,6 +19,7 @@
 #include "player_strategy_entry.h"
 #include "player_strategy_goals.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstdio>
 #include <cstring>
@@ -343,7 +344,7 @@ std::span<const float, 5> runtime_baron_tier_row(std::span<const u8> body)
 // Xbox 0x000A88A0
 u32 runtime_baron_tier(std::span<const u8> body)
 {
-    const u16 energy = read_u16(body, 0x94);
+    const u16 energy = get(body, body_field::energy);
     if (energy > 0xB4)
     {
         return 0;
@@ -534,7 +535,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
         {
             return;
         }
-        change_state(read_u32(body, 0x48) != 0 ? 0x3EA : 0x401, context);
+        change_state(get(body, body_field::attached) != 0 ? 0x3EA : 0x401, context);
         return;
     case 0x409:
         target = selected_target(context, found);
@@ -671,7 +672,7 @@ void dispatch_runtime_baron_message(std::span<u32> message, RuntimeBaronStrategy
         clear_runtime_player_mind_reference(strategy, field::cane.offset, message[1]);
         return;
     case 0x7D:
-        set(strategy, field::cane, read_u32(body, 0x48));
+        set(strategy, field::cane, get(body, body_field::attached));
         return;
     default:
         return;
@@ -686,7 +687,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
     const std::span<u8> mind = mind_of(context);
     const u32 target_address = get(mind, mind_field::target_record);
     const std::span<u8> body = body_of(context);
-    const bool holding = read_u32(body, 0x48) != 0;
+    const bool holding = get(body, body_field::attached) != 0;
     body[0x328] = 2;
     strategy[0x1A] = 0;
     switch (state)

@@ -9,6 +9,7 @@
 #include "body_damage_tables.h"
 #include "entity_heap.h"
 #include "../navigation/spawn_candidates.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <new>
@@ -291,8 +292,8 @@ void alert_runtime_goal_listener(RuntimePlayerStrategyGoals& context)
         message.id = 0x63;
         message.arg_i = 0x12004; // Bytes 4, 0x20, 1 and a zero fourth byte at message +4.
         message.hit_center = actor_world_position(owner);
-        message.hit_extent_y = owner.radius_y * read_f32(body, 0x884);
-        message.hit_radius = owner.radius_xz * read_f32(body, 0x888);
+        message.hit_extent_y = owner.radius_y * get(body, body_field::height_scale);
+        message.hit_radius = owner.radius_xz * get(body, body_field::radius_scale);
         node->handle_message(*node, message);
     }
 }

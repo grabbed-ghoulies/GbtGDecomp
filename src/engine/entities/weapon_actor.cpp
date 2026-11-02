@@ -44,6 +44,7 @@
 #include "../scene/ambient.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cmath>
@@ -1653,7 +1654,7 @@ void push_runtime_weapon_marker(RuntimeWeaponActor& weapon, Actor& holder, std::
     auto contacts = entity_merge_contact_records(); // 0x00122310
     Vec3 eye = actor_world_position(holder); // 0x000412A0
     const auto body = weapon.services.body_of(weapon.services.actor_address(holder)); // Holder +0x95C.
-    eye.y = holder.radius_y * read_f32(body, 0x884) * 0.5f + eye.y; // DAT_0032B0F4.
+    eye.y = holder.radius_y * get(body, body_field::height_scale) * 0.5f + eye.y; // DAT_0032B0F4.
     cull_back_facing_segment_contacts(contacts, eye); // 0x000FC840
     // Without rows 0x000FC3F0 does not run and the push gains nothing here.
     Vec3 separated = probe;

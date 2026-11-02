@@ -11,6 +11,7 @@
 #include "player_mind_feedback.h"
 #include "../audio/body_sound_commands.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cmath>
@@ -83,8 +84,9 @@ float hit_window(std::span<const u8> hit)
 // The inline surface-mode scale: DAT_00217EC0[mode] when body +0x878 has the mode's bit, otherwise 1.
 float surface_mode_scale(std::span<const u8> body, std::span<const float> mode_scales)
 {
-    const u8 mode = read_u16(body, 0x880) == 0 ? body[0x874] : body[0x87E];
-    if ((read_u32(body, 0x878) & (1u << (mode & 0x1F))) != 0)
+    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
+                                                                        : get(body, body_field::surface_override);
+    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= mode_scales.size())
         {
@@ -151,8 +153,8 @@ bool initialize_runtime_hit_state(std::span<u8> state, std::span<const u8> param
     body[0x38] = 1;
     body[0x39] = 1;
     put_word(body, 0x330, read_u32(body, 0x334));
-    put_float(body, 0x334, 7.f); // DAT_0032B284.
-    put_word(body, 0x338, read_u32(body, 0x338) + 1);
+    set(body, body_field::ease_rate, 7.f); // DAT_0032B284.
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
     body[0x6A] = u8(body[0x6A] + 1);
     const auto target = context.target;
     if (target.data() != nullptr && target[0x14] == 0)
@@ -164,7 +166,7 @@ bool initialize_runtime_hit_state(std::span<u8> state, std::span<const u8> param
     std::memcpy(state.data() + 0x38, &euler, 12);
     put_word(state, 0x48, read_u32(parameters, 0xC));
     adjust_body_counters(body, 1);
-    put_word(state, 0x44, read_u32(body, 0x48));
+    put_word(state, 0x44, get(body, body_field::attached));
     put_word(state, 0x34, read_u32(parameters, 0x10));
     put_word(state, 0x54, read_u32(parameters, 0x14));
     put_word(state, 0x58, read_u32(parameters, 0x18));
@@ -173,7 +175,7 @@ bool initialize_runtime_hit_state(std::span<u8> state, std::span<const u8> param
     put_word(state, 0x6C, read_u32(parameters, 0x24));
     put_float(state, 0x4C, 0.f);
     put_float(state, 0x50, 0.f);
-    put_word(state, 0x5C, read_u32(body, 0x48) != 0 ? 1 : 0);
+    put_word(state, 0x5C, get(body, body_field::attached) != 0 ? 1 : 0);
     return true;
 }
 
@@ -189,7 +191,7 @@ void destroy_runtime_hit_state(std::span<u8> state, RuntimeHitStateLifecycle& co
     body[0x6A] = u8(body[0x6A] - 1);
     put_word(body, 0x334, read_u32(body, 0x330));
     body[0x6C] = 0;
-    put_word(body, 0x338, read_u32(body, 0x338) - 1);
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
     adjust_body_counters(body, -1);
     put_word(context.actor_bytes, 0x11C, 0);
 }
@@ -321,7 +323,7 @@ RuntimeBodyNextAction runtime_body_next_action(const RuntimeHitStateTick& contex
 void select_runtime_body_next_action(std::span<u8> state, u32 secondary, RuntimeBodyNextAction& context)
 {
     const auto body = context.body;
-    if (read_u16(body, 0x94) == 0 && context.table != nullptr) // Body +0x73C, held as its native view.
+    if (get(body, body_field::energy) == 0 && context.table != nullptr) // Body +0x73C, held as its native view.
     {
         u32 output;
         if (find_runtime_script_table_row(context.table, 0x6A, output) != nullptr)
@@ -420,7 +422,7 @@ bool turn_runtime_body_toward(const Vec3& target, std::span<const u8> body, cons
     runtime_direction_angle(Vec3{target.x - origin.x, target.y - origin.y, target.z - origin.z}, yaw);
     if (position >= window)
     {
-        euler = Vec3{0.f, read_f32(body, 0x730), 0.f};
+        euler = Vec3{0.f, get(body, body_field::euler).y, 0.f};
         return true;
     }
     float fraction;
@@ -474,7 +476,8 @@ void steer_runtime_hit_body(RuntimeHitStateTick& context)
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (read_u32(context.actor_bytes, 0x960) == 0 || read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f)
+    if (read_u32(context.actor_bytes, 0x960) == 0 || get(body, body_field::move_holds) != 0 ||
+        get(body, body_field::move_hold_time) != 0.f)
     {
         axes = {0.f, 0.f};
     }
@@ -552,9 +555,9 @@ void move_runtime_hit_body(std::span<const u8> state, RuntimeHitStateTick& conte
             return;
         }
         const float step = runtime_actor_step(context.actor, context.clock);
-        put_float(body, 0x18, velocity.x * step + read_f32(body, 0x18));
-        put_float(body, 0x1C, velocity.y * step + read_f32(body, 0x1C));
-        put_float(body, 0x20, velocity.z * step + read_f32(body, 0x20));
+        put_float(body, 0x18, velocity.x * step + get(body, body_field::position).x);
+        put_float(body, 0x1C, velocity.y * step + get(body, body_field::position).y);
+        put_float(body, 0x20, velocity.z * step + get(body, body_field::position).z);
         return;
     }
     if (context.target.data() == nullptr || read_u32(state, 0x2C) != 0 || read_u32(state, 0x24) == 0)
@@ -562,9 +565,9 @@ void move_runtime_hit_body(std::span<const u8> state, RuntimeHitStateTick& conte
         return;
     }
     const float step = runtime_actor_step(context.actor, context.clock);
-    put_float(body, 0x18, read_f32(body, 0x18) + read_f32(state, 0x18) * step);
-    put_float(body, 0x1C, read_f32(body, 0x1C) + read_f32(state, 0x1C) * step);
-    put_float(body, 0x20, read_f32(body, 0x20) + read_f32(state, 0x20) * step);
+    put_float(body, 0x18, get(body, body_field::position).x + read_f32(state, 0x18) * step);
+    put_float(body, 0x1C, get(body, body_field::position).y + read_f32(state, 0x1C) * step);
+    put_float(body, 0x20, get(body, body_field::position).z + read_f32(state, 0x20) * step);
 }
 
 // Xbox 0x00096390
@@ -593,7 +596,7 @@ void tick_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
     const auto body = context.body;
     Actor& actor = context.actor;
     put_float(state, 0x10, runtime_actor_rate(actor) * runtime_frame_step(context.clock) + read_f32(state, 0x10));
-    if (read_u32(body, 0x48) != 0 && context.attached_collision != nullptr
+    if (get(body, body_field::attached) != 0 && context.attached_collision != nullptr
         && context.attached_collision->active != nullptr)
     {
         const i32 frequency = context.trails.pal == 0 || context.trails.pal_override != 0 ? 0x3C : 0x32;
@@ -650,12 +653,13 @@ void tick_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
     {
         Vec3 velocity;
         std::memcpy(&velocity, state.data() + 0x18, 12);
-        ease_runtime_planar_velocity(velocity, context.default_position, read_f32(body, 0x334), context.motion_steps);
+        ease_runtime_planar_velocity(velocity, context.default_position, get(body, body_field::ease_rate),
+                                     context.motion_steps);
         std::memcpy(state.data() + 0x18, &velocity, 12);
     }
     face_runtime_hit_target(state, context);
     move_runtime_hit_body(state, context);
-    const bool released = read_u32(state, 0x5C) != 0 && read_u32(body, 0x48) == 0;
+    const bool released = read_u32(state, 0x5C) != 0 && get(body, body_field::attached) == 0;
     std::array<float, 2> axes{};
     read_input_axes(context.input, axes, context.input_state, context.address_zero);
     if (axes[1] * axes[1] + axes[0] * axes[0] > 0.01f // DAT_0032B22C.
@@ -716,10 +720,10 @@ bool initialize_runtime_hit_furnace_state(std::span<u8> state, std::span<const u
     put_word(state, 0x1C, read_u32(parameters, 0x10));
     body[0x6B] = u8(body[0x6B] + 1);
     adjust_body_counters(body, 1);
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + 1));
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
     put_word(body, 0x330, read_u32(body, 0x334));
-    put_word(body, 0x338, read_u32(body, 0x338) + 1);
-    put_float(body, 0x334, 7.f); // DAT_0032B284.
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
+    set(body, body_field::ease_rate, 7.f); // DAT_0032B284.
     body[0x38] = 1;
     body[0x39] = 1;
     bits.bytes[2] |= 2;
@@ -738,8 +742,8 @@ bool initialize_runtime_hit_furnace_state(std::span<u8> state, std::span<const u
 // Xbox 0x000967F0
 void destroy_runtime_hit_furnace_state(std::span<const u8> state, std::span<u8> body, RuntimeBodyBitStorage& bits)
 {
-    put_half(body, 0x30, u16(read_u16(body, 0x30) - 1));
-    put_word(body, 0x338, read_u32(body, 0x338) - 1);
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
+    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
     put_word(body, 0x334, read_u32(body, 0x330));
     body[0x6B] = u8(body[0x6B] - 1);
     adjust_body_counters(body, -1);
@@ -790,7 +794,7 @@ void select_runtime_body_goal_action(std::span<u8> state, RuntimeBodyRecoveryAct
 void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBodyRecoveryAction& context)
 {
     const auto body = context.body;
-    const u16 level = read_u16(body, 0x94);
+    const u16 level = get(body, body_field::energy);
     bool table_row = false;
     if (level == 0 && context.table != nullptr) // Body +0x73C, held as its native view.
     {

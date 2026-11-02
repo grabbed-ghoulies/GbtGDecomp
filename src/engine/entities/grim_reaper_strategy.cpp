@@ -14,6 +14,7 @@
 #include "../scripts/script_actions.h"
 #include "gbtg/entity.h"
 #include "gbtg/sound_runtime.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -132,7 +133,7 @@ RuntimePlayerMindRequest& request(u16 kind, RuntimeGrimReaperStrategy& context)
 bool body_settled(RuntimeGrimReaperStrategy& context)
 {
     const std::span<const u8> body = body_of(context);
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f; // DAT_0032B100.
+    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f; // DAT_0032B100.
 }
 
 // The actor's step: the frame's (none while frozen) by its rate (none while +0x930 holds it).
@@ -238,7 +239,7 @@ void request_chase(RuntimeGrimReaperStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
     // Body +8 is his own actor; its +0x38 scales the body's +0x78 reach.
-    const float reach = actor_of(context).radius_xz * read_f32(body, 0x78);
+    const float reach = actor_of(context).radius_xz * get(body, body_field::reach);
     const RuntimeBodyAttachedActor* held = goals_of(context).actions.attached; // Body +0x48.
     float extra = 0.f;
     if (held != nullptr && held->bytes[0x93D] == 1)
@@ -323,7 +324,7 @@ void start_grab(RuntimeGrimReaperStrategy& context)
         row = found == nullptr ? 0u : context.address_of(found);
     }
     strategy[0x1A] = 1;
-    put_word(body, 0x84, row);
+    set(body, body_field::hit_record, row);
     body[0x6A] = u8(body[0x6A] + 1);
     if (context.collision != nullptr)
     {
@@ -353,7 +354,7 @@ void end_grab(RuntimeGrimReaperStrategy& context)
     }
     const std::span<u8> body = body_of(context);
     strategy[0x1A] = 0;
-    put_word(body, 0x84, 0);
+    set(body, body_field::hit_record, 0);
     put_word(body, 0x88, 0);
     body[0x6A] = u8(body[0x6A] - 1);
     if (context.collision != nullptr)
@@ -654,7 +655,7 @@ bool initialize_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
     set(strategy, field::parameters, context.parameters_address);
     set(strategy, field::appearing, 1u);
     set(strategy, field::turn_speed, kOne);
-    put_float(body, 0x334, 10.f); // DAT_0032B10C
+    set(body, body_field::ease_rate, 10.f); // DAT_0032B10C
     set(strategy, field::grabbing, 0u);
     EntityBitBlock& bits = body_bits(context);
     bits.bytes[0] = u8(bits.bytes[0] | 0x80);

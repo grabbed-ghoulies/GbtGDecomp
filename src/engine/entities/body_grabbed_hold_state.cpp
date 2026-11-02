@@ -1,6 +1,7 @@
 #include "body_grabbed_hold_state.h"
 #include "body_state_actions.h"
 #include "player_goal_cleanup.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -54,10 +55,10 @@ bool initialize_runtime_grabbed_hold_state(std::span<u8> state, RuntimeGrabbedHo
     body[0x39] = 1;
     context.bits.bytes[4] |= 2;
     step_counters(body, 1);
-    const u16 count = u16(read_u16(body, 0x30) + 1);
+    const u16 count = u16(get(body, body_field::move_holds) + 1);
     std::memcpy(body.data() + 0x30, &count, 2);
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
-    const u32 holds = read_u32(body, 0x258) + 1;
+    const u32 holds = get(body, body_field::holds) + 1;
     std::memcpy(body.data() + 0x258, &holds, 4);
     release_runtime_player_attachment(0, 0, context.attachment); // 0x0001B810, EAX body
     return true;
@@ -70,10 +71,10 @@ void destroy_runtime_grabbed_hold_state(std::span<u8> state, RuntimeGrabbedHoldS
     const auto body = context.body;
     context.bits.bytes[4] &= 0xFD;
     step_counters(body, -1);
-    const u16 count = u16(read_u16(body, 0x30) - 1);
+    const u16 count = u16(get(body, body_field::move_holds) - 1);
     std::memcpy(body.data() + 0x30, &count, 2);
     decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
-    const u32 holds = read_u32(body, 0x258) - 1;
+    const u32 holds = get(body, body_field::holds) - 1;
     std::memcpy(body.data() + 0x258, &holds, 4);
     if (holds == 0)
     {

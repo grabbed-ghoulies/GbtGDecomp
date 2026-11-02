@@ -19,6 +19,9 @@ decoder; the RAD Bink SDK is not required.
 The repository also includes a separate runtime scene inspector, asset inspection
 tools, reconstruction tests and Ghidra/xemu tooling.
 
+For a guided tour of the code, see [Architecture](docs/ARCHITECTURE.md). Terms
+such as AID, body, mind and "unbound" are defined in the [Glossary](docs/GLOSSARY.md).
+
 ## Game data
 
 You must supply your own extracted retail copy of the game. This repository does
@@ -273,6 +276,9 @@ Never stage or distribute `OriginalFiles/`, retail payloads (`*.xbe`, `*.bnl`,
 and restoration steps in [Original file changes](docs/ORIGINAL_FILES.md).
 
 ## Reference
+
+Start with [Architecture](docs/ARCHITECTURE.md) and the [Glossary](docs/GLOSSARY.md).
+The [documentation index](docs/README.md) lists every document.
 
 - [Executable map](docs/XBE.md) and [Ghidra workflow](docs/GHIDRA.md)
 - [AID resource identifiers](docs/AID.md) and [File formats](docs/FORMATS.md)

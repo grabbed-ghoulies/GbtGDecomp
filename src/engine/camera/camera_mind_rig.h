@@ -2,6 +2,7 @@
 #include "../entities/actor_clock.h"
 #include "../entities/camera_director.h"
 #include "../frontend/dialogue_input.h"
+#include "gbtg/retail_field.h"
 #include <array>
 #include <functional>
 
@@ -52,6 +53,42 @@ void merge_camera_targets(std::span<const u8> records, i32 count, const Vec3& ey
 void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u8> request, const Vec3& eye,
     Vec3& position, Vec3& focus, u32 target, float& distance,
     const RuntimeCameraRigContext& context); // Xbox 0x00078840
+// The camera mind's own fields (type 0x36, 0xDC bytes from 0x0007AFC0), after the 0x7C-byte base mind: +8 is the
+// camera actor, +0xC the target and +0x70 the eye.
+namespace camera_mind_field
+{
+// The actor the follow point tracks (the request's +0x10). A new one, or message 0x7C naming it, starts a blend
+// from the old point (0x00079E80, 0x0007A550, 0x0007B040).
+constexpr RetailField<u32, 0x7C> focus_actor{};
+constexpr RetailField<Vec3, 0x80> blend_from{}; // The follow point when the focus actor changed.
+constexpr RetailField<float, 0x8C> blend{}; // 1 when the focus actor changes, down to 0 by the actor's rate.
+constexpr RetailField<Vec3, 0x90> follow_point{}; // The point 0x00079E80 last chose, after the blend.
+// The target's body bit 0x30 holds the point it had when the bit came on (0x0007AA20).
+constexpr RetailField<u32, 0x9C> target_point_held{};
+constexpr RetailField<Vec3, 0xA0> held_target_point{};
+// The heading goal 0x000791A0 sets: active, its heading, how long it holds, its turn speed and the caller's tag.
+// 0x00078630 eases +0xB8 toward the goal and clears the goal once its hold runs out.
+constexpr RetailField<u32, 0xAC> heading_goal_active{};
+// Set when a goal starts without one active or ends; 0x00078840 then takes the framed heading into +0xB8.
+constexpr RetailField<u32, 0xB0> heading_restart{};
+constexpr RetailField<float, 0xB4> heading_goal{};
+constexpr RetailField<float, 0xB8> heading{}; // The rig's heading 0x00078630 eases and clamps.
+constexpr RetailField<float, 0xBC> heading_goal_hold{};
+// Time the body has pushed the camera along its view (body bit 0x15, 0x00079720); past DAT_00427500 it moves.
+constexpr RetailField<float, 0xC0> pushed_time{};
+// 1 while the heading is held (DAT_00434030 below 0 and the target mind's +0x20 set, 0x00078630).
+constexpr RetailField<u32, 0xC4> heading_held{};
+// The rig's stored distance (0x00078840): a framed distance beyond both it and the planar gap is cut to the larger
+// of the two; any other framed distance is stored here.
+constexpr RetailField<float, 0xC8> distance{};
+// 1 when the target record's route reaches the eye (0x00079320), so no heading is chosen.
+constexpr RetailField<u32, 0xCC> route_reaches_eye{};
+constexpr RetailField<float, 0xD0> heading_goal_speed{};
+constexpr RetailField<u32, 0xD4> heading_goal_tag{};
+constexpr RetailField<u32, 0xD8> above_floor{}; // 0x00078840: the rig's position is above the floor below it.
+constexpr u32 kSize = 0xDC;
+static_assert(retail_fits(kSize, above_floor));
+} // namespace camera_mind_field
 // The camera mind (type 0x36) and its body (type 0x28) as the kind-1 request reads them.
 struct RuntimeCameraMindView
 {

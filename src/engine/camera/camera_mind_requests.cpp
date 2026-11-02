@@ -19,6 +19,7 @@
 
 namespace gbtg
 {
+namespace field = camera_mind_field;
 namespace
 {
 float mind_real(std::span<const u8> mind, size_t offset)
@@ -74,38 +75,35 @@ u32 track_camera_follow_point(std::span<u8> mind, std::span<const u8> request, c
     }
     near_distance = context.tunables.real(0x00427550);
     far_distance = context.tunables.real(0x00427554);
-    if (read_u32(mind, 0x7C) != 0)
+    if (get(mind, field::focus_actor) != 0)
     {
-        put_mind_real(mind, 0x80, mind_real(mind, 0x90));
-        put_mind_real(mind, 0x84, mind_real(mind, 0x94));
-        put_mind_real(mind, 0x88, mind_real(mind, 0x98));
-        put_mind_real(mind, 0x8C, 1.f); // DAT_0032B0F8
+        set(mind, field::blend_from, get(mind, field::follow_point));
+        set(mind, field::blend, 1.f); // DAT_0032B0F8
     }
     point = {found.x, y, found.z};
     const float step = frame_step(context.clock);
     const float rate = camera.animation_pause > 0.f ? 0.f : camera.animation_rate; // +0x930, +0x92C
-    if (mind_real(mind, 0x8C) > 0.f)
+    if (get(mind, field::blend) > 0.f)
     {
-        const float left = mind_real(mind, 0x8C) - rate * step;
-        put_mind_real(mind, 0x8C, left);
+        const float left = get(mind, field::blend) - rate * step;
+        set(mind, field::blend, left);
         if (!(0.f < left))
         {
-            put_mind_real(mind, 0x8C, 0.f);
+            set(mind, field::blend, 0.f);
         }
     }
-    if (mind_real(mind, 0x8C) > 0.f)
+    if (get(mind, field::blend) > 0.f)
     {
         // (sin(t * pi - pi/2) + 1) * 0.5 (DAT_0032B148, DAT_0032B140, DAT_0032B0F8, DAT_0032B0F4), on the x87 stack.
-        const float angle = float(static_cast<long double>(mind_real(mind, 0x8C)) * std::bit_cast<float>(0x40490FDBu)
+        const float angle = float(static_cast<long double>(get(mind, field::blend)) * std::bit_cast<float>(0x40490FDBu)
             - std::bit_cast<float>(0x3FC90FDBu));
         const long double share = (retail_sin(angle) + 1.0L) * 0.5L; // 0x00153320
-        point.x = float((static_cast<long double>(mind_real(mind, 0x80)) - point.x) * share + point.x);
-        point.y = float((static_cast<long double>(mind_real(mind, 0x84)) - point.y) * share + point.y);
-        point.z = float((static_cast<long double>(mind_real(mind, 0x88)) - point.z) * share + point.z);
+        const Vec3 from = get(mind, field::blend_from);
+        point.x = float((static_cast<long double>(from.x) - point.x) * share + point.x);
+        point.y = float((static_cast<long double>(from.y) - point.y) * share + point.y);
+        point.z = float((static_cast<long double>(from.z) - point.z) * share + point.z);
     }
-    put_mind_real(mind, 0x90, point.x);
-    put_mind_real(mind, 0x94, point.y);
-    put_mind_real(mind, 0x98, point.z);
+    set(mind, field::follow_point, point);
     return 0;
 }
 
@@ -267,12 +265,10 @@ u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point
     far_distance = context.tunables.real(0x00427574);
     if (second_address == 0)
     {
-        if (read_u32(mind, 0x7C) != 0)
+        if (get(mind, field::focus_actor) != 0)
         {
-            put_mind_real(mind, 0x80, mind_real(mind, 0x90));
-            put_mind_real(mind, 0x84, mind_real(mind, 0x94));
-            put_mind_real(mind, 0x88, mind_real(mind, 0x98));
-            put_mind_real(mind, 0x8C, 1.f); // DAT_0032B0F8
+            set(mind, field::blend_from, get(mind, field::follow_point));
+            set(mind, field::blend, 1.f); // DAT_0032B0F8
         }
         point = first;
     }
@@ -309,38 +305,35 @@ u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point
             near_distance = fit;
             far_distance = fit * std::bit_cast<float>(0x3DCCCCCDu) + fit; // DAT_0032B254
         }
-        if (read_u32(mind, 0x7C) == 0 || read_u32(mind, 0x7C) != second_address)
+        if (get(mind, field::focus_actor) == 0 || get(mind, field::focus_actor) != second_address)
         {
-            put_mind_real(mind, 0x80, mind_real(mind, 0x90));
-            put_mind_real(mind, 0x84, mind_real(mind, 0x94));
-            put_mind_real(mind, 0x88, mind_real(mind, 0x98));
-            put_mind_real(mind, 0x8C, 1.f); // DAT_0032B0F8
+            set(mind, field::blend_from, get(mind, field::follow_point));
+            set(mind, field::blend, 1.f); // DAT_0032B0F8
         }
     }
-    std::memcpy(mind.data() + 0x7C, &second_address, 4);
+    set(mind, field::focus_actor, second_address);
     const float step = frame_step(context.clock);
     const float rate = camera.animation_pause > 0.f ? 0.f : camera.animation_rate; // +0x930, +0x92C
-    if (mind_real(mind, 0x8C) > 0.f)
+    if (get(mind, field::blend) > 0.f)
     {
-        const float left = mind_real(mind, 0x8C) - rate * step;
-        put_mind_real(mind, 0x8C, left);
+        const float left = get(mind, field::blend) - rate * step;
+        set(mind, field::blend, left);
         if (!(0.f < left))
         {
-            put_mind_real(mind, 0x8C, 0.f);
+            set(mind, field::blend, 0.f);
         }
     }
-    if (mind_real(mind, 0x8C) > 0.f)
+    if (get(mind, field::blend) > 0.f)
     {
-        const float angle = float(static_cast<long double>(mind_real(mind, 0x8C)) * std::bit_cast<float>(0x40490FDBu)
+        const float angle = float(static_cast<long double>(get(mind, field::blend)) * std::bit_cast<float>(0x40490FDBu)
             - std::bit_cast<float>(0x3FC90FDBu)); // DAT_0032B148, DAT_0032B140
         const long double share = (retail_sin(angle) + 1.0L) * 0.5L; // 0x00153320
-        point.x = float((static_cast<long double>(mind_real(mind, 0x80)) - point.x) * share + point.x);
-        point.y = float((static_cast<long double>(mind_real(mind, 0x84)) - point.y) * share + point.y);
-        point.z = float((static_cast<long double>(mind_real(mind, 0x88)) - point.z) * share + point.z);
+        const Vec3 from = get(mind, field::blend_from);
+        point.x = float((static_cast<long double>(from.x) - point.x) * share + point.x);
+        point.y = float((static_cast<long double>(from.y) - point.y) * share + point.y);
+        point.z = float((static_cast<long double>(from.z) - point.z) * share + point.z);
     }
-    put_mind_real(mind, 0x90, point.x);
-    put_mind_real(mind, 0x94, point.y);
-    put_mind_real(mind, 0x98, point.z);
+    set(mind, field::follow_point, point);
     return read_u32(target.bytes, 0x960);
 }
 
@@ -503,19 +496,17 @@ u32 camera_path_target_point(std::span<u8> mind, const RuntimeDirectorActor& tar
     if ((target.body_bits->bytes[6] & 1) == 0) // Body +0x15C bit 0x30.
     {
         const u32 none = 0;
-        std::memcpy(mind.data() + 0x9C, &none, 4);
+        set(mind, field::target_point_held, none);
         return 1;
     }
-    if (read_u32(mind, 0x9C) == 0)
+    if (get(mind, field::target_point_held) == 0)
     {
-        put_mind_real(mind, 0xA0, point.x);
-        put_mind_real(mind, 0xA4, point.y);
-        put_mind_real(mind, 0xA8, point.z);
+        set(mind, field::held_target_point, point);
         const u32 held = 1;
-        std::memcpy(mind.data() + 0x9C, &held, 4);
+        set(mind, field::target_point_held, held);
         return 1;
     }
-    point = {mind_real(mind, 0xA0), mind_real(mind, 0xA4), mind_real(mind, 0xA8)};
+    point = get(mind, field::held_target_point);
     return 1;
 }
 

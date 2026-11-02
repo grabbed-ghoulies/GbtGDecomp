@@ -185,6 +185,13 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Ghouly bg-break setup (factory type 0x24, 0x0006A4F0), its own part | 0xA7C, parameters 0x460 | `ghouly_bg_break_field`, `ghouly_bg_break_parameter` | `src/engine/entities/ghouly_bg_break_setup.h` |
 | Bg-break key (factory type 0x1E, 0x0006CC70), its own part | 0xA70, parameters 0x3B4 | `bg_break_key_field`, `bg_break_key_parameter` | `src/engine/entities/bg_break_key.h` |
 | Save record, one field | — | `save_record_field::unk_184` (0x0010DC20 / 0x0010E2C0) | `src/engine/saves/save_scan.h` |
+| Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
+
+The camera mind was checked with `--player-opening` and headless captures of `chapter1_scene1_2playcam` at 300 and
+900 frames: the 14 test captures (the intro and the left-stick walk the camera follows) and both scene captures are
+byte-identical to the build before the change. Which camera paths those runs reach (the focus blend, the held target
+point under body bit 0x30, the push timer's move) wasn't checked. The base mind's +8, +0xC and +0x70 stay literal
+until the base mind is named.
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and

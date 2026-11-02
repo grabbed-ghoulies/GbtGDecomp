@@ -1,6 +1,7 @@
 #include "camera_actor_classes.h"
 #include "actor_transform.h"
 #include "player_mind_goals.h"
+#include "../camera/camera_mind_rig.h"
 #include "../camera/view_initialization.h"
 #include <cstring>
 
@@ -136,10 +137,10 @@ void dispatch_runtime_camera_mind_message(std::span<const u32> message, RuntimeC
 {
     if (message[0] == 0x7C)
     {
-        if (message[1] == read_u32(context.mind, 0x7C))
+        if (message[1] == get(context.mind, camera_mind_field::focus_actor))
         {
             const u32 zero = 0;
-            std::memcpy(context.mind.data() + 0x7C, &zero, 4);
+            set(context.mind, camera_mind_field::focus_actor, zero);
         }
     }
     else if (message[0] == 0x7D)

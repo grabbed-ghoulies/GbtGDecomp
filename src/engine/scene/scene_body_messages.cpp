@@ -1,4 +1,5 @@
 #include "scene_body_messages.h"
+#include "../entities/mind_fields.h"
 #include "../entities/body_orientation.h"
 #include "../camera/display_view.h"
 #include "../entities/body_move_action_slots.h"
@@ -903,7 +904,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         RuntimeStandAlertTick tick{player_.body, player_.actor, *player_.body_bits,
             player_.actor_instance.animation, player_.body_selection, services_.clock, player_.input_device,
             player_.scene.input_state,
-            !player_.mind.empty(), player_.mind.empty() ? u8(0) : player_.mind[0x20],
+            !player_.mind.empty(), player_.mind.empty() ? u8(0) : get(player_.mind, mind_field::target_mode),
             services_.stand_input_threshold,
             [this]() -> u16
             {
@@ -963,7 +964,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         RuntimeWalkAlertTick tick{player_.body, player_.actor, *player_.body_bits, player_.body_selection,
             services_.clock, device, player_.scene.input_state, services_.damage_tables, services_.mode_scales,
-            !player_.mind.empty(), player_.mind.empty() ? u8(0) : player_.mind[0x20],
+            !player_.mind.empty(), player_.mind.empty() ? u8(0) : get(player_.mind, mind_field::target_mode),
             [this]()
             {
                 settle_runtime_body_turn(player_.body, player_.actor); // 0x00134720, ESI body
@@ -985,7 +986,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         RuntimeWalkAlertTick tick{player_.body, player_.actor, *player_.body_bits, player_.body_selection,
             services_.clock, device, player_.scene.input_state, services_.damage_tables, services_.mode_scales,
-            !player_.mind.empty(), player_.mind.empty() ? u8(0) : player_.mind[0x20], {}};
+            !player_.mind.empty(), player_.mind.empty() ? u8(0) : get(player_.mind, mind_field::target_mode), {}};
         tick_runtime_fly_state({action.bytes.get(), action.size}, tick); // 0x00091190
         return;
     }
@@ -2498,7 +2499,7 @@ RuntimeAnimStateContext& SceneBodyMessages::anim_context()
             {
                 unbound("anim state actor +0x958 " + std::to_string(mind) + " is not the player's mind");
             }
-            return read_u32(player_.mind, 0xC);
+            return get(player_.mind, mind_field::target);
         },
         [this](u32 address) -> const Actor*
         {
@@ -2536,7 +2537,7 @@ RuntimeDieStateContext& SceneBodyMessages::die_context()
             {
                 unbound("die state actor +0x958 " + std::to_string(mind) + " is not the player's mind");
             }
-            return read_u32(player_.mind, 0xC);
+            return get(player_.mind, mind_field::target);
         },
         [this](u32 address) -> const Actor*
         {
@@ -2617,7 +2618,7 @@ std::span<const u8> SceneBodyMessages::mind_target()
     {
         return {};
     }
-    const u32 target = read_u32(player_.mind, 0x14);
+    const u32 target = get(player_.mind, mind_field::action_record);
     return target == 0 ? std::span<const u8>() : services_.target_at(target);
 }
 

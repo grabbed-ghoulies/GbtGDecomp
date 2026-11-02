@@ -53,8 +53,8 @@ void merge_camera_targets(std::span<const u8> records, i32 count, const Vec3& ey
 void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u8> request, const Vec3& eye,
     Vec3& position, Vec3& focus, u32 target, float& distance,
     const RuntimeCameraRigContext& context); // Xbox 0x00078840
-// The camera mind's own fields (type 0x36, 0xDC bytes from 0x0007AFC0), after the 0x7C-byte base mind: +8 is the
-// camera actor, +0xC the target and +0x70 the eye.
+// The camera mind's own fields (type 0x36, 0xDC bytes from 0x0007AFC0), after the 0x7C-byte base mind
+// (mind_field: its actor is the camera, its goal point the eye).
 namespace camera_mind_field
 {
 // The actor the follow point tracks (the request's +0x10). A new one, or message 0x7C naming it, starts a blend

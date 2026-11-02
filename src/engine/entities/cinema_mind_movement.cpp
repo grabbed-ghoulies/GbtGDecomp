@@ -1,4 +1,5 @@
 #include "cinema_mind_movement.h"
+#include "mind_fields.h"
 #include "body_request_selection.h"
 #include "player_mind_requests.h"
 #include "actor_transform.h"
@@ -33,7 +34,7 @@ void value(std::span<u8> bytes, size_t offset, float number)
 u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& context)
 {
     auto& movement = context.movement;
-    if (read_u32(movement.mind, 0x18) == 0)
+    if (get(movement.mind, mind_field::action_actor) == 0)
     {
         return 1;
     }
@@ -45,13 +46,13 @@ u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& co
         if (selected == nullptr)
         {
             const u32 zero = 0;
-            std::memcpy(movement.mind.data() + 0x18, &zero, 4);
+            set(movement.mind, mind_field::action_actor, zero);
             context.target = nullptr;
             return 1;
         }
         target = &context.actor_at(*selected);
         context.target = target;
-        std::memcpy(movement.mind.data() + 0x18, &target->address, 4);
+        set(movement.mind, mind_field::action_actor, target->address);
     }
     if (read_u16(movement.body, 0x30) != 0 || read_f32(movement.body, 0x34) != 0.f)
     {
@@ -150,7 +151,7 @@ u32 request_runtime_cinema_mind_spawn_attachment(RuntimeCinemaMindMovement& cont
     const std::function<u16(RuntimeBodyAttachedActor&)>& attach,
     std::span<u8> body, RuntimeBodyActionSelection& actions)
 {
-    if (read_u32(context.mind, 0x18) != 0 && !(read_f32(context.mind, 0x98) > 0.f))
+    if (get(context.mind, mind_field::action_actor) != 0 && !(read_f32(context.mind, 0x98) > 0.f))
     {
         if (actor_can_supply_ghoulybox(*target->actor) && target->bytes[0x93C] != 0)
         {
@@ -169,7 +170,7 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
     std::span<const u8> request, const std::function<RuntimeMindChainRequestSelection&()>& selection,
     std::span<u8> input, const RuntimeInputReleaseContext& input_context)
 {
-    if (read_u32(context.mind, 0x10) == 0)
+    if (get(context.mind, mind_field::target_record) == 0)
     {
         return true;
     }
@@ -190,7 +191,7 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
 // Xbox 0x0007BC80
 u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& context, std::span<const u8> request)
 {
-    if (read_u32(context.mind, 0x10) == 0)
+    if (get(context.mind, mind_field::target_record) == 0)
     {
         return 1;
     }
@@ -267,7 +268,7 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
 // Xbox 0x0007B620
 u32 update_runtime_cinema_mind_vertical_target(RuntimeCinemaMindMovement& context, std::span<const u8> request)
 {
-    if (read_u32(context.mind, 0x10) == 0)
+    if (get(context.mind, mind_field::target_record) == 0)
     {
         return 1;
     }
@@ -344,7 +345,7 @@ u32 update_runtime_cinema_mind_escape_motion(RuntimeCinemaMindMovement& context,
             value(request, 0x30, 0.f);
             return 0;
         }
-        std::memcpy(context.mind.data() + 0x70, &selected, sizeof(selected));
+        set(context.mind, mind_field::goal_point, selected);
     }
     const Vec3 destination = point(context.mind, 0x70);
     float heading;
@@ -392,7 +393,7 @@ u32 update_runtime_cinema_mind_vertical_escape_motion(RuntimeCinemaMindMovement&
             value(request, 0x3C, 0.f);
             return 0;
         }
-        std::memcpy(context.mind.data() + 0x70, &selected, sizeof(selected));
+        set(context.mind, mind_field::goal_point, selected);
     }
     const Vec3 destination = point(context.mind, 0x70);
     float heading;
@@ -472,7 +473,7 @@ u32 select_runtime_cinema_mind_random_position(RuntimeCinemaMindMovement& contex
         position, read_f32(request, 0x10), read_f32(request, 0x14), context.required, context.allowed,
         0x1C, i16(context.actor.class_key), selected, context.random, context.occupancy_initial))
     {
-        std::memcpy(context.mind.data() + 0x70, &selected, sizeof(selected));
+        set(context.mind, mind_field::goal_point, selected);
         return 1;
     }
     return 4;
@@ -492,7 +493,7 @@ u32 select_runtime_cinema_mind_heading_position(RuntimeCinemaMindMovement& conte
     const i32 attempts = _mm_cvttss_si32(_mm_set_ss(std::bit_cast<float>(0x40490FDBu) / increment));
     if (search_runtime_navigation_headings(search, heading, increment, attempts))
     {
-        std::memcpy(context.mind.data() + 0x70, &selected, sizeof(selected));
+        set(context.mind, mind_field::goal_point, selected);
         return 1;
     }
     return 4;

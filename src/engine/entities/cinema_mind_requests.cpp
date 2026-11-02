@@ -1,4 +1,5 @@
 #include "cinema_mind_requests.h"
+#include "mind_fields.h"
 #include "body_orientation.h"
 #include "../navigation/mind_escape_position.h"
 #include "body_animation_commands.h"
@@ -33,7 +34,7 @@ u32 select_runtime_cinema_mind_escape_request(std::span<u8> mind,
     if (select_runtime_mind_escape_position(context, read_f32(request, 0x1C),
         read_f32(request, 0x14), read_f32(request, 0x18), point))
     {
-        std::memcpy(mind.data() + 0x70, &point, sizeof(point));
+        set(mind, mind_field::goal_point, point);
         return 1;
     }
     return 4;
@@ -43,7 +44,7 @@ u32 select_runtime_cinema_mind_escape_request(std::span<u8> mind,
 u32 face_runtime_cinema_mind_target(std::span<const u8> mind, std::span<u8> body,
     const Actor& actor, std::span<const u8> target)
 {
-    if (read_u32(mind, 0x10) == 0)
+    if (get(mind, mind_field::target_record) == 0)
     {
         return 1;
     }

@@ -1,4 +1,5 @@
 #include "body_swing_state.h"
+#include "mind_fields.h"
 #include "actor_runtime_queries.h"
 #include "actor_spawn_query.h"
 #include "actor_transform.h"
@@ -134,7 +135,7 @@ void send_weapon(RuntimeSwingStateContext& context, u32 weapon, std::initializer
 // Actor +0x958 -> +0x18: the weapon the mind chose, or 0.
 u32 mind_weapon(RuntimeSwingStateContext& context)
 {
-    return context.pickup.mind.empty() ? 0 : read_u32(context.pickup.mind, 0x18);
+    return context.pickup.mind.empty() ? 0 : get(context.pickup.mind, mind_field::action_actor);
 }
 
 // Body +0x48: the attached actor's address, or 0.

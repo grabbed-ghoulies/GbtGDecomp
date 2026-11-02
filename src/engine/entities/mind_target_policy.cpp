@@ -1,4 +1,5 @@
 #include "mind_target_policy.h"
+#include "mind_fields.h"
 
 namespace gbtg
 {
@@ -29,8 +30,8 @@ bool runtime_mind_target_is_eligible(std::span<const u8> mind,
     {
         return false;
     }
-    u32 flags = read_u32(mind, 0x64);
-    const u32 categories = read_u32(mind, 0x68);
+    u32 flags = get(mind, mind_field::target_flags);
+    const u32 categories = get(mind, mind_field::target_categories);
     if (adjust_for_actor_state)
     {
         if (read_f32(actor_bytes, 0x978) > 0.f || actor_bytes[0x969] != 0)

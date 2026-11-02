@@ -1,4 +1,5 @@
 #include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
 #include "body_gaze.h"
@@ -360,7 +361,7 @@ Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context)
 {
     Actor* target = context.target;
     Actor* const previous = target;
-    const u32 previous_mode = context.mind[0x20];
+    const u32 previous_mode = get(context.mind, mind_field::target_mode);
     u32 mode = previous_mode;
     bool restore_previous;
     bool search_near;
@@ -442,14 +443,13 @@ Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context)
     }
     context.target = target;
     const u32 address = target == nullptr ? 0 : context.addresses.at(target);
-    std::memcpy(context.mind.data() + 0xC, &address, 4);
-    if (mode != context.mind[0x20]
-        && read_f32(context.mind, 0x38) > read_f32(context.mind, 0x34))
+    set(context.mind, mind_field::target, address);
+    if (mode != get(context.mind, mind_field::target_mode)
+        && get(context.mind, mind_field::unk_38) > get(context.mind, mind_field::unk_34))
     {
-        const u32 timer = read_u32(context.mind, 0x38);
-        std::memcpy(context.mind.data() + 0x34, &timer, 4);
+        set(context.mind, mind_field::unk_34, get(context.mind, mind_field::unk_38));
     }
-    context.mind[0x20] = u8(mode);
+    set(context.mind, mind_field::target_mode, u8(mode));
     return target;
 }
 
@@ -508,7 +508,7 @@ bool runtime_mind_target_is_controlled_player(const RuntimeMindTarget& target)
 bool runtime_player_mind_saved_path_clear(const Actor& actor, std::span<const u8> mind,
     const OccupancyRecord* occupancy, const OccupancyRecord* allowed, u16 owner_class)
 {
-    const Vec3 point{read_f32(mind, 0x70), read_f32(mind, 0x74), read_f32(mind, 0x78)};
+    const Vec3 point(get(mind, mind_field::goal_point));
     if (occupancy == nullptr)
     {
         const Vec3 position = actor_world_position(actor);

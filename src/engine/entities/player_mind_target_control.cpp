@@ -1,4 +1,5 @@
 #include "player_mind_target_control.h"
+#include "mind_fields.h"
 #include "../scripts/script_conditions.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
@@ -134,7 +135,7 @@ void update_runtime_player_target_control(RuntimePlayerMindTargetControl& contex
             {
                 context.focus.target = proposal->owner;
                 const u32 address = read_u32(proposal->bytes, 0x10);
-                std::memcpy(mind.data() + 0xC, &address, 4);
+                set(mind, mind_field::target, address);
             }
         }
         if (read_u32(mind, 0x124) != 0)

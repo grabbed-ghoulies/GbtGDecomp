@@ -1,4 +1,5 @@
 #include "ghoulie_girl_strategy.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "player_children.h"
 #include "player_goal_cleanup.h"
@@ -81,7 +82,7 @@ RuntimeMindTarget* mind_target(RuntimeGhoulieGirlStrategy& context)
     {
         return nullptr;
     }
-    const u32 address = read_u32(mind, 0x10);
+    const u32 address = get(mind, mind_field::target_record);
     if (address == 0)
     {
         return nullptr;
@@ -231,7 +232,7 @@ void update_hold(RuntimeGhoulieGirlStrategy& context)
         return;
     }
     const std::span<const u8> mind = mind_of(context);
-    if (mind.empty() || read_u32(mind, 0x10) == 0)
+    if (mind.empty() || get(mind, mind_field::target_record) == 0)
     {
         return;
     }

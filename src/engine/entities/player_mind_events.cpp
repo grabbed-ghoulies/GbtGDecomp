@@ -1,4 +1,5 @@
 #include "player_mind_events.h"
+#include "mind_fields.h"
 #include "entity_heap.h"
 #include <bit>
 #include <cmath>
@@ -57,7 +58,7 @@ RuntimeMindEvent* allocate_runtime_mind_event(RuntimeMindEvents& context, u16 ki
     std::memcpy(event->bytes.data() + 8, &kind, 2);
     put(event->bytes, 0xC, std::bit_cast<u32>(duration));
     put(event->bytes, 0x10, std::bit_cast<u32>(duration));
-    put(event->bytes, 0x14, read_u32(context.mind, 0x2C));
+    put(event->bytes, 0x14, std::bit_cast<u32>(get(context.mind, mind_field::unk_2C)));
     prepend(context.anchor, *event);
     return event;
 }
@@ -66,7 +67,7 @@ RuntimeMindEvent* allocate_runtime_mind_event(RuntimeMindEvents& context, u16 ki
 RuntimeMindEvent* refresh_runtime_mind_event(RuntimeMindEvents& context, RuntimeMindEvent& event)
 {
     put(event.bytes, 0xC, read_u32(event.bytes, 0x10));
-    put(event.bytes, 0x14, read_u32(context.mind, 0x2C));
+    put(event.bytes, 0x14, std::bit_cast<u32>(get(context.mind, mind_field::unk_2C)));
     put(event.bytes, 0x1C, 0);
     event.bytes[0xA] = 0;
     if (event.prev != nullptr)
@@ -108,7 +109,7 @@ void refresh_runtime_mind_target_event(RuntimeMindEvents& context)
         if (u16(event->type) == 4)
         {
             auto& target_event = *static_cast<RuntimeMindEvent*>(event);
-            if (read_u32(target_event.bytes, 0x20) == read_u32(context.mind, 0x10))
+            if (read_u32(target_event.bytes, 0x20) == get(context.mind, mind_field::target_record))
             {
                 refresh_runtime_mind_event(context, target_event);
                 return;
@@ -116,18 +117,18 @@ void refresh_runtime_mind_target_event(RuntimeMindEvents& context)
         }
     }
     auto* event = allocate_runtime_mind_event(context, 4, 20.f);
-    put(event->bytes, 0x20, read_u32(context.mind, 0x10));
+    put(event->bytes, 0x20, get(context.mind, mind_field::target_record));
 }
 
 // Xbox 0x0002A030
 void set_runtime_mind_target(RuntimeMindEvents& context, u32 target)
 {
-    if (target == 0 && read_u32(context.mind, 0x10) != 0)
+    if (target == 0 && get(context.mind, mind_field::target_record) != 0)
     {
         const u32 message[]{0x64, 0};
         context.actor_message(message);
     }
-    put(context.mind, 0x10, target);
+    set(context.mind, mind_field::target_record, target);
     if (target != 0)
     {
         refresh_runtime_mind_target_event(context);
@@ -162,13 +163,13 @@ void record_runtime_mind_contact(RuntimeMindEvents& context, u32 first, u32 seco
 // Xbox 0x0002A460
 void clear_runtime_mind_actor_events(RuntimeMindEvents& context, u32 actor)
 {
-    if (read_u32(context.mind, 0xC) == actor)
+    if (get(context.mind, mind_field::target) == actor)
     {
-        put(context.mind, 0xC, 0);
+        set(context.mind, mind_field::target, 0);
     }
-    if (read_u32(context.mind, 0x18) == actor)
+    if (get(context.mind, mind_field::action_actor) == actor)
     {
-        put(context.mind, 0x18, 0);
+        set(context.mind, mind_field::action_actor, 0);
     }
     LiveScript* node = context.anchor.next;
     while (node != nullptr && u16(node->type) != 1)
@@ -224,23 +225,23 @@ void clear_runtime_mind_actor_events(RuntimeMindEvents& context, u32 actor)
 void end_runtime_mind_target(RuntimeMindEvents& context, std::span<const u32> message,
     std::span<const u8> target)
 {
-    if (read_u32(context.mind, 0x10) == message[1])
+    if (get(context.mind, mind_field::target_record) == message[1])
     {
-        if (read_u32(context.mind, 0x10) != 0)
+        if (get(context.mind, mind_field::target_record) != 0)
         {
             const u32 notice[]{0x64, message[2]};
             context.actor_message(notice);
         }
-        put(context.mind, 0x10, 0);
-        if (message[2] != 0 && read_u32(context.mind, 0xC) != 0 &&
-            read_u32(context.mind, 0xC) == read_u32(target, 0x10))
+        set(context.mind, mind_field::target_record, 0);
+        if (message[2] != 0 && get(context.mind, mind_field::target) != 0 &&
+            get(context.mind, mind_field::target) == read_u32(target, 0x10))
         {
-            put(context.mind, 0xC, 0);
+            set(context.mind, mind_field::target, 0);
         }
     }
-    if (read_u32(context.mind, 0x14) == message[1])
+    if (get(context.mind, mind_field::action_record) == message[1])
     {
-        put(context.mind, 0x14, 0);
+        set(context.mind, mind_field::action_record, 0);
     }
     LiveScript* head = context.anchor.next;
     LiveScript* event = head;
@@ -280,19 +281,19 @@ void dispatch_runtime_parent_mind_message(RuntimeMindEvents& context,
         clear_runtime_mind_actor_events(context, message[1]);
         return;
     case 0x80:
-        if (read_u32(context.mind, 0x10) != 0)
+        if (get(context.mind, mind_field::target_record) != 0)
         {
             const u32 notice[]{0x64, 0};
             context.actor_message(notice);
         }
-        put(context.mind, 0x10, 0);
+        set(context.mind, mind_field::target_record, 0);
         return;
     case 0x85:
-        if (read_u32(context.mind, 0x30) == message[1])
+        if (get(context.mind, mind_field::gaze_anchor) == message[1])
         {
-            put(context.mind, 0x30, 0);
-            put(context.mind, 0x34, 0);
-            put(context.mind, 0x38, 0);
+            set(context.mind, mind_field::gaze_anchor, 0);
+            set(context.mind, mind_field::unk_34, 0.f);
+            set(context.mind, mind_field::unk_38, 0.f);
         }
         return;
     case 0x8D:
@@ -326,7 +327,7 @@ void update_runtime_mind_requests(RuntimeMindTick& context)
         const i32 result = context.update_request(*request);
         if (result == 3)
         {
-            put(context.events.mind, 0x5C, 3);
+            set(context.events.mind, mind_field::last_request_result, 3);
             clear_runtime_player_mind_requests(context.requests);
             return;
         }
@@ -335,7 +336,7 @@ void update_runtime_mind_requests(RuntimeMindTick& context)
         {
             return;
         }
-        put(context.events.mind, 0x5C, u32(result));
+        set(context.events.mind, mind_field::last_request_result, u32(result));
         request = request->next;
         release_runtime_player_mind_request(*current, context.requests);
         if (result == 2)
@@ -403,23 +404,23 @@ void update_runtime_mind_alert(RuntimeMindTick& context)
 {
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.body_actor);
-    float timer = read_f32(context.events.mind, 0x50);
+    float timer = get(context.events.mind, mind_field::alert_timer);
     if (timer > 0.f)
     {
         timer -= rate * step;
-        put(context.events.mind, 0x50, std::bit_cast<u32>(timer));
+        set(context.events.mind, mind_field::alert_timer, timer);
         if (!(0.f < timer) && !std::isnan(timer))
         {
-            put(context.events.mind, 0x50, 0);
+            set(context.events.mind, mind_field::alert_timer, 0.f);
         }
     }
-    switch (read_u32(context.events.mind, 0x4C))
+    switch (get(context.events.mind, mind_field::alert_mode))
     {
     case 0x40:
         put(context.body, 0x158, 0);
         return;
     case 0x41:
-        put(context.body, 0x158, runtime_mind_alert_level(read_f32(context.events.mind, 0x50)));
+        put(context.body, 0x158, runtime_mind_alert_level(get(context.events.mind, mind_field::alert_timer)));
         return;
     case 0x42:
         put(context.body, 0x158, 4);
@@ -448,8 +449,7 @@ void tick_runtime_parent_mind(RuntimeMindTick& context)
     update_runtime_mind_events(context);
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.actor);
-    put(context.events.mind, 0x34,
-        std::bit_cast<u32>(rate * step + read_f32(context.events.mind, 0x34)));
+    set(context.events.mind, mind_field::unk_34, rate * step + get(context.events.mind, mind_field::unk_34));
     update_runtime_mind_alert(context);
 }
 

@@ -1,4 +1,5 @@
 #include "body_slam_smash_state.h"
+#include "mind_fields.h"
 #include "actor_render_registration.h"
 #include "actor_shape_bounds.h"
 #include "actor_transform.h"
@@ -95,7 +96,7 @@ void call_out(const Vec3& point, u32 id, RuntimeSlamSmashStateContext& context)
 // floor under the point gives its height.
 void choose_landing(std::span<u8> state, RuntimeSlamSmashStateContext& context)
 {
-    const u32 target = context.mind.empty() ? 0u : read_u32(context.mind, 0x10);
+    const u32 target = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
     Vec3 landing{};
     u32 floor = 0;
     if (target != 0)

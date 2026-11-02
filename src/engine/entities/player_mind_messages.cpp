@@ -1,4 +1,5 @@
 #include "player_mind_messages.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "../scripts/script_conditions.h"
 #include "../scripts/script_vm.h"
@@ -166,11 +167,11 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
             notify_runtime_player_mind_contact(feedback, message[5], message[4]);
             put(mind, 0x150, read_u32(mind, 0x150) + 1);
             const float limit = 15.f; // DAT_0032B214.
-            const float alert = read_f32(mind, 0x50) + 5.f; // DAT_0032B184.
-            put(mind, 0x50, std::bit_cast<u32>(alert));
+            const float alert = get(mind, mind_field::alert_timer) + 5.f; // DAT_0032B184.
+            set(mind, mind_field::alert_timer, alert);
             if (alert > limit)
             {
-                put(mind, 0x50, std::bit_cast<u32>(limit));
+                set(mind, mind_field::alert_timer, limit);
             }
         }
         else if (message[2] == context.actor_address)

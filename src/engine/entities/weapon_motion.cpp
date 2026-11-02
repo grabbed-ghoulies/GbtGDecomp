@@ -1,4 +1,5 @@
 #include "weapon_motion.h"
+#include "mind_fields.h"
 #include "weapon_actor_detail.h"
 #include "actor_shape_bounds.h"
 #include "actor_transform.h"
@@ -385,7 +386,7 @@ RuntimeMindTarget* runtime_weapon_holder_target(RuntimeWeaponActor& weapon)
     {
         return nullptr;
     }
-    const u32 record = read_u32(weapon.bytes_at(mind), 0x10);
+    const u32 record = get(weapon.bytes_at(mind), mind_field::target_record);
     return record == 0 ? nullptr : weapon.services.target_at(record);
 }
 

@@ -1,4 +1,5 @@
 #include "hunchback_strategy.h"
+#include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "body_contacts.h"
 #include "body_message_helpers.h"
@@ -589,7 +590,7 @@ void dispatch_runtime_hunchback_message(std::span<const u32> message, RuntimeHun
     case 0x31:
     {
         const std::span<const u8> mind = goals.entry.events.mind;
-        const u32 target = mind.empty() ? 0u : read_u32(mind, 0x10);
+        const u32 target = mind.empty() ? 0u : get(mind, mind_field::target_record);
         if (target != 0 && read_u32(goals.target_at(target)->bytes, 0x10) == message[1])
         {
             recover_runtime_hunchback(context); // The tail jump to 0x000B3700.

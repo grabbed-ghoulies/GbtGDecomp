@@ -1,4 +1,5 @@
 #include "imp_fire_strategy.h"
+#include "mind_fields.h"
 #include "body_animation_setup.h"
 #include "body_message_helpers.h"
 #include "actor_transform.h"
@@ -273,11 +274,11 @@ bool roll_runtime_imp_fire_attachment(RuntimeImpFireStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<const u8> mind = goals.entry.events.mind;
-    if (mind.data() == nullptr || read_u32(mind, 0x10) == 0)
+    if (mind.data() == nullptr || get(mind, mind_field::target_record) == 0)
     {
         return false;
     }
-    const Actor& target = goals.target_at(read_u32(mind, 0x10))->actor;
+    const Actor& target = goals.target_at(get(mind, mind_field::target_record))->actor;
     i32 index = context.attachment_limit;
     const RuntimeBodyModelNodes* model = context.model_of(target);
     const u32 count = count_runtime_body_model_kind(model, 4);
@@ -466,7 +467,7 @@ void update_runtime_imp_fire_bite(RuntimeImpFireStrategy& context)
     }
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<const u8> mind = goals.entry.events.mind;
-    if (mind.data() != nullptr && read_u32(mind, 0x10) != 0 && runtime_imp_fire_effect_playing(context))
+    if (mind.data() != nullptr && get(mind, mind_field::target_record) != 0 && runtime_imp_fire_effect_playing(context))
     {
         std::span<u8> strategy = strategy_of(context);
         if (read_u32(strategy, 0x48) != 0)

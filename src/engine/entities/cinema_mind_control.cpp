@@ -1,4 +1,5 @@
 #include "cinema_mind_control.h"
+#include "mind_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -31,7 +32,7 @@ void refresh_runtime_cinema_mind_action_permission(std::span<u8> mind,
             }
             while (index < allowed_count);
         }
-        value(mind, 0x6C, 0.f);
+        set(mind, mind_field::target_range, 0.f);
     }
 }
 

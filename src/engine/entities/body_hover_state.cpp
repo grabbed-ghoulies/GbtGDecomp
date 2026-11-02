@@ -1,4 +1,5 @@
 #include "body_hover_state.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_mind_events.h"
 
@@ -133,9 +134,9 @@ void tick_runtime_hover_state(std::span<u8> state, RuntimeHoverStateContext& con
     set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
         + get(state, body_state_field::elapsed));
     const auto mind = context.mind;
-    if (mind.data() != nullptr && mind[0x20] != 0 && read_u32(mind, 0xC) != 0)
+    if (mind.data() != nullptr && get(mind, mind_field::target_mode) != 0 && get(mind, mind_field::target) != 0)
     {
-        const Actor* chosen = context.actor_at(read_u32(mind, 0xC));
+        const Actor* chosen = context.actor_at(get(mind, mind_field::target));
         if (chosen == nullptr)
         {
             throw Error("0x00097CF0 reads the position of a chosen actor outside the scene");
@@ -166,7 +167,7 @@ void check_runtime_hover_stick(std::span<u8> state, RuntimeHoverStateContext& co
         }
     }
     const u16 with_target = get(state, field::next_with_target);
-    if (with_target != 0 && context.mind.data() != nullptr && context.mind[0x20] != 0)
+    if (with_target != 0 && context.mind.data() != nullptr && get(context.mind, mind_field::target_mode) != 0)
     {
         set(state, body_state_field::next_key, with_target);
         return;

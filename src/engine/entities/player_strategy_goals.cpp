@@ -1,4 +1,5 @@
 #include "player_strategy_goals.h"
+#include "mind_fields.h"
 #include "actor_pose_updates.h"
 #include "actor_render_registration.h"
 #include "actor_transform.h"
@@ -344,14 +345,14 @@ bool find_runtime_goal_volume_target(const OccupancyRecord& volume, u32& output,
 {
     RuntimeMindEvents& events = context.entry.events;
     std::span<u8> mind = events.mind;
-    if (read_u32(mind, 0x10) != 0)
+    if (get(mind, mind_field::target_record) != 0)
     {
-        output = read_u32(mind, 0x10);
+        output = get(mind, mind_field::target_record);
         return true;
     }
     float distance;
     RuntimeMindTarget* target = find_runtime_mind_target(context.entry.actor, context.entry.allowed, 0, 0,
-        &distance, read_u32(mind, 0x68), (read_u32(mind, 0x64) & ~0x20u) | 8u, context.entry.targets);
+        &distance, get(mind, mind_field::target_categories), (get(mind, mind_field::target_flags) & ~0x20u) | 8u, context.entry.targets);
     if (target != nullptr)
     {
         Vec3 position;
@@ -379,11 +380,11 @@ bool find_runtime_goal_volume_target(const OccupancyRecord& volume, u32& output,
     set_runtime_mind_alert_event(events, address);
     if (target == nullptr)
     {
-        put(mind, 0xC, 0);
+        set(mind, mind_field::target, 0);
     }
     else if (target->bytes[0x14] == 0)
     {
-        put(mind, 0xC, read_u32(target->bytes, 0x10));
+        set(mind, mind_field::target, read_u32(target->bytes, 0x10));
     }
     output = address;
     return target != nullptr;
@@ -415,9 +416,7 @@ u32 seek_runtime_player_free_position(RuntimePlayerStrategyGoals& context)
     {
         clear_runtime_player_mind_requests(*context.setup.mind);
         std::span<u8> mind = context.entry.events.mind;
-        put_float(mind, 0x70, candidate.x);
-        put_float(mind, 0x74, candidate.y);
-        put_float(mind, 0x78, candidate.z);
+        set(mind, mind_field::goal_point, candidate);
         RuntimeMindGoalContext& goals = context.entry.goals;
         if (read_u16(actor, 0xCDE) == 1)
         {
@@ -830,11 +829,11 @@ void update_runtime_base_strategy(RuntimePlayerStrategyGoals& context)
     case 0x3FF:
     {
         std::span<u8> mind = context.entry.events.mind;
-        if (read_u32(mind, 0x10) != 0
-            && runtime_mind_target_occupancy_differs(*context.target_at(read_u32(mind, 0x10)),
+        if (get(mind, mind_field::target_record) != 0
+            && runtime_mind_target_occupancy_differs(*context.target_at(get(mind, mind_field::target_record)),
                 read_u16(actor, 6), context.entry.allowed))
         {
-            put(mind, 0x10, 0);
+            set(mind, mind_field::target_record, 0);
         }
         u32 reached;
         if (!mind_requests_pending(context))
@@ -898,7 +897,7 @@ void adopt_message_target(RuntimeMindTarget& target, RuntimePlayerStrategyGoals&
     set_runtime_mind_target(context.entry.events, target.address);
     if (target.bytes[0x14] == 0)
     {
-        put(context.entry.events.mind, 0xC, read_u32(target.bytes, 0x10));
+        set(context.entry.events.mind, mind_field::target, read_u32(target.bytes, 0x10));
     }
 }
 }
@@ -910,7 +909,7 @@ u32 runtime_player_mind_target(RuntimePlayerStrategyGoals& context)
     {
         return 0;
     }
-    return read_u32(context.entry.events.mind, 0x10);
+    return get(context.entry.events.mind, mind_field::target_record);
 }
 
 // Xbox 0x00042070
@@ -984,8 +983,8 @@ void resolve_runtime_goal_alert(RuntimePlayerStrategyGoals& context)
     }
     std::span<u8> mind = context.entry.events.mind;
     std::span<const u8> actor = context.entry.actor_bytes;
-    u32 flags = read_u32(mind, 0x64);
-    const u32 category = read_u32(mind, 0x68);
+    u32 flags = get(mind, mind_field::target_flags);
+    const u32 category = get(mind, mind_field::target_categories);
     const auto alerted = [&actor]()
     {
         return read_f32(actor, 0x978) > 0.0f || actor[0x969] != 0;
@@ -1023,7 +1022,7 @@ void resolve_runtime_goal_alert(RuntimePlayerStrategyGoals& context)
             return;
         }
         target = find_runtime_mind_target(context.entry.actor, context.entry.allowed, 0, 0, &distance,
-            read_u32(mind, 0x68), (read_u32(mind, 0x64) & ~0x20u) | 8u, context.entry.targets);
+            get(mind, mind_field::target_categories), (get(mind, mind_field::target_flags) & ~0x20u) | 8u, context.entry.targets);
         if (target == nullptr)
         {
             return;
@@ -1103,7 +1102,7 @@ void complete_runtime_goal_contact(u32 first, u32 second, RuntimeBaseStrategyMes
     if (target != nullptr)
     {
         set_runtime_mind_target(goals.entry.events, target->address);
-        put(goals.entry.events.mind, 0xC, second);
+        set(goals.entry.events.mind, mind_field::target, second);
     }
     clear_runtime_player_goal_volume(goals);
     enter_runtime_player_goal_action(goals);
@@ -1178,7 +1177,7 @@ void dispatch_runtime_base_strategy_message(std::span<const u32> message, Runtim
         resolve_runtime_goal_alert(goals);
         return;
     case 0x24:
-        if (read_u16(actor, 0xCDC) == 1 && strategy_goal_gate(goals) && read_u32(goals.entry.events.mind, 0x10) == 0)
+        if (read_u16(actor, 0xCDC) == 1 && strategy_goal_gate(goals) && get(goals.entry.events.mind, mind_field::target_record) == 0)
         {
             clear_runtime_player_mind_requests(*goals.setup.mind);
         }

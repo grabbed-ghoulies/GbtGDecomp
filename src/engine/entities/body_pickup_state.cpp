@@ -1,4 +1,5 @@
 #include "body_pickup_state.h"
+#include "mind_fields.h"
 #include "actor_attachment_events.h"
 #include "actor_spawn_eligibility.h"
 #include "actor_spawn_query.h"
@@ -196,7 +197,7 @@ void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& c
     const auto body = context.body;
     Actor& actor = context.actor;
     const auto mind = context.mind;
-    const u32 weapon_address = mind.empty() ? 0 : read_u32(mind, 0x18);
+    const u32 weapon_address = mind.empty() ? 0 : get(mind, mind_field::action_actor);
     set(state, body_state_field::elapsed,
         runtime_actor_step(actor, context.clock) + get(state, body_state_field::elapsed));
     put_float(body, 0x734, 0.f);
@@ -227,7 +228,7 @@ void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& c
             }
             if (!mind.empty())
             {
-                put_word(mind, 0x18, 0);
+                set(mind, mind_field::action_actor, 0);
             }
         }
     }
@@ -380,7 +381,7 @@ void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& con
     u32 weapon = 0;
     if (stage == 1)
     {
-        weapon = context.mind.empty() ? 0 : read_u32(context.mind, 0x18);
+        weapon = context.mind.empty() ? 0 : get(context.mind, mind_field::action_actor);
     }
     else if (stage == 3)
     {

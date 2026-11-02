@@ -1,4 +1,5 @@
 #include "ghoul_intro.h"
+#include "../entities/mind_fields.h"
 #include "../../gbtg/text/localtext_resources.h"
 #include "../audio/bank_streams.h"
 #include "../camera/entity_camera.h"
@@ -125,10 +126,8 @@ void update_runtime_ghoul_intro(RuntimeGhoulIntroContext& context)
         // The intro's actor looks at the camera: mind +0x3C, gaze point +0x40 (DAT_00506DA0).
         if (std::span<u8> mind = context.mind(*notices.first); !mind.empty())
         {
-            put_word(mind, 0x3C, 1);
-            put_float(mind, 0x40, intro.camera.position.x);
-            put_float(mind, 0x44, intro.camera.position.y);
-            put_float(mind, 0x48, intro.camera.position.z);
+            set(mind, mind_field::gaze_point_set, 1);
+            set(mind, mind_field::gaze_point, intro.camera.position);
         }
         const Actor& actor = *notices.first;
         if (count_down(intro.shot_time, frame_step(context)) && -1 < intro.shot)
@@ -306,7 +305,7 @@ void place_runtime_ghoul_intro_camera(i32 shot, const Actor& actor, float height
     const float distance = read_f32(row, 0xC);
     float heading;
     const std::span<u8> mind = context.mind(actor);
-    const u32 target = mind.empty() ? 0 : read_u32(mind, 0x10);
+    const u32 target = mind.empty() ? 0 : get(mind, mind_field::target_record);
     if (target != 0)
     {
         // Toward the mind's target; 0x00105F90 keeps the word it was given (the record address) for a zero vector.

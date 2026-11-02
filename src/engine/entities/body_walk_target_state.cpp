@@ -1,4 +1,5 @@
 #include "body_walk_target_state.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_hit_state.h"
 #include "body_orientation.h"
@@ -81,11 +82,11 @@ float surface_mode_scale(std::span<const u8> body, std::span<const float> mode_s
 // Actor +0x958 -> +0xC: the mind's target actor, when the mind is alert (+0x20).
 u32 alert_mind_target(std::span<const u8> mind)
 {
-    if (mind.empty() || mind[0x20] == 0)
+    if (mind.empty() || get(mind, mind_field::target_mode) == 0)
     {
         return 0;
     }
-    return read_u32(mind, 0xC);
+    return get(mind, mind_field::target);
 }
 
 void store_target_position(std::span<u8> body, const Vec3& position)
@@ -384,7 +385,7 @@ long double runtime_walk_target_distance(RuntimeWalkTargetTick& context)
 void aim_runtime_walk_target(std::span<const u8> state, RuntimeWalkTargetTick& context)
 {
     const auto body = context.body;
-    const u8 alert = context.mind.empty() ? 0 : context.mind[0x20];
+    const u8 alert = context.mind.empty() ? 0 : get(context.mind, mind_field::target_mode);
     const Vec3 target{read_f32(body, 0x3C), read_f32(body, 0x40), read_f32(body, 0x44)};
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0, ESI actor.
     const Vec3 direction{target.x - position.x, target.y - position.y, target.z - position.z};
@@ -506,7 +507,7 @@ void settle_runtime_walk_target(std::span<u8> state, RuntimeWalkTargetTick& cont
     const float vx = read_f32(body, 0x318);
     const float vy = read_f32(body, 0x31C);
     const float vz = read_f32(body, 0x320);
-    const bool alert = !context.mind.empty() && context.mind[0x20] != 0;
+    const bool alert = !context.mind.empty() && get(context.mind, mind_field::target_mode) != 0;
     if (!alert && get(state, field::arrival_delay) == 0.f) // DAT_0032B100.
     {
         // x87: body +0x730 - actor +0x18, stored as a float.
@@ -783,7 +784,7 @@ void settle_runtime_fly_alert(std::span<u8> state, RuntimeWalkTargetTick& contex
     const float vx = read_f32(body, 0x318);
     const float vy = read_f32(body, 0x31C);
     const float vz = read_f32(body, 0x320);
-    const bool alert = !context.mind.empty() && context.mind[0x20] != 0;
+    const bool alert = !context.mind.empty() && get(context.mind, mind_field::target_mode) != 0;
     if (!alert && get(state, fly::arrival_delay) == 0.f) // DAT_0032B100.
     {
         // x87: body +0x730 - actor +0x18, stored as a float.

@@ -1,4 +1,5 @@
 #include "body_look_for_weapon_state.h"
+#include "mind_fields.h"
 #include "actor_spawn_eligibility.h"
 #include "actor_spawn_query.h"
 #include "body_orientation.h"
@@ -181,9 +182,9 @@ void tick_runtime_look_for_weapon_state(std::span<u8> state, RuntimeLookForWeapo
     }
     if (phase == 1)
     {
-        if (context.mind.data() != nullptr && read_u32(context.mind, 0x18) != 0)
+        if (context.mind.data() != nullptr && get(context.mind, mind_field::action_actor) != 0)
         {
-            const Actor* weapon = context.actor_at(read_u32(context.mind, 0x18));
+            const Actor* weapon = context.actor_at(get(context.mind, mind_field::action_actor));
             if (weapon == nullptr)
             {
                 throw Error("0x0009DB30 turns toward a mind weapon (mind +0x18) that is not an actor");
@@ -206,7 +207,7 @@ bool find_runtime_mind_weapon(RuntimeLookForWeaponStateContext& context)
     {
         return false;
     }
-    const u32 chosen = read_u32(mind, 0x18);
+    const u32 chosen = get(mind, mind_field::action_actor);
     if (chosen != 0)
     {
         const Actor* weapon = context.actor_at(chosen);
@@ -222,7 +223,7 @@ bool find_runtime_mind_weapon(RuntimeLookForWeaponStateContext& context)
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
     const Actor* nearest = find_nearest_spawn_actor(position, &context.actor, nullptr, 0x1F); // 0x00129D70
     const u32 address = nearest == nullptr ? 0u : context.address_of(*nearest);
-    std::memcpy(mind.data() + 0x18, &address, 4);
+    set(mind, mind_field::action_actor, address);
     return address != 0;
 }
 

@@ -1,4 +1,5 @@
 #include "grim_reaper_strategy.h"
+#include "mind_fields.h"
 #include "actor_shape_push.h"
 #include "actor_transform.h"
 #include "body_animation_commands.h"
@@ -193,7 +194,7 @@ u16 first_goal_kind(RuntimeGrimReaperStrategy& context)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeGrimReaperStrategy& context)
 {
-    const u32 target = read_u32(mind_of(context), 0x10);
+    const u32 target = get(mind_of(context), mind_field::target_record);
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 

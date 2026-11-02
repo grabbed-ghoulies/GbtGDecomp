@@ -1,4 +1,5 @@
 #include "body_blood_suck_state.h"
+#include "mind_fields.h"
 #include "actor_collision_culling.h"
 #include "actor_live_attachments.h"
 #include "actor_model_anchors.h"
@@ -157,7 +158,7 @@ bool initialize_runtime_blood_suck_state(std::span<u8> state, std::span<const u8
     RuntimeBloodSuckStateContext& context)
 {
     const auto body = context.body;
-    const u32 record = context.mind.empty() ? 0u : read_u32(context.mind, 0x10);
+    const u32 record = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
     set(state, field::grabbed, 0u);
     set(state, field::unk_28, 0u);
     set(state, field::latched, 0u);
@@ -305,7 +306,7 @@ void tick_runtime_blood_suck_state(std::span<u8> state, RuntimeBloodSuckStateCon
     {
         if (get(state, field::grabbed) == 0)
         {
-            const u32 record = context.mind.empty() ? 0u : read_u32(context.mind, 0x10);
+            const u32 record = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
             if (record == 0)
             {
                 set_runtime_blood_suck_phase(5, state, context); // 0x0008BBD0, EDI state

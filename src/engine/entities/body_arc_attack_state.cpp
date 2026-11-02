@@ -1,4 +1,5 @@
 #include "body_arc_attack_state.h"
+#include "mind_fields.h"
 #include "actor_pose_updates.h"
 #include "actor_transform.h"
 #include "body_action_selection.h"
@@ -581,7 +582,7 @@ bool runtime_arc_attack_reflects(std::span<const u32> message, RuntimeArcAttackS
     {
         return false;
     }
-    const u32 record = read_u32(context.mind, 0x10);
+    const u32 record = get(context.mind, mind_field::target_record);
     if (record == 0)
     {
         return false;
@@ -605,7 +606,7 @@ bool initialize_runtime_arc_attack_state(std::span<u8> state, std::span<const u8
     const auto body = context.body;
     Actor& actor = context.actor;
     arc_attack_records[state.data()] = ArcAttackRecords{};
-    set(state, field::target, context.mind.empty() ? 0u : read_u32(context.mind, 0x14));
+    set(state, field::target, context.mind.empty() ? 0u : get(context.mind, mind_field::action_record));
     set(state, field::saved_gravity, read_f32(body, 0x324));
     set(state, field::start, actor_world_position(actor)); // 0x000412A0, EDI state +0x64
     set(state, field::take_off_time, get(parameters, parameter::take_off_time));

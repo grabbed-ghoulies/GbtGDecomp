@@ -1,4 +1,5 @@
 #include "zombie_strategy.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_action_selection.h"
 #include "player_children.h"
@@ -61,7 +62,7 @@ bool body_settled(RuntimeZombieStrategy& context)
 // Mind +0x10: the current target record, or null.
 RuntimeMindTarget* mind_target(RuntimeZombieStrategy& context)
 {
-    const u32 address = read_u32(mind_of(context), 0x10);
+    const u32 address = get(mind_of(context), mind_field::target_record);
     return address == 0 ? nullptr : goals_of(context).target_at(address);
 }
 
@@ -179,7 +180,7 @@ void approach_runtime_zombie_target(RuntimeZombieStrategy& context)
     if (approach == 1)
     {
         if (actor_event_chance(goals.random, read_f32(context.parameters, 0x18))
-            && read_u32(mind_of(context), 0x10) == 0)
+            && get(mind_of(context), mind_field::target_record) == 0)
         {
             set(strategy, zombie_strategy_field::approach, 2u);
             load_runtime_mind_goal(context.goal_swipe_aimless, goals.entry.goals);
@@ -359,7 +360,7 @@ void react_runtime_zombie_message(std::span<const u32> message, RuntimeZombieStr
         return;
     }
     case 0x7A:
-        put(mind_of(context), 0x18, message[3]);
+        set(mind_of(context), mind_field::action_actor, message[3]);
         return;
     case 0x82:
         if (runtime_zombie_body_state_hidden(context))
@@ -437,7 +438,7 @@ void choose_runtime_zombie_state(RuntimeZombieStrategy& context)
 u16 choose_runtime_zombie_weapon_state(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> mind = mind_of(context);
-    const u32 weapon = mind.data() == nullptr ? 0 : read_u32(mind, 0x18);
+    const u32 weapon = mind.data() == nullptr ? 0 : get(mind, mind_field::action_actor);
     if (weapon != 0)
     {
         const Actor& held = *context.views.actor_at(weapon);

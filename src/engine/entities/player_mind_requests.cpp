@@ -1,4 +1,5 @@
 #include "player_mind_requests.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
 #include "../scripts/script_vm.h"
@@ -185,9 +186,9 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
     case 9:
         return actor_event_chance(context.random, read_f32(request, 0x10)) ? 3 : 1;
     case 0xA:
-        return read_u32(mind, 0x5C) != read_u32(request, 0x10) ? 1 : 3;
+        return get(mind, mind_field::last_request_result) != read_u32(request, 0x10) ? 1 : 3;
     case 0xB:
-        if (read_u32(mind, 0x10) != 0)
+        if (get(mind, mind_field::target_record) != 0)
         {
             const Vec3 position = actor_world_position(context.actor);
             const float z = position.z - read_f32(context.target_bytes, 0x28);
@@ -225,10 +226,10 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
     case 0x1B:
     {
         const u16 key = runtime_body_action_name_id(name(request, 0x10), context.action_names);
-        put(mind, 0x14, read_u32(mind, 0x10));
+        set(mind, mind_field::action_record, get(mind, mind_field::target_record));
         if (!select_runtime_attachment_request(context.attachment, key))
         {
-            put(mind, 0x14, 0);
+            set(mind, mind_field::action_record, 0);
         }
         return 1;
     }
@@ -294,7 +295,7 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
         return 4;
     }
     case 0x28:
-        put(mind, 0x18, context.actor_address(find_runtime_player_nearest_spawn(context.actor, nullptr, 0x1F)));
+        set(mind, mind_field::action_actor, context.actor_address(find_runtime_player_nearest_spawn(context.actor, nullptr, 0x1F)));
         return 1;
     case 0x29:
         return read_f32(request, 0xC) >= read_f32(request, 0x18) ? 1 : 0;

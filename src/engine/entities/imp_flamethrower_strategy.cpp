@@ -1,4 +1,5 @@
 #include "imp_flamethrower_strategy.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
 #include "player_mind_events.h"
@@ -409,7 +410,7 @@ void enter_runtime_imp_flamethrower_state(u16 state, u16 previous, RuntimeImpFla
     const std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = goals.entry.body; // Actor +0x95C.
     RuntimeMindGoalContext& mind = goals.entry.goals;
-    const u32 target_address = read_u32(mind_of(context), 0x10);
+    const u32 target_address = get(mind_of(context), mind_field::target_record);
     const RuntimeMindTarget* target = target_address == 0 ? nullptr : goals.target_at(target_address);
     body[0x328] = 2;
     strategy[0x1A] = 0;

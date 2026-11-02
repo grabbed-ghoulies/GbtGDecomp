@@ -1,4 +1,5 @@
 #include "camera_actor_classes.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_mind_goals.h"
 #include "../camera/camera_mind_rig.h"
@@ -119,7 +120,7 @@ void dispatch_runtime_director_message(std::span<const u32> message, RuntimeDire
         break;
     }
     case 0xBA:
-        std::memcpy(context.mind.data() + 0xC, &message[1], 4);
+        set(context.mind, mind_field::target, message[1]);
         change_runtime_player_strategy_state(context.strategy, 0x40C, context.setup);
         break;
     case 0xBB:

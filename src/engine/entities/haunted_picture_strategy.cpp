@@ -1,4 +1,5 @@
 #include "haunted_picture_strategy.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_live_attachments.h"
 #include "actor_transform.h"
@@ -502,7 +503,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         if (message[1] == actor && get(strategy, field::awake) == 0 && read_u16(strategy, 0xE) == 0x413)
         {
             const std::span<const u8> mind = goals.entry.events.mind; // Actor +0x958.
-            if (read_u32(mind, 0x10) != 0)
+            if (get(mind, mind_field::target_record) != 0)
             {
                 goals.room = nullptr; // Actor +0xCA0.
             }

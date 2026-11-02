@@ -1,4 +1,5 @@
 #include "cinema_mind_messages.h"
+#include "mind_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -26,8 +27,8 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
         break;
     case 0x31:
         {
-            const std::span<const u8>* target = read_u32(mind, 0x14) == 0 ? nullptr :
-                &context.target_at(read_u32(mind, 0x14)).bytes;
+            const std::span<const u8>* target = get(mind, mind_field::action_record) == 0 ? nullptr :
+                &context.target_at(get(mind, mind_field::action_record)).bytes;
             notify_runtime_player_mind_attachment_callout(parent, target, message[1]);
             break;
         }
@@ -37,11 +38,11 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
                 std::bit_cast<float>(message[3])});
         break;
     case 0x56:
-        if (read_u32(mind, 0x10) != 0
+        if (get(mind, mind_field::target_record) != 0
             && !runtime_mind_target_is_eligible(mind, context.actor_bytes, parent.actor,
-                context.actor_address, context.target_at(read_u32(mind, 0x10)), true))
+                context.actor_address, context.target_at(get(mind, mind_field::target_record)), true))
         {
-            word(mind, 0x10, 0);
+            set(mind, mind_field::target_record, 0);
             parent.target_bytes = {};
             parent.target_actor = nullptr;
         }
@@ -52,17 +53,17 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
     case 0x64:
         if (read_u16(context.actor_bytes, 0xCDC) == 1)
         {
-            word(mind, 0x64, read_u32(mind, 0x64) | 0x20);
+            set(mind, mind_field::target_flags, get(mind, mind_field::target_flags) | 0x20);
         }
         break;
     case 0x6E:
-        if (message[1] == read_u32(mind, 8))
+        if (message[1] == get(mind, mind_field::actor))
         {
-            const float timer = read_f32(mind, 0x50) + 5.f;
-            word(mind, 0x50, std::bit_cast<u32>(timer));
+            const float timer = get(mind, mind_field::alert_timer) + 5.f;
+            set(mind, mind_field::alert_timer, timer);
             if (timer > 15.f)
             {
-                word(mind, 0x50, std::bit_cast<u32>(15.f));
+                set(mind, mind_field::alert_timer, 15.f);
             }
         }
         break;
@@ -71,7 +72,7 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
             context.nodes, context.storage, context.address_of);
         break;
     case 0x94:
-        if (message[1] == read_u32(mind, 0x18))
+        if (message[1] == get(mind, mind_field::action_actor))
         {
             word(mind, 0x90, 1);
         }

@@ -1,4 +1,5 @@
 #include "player_strategy_entry.h"
+#include "mind_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -67,7 +68,7 @@ void enter_runtime_player_goal(RuntimePlayerStrategyEntry& context)
         }
         float distance;
         auto* target = find_runtime_mind_target(context.actor, context.allowed, 0, 0, &distance,
-            read_u32(context.events.mind, 0x68), (read_u32(context.events.mind, 0x64) & ~0x20u) | 8u,
+            get(context.events.mind, mind_field::target_categories), (get(context.events.mind, mind_field::target_flags) & ~0x20u) | 8u,
             context.targets);
         set_runtime_mind_target(context.events, target == nullptr ? 0 : target->address);
         if (!load_runtime_mind_goal(context.goal_target, context.goals))
@@ -106,7 +107,7 @@ void enter_runtime_base_strategy_state(RuntimePlayerStrategyEntry& context, u16 
         enter_runtime_player_goal(context);
         return;
     case 0x3FC:
-        put(context.events.mind, 0x10, 0);
+        set(context.events.mind, mind_field::target_record, 0);
         for (LiveScript* event = context.events.anchor.next; event != nullptr; event = event->next)
         {
             if (u16(event->type) == 3)

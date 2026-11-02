@@ -1,4 +1,5 @@
 #include "camera_mind_requests.h"
+#include "../entities/mind_fields.h"
 #include "../scripts/script_table_lookup.h"
 #include "../entities/actor_shape_push.h"
 #include "entity_camera.h"
@@ -240,7 +241,7 @@ void camera_actor_point(const RuntimeDirectorActor& actor, Vec3& point, float* h
 u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point, float& near_distance,
     float& far_distance, float& heading, const RuntimeCameraRigContext& context)
 {
-    const u32 target_address = read_u32(mind, 0xC);
+    const u32 target_address = get(mind, mind_field::target);
     if (target_address == 0)
     {
         point = {0.f, 0.f, 0.f};
@@ -256,8 +257,8 @@ u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point
     Vec3 first{};
     camera_actor_point(target, first, &heading, context); // 0x0007A160, ECX the target
     // The target's mind (+0x958) +0xC, kept while its +0x20 is set.
-    u32 second_address = target.mind.empty() ? 0u : read_u32(target.mind, 0xC);
-    if (second_address != 0 && target.mind[0x20] == 0)
+    u32 second_address = target.mind.empty() ? 0u : get(target.mind, mind_field::target);
+    if (second_address != 0 && get(target.mind, mind_field::target_mode) == 0)
     {
         second_address = 0;
     }
@@ -668,7 +669,7 @@ void place_camera_path_eye(const Actor& camera, const RuntimeDirectorActor& targ
 i32 update_camera_path_request(RuntimeCameraMindView& view, entity_detail::NavigationPathSearch* search,
     const RuntimeCameraRigContext& context)
 {
-    const u32 target_address = read_u32(view.mind, 0xC);
+    const u32 target_address = get(view.mind, mind_field::target);
     Vec3 eye = actor_world_position(view.camera); // 0x000412A0, EDI the eye
     const RuntimeDirectorActor target = target_address == 0 ? RuntimeDirectorActor{} : context.actor_at(target_address);
     Vec3 point{};
@@ -679,9 +680,7 @@ i32 update_camera_path_request(RuntimeCameraMindView& view, entity_detail::Navig
     }
     Vec3 wanted{};
     place_camera_path_eye(view.camera, target, point, eye, wanted, search, context); // 0x0007AE70
-    put_mind_real(view.mind, 0x70, wanted.x);
-    put_mind_real(view.mind, 0x74, wanted.y);
-    put_mind_real(view.mind, 0x78, wanted.z);
+    set(view.mind, mind_field::goal_point, wanted);
     Vec3 aim{};
     aim_camera_offset(aim, eye, wanted, target_address, context.tunables.real(0x00427590), 0.f,
         context.tunables.real(0x00427594), context); // 0x0013CE80, ECX the eye, EAX wanted, EDX the target

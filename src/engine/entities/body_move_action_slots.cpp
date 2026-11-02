@@ -1,4 +1,5 @@
 #include "body_move_action_slots.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include <array>
 #include <bit>
@@ -250,7 +251,7 @@ void follow_runtime_stand_focus(std::span<u8> action, RuntimeStandActionContext&
         return;
     }
     const Vec3 focus{read_f32(context.body, 0x2FC), read_f32(context.body, 0x300), read_f32(context.body, 0x304)};
-    const u32 target = read_u32(context.mind, 0xC);
+    const u32 target = get(context.mind, mind_field::target);
     float speed;
     if (read_u32(context.tunables, 8) == 0) // DAT_004275C4.
     {

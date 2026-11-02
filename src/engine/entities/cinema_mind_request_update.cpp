@@ -1,4 +1,5 @@
 #include "cinema_mind_request_update.h"
+#include "mind_fields.h"
 #include "cinema_mind_requests.h"
 #include "body_orientation.h"
 #include "body_message_helpers.h"
@@ -31,7 +32,7 @@ i32 update_runtime_cinema_mind_facing_request(std::span<const u8> mind, std::spa
     float degrees;
     if (kind == 0x27)
     {
-        if (read_u32(mind, 0x10) == 0)
+        if (get(mind, mind_field::target_record) == 0)
         {
             return 1;
         }

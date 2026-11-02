@@ -1,4 +1,5 @@
 #include "body_flamethrower_state.h"
+#include "mind_fields.h"
 #include "actor_shape_bounds.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
@@ -313,7 +314,7 @@ float runtime_flamethrower_aim_pitch(RuntimeFlamethrowerStateContext& context)
     {
         return 0.f;
     }
-    const u32 address = read_u32(mind, 0x14);
+    const u32 address = get(mind, mind_field::action_record);
     if (address == 0)
     {
         return 0.f;

@@ -1,4 +1,5 @@
 #include "haunted_tv_strategy.h"
+#include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "actor_transform.h"
 #include "body_contacts.h"
@@ -479,7 +480,7 @@ bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHaun
     {
         return true;
     }
-    const u32 aim = read_u32(context.views.mind_bytes_at(mind), 0x10); // The target's mind +0x10.
+    const u32 aim = get(context.views.mind_bytes_at(mind), mind_field::target_record); // The target's mind +0x10.
     if (aim == 0)
     {
         return true;

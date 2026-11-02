@@ -1,4 +1,5 @@
 #include "worm_strategy.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
 #include "body_animation_commands.h"
@@ -80,7 +81,7 @@ void load_goal(const char* goal, RuntimeWormStrategy& context)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeWormStrategy& context)
 {
-    const u32 target = read_u32(goals_of(context).entry.events.mind, 0x10);
+    const u32 target = get(goals_of(context).entry.events.mind, mind_field::target_record);
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -374,7 +375,7 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
         {
             return;
         }
-        if (read_u32(goals.entry.events.mind, 0x10) != 0 && strategy[0x1C] == 0)
+        if (get(goals.entry.events.mind, mind_field::target_record) != 0 && strategy[0x1C] == 0)
         {
             const u32 kind = read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0 ? 1u : 0u;
             if (goals.resume.references[kind] == 0 && goals.resume.decay_enabled[goals.resume.decay_index] != 0)
@@ -434,7 +435,7 @@ void enter_runtime_worm_state(u16 state, u16 previous, RuntimeWormStrategy& cont
     const std::span<u8> mind = goals.entry.events.mind;
     body[0x328] = 2;
     strategy[0x1A] = 0;
-    const u32 target = read_u32(mind, 0x10);
+    const u32 target = get(mind, mind_field::target_record);
     switch (state)
     {
     case 0x3EF:
@@ -449,7 +450,7 @@ void enter_runtime_worm_state(u16 state, u16 previous, RuntimeWormStrategy& cont
     case 0x400:
         set_body_timer(body, 0.f);
         strategy[0x1C] = u8(strategy[0x1C] + 1);
-        std::memcpy(mind.data() + 0x14, &target, 4);
+        set(mind, mind_field::action_record, target);
         context.select_request(0x67); // 0x0001D210, EAX key
         return;
     case 0x401:

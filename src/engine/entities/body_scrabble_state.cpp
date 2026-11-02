@@ -1,4 +1,5 @@
 #include "body_scrabble_state.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_gravity_motion.h"
 #include "player_mind_events.h"
@@ -34,8 +35,9 @@ void put_word(std::span<u8> bytes, size_t offset, u32 value)
 void face_goal_point(RuntimeScrabbleStateContext& context)
 {
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
-    const Vec3 direction{read_f32(context.mind, 0x70) - position.x, read_f32(context.mind, 0x74) - position.y,
-        read_f32(context.mind, 0x78) - position.z};
+    const Vec3 goal = get(context.mind, mind_field::goal_point);
+    const Vec3 direction{goal.x - position.x, goal.y - position.y,
+        goal.z - position.z};
     float angle = 0.f;
     if (!runtime_direction_angle(direction, angle)) // 0x00105F90
     {

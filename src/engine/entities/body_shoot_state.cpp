@@ -1,4 +1,5 @@
 #include "body_shoot_state.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
 #include "body_gaze.h"
@@ -180,7 +181,7 @@ bool initialize_runtime_shoot_state(std::span<u8> state, std::span<const u8> par
         copy[index] = sound[index];
     }
     while (sound[index++] != 0);
-    set(state, field::last_target, context.mind.data() == nullptr ? 0u : read_u32(context.mind, 0x14));
+    set(state, field::last_target, context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::action_record));
     body[0x38] = 1;
     body[0x39] = 1;
     ++body[0x6A];
@@ -269,7 +270,7 @@ void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& con
     Actor& actor = context.actor;
     set(state, body_state_field::elapsed, runtime_actor_step(actor, context.clock)
         + get(state, body_state_field::elapsed));
-    const u32 target = context.mind.data() == nullptr ? 0u : read_u32(context.mind, 0x14);
+    const u32 target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::action_record);
     ask_weapon(0x9F, context); // The muzzle; this tick does not read the reply.
     count_down(state, context);
     const u32 phase = get(state, field::phase);

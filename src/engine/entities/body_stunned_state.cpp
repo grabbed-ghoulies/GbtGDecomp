@@ -1,4 +1,5 @@
 #include "body_stunned_state.h"
+#include "mind_fields.h"
 #include "body_walk_alert_tick.h"
 #include "../scene/scene_types.h"
 #include "../scripts/script_conditions.h"
@@ -75,7 +76,7 @@ bool initialize_runtime_stunned_state(std::span<u8> state, std::span<const u8> p
     if (!context.mind.empty())
     {
         std::memset(context.mind.data() + 0xC, 0, 4);
-        if (read_u32(context.mind, 0x10) != 0)
+        if (get(context.mind, mind_field::target_record) != 0)
         {
             const std::array<u32, 2> message{0x64, 0};
             context.actor_message(message); // Mind +8 (the actor) vtable +0xC.

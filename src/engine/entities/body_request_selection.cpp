@@ -1,4 +1,5 @@
 #include "body_request_selection.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
 #include "shape_copy.h"
@@ -102,8 +103,8 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
     }
     if (body[0x6A] == 0)
     {
-        write_u32(mind, 0x14, 0);
-        write_u32(mind, 0x10, 0);
+        set(mind, mind_field::action_record, 0);
+        set(mind, mind_field::target_record, 0);
     }
 }
 
@@ -242,7 +243,7 @@ u8 request_runtime_mind_chain_target(RuntimeMindChainRequestSelection& context,
     if (row != nullptr)
     {
         set_runtime_mind_target(mind.events, selection.target.address);
-        write_u32(mind.events.mind, 0x14, selection.target.address);
+        set(mind.events.mind, mind_field::action_record, selection.target.address);
         accept_runtime_attachment_request(selection.requests, row, sequence);
     }
     return row != nullptr ? 2 : 0;
@@ -536,7 +537,7 @@ u8 request_runtime_mind_second_target(RuntimeMindTargetRequestSelection& context
     if (row != nullptr)
     {
         set_runtime_mind_target(context.events, selection.target.address);
-        write_u32(context.events.mind, 0x14, selection.target.address);
+        set(context.events.mind, mind_field::action_record, selection.target.address);
         accept_runtime_attachment_request(selection.requests, row, 0);
     }
     return row != nullptr ? 2 : 0;
@@ -555,7 +556,7 @@ u8 request_runtime_mind_pair_target(RuntimeMindTargetRequestSelection& context, 
     if (row != nullptr)
     {
         set_runtime_mind_target(context.events, selection.target.address);
-        write_u32(context.events.mind, 0x14, selection.target.address);
+        set(context.events.mind, mind_field::action_record, selection.target.address);
         accept_runtime_attachment_request(selection.requests, row, 0);
     }
     return row != nullptr ? 2 : 0;
@@ -574,7 +575,7 @@ u8 request_runtime_mind_category_target(RuntimeMindTargetRequestSelection& conte
     if (row != nullptr)
     {
         set_runtime_mind_target(context.events, selection.target.address);
-        write_u32(context.events.mind, 0x14, selection.target.address);
+        set(context.events.mind, mind_field::action_record, selection.target.address);
         accept_runtime_attachment_request(selection.requests, row, 0);
     }
     return row != nullptr ? 2 : 0;
@@ -593,7 +594,7 @@ u8 request_runtime_mind_special_target(RuntimeMindTargetRequestSelection& contex
     if (row != nullptr)
     {
         set_runtime_mind_target(context.events, selection.target.address);
-        write_u32(context.events.mind, 0x14, selection.target.address);
+        set(context.events.mind, mind_field::action_record, selection.target.address);
         accept_runtime_attachment_request(selection.requests, row, 0);
     }
     return row != nullptr ? 2 : 0;

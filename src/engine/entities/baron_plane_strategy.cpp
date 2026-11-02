@@ -1,4 +1,5 @@
 #include "baron_plane_strategy.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
 #include "body_message_helpers.h"
@@ -453,9 +454,7 @@ void land_runtime_baron_plane(RuntimeBaronPlaneStrategy& context)
         runtime_marker_position(id, position, markers); // 0x0011F260
     }
     const std::span<u8> mind = mind_of(context);
-    std::memcpy(mind.data() + 0x70, &position.x, 4);
-    std::memcpy(mind.data() + 0x74, &position.y, 4);
-    std::memcpy(mind.data() + 0x78, &position.z, 4);
+    set(mind, mind_field::goal_point, position);
     load_goal(context.goal_land, context);
 }
 

@@ -1,4 +1,5 @@
 #include "body_grab_throw_state.h"
+#include "mind_fields.h"
 #include "body_message_helpers.h"
 #include "player_mind_feedback.h"
 #include "player_mind_control.h"
@@ -163,7 +164,7 @@ bool initialize_runtime_grab_throw_state(std::span<u8> state, std::span<const u8
     RuntimeGrabThrowStateContext& context)
 {
     const std::span<u8> body = context.body;
-    const u32 record = context.mind.empty() ? 0u : read_u32(context.mind, 0x10);
+    const u32 record = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
     if (record == 0)
     {
         throw Error("grab and throw state 0x00094800 reads the mind's target record through address zero");
@@ -266,7 +267,7 @@ void tick_runtime_grab_throw_state(std::span<u8> state, RuntimeGrabThrowStateCon
 {
     const std::span<u8> body = context.body;
     Actor& actor = context.actor;
-    const u32 record = context.mind.empty() ? 0u : read_u32(context.mind, 0x10);
+    const u32 record = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
     set(state, field::elapsed, runtime_actor_rate(actor) * runtime_frame_step(context.clock)
         + get(state, field::elapsed));
     put_float(body, 0x734, 0.f);

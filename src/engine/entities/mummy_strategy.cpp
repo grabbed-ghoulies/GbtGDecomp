@@ -1,4 +1,5 @@
 #include "mummy_strategy.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
 #include "player_children.h"
@@ -70,7 +71,7 @@ RuntimeMindTarget* selected_target(RuntimeMummyStrategy& context, bool& found)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeMummyStrategy& context)
 {
-    const u32 target = read_u32(mind_of(context), 0x10);
+    const u32 target = get(mind_of(context), mind_field::target_record);
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -493,7 +494,7 @@ void enter_runtime_mummy_state(u16 state, u16 previous, RuntimeMummyStrategy& co
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of_actor(context);
-    const u32 target = read_u32(mind_of(context), 0x10);
+    const u32 target = get(mind_of(context), mind_field::target_record);
     body[0x328] = 2;
     strategy[0x1A] = 0;
     switch (state)

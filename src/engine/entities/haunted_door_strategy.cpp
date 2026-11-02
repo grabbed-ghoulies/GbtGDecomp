@@ -1,4 +1,5 @@
 #include "haunted_door_strategy.h"
+#include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "actor_transform.h"
 #include "player_children.h"
@@ -321,11 +322,11 @@ bool runtime_haunted_door_sees_target(RuntimeHauntedDoorStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> mind = goals.entry.events.mind; // Actor +0x958.
-    if (mind.data() == nullptr || read_u32(mind, 0x10) == 0)
+    if (mind.data() == nullptr || get(mind, mind_field::target_record) == 0)
     {
         return true;
     }
-    const std::span<const u8> target = goals.target_at(read_u32(mind, 0x10))->bytes;
+    const std::span<const u8> target = goals.target_at(get(mind, mind_field::target_record))->bytes;
     const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     i32 last_cell = 0;

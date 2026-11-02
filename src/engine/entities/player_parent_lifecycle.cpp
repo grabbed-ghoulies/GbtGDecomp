@@ -1,4 +1,5 @@
 #include "player_parent_lifecycle.h"
+#include "mind_fields.h"
 #include "entity_heap.h"
 #include <bit>
 #include <cstring>
@@ -40,9 +41,9 @@ void base_strategy_object_sizes(ObjectSizes& output)
 void initialize_runtime_mind_settings(std::span<u8> mind, std::span<const u8> parameters,
     u16 actor_class, const RuntimeMindClassSettings& settings)
 {
-    write_word(mind, 0x64, read_u32(parameters, 0x90));
-    write_word(mind, 0x68, read_u32(parameters, 0x94));
-    write_word(mind, 0x6C, read_u32(parameters, 0x98));
+    set(mind, mind_field::target_flags, read_u32(parameters, 0x90));
+    set(mind, mind_field::target_categories, read_u32(parameters, 0x94));
+    set(mind, mind_field::target_range, read_f32(parameters, 0x98));
     i32 index = 0;
     if (settings.count > 0)
     {
@@ -54,7 +55,7 @@ void initialize_runtime_mind_settings(std::span<u8> mind, std::span<const u8> pa
                 return;
             }
         }
-        write_float(mind, 0x6C, static_cast<float>(read_u16(settings.rows, static_cast<size_t>(index) * 4 + 2)));
+        set(mind, mind_field::target_range, static_cast<float>(read_u16(settings.rows, static_cast<size_t>(index) * 4 + 2)));
     }
 }
 
@@ -63,13 +64,13 @@ bool initialize_runtime_base_mind(std::span<u8> mind, std::span<const u8> parame
     u16 actor_class, const RuntimeMindClassSettings& settings, u32& random,
     std::span<ExecutableResourcePool> resources, std::span<const u8>& script_table)
 {
-    write_word(mind, 8, read_u32(parameters, 0x9C));
+    set(mind, mind_field::actor, read_u32(parameters, 0x9C));
     const float fraction = random_fraction(random);
     const float low = read_f32(parameters, 0x88);
-    write_float(mind, 0x2C, (read_f32(parameters, 0x8C) - low) * fraction + low);
+    set(mind, mind_field::unk_2C, (read_f32(parameters, 0x8C) - low) * fraction + low);
     initialize_runtime_mind_settings(mind, parameters, actor_class, settings);
-    write_word(mind, 0x3C, 0);
-    write_word(mind, 0x4C, 0x40);
+    set(mind, mind_field::gaze_point_set, 0);
+    set(mind, mind_field::alert_mode, 0x40);
     if (read_u32(parameters, 8) == 0x5F646961)
     {
         const char* name = reinterpret_cast<const char*>(parameters.data() + 8);

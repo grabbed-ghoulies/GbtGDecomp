@@ -1,4 +1,5 @@
 #include "body_endure_state.h"
+#include "mind_fields.h"
 #include "player_mind_requests.h"
 #include "gbtg/anim.h"
 
@@ -194,7 +195,7 @@ void tick_runtime_endure_state(std::span<u8> state, RuntimeEndureStateContext& c
     case 2:
     {
         bool holding = false;
-        if (!context.mind.empty() && read_u32(context.mind, 0x10) != 0)
+        if (!context.mind.empty() && get(context.mind, mind_field::target_record) != 0)
         {
             holding = get(state, field::hits) < get(state, field::needed_hits);
         }
@@ -252,7 +253,7 @@ void message_runtime_endure_state(std::span<u8> state, std::span<const u32> mess
         {
             return;
         }
-        const u32 target = read_u32(context.mind, 0x10);
+        const u32 target = get(context.mind, mind_field::target_record);
         if (target != 0 && message[1] == read_u32(context.target_at(target), 0x10))
         {
             set(state, field::hits, get(state, field::needed_hits));

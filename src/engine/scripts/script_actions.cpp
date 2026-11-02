@@ -1,4 +1,5 @@
 #include "../camera/entity_camera.h"
+#include "../entities/mind_fields.h"
 #include "../scene/chapter5_countdown.h"
 #include "../scene/challenge_runtime.h"
 #include "../camera/camera_mind_rig.h"
@@ -1771,10 +1772,10 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             const std::span<u8> actor = g_alt_node_actor_bytes(link);
             actor[0x969] = node_u8(g.scene_script, node, 0x48);
             const std::span<u8> mind = g_alt_node_mind(link);
-            if (read_u32(actor, 0x958) != 0 && !mind.empty() && read_u32(mind, 0x10) != 0
+            if (read_u32(actor, 0x958) != 0 && !mind.empty() && get(mind, mind_field::target_record) != 0
                 && !g_alt_node_target_eligible(link)) // 0x00029C80, EDX 1
             {
-                if (read_u32(mind, 0x10) != 0)
+                if (get(mind, mind_field::target_record) != 0)
                 {
                     const std::array<u32, 2> message{100, 0};
                     g_alt_node_message(link, message); // Mind +8 (the actor) vtable +0xC.
@@ -3296,7 +3297,7 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
             const std::span<u8> mind = g_alt_node_mind(link);
             if (!mind.empty())
             {
-                std::memcpy(mind.data() + 0x6C, &stored, 4);
+                set(mind, mind_field::target_range, std::bit_cast<float>(stored));
             }
         }
         return 2;

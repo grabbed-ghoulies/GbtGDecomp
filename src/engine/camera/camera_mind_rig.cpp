@@ -1,4 +1,5 @@
 #include "camera_mind_rig.h"
+#include "../entities/mind_fields.h"
 #include "display_setup_math.h"
 #include "display_view.h"
 #include "../entities/actor_transform.h"
@@ -350,7 +351,7 @@ float camera_stick_turn(const RuntimeDirectorActor& target, std::span<const u8> 
     const RuntimeCameraRigContext& context)
 {
     float speed = context.tunables.real(0x00434030);
-    if (!(speed >= 0.f) || target.mind.empty() || target.mind[0x20] == 0)
+    if (!(speed >= 0.f) || target.mind.empty() || get(target.mind, mind_field::target_mode) == 0)
     {
         speed = context.tunables.real(0x0043402C);
     }
@@ -378,7 +379,7 @@ float camera_stick_turn(const RuntimeDirectorActor& target, std::span<const u8> 
         angle = float(retail_atan2(axes[1], axes[0]));
     }
     // ECX is the camera actor at mind +8; its +0x18 is the yaw.
-    const float yaw = context.actor_at(read_u32(mind, 8)).actor->euler.y;
+    const float yaw = context.actor_at(get(mind, mind_field::actor)).actor->euler.y;
     angle = runtime_relative_angle(angle, yaw);
     if (angle > kHalfPi)
     {
@@ -425,7 +426,7 @@ void ease_camera_heading(std::span<u8> mind, const Actor& camera, float& heading
         heading = clamp_camera_heading(heading, get(mind, field::heading_goal), get(mind, field::heading));
         return;
     }
-    if (0.f > context.tunables.real(0x00434030) && !target.mind.empty() && target.mind[0x20] != 0)
+    if (0.f > context.tunables.real(0x00434030) && !target.mind.empty() && get(target.mind, mind_field::target_mode) != 0)
     {
         if (get(mind, field::heading_held) == 0)
         {
@@ -1029,7 +1030,7 @@ void track_camera_obstruction(RuntimeCameraMindView& view, Vec3& eye, Vec3& posi
 u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8> request, float distance,
     const RuntimeCameraRigContext& context)
 {
-    const u32 target = read_u32(view.mind, 0xC);
+    const u32 target = get(view.mind, mind_field::target);
     if (target == 0)
     {
         return 0;
@@ -1050,9 +1051,7 @@ u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8
     track_camera_obstruction(view, eye, position, focus, target, distance, context);
     if (read_u32(request, 0x2A0) != 0)
     {
-        put_float(view.mind, 0x70, position.x);
-        put_float(view.mind, 0x74, position.y);
-        put_float(view.mind, 0x78, position.z);
+        set(view.mind, mind_field::goal_point, position);
         Vec3 aim{};
         aim_camera_offset(aim, eye, position, target, context.tunables.real(0x004274DC), 0.f,
             context.tunables.real(0x004274E0), context);
@@ -1062,9 +1061,7 @@ u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8
     }
     else
     {
-        put_float(view.mind, 0x70, eye.x);
-        put_float(view.mind, 0x74, eye.y);
-        put_float(view.mind, 0x78, eye.z);
+        set(view.mind, mind_field::goal_point, eye);
         const u32 message[1]{3};
         view.body_message(message);
     }

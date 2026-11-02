@@ -1,4 +1,5 @@
 #include "vampire_strategy.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
@@ -81,7 +82,7 @@ RuntimeMindTarget* selected_target(RuntimeVampireStrategy& context, bool& found)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeVampireStrategy& context)
 {
-    const u32 target = read_u32(goals_of(context).entry.events.mind, 0x10);
+    const u32 target = get(goals_of(context).entry.events.mind, mind_field::target_record);
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -442,7 +443,7 @@ bool runtime_vampire_reaches_target(RuntimeVampireStrategy& context)
 void choose_runtime_vampire_attack(RuntimeVampireStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    if (!mind_present(context) || read_u32(goals.entry.events.mind, 0x10) == 0)
+    if (!mind_present(context) || get(goals.entry.events.mind, mind_field::target_record) == 0)
     {
         return;
     }

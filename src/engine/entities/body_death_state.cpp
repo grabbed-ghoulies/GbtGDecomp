@@ -1,4 +1,5 @@
 #include "body_death_state.h"
+#include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "body_damage_notices.h"
 #include "body_death_effects.h"
@@ -110,7 +111,7 @@ bool initialize_runtime_death_state(std::span<u8> state, std::span<const u8> par
     if (!context.mind.empty())
     {
         std::memset(context.mind.data() + 0xC, 0, 4);
-        if (read_u32(context.mind, 0x10) != 0)
+        if (get(context.mind, mind_field::target_record) != 0)
         {
             const std::array<u32, 2> message{0x64, 0};
             knockdown.actor_message(message); // Mind +8 (the actor) vtable +0xC.

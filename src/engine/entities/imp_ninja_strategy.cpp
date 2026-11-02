@@ -1,4 +1,5 @@
 #include "imp_ninja_strategy.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_message_helpers.h"
 #include "player_attributes.h"
@@ -80,7 +81,7 @@ RuntimeMindTarget* mind_target(RuntimeImpNinjaStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = read_u32(mind, 0x10);
+    const u32 target = get(mind, mind_field::target_record);
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 

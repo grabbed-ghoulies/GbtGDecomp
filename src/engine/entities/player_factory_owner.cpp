@@ -1,4 +1,5 @@
 #include "player_factory_owner.h"
+#include "mind_fields.h"
 #include "../scene/cutscene_scene_runtime.h"
 #include "../camera/display_view.h"
 #include "player_state.h"
@@ -1355,7 +1356,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           },
           [this]() -> RuntimeBodyAttachedActor*
           {
-              const u32 action = mind.empty() ? 0 : read_u32(mind, 0x18);
+              const u32 action = mind.empty() ? 0 : get(mind, mind_field::action_actor);
               if (action == 0)
               {
                   return nullptr;

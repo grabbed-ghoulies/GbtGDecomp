@@ -1,4 +1,5 @@
 #include "baron_strategy.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
 #include "body_action_selection.h"
@@ -683,7 +684,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> mind = mind_of(context);
-    const u32 target_address = read_u32(mind, 0x10);
+    const u32 target_address = get(mind, mind_field::target_record);
     const std::span<u8> body = body_of(context);
     const bool holding = read_u32(body, 0x48) != 0;
     body[0x328] = 2;
@@ -766,7 +767,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         body[0x328] = 3;
         set(strategy, strategy_field::unk_18, u16(0x405));
         load_goal(context.goal_get_weapon, context);
-        std::memcpy(mind.data() + 0x18, strategy.data() + field::cane.offset, 4);
+        set(mind, mind_field::action_actor, get(strategy, field::cane));
         return;
     case 0x409:
         if (get(strategy, field::effect_mode) != 2)

@@ -1,4 +1,5 @@
 #include "haunted_chair_strategy.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
 #include "player_messages.h"
@@ -70,7 +71,7 @@ bool target_attackable(RuntimeHauntedChairStrategy& context)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeHauntedChairStrategy& context)
 {
-    const u32 target = read_u32(mind_of(context), 0x10);
+    const u32 target = get(mind_of(context), mind_field::target_record);
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 

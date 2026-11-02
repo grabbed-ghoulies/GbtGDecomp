@@ -1,4 +1,5 @@
 #include "generic_strategy.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_shape_bounds.h"
 #include "player_children.h"
@@ -118,7 +119,7 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> mind = mind_of(context);
-    const u32 prior = read_u32(mind, 0x10);
+    const u32 prior = get(mind, mind_field::target_record);
     float timer = get(strategy, field::reselect_timer) - runtime_frame_step(goals.clock);
     set(strategy, field::reselect_timer, timer);
     bool elapsed = false;
@@ -145,7 +146,7 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     }
     if (!settled)
     {
-        const u32 current = read_u32(mind, 0x10);
+        const u32 current = get(mind, mind_field::target_record);
         select_runtime_strategy_target(output, get(strategy, field::reselect) != 0 ? 1u : 0u, goals); // 0x00139AA0
         changed = current == 0 && output != nullptr;
     }
@@ -265,7 +266,7 @@ void load_attack_goal(RuntimeGenericStrategy& context)
         }
         if (kind == 4)
         {
-            const u32 record = read_u32(goals_of(context).entry.events.mind, 0x10); // ESI, mind +0x10.
+            const u32 record = get(goals_of(context).entry.events.mind, mind_field::target_record); // ESI, mind +0x10.
             load_goal(gun_target_in_range(*weapon, record, context) ? context.goal_attack_gun
                 : context.goal_attack_gun_secondary, context);
             return;

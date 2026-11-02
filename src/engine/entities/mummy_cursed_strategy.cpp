@@ -1,4 +1,5 @@
 #include "mummy_cursed_strategy.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_model_anchors.h"
 #include "actor_transform.h"
@@ -124,7 +125,7 @@ RuntimeMindTarget* mind_target(RuntimeMummyCursedStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = read_u32(mind, 0x10);
+    const u32 target = get(mind, mind_field::target_record);
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 

@@ -1,4 +1,5 @@
 #include "spider_strategy.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
 #include "player_mind_goals.h"
@@ -240,7 +241,7 @@ void check_runtime_spider_goal_cell(RuntimeSpiderStrategy& context)
     const std::span<const u8> mind = mind_of(context);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
     const i32 floor = i32(read_u32(goals.entry.actor_bytes, 0xCEC));
-    const Vec3 goal{read_f32(mind, 0x70), read_f32(mind, 0x74), read_f32(mind, 0x78)};
+    const Vec3 goal(get(mind, mind_field::goal_point));
     const i32 goal_cell = entity_detail::navigation_cell_index(floor, goal); // 0x00110EF0, EBX mind +0x70
     if (goal_cell == -1)
     {
@@ -511,7 +512,7 @@ void enter_runtime_spider_state(u16 state, u16 previous, RuntimeSpiderStrategy& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = body_of_actor(context);
-    const u32 target_address = read_u32(mind_of(context), 0x10);
+    const u32 target_address = get(mind_of(context), mind_field::target_record);
     body[0x328] = 2;
     strategy[0x1A] = 0;
     strategy[0x1B] = 0;

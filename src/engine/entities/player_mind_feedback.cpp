@@ -1,4 +1,5 @@
 #include "player_mind_feedback.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "entity_heap.h"
 #include "gbtg/entity.h"
@@ -67,14 +68,14 @@ u8 runtime_player_mind_active(const std::span<const u8>* mind)
 void select_runtime_player_mind_alert(std::span<u8> mind, std::span<const u8> body,
     const EntityBitBlock& flags, u32 player_link)
 {
-    if (read_f32(mind, 0x50) > 0.f)
+    if (get(mind, mind_field::alert_timer) > 0.f)
     {
-        put(mind, 0x4C, 0x41);
+        set(mind, mind_field::alert_mode, 0x41);
         return;
     }
-    if (mind[0x20] != 0)
+    if (get(mind, mind_field::target_mode) != 0)
     {
-        put(mind, 0x4C, 0x42);
+        set(mind, mind_field::alert_mode, 0x42);
         return;
     }
     const u16 maximum = read_u16(body, 0x96);
@@ -84,21 +85,21 @@ void select_runtime_player_mind_alert(std::span<u8> mind, std::span<const u8> bo
     {
         if ((flags.bytes[4] & 0x40) != 0)
         {
-            put(mind, 0x4C, 0x45);
+            set(mind, mind_field::alert_mode, 0x45);
             return;
         }
         if (!low_health)
         {
-            put(mind, 0x4C, 0x44);
+            set(mind, mind_field::alert_mode, 0x44);
             return;
         }
     }
     else if (!low_health)
     {
-        put(mind, 0x4C, 0x40);
+        set(mind, mind_field::alert_mode, 0x40);
         return;
     }
-    put(mind, 0x4C, 0x46);
+    set(mind, mind_field::alert_mode, 0x46);
 }
 
 // Xbox 0x00136700
@@ -116,7 +117,7 @@ bool initialize_runtime_player_mind_navigation(std::span<u8> mind, i32 floor,
             auto* search = new (allocation) RuntimeMindStorage{};
             entity_detail::reset_navigation_path_search(*search, nodes, grid, count);
             storage = search;
-            put(mind, 0x1C, address_of(search));
+            set(mind, mind_field::path_search, address_of(search));
             return true;
         }
     }
@@ -127,7 +128,7 @@ bool initialize_runtime_player_mind_navigation(std::span<u8> mind, i32 floor,
 void update_runtime_player_mind_health_display(std::span<const u8> mind,
     std::span<const u8> body, const EntityBitBlock& flags, RuntimePlayerHealthDisplay& display)
 {
-    if (mind[0x20] != 0 || (flags.bytes[5] & 1) != 0 || display.override_health != 0 ||
+    if (get(mind, mind_field::target_mode) != 0 || (flags.bytes[5] & 1) != 0 || display.override_health != 0 ||
         read_u16(body, 0x94) <= 10)
     {
         display.intensity = 2.f;
@@ -163,8 +164,7 @@ void tick_runtime_player_mind(RuntimePlayerMindTick& context, std::span<u8> inpu
     update_runtime_mind_events(base);
     const float step = runtime_frame_step(base.clock);
     const float rate = runtime_actor_rate(base.actor);
-    put(base.events.mind, 0x34,
-        std::bit_cast<u32>(rate * step + read_f32(base.events.mind, 0x34)));
+    set(base.events.mind, mind_field::unk_34, rate * step + get(base.events.mind, mind_field::unk_34));
     update_runtime_mind_alert(base);
     const size_t group = read_u16(context.actor_bytes, 0xCDC) == 2 ||
         read_u32(context.actor_bytes, 0x93C) != 0 ? 1 : 0;
@@ -294,7 +294,7 @@ void shake_runtime_player_mind_camera(RuntimePlayerMindFeedback& context, const 
 void reset_runtime_player_mind_body_event(RuntimePlayerMindFeedback& context,
     std::span<const u8> target, const std::span<const u8>* actor_mind)
 {
-    if (read_u32(context.mind, 0x10) != 0)
+    if (get(context.mind, mind_field::target_record) != 0)
     {
         const Vec3 position = actor_world_position(context.actor);
         const float z = position.z - read_f32(target, 0x28);

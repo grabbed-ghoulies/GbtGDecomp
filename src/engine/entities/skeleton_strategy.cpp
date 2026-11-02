@@ -1,4 +1,5 @@
 #include "skeleton_strategy.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
 #include "player_mind_events.h"
@@ -381,7 +382,7 @@ void update_runtime_skeleton_strategy(RuntimeSkeletonStrategy& context)
         }
         else
         {
-            put(goals.entry.events.mind, 0xC, 0);
+            set(goals.entry.events.mind, mind_field::target, 0);
         }
         if (requests_pending(context))
         {

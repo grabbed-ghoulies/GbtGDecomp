@@ -1,4 +1,5 @@
 #include "pirate_strategy.h"
+#include "mind_fields.h"
 #include "body_message_helpers.h"
 #include "body_timers.h"
 #include "mind_target_policy.h"
@@ -475,7 +476,7 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> mind = mind_of(context);
-    const u32 target_address = read_u32(mind, 0x10);
+    const u32 target_address = get(mind, mind_field::target_record);
     const std::span<u8> body = body_of(context);
     RuntimeMindGoalContext& goal_context = goals.entry.goals;
     body[0x328] = 2;
@@ -532,7 +533,7 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
         body[0x328] = 3;
         const bool free = runtime_pirate_chest_free(context);
         set(strategy, field::fetching, free ? 1u : 0u);
-        std::memcpy(mind.data() + 0x18, strategy.data() + field::chest.offset, 4);
+        set(mind, mind_field::action_actor, get(strategy, field::chest));
         load_goal(free ? context.goal_get_weapon : context.goal_get_weapon_confused, context);
         return;
     }

@@ -1,4 +1,5 @@
 #include "player_mind_control.h"
+#include "mind_fields.h"
 #include "gbtg/anim.h"
 #include "actor_live_attachments.h"
 #include "shape_copy.h"
@@ -16,7 +17,7 @@ std::span<u8> refresh_runtime_player_shape_target(RuntimePlayerMindShapeTarget& 
     auto mind = context.mind;
     auto* attachment = context.attachment;
     if (attachment == nullptr || (body[0x6A] != 0
-        && read_u32(mind, 0x14) != context.mind_address + 0xB8))
+        && get(mind, mind_field::action_record) != context.mind_address + 0xB8))
     {
         return {};
     }
@@ -81,9 +82,8 @@ bool runtime_player_mind_accepts_target(const RuntimePlayerAttachmentEligibility
 // Xbox 0x0002A130
 void set_runtime_mind_gaze_anchor(std::span<u8> mind, u32 anchor_address, u32& random_state)
 {
-    std::memcpy(mind.data() + 0x30, &anchor_address, 4);
-    const u32 zero = 0;
-    std::memcpy(mind.data() + 0x34, &zero, 4);
+    set(mind, mind_field::gaze_anchor, anchor_address);
+    set(mind, mind_field::unk_34, 0.f);
     float duration = 0.f;
     if (anchor_address != 0)
     {
@@ -91,7 +91,7 @@ void set_runtime_mind_gaze_anchor(std::span<u8> mind, u32 anchor_address, u32& r
         const float fraction = std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.f;
         duration = fraction * 0.5f + 0.5f;
     }
-    std::memcpy(mind.data() + 0x38, &duration, 4);
+    set(mind, mind_field::unk_38, duration);
 }
 
 // Xbox 0x00137140
@@ -102,12 +102,12 @@ void update_runtime_player_mind_gaze(RuntimePlayerMindGaze& context,
     auto body = context.body;
     if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
     {
-        if (read_u32(mind, 0x3C) == 0)
+        if (get(mind, mind_field::gaze_point_set) == 0)
         {
             const Vec3 origin = runtime_body_gaze_origin(body, context.body_actor);
-            if (context.anchor == nullptr || read_f32(mind, 0x34) >= read_f32(mind, 0x38))
+            if (context.anchor == nullptr || get(mind, mind_field::unk_34) >= get(mind, mind_field::unk_38))
             {
-                if (mind[0x20] == 0 || context.target == nullptr)
+                if (get(mind, mind_field::target_mode) == 0 || context.target == nullptr)
                 {
                     context.anchor = find_nearest_actor_model_anchor(context.actor, origin,
                         check_path, maximum_height, radius);
@@ -135,11 +135,10 @@ void update_runtime_player_mind_gaze(RuntimePlayerMindGaze& context,
             }
             return;
         }
-        std::memcpy(body.data() + 0x2FC, mind.data() + 0x40, sizeof(Vec3));
+        std::memcpy(body.data() + 0x2FC, field_data(mind, mind_field::gaze_point), sizeof(Vec3));
         body[0x308] = 1;
     }
-    const u32 zero = 0;
-    std::memcpy(mind.data() + 0x3C, &zero, 4);
+    set(mind, mind_field::gaze_point_set, 0u);
 }
 
 // Xbox 0x0007E3A0
@@ -154,8 +153,7 @@ bool request_runtime_player_idle_action(std::span<u8> mind,
     const u8* row = find_runtime_attachment_first_request(*body.tables, keys[size_t(-sampled)]);
     if (row != nullptr)
     {
-        const u32 zero = 0;
-        std::memcpy(mind.data() + 0x14, &zero, 4);
+        set(mind, mind_field::action_record, 0u);
         accept_runtime_attachment_request(body, row, 0);
         return true;
     }
@@ -175,7 +173,7 @@ void update_runtime_player_pending_attachment(RuntimePlayerMindPendingAttachment
             && runtime_input_button_edge(context.input, 0x100, context.input_state) != 0)
         {
             context.action = pending;
-            std::memcpy(context.mind.data() + 0x18, &pending->address, 4);
+            set(context.mind, mind_field::action_actor, pending->address);
             const u32 key = context.attach(*pending);
             select_runtime_body_action(context.body, u16(key), context.actions);
         }
@@ -216,7 +214,7 @@ void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
     }
     if (read_u16(body.body, 0x748) == 0x2C
         && runtime_actor_animation_crossed_position(animation, 0, read_f32(mind, 0x14C))
-        && mind[0x20] != 0 && request_runtime_player_idle_action(mind, body, random_state))
+        && get(mind, mind_field::target_mode) != 0 && request_runtime_player_idle_action(mind, body, random_state))
     {
         put(0x154, 1);
     }
@@ -237,7 +235,7 @@ void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
     {
         put(0x154, 0);
     }
-    if (mind[0x20] == 0)
+    if (get(mind, mind_field::target_mode) == 0)
     {
         put(0x154, 0);
     }

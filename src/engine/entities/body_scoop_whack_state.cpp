@@ -1,4 +1,5 @@
 #include "body_scoop_whack_state.h"
+#include "mind_fields.h"
 #include "actor_collision_culling.h"
 #include "actor_live_attachments.h"
 #include "actor_runtime_queries.h"
@@ -145,7 +146,7 @@ void destroy_runtime_scoop_whack_state(RuntimeScoopWhackStateContext& context)
 void tick_runtime_scoop_whack_state(std::span<u8> state, RuntimeScoopWhackStateContext& context)
 {
     const auto body = context.body;
-    const u32 target = context.mind.data() == nullptr ? 0u : read_u32(context.mind, 0x10);
+    const u32 target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::target_record);
     set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
         + get(state, body_state_field::elapsed));
     put_float(body, 0x734, 0.f);

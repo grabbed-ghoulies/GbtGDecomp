@@ -1,4 +1,5 @@
 #include "body_player_death_state.h"
+#include "mind_fields.h"
 #include "body_damage_notices.h"
 #include "body_damage_tables.h"
 #include "player_goal_cleanup.h"
@@ -126,14 +127,14 @@ bool initialize_runtime_player_death_state(std::span<u8> state, std::span<const 
     }
     if (!context.mind.empty())
     {
-        put_word(context.mind, 0xC, 0);
-        if (word(context.mind, 0x10) != 0)
+        set(context.mind, mind_field::target, 0);
+        if (get(context.mind, mind_field::target_record) != 0)
         {
             const std::array<u32, 2> message{100, 0};
             knockdown.actor_message(message); // Mind +8 (the actor) vtable +0xC.
         }
-        put_word(context.mind, 0x10, 0);
-        put_word(context.mind, 0x14, 0);
+        set(context.mind, mind_field::target_record, 0);
+        set(context.mind, mind_field::action_record, 0);
         for (LiveScript* event = context.mind_events == nullptr ? nullptr : context.mind_events->next; event != nullptr;
              event = event->next)
         {

@@ -1,4 +1,5 @@
 #include "body_struggle_state.h"
+#include "mind_fields.h"
 #include "body_orientation.h"
 #include "entity.h"
 #include "gbtg/anim.h"
@@ -218,7 +219,7 @@ void select_runtime_struggle_key(std::span<u8> state, RuntimeStruggleTick& conte
         }
         std::memcpy(state.data() + 0xC, &key, 2);
     }
-    if (context.mind.empty() || context.mind[0x20] == 0)
+    if (context.mind.empty() || get(context.mind, mind_field::target_mode) == 0)
     {
         const u16 idle = read_u16(state, 0x1A);
         if (idle != 0)
@@ -245,9 +246,9 @@ void tick_runtime_struggle_state(std::span<u8> state, RuntimeStruggleTick& conte
     const float elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + read_f32(state, 0x10);
     put_float(state, 0x10, elapsed);
     bool targeted = false;
-    if (!context.mind.empty() && context.mind[0x20] != 0 && word(context.mind, 0xC) != 0)
+    if (!context.mind.empty() && get(context.mind, mind_field::target_mode) != 0 && get(context.mind, mind_field::target) != 0)
     {
-        const Vec3 point = context.target_position(word(context.mind, 0xC));
+        const Vec3 point = context.target_position(get(context.mind, mind_field::target));
         std::memcpy(body.data() + 0x3C, &point, 12);
         targeted = true;
     }

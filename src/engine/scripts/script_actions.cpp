@@ -1789,7 +1789,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
         // 0x0010F6C0, SI the tag, XMM1 node+0x48, XMM2 node+0x4C: the tag's strategy class range.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
         set_runtime_strategy_class_range(tag, std::bit_cast<float>(node_u32(g.scene_script, node, 0x48)),
-            std::bit_cast<float>(node_u32(g.scene_script, node, 0x4c)), g_50e1c8, g_50e1c4);
+            std::bit_cast<float>(node_u32(g.scene_script, node, 0x4c)), g_strategy_class_ranges, g_strategy_class_range_count);
         return 2;
     }
     case 0x78:
@@ -1950,14 +1950,14 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
         if (actor_event_chance(g_shared_random, chance)) // 0x00019200, ECX 0x0054DD7C
         {
             // 0x001400A0, CX the word at node+8 and the word at node+0xC on the stack.
-            const size_t slot = size_t(g_545cc8) * 2;
-            if (slot + 1 >= g_545c48.size())
+            const size_t slot = size_t(g_marker_swap_count) * 2;
+            if (slot + 1 >= g_marker_swap_ids.size())
             {
                 throw Error("script type 0x4E overflows DAT_00545C48's pairs");
             }
-            g_545c48[slot] = node_u16(g.scene_script, node, 8);
-            g_545c48[slot + 1] = node_u16(g.scene_script, node, 0xc);
-            g_545cc8 = g_545cc8 + 1;
+            g_marker_swap_ids[slot] = node_u16(g.scene_script, node, 8);
+            g_marker_swap_ids[slot + 1] = node_u16(g.scene_script, node, 0xc);
+            g_marker_swap_count = g_marker_swap_count + 1;
         }
         return 2;
     }
@@ -2050,16 +2050,16 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
     case 0x73:
     {
         // 0x001400D0: CX the word at node+8, then node+0xC..node+0x2C, as one ten-word DAT_00545CCC group.
-        const size_t group = size_t(g_545d1c) * 10;
-        if (group + 10 > g_545ccc.size())
+        const size_t group = size_t(g_marker_group_count) * 10;
+        if (group + 10 > g_marker_group_ids.size())
         {
             throw Error("script type 0x73 overflows DAT_00545CCC's groups");
         }
         for (size_t word = 0; word < 10; ++word)
         {
-            g_545ccc[group + word] = node_u16(g.scene_script, node, 8 + u32(word) * 4);
+            g_marker_group_ids[group + word] = node_u16(g.scene_script, node, 8 + u32(word) * 4);
         }
-        g_545d1c = g_545d1c + 1;
+        g_marker_group_count = g_marker_group_count + 1;
         return 2;
     }
     case 0x74:
@@ -2378,8 +2378,8 @@ void reset_scene_script_runtime(Game& g)
         throw Error("0x00116E00 clears DAT_00545970..DAT_0054597C without the boot scene services");
     }
     g.factory_scene->actor_services->reset_scene_score_words(); // DAT_00545970, DAT_00545974, DAT_0054597C
-    g_545978 = 0; // DAT_00545978
-    g_545980 = 0; // DAT_00545980
+    g_broken_background_parts = 0; // DAT_00545978
+    g_running_score = 0; // DAT_00545980
     auto& challenge = g_challenge_run;
     challenge.state = 1; // DAT_004E17C8
     challenge.kind = 0xFFFFFFFFu; // DAT_004E17CC

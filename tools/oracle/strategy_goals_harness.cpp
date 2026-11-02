@@ -87,7 +87,7 @@ u32 allowed_offset(const OccupancyRecord* record)
 
 namespace gbtg
 {
-void* g_512344 = nullptr;
+void* g_occupancy_pool = nullptr; // DAT_00512344
 RuntimeActorCreationOptions g_actor_creation_options;
 i32 g_last_actor_effect = -1;
 std::array<ActorEffectNode*, 150> g_actor_effect_nodes{};
@@ -573,7 +573,7 @@ void run_case()
     g_pool_records = &pool_records;
     OccupancyPool pool{0x38, 4, pool_records.data(), pool_records.data() + pool_count,
         pool_records.data() + pool_count};
-    g_512344 = pool_present != 0 ? &pool : nullptr;
+    g_occupancy_pool = pool_present != 0 ? &pool : nullptr;
     const u32 script_count = next();
     std::vector<u8> script(8 + 0xC * std::max<u32>(script_count, 1));
     put(script, 0, script_count);

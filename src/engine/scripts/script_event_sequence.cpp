@@ -1392,7 +1392,7 @@ i32 run_script_event_untouched_step()
 // wait (DAT_0050653C); it never succeeds on its own.
 i32 run_script_event_no_points_step()
 {
-    if (g_545980 == 0 || g_event_sequence.waiting != 0)
+    if (g_running_score == 0 || g_event_sequence.waiting != 0)
     {
         return 2;
     }

@@ -150,10 +150,8 @@ D3dScreenDevice* g_d3d_device = nullptr;
 // DAT_00180d50. Four dwords per register. 192 * 16 ends at 0x00181950.
 u32 g_d3d_vs_constants[k_d3d_vs_const_regs * 4u]{};
 
-i32 g_d3d_program_mode = 0;
-   // DAT_00181CE4
-i32 g_d3d_sample_mode = 0;
-    // DAT_00181DAC
+i32 g_d3d_program_mode = 0; // DAT_00181CE4
+i32 g_d3d_sample_mode = 0; // DAT_00181DAC
 i32 g_d3d_multisample_aa = 0;
  // DAT_00181DD0, D3DRS_MULTISAMPLEANTIALIAS
 i32 g_d3d_yuv_enable = 0;

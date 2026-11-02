@@ -68,49 +68,49 @@ u32 queue_runtime_intro_notice(const char* name, RuntimeIntroNotices& context)
     return 1;
 }
 
-u32 g_545b38 = 0;
-u32 g_545b3c = 0;
-float g_545b40 = 0.f;
-std::array<char, 0x80> g_545b44{};
-std::array<char, 0x80> g_545bc4{};
+u32 g_intro_notice_pending = 0; // DAT_00545B38
+u32 g_intro_notice_paused = 0; // DAT_00545B3C
+float g_intro_notice_wait = 0.f; // DAT_00545B40
+std::array<char, 0x80> g_intro_notice_name{}; // DAT_00545B44
+std::array<char, 0x80> g_intro_notice_second_name{}; // DAT_00545BC4
 
 // Xbox 0x0013FD60
 void tick_runtime_intro_notice(RuntimeIntroNoticeTick& context)
 {
-    if (g_545b38 == 1)
+    if (g_intro_notice_pending == 1)
     {
         if (context.clock.block_decay == 0 && context.clock.decay_enabled[context.clock.decay_index] != 0)
         {
             context.pause(u8(0xFFFF), 0); // 0x00117400
             ++context.pause_requests;
-            g_545b38 = 2;
-            g_545b40 = 1.f; // DAT_0032B0F8.
-            g_545b3c = 1;
+            g_intro_notice_pending = 2;
+            g_intro_notice_wait = 1.f; // DAT_0032B0F8.
+            g_intro_notice_paused = 1;
         }
         return;
     }
-    if (g_545b38 == 2)
+    if (g_intro_notice_pending == 2)
     {
         const float step = runtime_frame_step(context.clock);
-        if (!(g_545b40 > 0.f))
+        if (!(g_intro_notice_wait > 0.f))
         {
             return;
         }
-        g_545b40 = g_545b40 - step;
-        if (!(g_545b40 <= 0.f)) // JC: above zero or unordered.
+        g_intro_notice_wait = g_intro_notice_wait - step;
+        if (!(g_intro_notice_wait <= 0.f)) // JC: above zero or unordered.
         {
             return;
         }
-        g_545b40 = 0.f;
-        g_545b38 = 3;
-        enqueue_runtime_dialogue_key(g_545b44.data(), 0, context.dialogue); // 0x000582A0, ECX DAT_00545B44
-        if (g_545bc4[0] != 0)
+        g_intro_notice_wait = 0.f;
+        g_intro_notice_pending = 3;
+        enqueue_runtime_dialogue_key(g_intro_notice_name.data(), 0, context.dialogue); // 0x000582A0, ECX DAT_00545B44
+        if (g_intro_notice_second_name[0] != 0)
         {
-            enqueue_runtime_dialogue_key(g_545bc4.data(), 0, context.dialogue); // 0x000582A0, ECX DAT_00545BC4
+            enqueue_runtime_dialogue_key(g_intro_notice_second_name.data(), 0, context.dialogue); // 0x000582A0, ECX DAT_00545BC4
         }
         return;
     }
-    if (g_545b38 == 3)
+    if (g_intro_notice_pending == 3)
     {
         finish_runtime_intro_notice(context); // 0x0013FFD0
     }
@@ -123,14 +123,14 @@ void finish_runtime_intro_notice(RuntimeIntroNoticeTick& context)
     {
         return;
     }
-    if (g_545b3c != 0)
+    if (g_intro_notice_paused != 0)
     {
         context.pause(u8(0xFFFF), 1); // 0x00117400
         --context.pause_requests;
-        g_545b3c = 0;
+        g_intro_notice_paused = 0;
     }
-    g_545b38 = 0;
-    g_545b44[0] = 0;
-    g_545bc4[0] = 0;
+    g_intro_notice_pending = 0;
+    g_intro_notice_name[0] = 0;
+    g_intro_notice_second_name[0] = 0;
 }
 }

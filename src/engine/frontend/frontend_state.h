@@ -20,7 +20,7 @@ struct GameFinalScoreWidget;
 struct GameStreamWaitWidget;
 struct ButtonBatMenu;
 // The front end's boot-reset globals (0x000E5A80). DAT_00429BC0 (the next widget row) and DAT_00429BC4 (a wide
-// name) are scene.cpp's g_429bc0 and g_429bc4.
+// name) are scene.cpp's g_frontend_next_row and g_frontend_selected_game.
 struct RuntimeFrontendState
 {
     std::span<u8> input; // DAT_00429BBC, a keyboard device (0x00107EF0).

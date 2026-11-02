@@ -1468,8 +1468,7 @@ SceneFlagBlock g_scene_flag_block{9, 2, g_scene_flag_bytes};
 SceneFlagBlock* g_scene_flags = &g_scene_flag_block;
 
 
-extern u32 g_flags_ea9c;
- // DAT_0050EA9C
+extern u32 g_flags_ea9c; // DAT_0050EA9C
 
 // Xbox 0x00132ED0. Opcode 21 in the table at 0x00314330. The record is not
 // read. Bit 0x8 of the byte at [DAT_00506c74+8], or bit 0x200000 of

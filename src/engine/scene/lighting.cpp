@@ -192,11 +192,11 @@ void lighting_initialize_volume()
     light_init_records();
     light_bind_table();
     // DAT_00509B20..DAT_00509B2C, the ambient tint.
-    g_509b20 = 1.f;
-    g_509b24 = 1.f;
-    g_509b28 = 1.f;
-    g_509b2c = 1.f;
-    g_509b4c = 1.f; // DAT_00509B4C
+    g_scene_ambient_tint_0 = 1.f;
+    g_scene_ambient_tint_1 = 1.f;
+    g_scene_ambient_tint_2 = 1.f;
+    g_scene_ambient_tint_3 = 1.f;
+    g_scene_light_intensity = 1.f; // DAT_00509B4C
     g_scene_light_direction.pitch = std::bit_cast<float>(0x3eb2b8c3u); // DAT_00509B50, pool DAT_0032B160
     g_scene_light_direction.yaw = std::bit_cast<float>(0x3f32b8c3u); // DAT_00509B54, pool DAT_0032B15C
     g_scene_light_direction.camera_relative = 1; // DAT_00509B58
@@ -365,11 +365,11 @@ void apply_runtime_scene_lighting(std::span<const u8> record, RuntimeSceneFog& f
 {
     constexpr float unit = std::bit_cast<float>(0x3B808081u); // DAT_0032B154, 1/255
     constexpr float degrees = std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC, pi/180
-    g_509b28 = float(record[2]) * unit;
-    g_509b24 = float(record[1]) * unit;
-    g_509b20 = float(record[0]) * unit;
-    g_509b2c = 1.f; // DAT_0032B0F8
-    g_509b4c = read_f32(record, 4);
+    g_scene_ambient_tint_2 = float(record[2]) * unit;
+    g_scene_ambient_tint_1 = float(record[1]) * unit;
+    g_scene_ambient_tint_0 = float(record[0]) * unit;
+    g_scene_ambient_tint_3 = 1.f; // DAT_0032B0F8
+    g_scene_light_intensity = read_f32(record, 4);
     g_scene_light_direction.pitch = read_f32(record, 0xC) * degrees; // DAT_00509B50
     g_scene_light_direction.yaw = read_f32(record, 0x10) * degrees; // DAT_00509B54
     g_scene_light_direction.camera_relative = read_u32(record, 8); // DAT_00509B58

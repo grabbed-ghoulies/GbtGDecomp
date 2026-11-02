@@ -33,7 +33,7 @@
 
 namespace gbtg
 {
-extern u8 g_510e58[]; // DAT_00510E58, scene.cpp.
+extern u8 g_scene_record[]; // DAT_00510E58, scene.cpp.
 
 namespace
 {
@@ -751,7 +751,7 @@ namespace
 {
 const char* current_script()
 {
-    return reinterpret_cast<const char*>(g_510e58); // DAT_00510E58, game select's own script
+    return reinterpret_cast<const char*>(g_scene_record); // DAT_00510E58, game select's own script
 }
 
 // 0x00035960 over the held order (EAX DAT_00511B64) with wrap 1.

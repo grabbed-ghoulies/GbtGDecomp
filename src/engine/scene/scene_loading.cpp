@@ -267,7 +267,7 @@ void script_load(Game& g, std::string_view name)
 
 
 // DAT_00510ED8. Defined with the scene record. script_request copies into it.
-extern char (&g_510ed8)[0x80];
+extern char (&g_scene_requested_aid)[0x80];
 
 
 void request_scene_aid(const char* src, i32 mode); // Xbox 0x0011EB30
@@ -279,7 +279,7 @@ void request_scene_aid(const char* src, i32 mode); // Xbox 0x0011EB30
 void script_request(Game& g, std::string_view name)
 {
     (void)g;
-    if (name.size() + 1 > sizeof(g_510ed8))
+    if (name.size() + 1 > sizeof(g_scene_requested_aid))
     {
         throw Error("scene request name exceeds the 0x80-byte scene record field");
     }
@@ -335,7 +335,7 @@ u8* engine_grow_record_pool(u8* block)
 
 // DAT_004DEDA8. 0x00033CF0 allocates the header. The u16 at +0 is the stride.
 // +2 is the grow count. +4 is begin and +8 is end.
-struct Pool4deda8
+struct PendingRecordPool
 {
     u16 stride = 0;
     u16 grow = 0;
@@ -344,16 +344,11 @@ struct Pool4deda8
 };
 
 
-Pool4deda8* g_4deda8 = nullptr;
- // DAT_004DEDA8
-i32 g_4deda4 = 0;
-               // DAT_004DEDA4
-i32 g_4ded9c = 0;
-               // DAT_004DED9C
-i32 g_4deda0 = 0;
-               // DAT_004DEDA0
-i32 g_4dedac = 0;
-               // DAT_004DEDAC
+PendingRecordPool* g_pending_record_pool = nullptr; // DAT_004DEDA8
+i32 g_4deda4 = 0; // DAT_004DEDA4
+i32 g_pending_record_load_limit = 0; // DAT_004DED9C
+i32 g_pending_record_loads = 0; // DAT_004DEDA0
+i32 g_4dedac = 0; // DAT_004DEDAC
 
 // Xbox 0x000341E0. When DAT_004DEDA4 is nonzero, walk the pool from end
 // backward by 0x2c. The dword at record+0x28 (end - 4 before the step) is
@@ -370,7 +365,7 @@ i32 g_4dedac = 0;
 // Xbox 0x000341E0
 int scene_check_pending_records()
 {
-    Pool4deda8* pool = g_4deda8;
+    PendingRecordPool* pool = g_pending_record_pool;
     if (g_4deda4 != 0)
     {
         const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(pool->begin);
@@ -388,7 +383,7 @@ int scene_check_pending_records()
         }
         g_4deda4 = 0;
     }
-    if (g_4dedac == 0 && g_4deda0 < g_4ded9c)
+    if (g_4dedac == 0 && g_pending_record_loads < g_pending_record_load_limit)
     {
         std::uintptr_t cursor = reinterpret_cast<std::uintptr_t>(pool->begin);
         const std::uintptr_t end = reinterpret_cast<std::uintptr_t>(pool->end);

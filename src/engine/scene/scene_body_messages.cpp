@@ -2595,9 +2595,9 @@ RuntimePlayerDeathContext& SceneBodyMessages::player_death_context()
     auto& scene = player_.scene;
     player_death_.emplace(RuntimePlayerDeathContext{knockdown, services_.latches, player_.mind,
         player_.mind.empty() ? nullptr : &player_.mind_events.anchor, *services_.camera_pulse, services_.streams(),
-        *services_.dialogue, g_510cec, g_4dea24, g_script_30d94, scene.scene_kills, scene.brew_kills_required,
-        *services_.frontend_state, scene.prompt_owner, g_scene_transition.phase, g_5493dc,
-        g_runtime_profile.progress.bytes, g_runtime_profile.unlocks.bytes, reinterpret_cast<const char*>(g_510e58),
+        *services_.dialogue, g_pause_count, g_transition_pause_count, g_script_30d94, scene.scene_kills, scene.brew_kills_required,
+        *services_.frontend_state, scene.prompt_owner, g_scene_transition.phase, g_transition_row_two_pending,
+        g_runtime_profile.progress.bytes, g_runtime_profile.unlocks.bytes, reinterpret_cast<const char*>(g_scene_record),
         services_.begin_transition});
     return *player_death_;
 }

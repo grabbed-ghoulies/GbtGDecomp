@@ -217,17 +217,17 @@ extern float g_50ea84; // DAT_0050EA84.
 extern float g_50ea88; // DAT_0050EA88.
 extern float g_50ea8c; // DAT_0050EA8C.
 extern float g_50ea90; // DAT_0050EA90.
-extern i32 g_5462fc; // DAT_005462FC.
-extern u16 g_4e19b4[0x40]; // DAT_004E19B4, scene.cpp.
-extern i32 g_545d1c; // DAT_00545D1C.
-extern i32 g_545cc8; // DAT_00545CC8.
-extern std::array<u16, 0x40> g_545c48; // DAT_00545C48.
-extern std::array<u16, 0x28> g_545ccc; // DAT_00545CCC.
+extern i32 g_player_start_enabled; // DAT_005462FC.
+extern u16 g_challenge_game_name[0x40]; // DAT_004E19B4, scene.cpp.
+extern i32 g_marker_group_count; // DAT_00545D1C.
+extern i32 g_marker_swap_count; // DAT_00545CC8.
+extern std::array<u16, 0x40> g_marker_swap_ids; // DAT_00545C48.
+extern std::array<u16, 0x28> g_marker_group_ids; // DAT_00545CCC.
 extern i32 g_script_30d0c; // DAT_00430D0C.
-extern float& g_4312cc; // DAT_004312CC.
-extern float& g_4312d0; // DAT_004312D0.
-extern i32& g_4312d4; // DAT_004312D4.
-extern i32& g_4312d8; // DAT_004312D8.
+extern float& g_scene_hold_time; // DAT_004312CC.
+extern float& g_scene_gameplay_time; // DAT_004312D0.
+extern i32& g_scene_gameplay_mark; // DAT_004312D4.
+extern i32& g_scene_gameplay_tick; // DAT_004312D8.
 extern u32 g_flag_0650; // DAT_00510650.
 extern u32 g_flag_10b4; // DAT_005110B4.
 void scene_set_audio_level(float level); // Xbox 0x00038110, scene.cpp.
@@ -572,7 +572,7 @@ struct SceneActorServices::State
         port_masks.data() + 1, input_addresses};
     // Player construction and children.
     u32 player_count = 0; // DAT_00510578.
-    u32& active_strategies = reinterpret_cast<u32&>(g_510cec); // DAT_00510CEC.
+    u32& active_strategies = reinterpret_cast<u32&>(g_pause_count); // DAT_00510CEC.
     // The object create_runtime_player_attachment (0x0013A720) and its kin are attaching, before the scene keeps it,
     // and its bytes. object_of consults it only when no kept object owns the bytes.
     FactoryObject* attaching_object = nullptr;
@@ -596,7 +596,7 @@ struct SceneActorServices::State
     i32 camera_players = 0; // DAT_00545AF0.
     RuntimePlayerCameraContext camera;
     std::vector<FactoryObject> cameras;
-    RuntimeStrategyClassRanges strategy_ranges{g_50e1c4, g_50e1c8}; // DAT_0050E1C4, DAT_0050E1C8.
+    RuntimeStrategyClassRanges strategy_ranges{g_strategy_class_range_count, g_strategy_class_ranges}; // DAT_0050E1C4, DAT_0050E1C8.
     std::span<u32, 2> pause_references{scene_detail::g_pause_references}; // DAT_0050E764, DAT_0050E768.
     // DAT_00511B38 as 0x00117400 walks it: the players' +0x934 nodes, rebuilt from the list before each walk.
     std::vector<RuntimePauseActor> pause_nodes;
@@ -702,8 +702,8 @@ struct SceneActorServices::State
     i32& difficulty = g_event_sequence_state; // DAT_005064D8, the event sequence state.
     std::unique_ptr<RuntimeScoreboardResources> event_board_resources;
     std::unique_ptr<ScriptEventSequenceContext> event_sequence;
-    u32& intro_pending = g_545b38; // DAT_00545B38.
-    std::array<char, 0x80>& intro_name = g_545b44; // DAT_00545B44.
+    u32& intro_pending = g_intro_notice_pending; // DAT_00545B38.
+    std::array<char, 0x80>& intro_name = g_intro_notice_name; // DAT_00545B44.
     entity_detail::ListHead& cases = entity_detail::g_world.case_head; // DAT_00511B3C; its next is DAT_00511B40.
     std::function<const EntityBitBlock*(const entity_detail::ListHead*)> case_body_bits;
     // DAT_0050E570 and DAT_0050E660 live in the script's scene words (handler 2 writes them); 0x00116DA0 sets
@@ -802,12 +802,12 @@ struct SceneActorServices::State
     std::span<const u8> part_text; // DAT_0054629C.
     BackgroundPartTables part_tables{part_settings, part_setting_count, part_text};
     i32 part_sound_slot = 0; // DAT_00546290.
-    u32& broken_parts = g_545978; // DAT_00545978.
+    u32& broken_parts = g_broken_background_parts; // DAT_00545978.
     std::array<float, 24> sampling_scratch{}; // DAT_0050D7A0: matrix, then the dialogue's scratch matrix.
     float* sampling_active = nullptr; // DAT_0050DD70.
     std::array<char16_t, 0x400> wide_scratch{}; // DAT_00507E78.
     u32 score_total = 0; // DAT_0054597C.
-    u32& score_running_total = g_545980; // DAT_00545980.
+    u32& score_running_total = g_running_score; // DAT_00545980.
     std::array<char16_t, 0xA00> score_texts{}; // DAT_00432724.
     std::array<u32, 10> score_categories{}; // DAT_004326FC.
     std::array<u32, 10> score_points{}; // DAT_00433B24.
@@ -817,7 +817,7 @@ struct SceneActorServices::State
     std::vector<RuntimeDoorClips> door_rows;
     u32 door_camera_registered = 0; // DAT_004EE31C.
     u32 door_paused = 0; // DAT_004EE320.
-    u32& door_camera_hold = reinterpret_cast<u32&>(g_4dea24); // DAT_004DEA24.
+    u32& door_camera_hold = reinterpret_cast<u32&>(g_transition_pause_count); // DAT_004DEA24.
     EntityCamNode door_camera{}; // DAT_004EE2BC, the door clips' camera view.
     std::array<DoorRoomAlias, 2> door_aliases{}; // PTR_DAT_00434034.
     std::vector<const char*> door_variants; // PTR_DAT_00424970.
@@ -1250,7 +1250,7 @@ struct SceneActorServices::State
                 return resources.memory.address_of(static_cast<const u8*>(pointer));
             },
             clock, display_view, display_setup.get(), model_draw.get(),
-            {&g_509b20, &g_509b24, &g_509b28, &g_509b2c}, origin, read_f32(data(0x0032B5C8, 4), 0)};
+            {&g_scene_ambient_tint_0, &g_scene_ambient_tint_1, &g_scene_ambient_tint_2, &g_scene_ambient_tint_3}, origin, read_f32(data(0x0032B5C8, 4), 0)};
     }
     RuntimeLightCones light_cones{}; // DAT_0050EF20 / DAT_00510560 (0x0011AEA0 / 0x0011AEE0 / 0x000BA840).
     i32& frontend_state = g_challenge_run.state; // DAT_004E17C8, the running challenge's state.
@@ -1515,7 +1515,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         scoreboard_resources = std::make_unique<RuntimeScoreboardResources>(RuntimeScoreboardResources{
             resources.registry, resources.error, data(0x00314170, 0x10)});
         scoreboard_update = std::make_unique<RuntimeScoreboardUpdate>(RuntimeScoreboardUpdate{*scoreboard_hud,
-            *scoreboard_resources, audio.voices, g_510ce8, *reinterpret_cast<const float*>(g_4312c8), g_4312cc,
+            *scoreboard_resources, audio.voices, g_scene_paused, *reinterpret_cast<const float*>(g_scene_times), g_scene_hold_time,
             g_scene_flags->bytes[0], challenge_mode, challenge_count, data(0x00314170, 0x10),
             data(0x00312A1C, 0x10), data(0x00312F8C, 0x10), constant(0x0032B110), constant(0x0032B248),
             constant(0x0032B244), constant(0x0032B210), constant(0x0032B254),
@@ -1554,7 +1554,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 }
                 return nullptr;
             },
-            *reinterpret_cast<const i32*>(g_510e58 + 0x104), intro_notices, data(0x00433B54, 0x24)});
+            *reinterpret_cast<const i32*>(g_scene_record + 0x104), intro_notices, data(0x00433B54, 0x24)});
     }
     // Boot registers the callout hook (0x0004F610) with the other resource hooks.
     callout_resources = std::make_unique<RuntimeCalloutResources>(RuntimeCalloutResources{resources.registry,
@@ -3286,7 +3286,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         scene_name.data(), std::span<const u8, 0x210>(data(0x00430DA0, 0x210).data(), 0x210),
         g_scene_flags->bytes[0], g_flags_ea9c, g_byte_30d14});
     player_start = std::make_unique<RuntimeMarkerPlayerStart>(RuntimeMarkerPlayerStart{*spawn, markers,
-        address_zero, reinterpret_cast<const u32&>(g_5462fc), g_script_30d0c, g_scene_flags->bytes[0],
+        address_zero, reinterpret_cast<const u32&>(g_player_start_enabled), g_script_30d0c, g_scene_flags->bytes[0],
         g_flags_ea9c,
         []() -> bool
         {
@@ -3845,7 +3845,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         clip_bounds, device_projection, device_view, device_world, projection_transpose, default_world, frontend_pause,
         display_address});
     sprites = std::make_unique<RuntimeDialogueSpriteQueue>(RuntimeDialogueSpriteQueue{sprite_records, sprite_count});
-    scoreboard_draw = std::make_unique<RuntimeScoreboardDraw>(RuntimeScoreboardDraw{*sprites, g_4312cc,
+    scoreboard_draw = std::make_unique<RuntimeScoreboardDraw>(RuntimeScoreboardDraw{*sprites, g_scene_hold_time,
         brew_accepted});
     scoreboard_draw->immediate = dialogue_draw.get();
     scoreboard_hud->draw = scoreboard_draw.get();
@@ -3865,12 +3865,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     bind_scene_dialogue(game, *script_dialogue, *dialogue_outer);
     // The scene cutscene stack (DAT_004E1B40..DAT_004E1C54) that script node 0x13 starts (0x0004EDA0) and the
     // scene tick advances (0x0004EBD0), over this scene's cutscene context.
-    install_scene_cutscene_runtime(game, SceneCutsceneBindings{*cutscenes, g_flags_ea9c, g_510cec, g_4dea24,
-        g_50e7a0, g_sim_freeze, g_sim_dt, g_sim_scale, prompt_lock});
+    install_scene_cutscene_runtime(game, SceneCutsceneBindings{*cutscenes, g_flags_ea9c, g_pause_count, g_transition_pause_count,
+        g_scene_active_count, g_sim_freeze, g_sim_dt, g_sim_scale, prompt_lock});
     // The attract control (factory type 0x9B) over this scene's resources, text, input and cutscene stack.
     attract_services = std::make_unique<AttractControlServices>(AttractControlServices{resources.registry,
         resources.error, resources.text, text_registry, resources.metrics, widget_context.viewport_width,
-        next_widget_id, random, hud.center_x, hud.bottom, text_fonts[0], g_510cec, input_activation, input_release,
+        next_widget_id, random, hud.center_x, hud.bottom, text_fonts[0], g_pause_count, input_activation, input_release,
         input_addresses, input_views, input_state, game.clock.frame, scene_cutscene_runtime(game), node_cache,
         [this](Actor& actor) -> RuntimeModelInstance*
         {
@@ -4020,10 +4020,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             text(read_u32(bytes, 8)), read_f32(bytes, 0xC)});
     }
     trophy_heads_services = std::make_unique<TrophyHeadsControlServices>(TrophyHeadsControlServices{
-        resources.registry, resources.error, scene_cutscene_runtime(game), voices, random, g_510cec, g_4dea24,
+        resources.registry, resources.error, scene_cutscene_runtime(game), voices, random, g_pause_count, g_transition_pause_count,
         g_flags_ea9c, g_scene_flags->bytes[0], g_runtime_profile.progress.bytes[4], g_runtime_profile.challenges.bytes,
         g_script_30d0c, pulse, trophy_head_rows,
-        g_4312d0, g_4312d4, g_4312d8, prompt_owner, default_euler, g_sim_freeze, g_sim_dt, g_sim_scale,
+        g_scene_gameplay_time, g_scene_gameplay_mark, g_scene_gameplay_tick, prompt_owner, default_euler, g_sim_freeze, g_sim_dt, g_sim_scale,
         [this](Actor& actor) -> GhoulySpawnPool*&
         {
             return reinterpret_cast<GhoulySpawnPool*&>(actors->view(object_of_actor(actor)).allocation_8fc);
@@ -4110,7 +4110,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     relics_store_services = std::make_unique<RelicsStoreControlServices>(RelicsStoreControlServices{
         scene_cutscene_runtime(game), *candle_services, resources.registry, resources.error, sounds, random,
-        g_510cec, g_4dea24, g_flags_ea9c, pal, pal_override, g_4312d0, g_4312d4, g_4312d8, g_sim_freeze, g_sim_dt,
+        g_pause_count, g_transition_pause_count, g_flags_ea9c, pal, pal_override, g_scene_gameplay_time, g_scene_gameplay_mark, g_scene_gameplay_tick, g_sim_freeze, g_sim_dt,
         g_sim_scale, display_view, data(0x00427600, 0x18),
         [this](Actor& actor) -> const float&
         {
@@ -4196,7 +4196,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     g_chapter5_countdown = chapter5_countdown_services.get();
     // The Super Scary challenge (factory type 0x98) a trophy head's attack creates.
     super_scary_services = std::make_unique<SuperScaryControlServices>(SuperScaryControlServices{
-        resources.registry, resources.error, scene_cutscene_runtime(game), voices, audio.streams, random, g_510cec,
+        resources.registry, resources.error, scene_cutscene_runtime(game), voices, audio.streams, random, g_pause_count,
         g_flags_ea9c, g_scene_flags->bytes[0], g_runtime_profile.progress.bytes, frontend_state, prompt_owner,
         powerup_rows[0x12].active, // DAT_005122F0, the ShockerBlocker powerup row.
         powerup_rows[0xA].active, data(0x00302198, 4 * 0x50), i32(read_u32(data(0x00427958, 4), 0)),
@@ -4445,7 +4445,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         DialogueSurfaceHandle(resources.memory.address_of(glow_targets.page_texture)), 0);
     glow_targets.depth_surface = d3d_device.outer().surface(
         DialogueSurfaceHandle(resources.memory.address_of(glow_targets.depth_texture)), 0);
-    glow_pass = std::make_unique<RuntimeGlowPass>(RuntimeGlowPass{*dialogue_outer, glow_targets, g_50484c,
+    glow_pass = std::make_unique<RuntimeGlowPass>(RuntimeGlowPass{*dialogue_outer, glow_targets, g_transition_guard,
         [this](u32 address)
         {
             return read_u32(data(address, 4), 0);
@@ -4557,7 +4557,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         *challenge_saves, {}, {}, {},
         []() -> i32
         {
-            return i32(read_u32({g_510e58, 0x108}, 0x104)); // DAT_00510F5C, scene record +0x104.
+            return i32(read_u32({g_scene_record, 0x108}, 0x104)); // DAT_00510F5C, scene record +0x104.
         }});
     scene.controls->context.final_score = final_score_services.get();
     gameselect_services->final_score = final_score_services.get();
@@ -4597,7 +4597,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         *reinterpret_cast<const std::array<float, 4>*>(background_ambient.light_color.data()), override_base_color,
         environment_primary, environment_secondary});
     light_construction = std::make_unique<SceneLightConstructionContext>(SceneLightConstructionContext{*environment,
-        scene_color, retained_scene_color, g_509b4c, read_f32(data(0x0042A580, 4), 0), directional_light, shaders.records,
+        scene_color, retained_scene_color, g_scene_light_intensity, read_f32(data(0x0042A580, 4), 0), directional_light, shaders.records,
         temporary_lights});
     model_draw = std::make_unique<SceneModelDrawContext>(SceneModelDrawContext{render_image, *light_construction,
         matrix_boundaries});
@@ -5187,7 +5187,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     body_services->dialogue = dialogue.get();
     body_services->begin_transition = []()
     {
-        begin_scene_transition(reinterpret_cast<const char*>(g_510e58 + 0x80)); // 0x0012C5D0
+        begin_scene_transition(reinterpret_cast<const char*>(g_scene_record + 0x80)); // 0x0012C5D0
     };
     body_services->weapon_attachment_at = [this](u32 address) -> RuntimePlayerAttachmentActor&
     {
@@ -6279,8 +6279,8 @@ void SceneActorServices::State::end_scene()
     in_scene = false;
 }
 
-extern i32 g_429bc0; // DAT_00429BC0, scene.cpp.
-extern u16 g_429bc4[0x80]; // DAT_00429BC4, scene.cpp.
+extern i32 g_frontend_next_row; // DAT_00429BC0, scene.cpp.
+extern u16 g_frontend_selected_game[0x80]; // DAT_00429BC4, scene.cpp.
 
 RuntimeScreenTextureBoundaries SceneActorServices::State::screen_texture_boundaries()
 {
@@ -6368,7 +6368,7 @@ void SceneActorServices::State::bind_transition_services()
 
 void SceneActorServices::State::bind_pause_services()
 {
-    book_services->scene_paused = &g_510ce8; // DAT_00510CE8
+    book_services->scene_paused = &g_scene_paused; // DAT_00510CE8
     book_services->pause_phase = &g_scene_pause.phase; // DAT_00510CF4
     pause_services = std::make_unique<ScenePauseServices>(ScenePauseServices{*book_services, *dialogue, audio.streams,
         [](float level)
@@ -6395,8 +6395,8 @@ void SceneActorServices::State::bind_pause_services()
         {
             return g_runtime_profile.challenges.bytes; // *(DAT_00506C54+8)
         },
-        difficulty, frontend_state, hud, reinterpret_cast<const char*>(g_510e58),
-        *reinterpret_cast<i32*>(g_510e58 + 0x108), g_4312d0,
+        difficulty, frontend_state, hud, reinterpret_cast<const char*>(g_scene_record),
+        *reinterpret_cast<i32*>(g_scene_record + 0x108), g_scene_gameplay_time,
         [this]() -> std::array<i32, 2>
         {
             if (measurement == nullptr)
@@ -6526,15 +6526,15 @@ void SceneActorServices::State::bind_gameselect_services()
     RuntimeScreenTextureBoundaries textures = screen_texture_boundaries();
     gameselect_services = std::make_unique<GameSelectControlServices>(GameSelectControlServices{resources.registry,
         resources.error, g_runtime_profile, g_flags_ea9c, gameselect_text, image.string(read_u32(data(0x00430CF8, 4),
-        0)), scene_order_held, scene_order_release, g_510cec, input_activation, input_release, frontend_input_address,
-        game.clock.frame, g_429bc0, gameselect_stream_wait, read_f32(data(0x0032B184, 4), 0),
+        0)), scene_order_held, scene_order_release, g_pause_count, input_activation, input_release, frontend_input_address,
+        game.clock.frame, g_frontend_next_row, gameselect_stream_wait, read_f32(data(0x0032B184, 4), 0),
         [this](i32 id) -> i32
         {
             return runtime_stream_bank_busy(id, nullptr, nullptr, audio.wavebank_streams); // 0x00039D50
         },
         audio.streams, g_pause_ditty, textures, *display_setup, g_sim_freeze, g_sim_dt, g_sim_scale, image,
-        g_frontend, game.native_movies->session->startup(), hud_size, hud, reinterpret_cast<char16_t*>(g_429bc4),
-        reinterpret_cast<i32*>(g_510e58 + 0x124), g_54632c, text_registry, resources.metrics,
+        g_frontend, game.native_movies->session->startup(), hud_size, hud, reinterpret_cast<char16_t*>(g_frontend_selected_game),
+        reinterpret_cast<i32*>(g_scene_record + 0x124), g_transition_phase, text_registry, resources.metrics,
         widget_context.viewport_width, next_widget_id, random, resources.font_views, fallback_texture.data(),
         *dialogue_draw, *dialogue_outer, widget_context, *widget_allocation, resources.text,
         [this](const char* resource, const char* group, const char* key) -> const char16_t*
@@ -6598,7 +6598,7 @@ void SceneActorServices::State::bind_gameselect_services()
         {
             script_request(game, name); // 0x0011EB30 with mode 1.
         },
-        g_50e458, *cutscenes, *attract_services,
+        g_scene_name_override, *cutscenes, *attract_services,
         [this]() -> i32
         {
             return game.script_dialogue == nullptr ? 0 : game.script_dialogue->dialogue.state.mode; // DAT_004EE1EC
@@ -6667,7 +6667,7 @@ void SceneActorServices::State::bind_gameselect_services()
         {
             return input_views.at(address);
         },
-        port_masks.data() + 1, g_510ce8,
+        port_masks.data() + 1, g_scene_paused,
         [this](Actor& actor)
         {
             actor_updates.at(&actor)(actor); // Actor vtable +0x10.
@@ -6695,7 +6695,7 @@ void SceneActorServices::State::bind_gameselect_services()
         unbound("DAT_00511B40 node with no native player");
     };
     challenge_services = std::make_unique<ChallengeRuntimeServices>(ChallengeRuntimeServices{g_flags_ea9c,
-        g_runtime_profile, g_scene_flags->bytes[0], clock, g_4312d0, g_super_scary_presses, g_super_scary_reshuffle,
+        g_runtime_profile, g_scene_flags->bytes[0], clock, g_scene_gameplay_time, g_super_scary_presses, g_super_scary_reshuffle,
         score_total, active_actors,
         [case_player]() -> i32
         {
@@ -6741,7 +6741,7 @@ void SceneActorServices::State::bind_gameselect_services()
         {
             return reinterpret_cast<const char*>(scene_order_held.data()); // DAT_00511B64
         },
-        reinterpret_cast<const char*>(g_510e58), g_429bc0, g_429bc4, g_4e19b4,
+        reinterpret_cast<const char*>(g_scene_record), g_frontend_next_row, g_frontend_selected_game, g_challenge_game_name,
         [this]()
         {
             // 0x0004A4D0 state 6's walk of DAT_00511B38: players whose +0xCDC word is 1, with energy and without
@@ -7379,9 +7379,9 @@ u32 SceneActorServices::State::address_of(const void* pointer)
         return found->second;
     }
     // Occupancy records (actor +0x98C, +0xCA0, +0xCA4) live in the record block of the DAT_00512344 pool.
-    if (g_512344 != nullptr)
+    if (g_occupancy_pool != nullptr)
     {
-        const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+        const auto& pool = *static_cast<const OccupancyPool*>(g_occupancy_pool);
         const auto* begin = reinterpret_cast<const u8*>(pool.begin);
         const auto* limit = reinterpret_cast<const u8*>(pool.limit);
         const auto* bytes = static_cast<const u8*>(pointer);
@@ -10646,7 +10646,7 @@ void SceneActorServices::State::refresh_ambient_context()
         ambient_grids[index] = sector_grids[index].data();
     }
     ambient_context->grid_count = sector_count;
-    ambient_context->scale = {g_509b20, g_509b24, g_509b28};
+    ambient_context->scale = {g_scene_ambient_tint_0, g_scene_ambient_tint_1, g_scene_ambient_tint_2};
     ambient_context->points_enabled = ambient_points_enabled;
 }
 
@@ -10795,7 +10795,7 @@ void SceneActorServices::State::present_view(i32 view)
         {
             select_runtime_model_shader_parameters(render_image);
         },
-        g_50484c,
+        g_transition_guard,
         [this]()
         {
             draw_runtime_blob_shadows(blob_shadows, blob_shadow_suppress, *point_light_pass); // 0x00119AD0
@@ -11015,7 +11015,7 @@ void SceneActorServices::State::present_view(i32 view)
                     return background_cloth_scene().background_model();
                 }};
             RuntimeShadowVolumes volumes{background_regions, background_region_count, shadow_volume_targets,
-                g_50484c};
+                g_transition_guard};
             draw_runtime_shadow_volumes(volumes, draw); // 0x00119230
 
         },
@@ -11035,7 +11035,7 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
-            draw_screen_effects(RuntimeScreenEffects{screen_tint, pulse, g_50484c, screen_lines,
+            draw_screen_effects(RuntimeScreenEffects{screen_tint, pulse, g_transition_guard, screen_lines,
                 glow_targets.page_texture, resources.memory.address_of(glow_targets.page_texture),
                 read_u32(data(0x00427224, 4), 0), shader_constants_at(0x00427218), read_u32(data(0x00427314, 4), 0),
                 shader_constants_at(0x00427308), read_u32(data(0x00425E9C, 4), 0), game.clock.time},
@@ -11176,7 +11176,7 @@ void SceneActorServices::State::draw_anchor_sprites()
             {
                 throw Error("0x00121EC0 sprite texture is outside the scene resources");
             }
-            const i32 tick = i32(float(texture[0x10]) * g_4312cc); // DAT_004312CC.
+            const i32 tick = i32(float(texture[0x10]) * g_scene_hold_time); // DAT_004312CC.
             const Vec3 point{read_f32(cpu, record), read_f32(cpu, record + 4), read_f32(cpu, record + 8)};
             Vec3 position{m[1] * point.y + m[0] * point.x + m[2] * point.z + m[3],
                 m[4] * point.x + m[6] * point.z + m[5] * point.y + m[7],
@@ -11848,8 +11848,8 @@ void SceneActorServices::hold_boot_scene_order()
 void SceneActorServices::State::with_scene_save(const std::function<void(RuntimeSceneSave&)>& run)
 {
     SaveGameContext saves{game.native_movies->session->files(), g_runtime_profile, scene_order_held};
-    RuntimeSceneSave save{g_runtime_profile, saves, *gameselect_services, reinterpret_cast<const char*>(g_510e58),
-        g_chapter5_gold, g_flags_ea9c, g_4312d0};
+    RuntimeSceneSave save{g_runtime_profile, saves, *gameselect_services, reinterpret_cast<const char*>(g_scene_record),
+        g_chapter5_gold, g_flags_ea9c, g_scene_gameplay_time};
     run(save);
 }
 
@@ -11928,7 +11928,7 @@ void SceneActorServices::start_scene(const std::function<void()>& script_event)
     start_runtime_scene_challenge(*state.challenge_services); // 0x00049BA0, challenge 21's run
     // The player start latch DAT_005462FC, set by 0x0011CAC0,
     // ends here: a later kind 2 marker (0x00127FF0 after a walk-in) spawns its player.
-    g_5462fc = 0;
+    g_player_start_enabled = 0;
 }
 
 void SceneActorServices::State::notify_body_list(u32 id)
@@ -12111,7 +12111,7 @@ void SceneActorServices::update_scene_actors()
     state.pause = g_sim_freeze;
     state.frame_delta = g_sim_dt;
     state.time_scale = g_sim_scale;
-    state.motion_steps = g_4312e0;
+    state.motion_steps = g_motion_steps;
     state.pal = state.game.clock.pal ? 1 : 0;
     state.refresh_mind_targets();
     state.refresh_pause_groups();
@@ -12407,7 +12407,7 @@ void SceneActorServices::run_scene_pass()
     state.time_scale = g_sim_scale;
     state.pal = state.game.clock.pal ? 1 : 0;
     state.update_first_actors(); // 0x00123270
-    const i32 run_state = i32(read_u32({g_510e58, 0x108}, 0x104)); // DAT_00510F5C, scene record +0x104.
+    const i32 run_state = i32(read_u32({g_scene_record, 0x108}, 0x104)); // DAT_00510F5C, scene record +0x104.
     if (0 < run_state && run_state < 3)
     {
         const std::function<void(u32, std::span<const u32>)> scare_message =
@@ -12421,7 +12421,7 @@ void SceneActorServices::run_scene_pass()
             state.clock, scare_message};
         tick_runtime_scene_scare_timers(scare); // 0x00123BA0
         update_effects(state.frame_effect_scratch); // 0x000ED480
-        advance_scene_gameplay_time(g_4312c8, state.clock, g_flags_ea9c); // 0x0012B1F0
+        advance_scene_gameplay_time(g_scene_times, state.clock, g_flags_ea9c); // 0x0012B1F0
     }
     update_sounds(); // 0x0012A150
     // 0x00115F70 over DAT_0050E450: each disposed control's object is destroyed and freed.
@@ -12553,7 +12553,7 @@ void SceneActorServices::start_markers()
         throw Error("scene markers are not loaded");
     }
     // DAT_00545C48/DAT_00545CCC (pair and group ids) are filled by script types 0x4E and 0x73 before startup.
-    const RuntimeSceneMarkerRandomizer randomizer{state.random, g_545cc8, g_545c48, g_545d1c, g_545ccc};
+    const RuntimeSceneMarkerRandomizer randomizer{state.random, g_marker_swap_count, g_marker_swap_ids, g_marker_group_count, g_marker_group_ids};
     // Host diagnostics: a failing handler names its marker kind and id.
     RuntimeSceneMarkerHandlers handlers = state.handlers;
 #if defined(GBTG_INSPECTOR_APP)
@@ -13368,7 +13368,7 @@ RuntimeBackgroundClothScene& SceneActorServices::State::background_cloth_scene()
             }
             unbound("0x000426F0 bound of an actor outside the scene");
         },
-        origin, g_4312cc,
+        origin, g_scene_hold_time,
         [this]() -> Vec3
         {
             if (display_view == nullptr)

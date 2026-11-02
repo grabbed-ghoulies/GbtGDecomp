@@ -86,11 +86,11 @@ bool occupancy_box_contains(const OccupancyRecord& record, const Vec3& point, fl
 // Xbox 0x00124860
 bool occupancy_region_contains(u32 region, const Vec3& point)
 {
-    if (g_512344 == nullptr)
+    if (g_occupancy_pool == nullptr)
     {
         return false;
     }
-    const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+    const auto& pool = *static_cast<const OccupancyPool*>(g_occupancy_pool);
     float distance = 0.f;
     for (const OccupancyRecord* record = pool.begin; record < pool.cursor; ++record)
     {
@@ -119,11 +119,11 @@ bool occupancy_region_contains(u32 region, const Vec3& point)
 const OccupancyRecord* find_occupancy_record(const Vec3& point, float initial_distance,
     u32 mask, const OccupancyRecord* excluded, i16 group)
 {
-    if (g_512344 == nullptr || (u32(g_512348) & mask) == 0)
+    if (g_occupancy_pool == nullptr || (u32(g_occupancy_mask) & mask) == 0)
     {
         return nullptr;
     }
-    const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+    const auto& pool = *static_cast<const OccupancyPool*>(g_occupancy_pool);
     const OccupancyRecord* record = pool.begin;
     float distance = initial_distance;
     do
@@ -162,7 +162,7 @@ const OccupancyRecord* find_occupancy_record(const Vec3& point, float initial_di
 // Xbox 0x001249B0
 void clear_occupancy_value_mask(u32 value, u32 mask)
 {
-    auto& pool = *static_cast<OccupancyPool*>(g_512344);
+    auto& pool = *static_cast<OccupancyPool*>(g_occupancy_pool);
     for (OccupancyRecord* entry = pool.begin; entry < pool.cursor; ++entry)
     {
         if (entry->value_0 == value)
@@ -170,10 +170,10 @@ void clear_occupancy_value_mask(u32 value, u32 mask)
             entry->mask &= ~mask;
         }
     }
-    g_512348 = 0;
+    g_occupancy_mask = 0;
     for (const OccupancyRecord* entry = pool.begin; entry < pool.cursor; ++entry)
     {
-        g_512348 = i32(u32(g_512348) | entry->mask);
+        g_occupancy_mask = i32(u32(g_occupancy_mask) | entry->mask);
     }
 }
 
@@ -181,22 +181,22 @@ void clear_occupancy_value_mask(u32 value, u32 mask)
 void clear_occupancy_record_mask(OccupancyRecord& record, u32 mask)
 {
     record.mask &= ~mask;
-    g_512348 = 0;
-    const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+    g_occupancy_mask = 0;
+    const auto& pool = *static_cast<const OccupancyPool*>(g_occupancy_pool);
     for (const OccupancyRecord* entry = pool.begin; entry < pool.cursor; ++entry)
     {
-        g_512348 = i32(u32(g_512348) | entry->mask);
+        g_occupancy_mask = i32(u32(g_occupancy_mask) | entry->mask);
     }
 }
 
 // Xbox 0x00124A10
 const OccupancyRecord* random_occupancy_record(u32 mask, u32& random)
 {
-    if (g_512344 == nullptr)
+    if (g_occupancy_pool == nullptr)
     {
         return nullptr;
     }
-    const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+    const auto& pool = *static_cast<const OccupancyPool*>(g_occupancy_pool);
     std::vector<const OccupancyRecord*> matches; // 0x000F72D0's four-byte vector, grown by 0x000662A0.
     for (const OccupancyRecord* record = pool.begin; record < pool.cursor; ++record)
     {

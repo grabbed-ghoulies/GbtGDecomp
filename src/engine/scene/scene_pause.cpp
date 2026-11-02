@@ -34,9 +34,9 @@
 
 namespace gbtg
 {
-extern i32 g_429bc0; // DAT_00429BC0, scene.cpp.
-extern u16 g_429bc4[0x80]; // DAT_00429BC4, scene.cpp.
-extern u16 g_4e19b4[0x40]; // DAT_004E19B4, scene.cpp.
+extern i32 g_frontend_next_row; // DAT_00429BC0, scene.cpp.
+extern u16 g_frontend_selected_game[0x80]; // DAT_00429BC4, scene.cpp.
+extern u16 g_challenge_game_name[0x40]; // DAT_004E19B4, scene.cpp.
 
 ScenePause g_scene_pause = []()
 {
@@ -214,13 +214,13 @@ void leave_to_gameselect(i32 reason)
 {
     char aid[0x80]{};
     std::strcpy(aid, "aid_script_ghoulies_gameselect_gameselect"); // 0x00322B8C
-    g_429bc0 = reason;
+    g_frontend_next_row = reason;
     size_t index = 0;
     do
     {
-        g_429bc4[index] = g_4e19b4[index]; // lstrcpyW (0x0014A961)
+        g_frontend_selected_game[index] = g_challenge_game_name[index]; // lstrcpyW (0x0014A961)
     }
-    while (g_4e19b4[index++] != 0);
+    while (g_challenge_game_name[index++] != 0);
     request_scene_aid(aid, 1); // 0x0011EB30
 }
 }
@@ -228,9 +228,9 @@ void leave_to_gameselect(i32 reason)
 // Xbox 0x0011EBA0
 void request_scene_resume(ScenePauseServices& s)
 {
-    if (g_510cec == 0)
+    if (g_pause_count == 0)
     {
-        s.queued_state = g_510ce8 != 0 ? 1 : 6; // DAT_00510F60
+        s.queued_state = g_scene_paused != 0 ? 1 : 6; // DAT_00510F60
     }
 }
 
@@ -340,10 +340,10 @@ void set_scene_pause_phase(i32 phase, ScenePauseServices& s)
     case 1:
         request_scene_resume(s); // 0x0011EBA0
         b.flags &= 0xFFFFFFDFu;
-        g_510ce8 = 0;
+        g_scene_paused = 0;
         if (p.book == nullptr)
         {
-            g_510ce8 = 0;
+            g_scene_paused = 0;
             return;
         }
         release_transition_book(p.book, b); // 0x00048860
@@ -353,9 +353,9 @@ void set_scene_pause_phase(i32 phase, ScenePauseServices& s)
     {
         const float x = s.hud.center_x; // DAT_00509730
         const float y = s.hud.center_y; // DAT_00509734
-        ++g_4dea24;
+        ++g_transition_pause_count;
         p.e38 = 0.f;
-        g_510e34 = 1;
+        g_pause_holds_transition = 1;
         p.input = create_runtime_selected_input(*b.input_release); // 0x00107D60, ESI DAT_00510CFC
         p.input_address = static_cast<u32>(reinterpret_cast<std::uintptr_t>(p.input.data()));
         (*b.input_addresses)[p.input_address] = p.input;
@@ -383,7 +383,7 @@ void set_scene_pause_phase(i32 phase, ScenePauseServices& s)
         const Vec3 low{p.volume_low.x, p.volume_low.y - real(s, 0x0032B64C), p.volume_low.z};
         initialize_background_volume(low, p.volume_high); // 0x00118AE0, ECX low, EAX DAT_00510E18
         b.flags |= 0x20u;
-        g_510ce8 = 1;
+        g_scene_paused = 1;
         g_507df4 = 1;
         p.chapter = s.chapter(s.scene); // 0x0004B4D0, EAX DAT_00510E58
         std::array<char16_t, 0x100> line{};
@@ -532,10 +532,10 @@ void leave_scene_pause(ScenePauseServices& s)
         release_transition_book(p.book, b); // 0x00048860
         p.book = nullptr;
     }
-    if (g_510ce8 != 0)
+    if (g_scene_paused != 0)
     {
         b.flags &= 0xFFFFFFDFu;
-        g_510ce8 = 0;
+        g_scene_paused = 0;
     }
     if (read_u32(p.input, 4) != 0)
     {
@@ -566,10 +566,10 @@ void leave_scene_pause(ScenePauseServices& s)
         release_animation_resource(b.resources, p.icon); // 0x00035C00
         p.icon = {};
     }
-    if (g_510e34 != 0)
+    if (g_pause_holds_transition != 0)
     {
-        --g_4dea24;
-        g_510e34 = 0;
+        --g_transition_pause_count;
+        g_pause_holds_transition = 0;
     }
     // The pause ditty's bank (0x00038970 inlined).
     AudioTrackedBank& bank = *find_tracked_audio_bank(image(s).string(0x0030F898), s.banks); // 0x00038460
@@ -865,10 +865,10 @@ void reset_scene_pause(ScenePauseServices& s)
         p.book = nullptr;
     }
     p.phase = 1;
-    if (g_510e34 != 0)
+    if (g_pause_holds_transition != 0)
     {
-        --g_4dea24;
-        g_510e34 = 0;
+        --g_transition_pause_count;
+        g_pause_holds_transition = 0;
     }
     if (p.icon.data() != nullptr)
     {

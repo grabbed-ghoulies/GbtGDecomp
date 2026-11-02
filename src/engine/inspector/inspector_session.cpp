@@ -44,12 +44,12 @@ void cancel_inspection_load(Game& game)
     ambient.vary_enabled = 0;
     ambient.phase_enabled = 0;
     // Preserve the host refresh-object binding at +0x230, installed at boot.
-    std::memset(g_510e58, 0, 0x230);
+    std::memset(g_scene_record, 0, 0x230);
     g_scene_transition = {};
-    g_50484c = 0;
-    g_510cec = 0;
-    g_4dea24 = 0;
-    g_510ce8 = 0;
+    g_transition_guard = 0;
+    g_pause_count = 0;
+    g_transition_pause_count = 0;
+    g_scene_paused = 0;
 }
 
 template<class T>

@@ -117,25 +117,25 @@ ScenePauseServices& scene_pause_services(Game& g)
 
 // DAT_00429BC0, then the wide buffer at DAT_00429BC4 (0x100 bytes, next
 // symbol DAT_00429CC4).
-i32 g_429bc0 = 0;
+i32 g_frontend_next_row = 0;
 
-u16 g_429bc4[0x80]{};
+u16 g_frontend_selected_game[0x80]{};
 
 // DAT_004E19B4. Wide source of that copy. 0x80 bytes, next symbol DAT_004E1A34.
-u16 g_4e19b4[0x40]{};
+u16 g_challenge_game_name[0x40]{};
 
 // DAT_00510E58. +0x80 is DAT_00510ED8. +0x100 is DAT_00510F58.
 // +0x108 is DAT_00510F60. +0x124 is DAT_00510F7C. +0x128 is DAT_00510F80.
 // The Xbox dword at +0x230 is the object 0x00109470 takes in EAX.
-// DAT_0051108C (g_51108c) is the next symbol, kept separate. The host
+// DAT_0051108C (g_marker_records) is the next symbol, kept separate. The host
 // pointer at +0x230 is wider than that Xbox dword.
-alignas(void*) u8 g_510e58[0x230 + sizeof(void*)]{};
+alignas(void*) u8 g_scene_record[0x230 + sizeof(void*)]{};
 
 // DAT_00510ED8. 0x80-byte aid. entity.cpp keeps a private copy of 0x0011EB30.
-char (&g_510ed8)[0x80] = *reinterpret_cast<char(*)[0x80]>(g_510e58 + 0x80);
+char (&g_scene_requested_aid)[0x80] = *reinterpret_cast<char(*)[0x80]>(g_scene_record + 0x80);
 
 // DAT_00510F58. Mode dword stored by that copy. Scene record +0x100.
-i32& g_510f58 = *reinterpret_cast<i32*>(g_510e58 + 0x100);
+i32& g_scene_request_mode = *reinterpret_cast<i32*>(g_scene_record + 0x100);
 
 
 // DAT_00430D0C. Cleared with DAT_00430D08 and DAT_00430D10.
@@ -160,12 +160,12 @@ i32 g_script_30d98 = 0;
 void request_scene_aid(const char* src, i32 mode)
 {
     u32 head = 0;
-    std::memcpy(&head, g_510ed8, sizeof(head));
+    std::memcpy(&head, g_scene_requested_aid, sizeof(head));
     if (head == kAidPrefixEd8)
     {
-        g_510ed8[0] = 0;
+        g_scene_requested_aid[0] = 0;
     }
-    char* dest = g_510ed8;
+    char* dest = g_scene_requested_aid;
     for (;;)
     {
         const char unit = *src;
@@ -187,43 +187,43 @@ void request_scene_aid(const char* src, i32 mode)
     }
     g_script_30d94 = 0;
     g_script_30d98 = 0;
-    g_510f58 = mode;
+    g_scene_request_mode = mode;
 }
 
 
 // DAT_004E02E8. Cleared when the counter at scene+0x22C lands on 2.
 // audio.cpp keeps a private copy of this address.
-i32 g_4e02e8 = 0;
+i32 g_stream_slot_gate = 0;
 
 // DAT_00506604. 0x0011E4C0 stores 0 when 0x000341E0 returns 0.
-i32 g_506604 = 0;
+i32 g_file_utility_pending = 0;
 
 // DAT_004312E4. Fractional part after the 300x step is truncated into
 // DAT_004312E0.
-float g_4312e4 = 0.f;
+float g_motion_step_fraction = 0.f;
 
-i32 g_4312e0 = 0;
+i32 g_motion_steps = 0;
 
 // DAT_0050E438. The global names the link at object+8. Next is the pointer
 // at +4. vtable +0x10 is called with the object. The port keeps the method
 // and the next pointer on the node the global names.
-SceneTickNode* g_50e438 = nullptr;
+SceneTickNode* g_scene_control_nodes = nullptr;
 
 
 // DAT_0050E0EC. One-based index into the span at DAT_0050E0E8.
-i32 g_50e0ec = 0;
+i32 g_input_selected = 0;
 
 // DAT_004219EC, DAT_004219F4, DAT_00421A0C, DAT_00421A14, DAT_00421A1C.
 // Image dwords. 0x00038110 loads each as the first argument of 0x0015C1C0.
-i32 g_4219ec = 0;
+i32 g_scene_fade_audio_category_1 = 0; // DAT_004219EC
 
-i32 g_4219f4 = 1;
+i32 g_scene_fade_audio_category_2 = 1; // DAT_004219F4
 
-i32 g_421a0c = 5;
+i32 g_scene_fade_audio_category_3 = 5; // DAT_00421A0C
 
-i32 g_421a14 = 6;
+i32 g_scene_fade_audio_category_4 = 6; // DAT_00421A14
 
-i32 g_421a1c = 2;
+i32 g_scene_fade_audio_category_5 = 2; // DAT_00421A1C
 
 
 // Xbox 0x00038110. XMM0 is multiplied by DAT_0032B1F0 (127) and saved.
@@ -260,11 +260,11 @@ void scene_set_audio_level(float level)
         }
         set_audio_category_volume(listener, u32(category), bits); // 0x0015C1C0
     };
-    take(g_4219ec);
-    take(g_4219f4);
-    take(g_421a0c);
-    take(g_421a14);
-    take(g_421a1c);
+    take(g_scene_fade_audio_category_1);
+    take(g_scene_fade_audio_category_2);
+    take(g_scene_fade_audio_category_3);
+    take(g_scene_fade_audio_category_4);
+    take(g_scene_fade_audio_category_5);
 }
 
 
@@ -320,7 +320,7 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         *reinterpret_cast<i32*>(scene + 0x22c) = counter;
         if (counter == 2)
         {
-            g_4e02e8 = 0;
+            g_stream_slot_gate = 0;
         }
         float faded = 1.f - static_cast<float>(counter) * 0.5f;
         if (faded < 0.f)
@@ -343,9 +343,9 @@ void scene_tick_pause_counter(Game& g, u8* scene)
             g_sim_freeze = 0.f;
         }
     }
-    g_4312e4 = scaled * 300.f + g_4312e4;
-    g_4312e0 = static_cast<i32>(g_4312e4);
-    g_4312e4 = g_4312e4 - static_cast<float>(g_4312e0);
+    g_motion_step_fraction = scaled * 300.f + g_motion_step_fraction;
+    g_motion_steps = static_cast<i32>(g_motion_step_fraction);
+    g_motion_step_fraction = g_motion_step_fraction - static_cast<float>(g_motion_steps);
 
     // 0x0004EBD0 over the native scene's cutscene stack, then the doors (0x0005AA90).
     if (auto* cutscenes = find_scene_cutscene_runtime(g); cutscenes != nullptr)
@@ -357,7 +357,7 @@ void scene_tick_pause_counter(Game& g, u8* scene)
         update_runtime_doors(*g_runtime_doors, g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f);
     }
     tick_scene_dialogue(g); // Xbox 0x00057E60
-    if (g_545b38 == 3)
+    if (g_intro_notice_pending == 3)
     {
         notice_scene_actors(g).finish_intro_notice(); // 0x0013FFD0
     }
@@ -390,7 +390,7 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     {
         g.factory_scene->start_actors(g).update_ghoul_intro(); // 0x000F4560
     }
-    if (g_545b38 != 0)
+    if (g_intro_notice_pending != 0)
     {
         notice_scene_actors(g).tick_intro_notice(); // 0x0013FD60
     }
@@ -438,10 +438,10 @@ void scene_tick_pause_counter(Game& g, u8* scene)
     }
 
     if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1
-        && g.factory_scene->start_actors(g).start_pressed() && g_510cec == 0) // 0x001083F0
+        && g.factory_scene->start_actors(g).start_pressed() && g_pause_count == 0) // 0x001083F0
     {
         // DAT_00510F60: 1 with DAT_00510CE8 set, else 6.
-        const i32 request = g_510ce8 != 0 ? 1 : 6;
+        const i32 request = g_scene_paused != 0 ? 1 : 6;
         std::memcpy(scene + 0x108, &request, 4);
     }
 }
@@ -621,7 +621,7 @@ void scene_disable_overlays()
 
 
 // DAT_0051065C. 0x0011C5A0 holds 1 across the teardown, then stores 0.
-i32 g_51065c = 0;
+i32 g_scene_teardown_active = 0;
 
 // DAT_0050D770, +4, +8, +0xC, and the count at DAT_0050D780.
 // entity.cpp keeps a private copy of this table.
@@ -655,34 +655,26 @@ float g_50ea90 = 0.f;
 
 i32 g_50ea94 = 0;
 
-i32 g_504330 = 0;
- // DAT_00504330
+i32 g_504330 = 0; // DAT_00504330
 // DAT_00512344 is the block 0x000663E0 releases. DAT_00512348 is cleared with it.
-void* g_512344 = nullptr;
+void* g_occupancy_pool = nullptr;
 
-i32 g_512348 = 0;
+i32 g_occupancy_mask = 0;
 
-i32 g_50e1c4 = 0;
- // DAT_0050E1C4
-std::array<u8, 8 * 0xC> g_50e1c8{}; // DAT_0050E1C8: the 0x0010F6C0 class ranges, up to DAT_0050E228.
-i32 g_50e228 = 0;
- // DAT_0050E228
+i32 g_strategy_class_range_count = 0; // DAT_0050E1C4
+std::array<u8, 8 * 0xC> g_strategy_class_ranges{}; // DAT_0050E1C8: the 0x0010F6C0 class ranges, up to DAT_0050E228.
+i32 g_strategy_class_excluded_count = 0; // DAT_0050E228
  // DAT_004DEA5C
 // DAT_0051108C is the block 0x000663E0 releases.
-void* g_51108c = nullptr;
+void* g_marker_records = nullptr;
 
-alignas(4) u8 g_4312c8[0x14]{};
+alignas(4) u8 g_scene_times[0x14]{};
 // DAT_004312C8..DAT_004312D8, the times 0x0012B1F0 advances.
-float& g_4312cc = *reinterpret_cast<float*>(g_4312c8 + 4);
- // DAT_004312CC
-float& g_4312d0 = *reinterpret_cast<float*>(g_4312c8 + 8);
- // DAT_004312D0
-i32& g_4312d4 = *reinterpret_cast<i32*>(g_4312c8 + 0xC);
-     // DAT_004312D4
-i32& g_4312d8 = *reinterpret_cast<i32*>(g_4312c8 + 0x10);
-     // DAT_004312D8
-i32 g_511a10 = 0;
-     // DAT_00511A10
+float& g_scene_hold_time = *reinterpret_cast<float*>(g_scene_times + 4); // DAT_004312CC
+float& g_scene_gameplay_time = *reinterpret_cast<float*>(g_scene_times + 8); // DAT_004312D0
+i32& g_scene_gameplay_mark = *reinterpret_cast<i32*>(g_scene_times + 0xC); // DAT_004312D4
+i32& g_scene_gameplay_tick = *reinterpret_cast<i32*>(g_scene_times + 0x10); // DAT_004312D8
+i32 g_511a10 = 0; // DAT_00511A10
 // Object pointer at +0 of each DAT_0050EAA0 record. Stride 0x2C, eight
 // records. DAT_0050EC00 is the count. entity.cpp keeps a private copy.
 void* g_50eaa0 = nullptr;
@@ -712,7 +704,7 @@ void* g_50ebd4 = nullptr;
 void scene_teardown(Game& g, u8* scene)
 {
     // Xbox 0x0011C5A0
-    g_51065c = 1;
+    g_scene_teardown_active = 1;
     if (RuntimeDialogueActivationContext& dialogue = scene_pause_services(g).dialogue; dialogue.state.mode != 0)
     {
         set_runtime_dialogue_mode(0, dialogue); // DAT_004EE1EC, 0x000584D0
@@ -769,41 +761,41 @@ void scene_teardown(Game& g, u8* scene)
     }
     g.factory_scene->actor_services->set_reverb_preset(0xD); // 0x0003A1F0, ESI 0xD
     reset_ambient_scene(native_audio_runtime().streams.voices); // 0x00118560
-    if (g_512344 != nullptr)
+    if (g_occupancy_pool != nullptr)
     {
-        engine_heap_free(g_512344);
-        g_512344 = nullptr;
+        engine_heap_free(g_occupancy_pool);
+        g_occupancy_pool = nullptr;
     }
-    g_512348 = 0;
+    g_occupancy_mask = 0;
     g_flag_5d20 = 1; // DAT_00545D20: a player who starts in an exit volume must leave it first.
     g_flag_5d28 = 0; // DAT_00545D28.
     g.factory_scene->actor_services->clear_script_tag_tables(); // DAT_0050E148, DAT_0050E16C, DAT_0050E1B0
-    g_50e1c4 = 0;
-    g_50e228 = 0;
+    g_strategy_class_range_count = 0;
+    g_strategy_class_excluded_count = 0;
     // 0x000F44B0 (the ghoul intro) runs in SceneFactoryRuntime::end_scene.
-    g_545b38 = 0;
-    g_545b3c = 0;
-    g_545b44[0] = 0;
-    g_545bc4[0] = 0;
+    g_intro_notice_pending = 0;
+    g_intro_notice_paused = 0;
+    g_intro_notice_name[0] = 0;
+    g_intro_notice_second_name[0] = 0;
     g.factory_scene->actor_services->clear_post_models(); // 0x0012A9B0
     effects_clear_voice_slots();
     // 0x00132100 (the scoreboard) runs in SceneFactoryRuntime::end_scene.
     g.factory_scene->actor_services->release_actor_snapshots(); // 0x001163D0
     release_actor_camera_shakes(g.native_resources->registry); // 0x000FAE40
     entity_release_aid_records();
-    if (g_51108c != nullptr)
+    if (g_marker_records != nullptr)
     {
-        engine_heap_free(g_51108c);
-        g_51108c = nullptr;
+        engine_heap_free(g_marker_records);
+        g_marker_records = nullptr;
     }
     // Xbox 0x00117330
     release_script_event_steps(); // 0x000D0490
     g_flags_ea9c = g_flags_ea9c & 0xFF7FFFFFu;
-    g.factory_scene->actor_services->add_profile_scene_times(g_script_30d0c == 1, g_4312d0); // 0x000F2BE0
+    g.factory_scene->actor_services->add_profile_scene_times(g_script_30d0c == 1, g_scene_gameplay_time); // 0x000F2BE0
     g.factory_scene->actor_services->release_challenge_frontend(); // 0x00049FF0
     if ((g_scene_flags->bytes[0] & 8) != 0 || (g_flags_ea9c & 0x200000u) != 0)
     {
-        g_game_progress.real_1744 = g_4312d0 + g_game_progress.real_1744; // DAT_004E1744
+        g_game_progress.real_1744 = g_scene_gameplay_time + g_game_progress.real_1744; // DAT_004E1744
     }
     std::vector<GhoulyControllerEntry>().swap(g_ghouly_controllers); // DAT_00512B74, 0x000663E0
     release_scene_script_title(g); // 0x001289A0
@@ -818,10 +810,10 @@ void scene_teardown(Game& g, u8* scene)
     // DAT_0050E760 is the script AID 0x00117000 acquires; the host parses the script from the AID store
     // (load_scene_contents) and holds no registry reference for 0x00035C00 to release.
     restore_script_story_bits(g_script_30d0c == 1); // 0x001272B0, EAX 1 when DAT_00430D0C is 1
-    g_4312cc = 0.f;
-    g_4312d0 = 0.f;
-    g_4312d8 = 0;
-    g_4312d4 = 0;
+    g_scene_hold_time = 0.f;
+    g_scene_gameplay_time = 0.f;
+    g_scene_gameplay_tick = 0;
+    g_scene_gameplay_mark = 0;
     g_sim_scale = 1.f;
     release_actor_camera_effects(); // 0x00048F10
     g.factory_scene->actor_services->release_scene_dialogue(); // 0x00057DC0
@@ -842,7 +834,7 @@ void scene_teardown(Game& g, u8* scene)
     g.factory_scene->actor_services->flush_model_releases(); // 0x000F97F0
     // 0x00035D30 / 0x00036180 (unload what nothing references) run in load_scene_contents; 0x00034880 frees the
     // bundle pools, which the host AidStore keeps.
-    g_51065c = 0;
+    g_scene_teardown_active = 0;
 }
 
 
@@ -872,12 +864,12 @@ void scene_set_state(Game& g, u8* scene, i32 next)
         {
         case 1:
         case 2:
-            g_50e7a0 = g_50e7a0 + 1;
+            g_scene_active_count = g_scene_active_count + 1;
             scene_enable_overlays();
             break;
         case 4:
-            g_510cec = g_510cec + -1;
-            g_4dea24 = g_4dea24 + -1;
+            g_pause_count = g_pause_count + -1;
+            g_transition_pause_count = g_transition_pause_count + -1;
             break;
         case 5:
             end_scene_transition(); // 0x0012C4E0
@@ -890,10 +882,10 @@ void scene_set_state(Game& g, u8* scene, i32 next)
         {
         case 1:
         case 2:
-            g_50e7a0 = g_50e7a0 + -1;
-            if (g_50e7a0 < 0)
+            g_scene_active_count = g_scene_active_count + -1;
+            if (g_scene_active_count < 0)
             {
-                g_50e7a0 = 0;
+                g_scene_active_count = 0;
             }
             scene_disable_overlays();
             *reinterpret_cast<i32*>(scene + 0x104) = next;
@@ -906,8 +898,8 @@ void scene_set_state(Game& g, u8* scene, i32 next)
             return;
         case 4:
             scene_teardown(g, scene);
-            g_510cec = g_510cec + 1;
-            g_4dea24 = g_4dea24 + 1;
+            g_pause_count = g_pause_count + 1;
+            g_transition_pause_count = g_transition_pause_count + 1;
             {
                 char* pending = reinterpret_cast<char*>(scene + 0x80);
                 char* cursor = pending;
@@ -964,12 +956,12 @@ void script_pump(Game& g)
     g_transition_game = &g;
     g_sim_dt = g.clock.dt;
     sync_scene_dialogue_clock(g); // Host mirrors of the frame globals the transition's title reads.
-    u8* scene = g_510e58;
+    u8* scene = g_scene_record;
     if (*reinterpret_cast<i32*>(scene + 0x110) == 0 &&
         *reinterpret_cast<u32*>(scene + 0x80) == kAidPrefixEd8)
     {
         scene_set_state(g, scene, 3);
-        if (g_54632c != 1 && g_54632c != 2)
+        if (g_transition_phase != 1 && g_transition_phase != 2)
         {
             begin_scene_transition(reinterpret_cast<const char*>(scene + 0x80)); // 0x0012C5D0
         }
@@ -977,7 +969,7 @@ void script_pump(Game& g)
     const i32 state = *reinterpret_cast<i32*>(scene + 0x104);
     const i32 queued = *reinterpret_cast<i32*>(scene + 0x108);
     *reinterpret_cast<i32*>(scene + 0x10c) = state;
-    if (queued != state && *reinterpret_cast<i32*>(scene + 0x110) == 0 && g_510ce8 == 0)
+    if (queued != state && *reinterpret_cast<i32*>(scene + 0x110) == 0 && g_scene_paused == 0)
     {
         scene_set_state(g, scene, queued);
     }
@@ -1012,11 +1004,11 @@ void script_pump(Game& g)
         tick_scene_transition(); // 0x0012C340
         return;
     case 4:
-        g_4e02e8 = 1;
+        g_stream_slot_gate = 1;
         if (scene_check_pending_records() == 0)
         {
-            g_506604 = 0;
-            if (g_54632c == 2)
+            g_file_utility_pending = 0;
+            if (g_transition_phase == 2)
             {
                 leave_scene_transition(); // 0x0012C770
                 *reinterpret_cast<i32*>(scene + 0x110) = 0;
@@ -1028,7 +1020,7 @@ void script_pump(Game& g)
         }
         break;
     case 5:
-        if (g_54632c == 0)
+        if (g_transition_phase == 0)
         {
             *reinterpret_cast<i32*>(scene + 0x108) = *reinterpret_cast<i32*>(scene + 0x100);
             tick_scene_transition(); // 0x0012C340

@@ -119,6 +119,13 @@ copies of a repeated record (0x734, 0xA38, …) show up as their own rows, which
 declare. It misses writes through `memcpy(x.data() + 0x..)` and file-local wrappers with other names, so grep
 for the type's offsets too.
 
+## Global names
+
+Retail globals are named for what they hold, with the address beside the declaration
+(`i32 g_pause_count = 0; // DAT_00510CEC`). `tools/layout/address_names.py` fails on a `g_<hex address>` name. The
+few that keep their address are listed in the script with the reason. Most of them are a second host variable for
+a retail address that another named global already holds, and need merging before they can be renamed.
+
 ## Per-type session brief
 
 For one object type:

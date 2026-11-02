@@ -180,8 +180,8 @@
 
 namespace gbtg
 {
-extern i32& g_546328;
-extern i32& g_54632c;
+extern i32& g_transition_row;
+extern i32& g_transition_phase;
 extern i32 g_flag_2474;
 extern i32 g_draw_e1ec;
 extern i32 g_script_30d0c;
@@ -2331,10 +2331,10 @@ void check_actor_occupancy_and_paths()
     records[2].extent_z = 2.f;
     records[3] = records[2];
     OccupancyPool pool{0x38, 4, records.data(), records.data() + 3, records.data() + 4};
-    void* saved_pool = g_512344;
-    const i32 saved_mask = g_512348;
-    g_512344 = &pool;
-    g_512348 = 4;
+    void* saved_pool = g_occupancy_pool;
+    const i32 saved_mask = g_occupancy_mask;
+    g_occupancy_pool = &pool;
+    g_occupancy_mask = 4;
     if (find_occupancy_record(Vec3{}, 0.f, 4, nullptr, 7) != &records[1] ||
         find_occupancy_record(Vec3{}, 0.f, 4, &records[1], 7) != &records[2] ||
         find_occupancy_record(Vec3{}, 0.f, 4, nullptr, 9) != &records[2] ||
@@ -2481,8 +2481,8 @@ void check_actor_occupancy_and_paths()
         g_nav_min_y[index] = saved_min[index];
         g_nav_max_y[index] = saved_max[index];
     }
-    g_512344 = saved_pool;
-    g_512348 = saved_mask;
+    g_occupancy_pool = saved_pool;
+    g_occupancy_mask = saved_mask;
 }
 
 void check_native_audio_preparation(const char* directory)
@@ -8300,9 +8300,9 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
                     }
                 }
             }
-            if (!goal && gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+            if (!goal && gbtg::g_gate_2518 != 0 && gbtg::g_occupancy_pool != nullptr)
             {
-                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                 for (const auto* record = pool.begin; record < pool.cursor; ++record)
                 {
                     if ((record->mask & 1) != 0)
@@ -8686,9 +8686,9 @@ void play_scene4_run(gbtg::Game& game, const std::string& label, bool drive)
                           << ", the key's part " << std::sqrt(dx * dx + dz * dz) << " away\n";
             }
         }
-        else if (drive && !page && cooper && key_out >= 0 && !key_active && gbtg::g_512344 != nullptr)
+        else if (drive && !page && cooper && key_out >= 0 && !key_active && gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             for (const auto* record = pool.begin; record < pool.cursor; ++record)
             {
                 if ((record->mask & 1) != 0)
@@ -8849,9 +8849,9 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
             // Stage 2's skeleton waves keep coming while its section holds at its end with the exit open
             // (g_gate_2518): leave through the exit volume, by a waypoint in front of it, rather than fight on.
             std::optional<gbtg::Vec3> exit;
-            if (gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+            if (gbtg::g_gate_2518 != 0 && gbtg::g_occupancy_pool != nullptr)
             {
-                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                 for (const auto* record = pool.begin; record < pool.cursor; ++record)
                 {
                     if ((record->mask & 1) != 0)
@@ -8957,9 +8957,9 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                 goal = cue;
                 grab = cue_distance < 12.f * 12.f;
             }
-            else if (gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+            else if (gbtg::g_gate_2518 != 0 && gbtg::g_occupancy_pool != nullptr)
             {
-                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                 for (const auto* record = pool.begin; record < pool.cursor; ++record)
                 {
                     if ((record->mask & 1) != 0)
@@ -9223,9 +9223,9 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
         // A section held at its end (type 0xF, DAT_00512518) waits for the player to leave: walk into the exit volume
         // (mask 1), lined up with it across x first, rather than fight the generator's spiders on.
         std::optional<gbtg::Vec3> exit;
-        if (cooper && title == "Ghouly Generator Introduction" && gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+        if (cooper && title == "Ghouly Generator Introduction" && gbtg::g_gate_2518 != 0 && gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             for (const auto* record = pool.begin; record < pool.cursor; ++record)
             {
                 if ((record->mask & 1) != 0)
@@ -9367,9 +9367,9 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
     std::cout << label << ": pages " << pages << ", title " << title << "\n";
     if (moved_on < 0)
     {
-        if (gbtg::g_512344 != nullptr)
+        if (gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             for (const auto* record = pool.begin; record < pool.cursor; ++record)
             {
                 std::cout << label << " volume mask " << int(record->mask) << " value " << record->value_0 << " at "
@@ -9533,9 +9533,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         std::optional<gbtg::Vec3> goal;
         std::string goal_name;
         bool to_exit = false; // The live region is off the navigation grid.
-        if (cooper && !page && gbtg::g_512344 != nullptr)
+        if (cooper && !page && gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             // With `doors_first`, a live PlayerApproachesDoor (condition 6, its +8 word the door) sends Cooper to the
             // door's actor (its clip's first track, 0x0005BEC0) before any region.
             for (const auto& condition : gbtg::g_script_conds)
@@ -10385,10 +10385,10 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             if (frame == 0)
             {
                 log_scene_objects(game, label, frame);
-                if (gbtg::g_512344 != nullptr)
+                if (gbtg::g_occupancy_pool != nullptr)
                 {
                     // The occupancy records (DAT_00512344): the regions PlayerEntersRegion names and the exit volume.
-                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                     for (const auto* record = pool.begin; record < pool.cursor; ++record)
                     {
                         std::cout << label << " frame 0: region " << record->value_0 << " mask " << record->mask
@@ -10415,9 +10415,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     std::cout << label << ": pages " << pages << ", title " << title << "\n";
     if (moved_on < 0)
     {
-        if (gbtg::g_512344 != nullptr)
+        if (gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             for (const auto* record = pool.begin; record < pool.cursor; ++record)
             {
                 std::cout << label << " volume mask " << int(record->mask) << " value " << record->value_0 << " at "
@@ -10507,7 +10507,7 @@ void play_pause_run(gbtg::Game& game)
     auto& actors = game.factory_scene->start_actors(game);
     const auto scene_state = []()
     {
-        return gbtg::read_u32({gbtg::g_510e58, 0x108}, 0x104); // DAT_00510F5C
+        return gbtg::read_u32({gbtg::g_scene_record, 0x108}, 0x104); // DAT_00510F5C
     };
     int cooper_frame = -1;
     int free_frame = -1;
@@ -10544,7 +10544,7 @@ void play_pause_run(gbtg::Game& game)
             }
         }
         // The walk-in holds DAT_00510CEC until Free Play, and the scene tick ignores Start while it is held.
-        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_510cec == 0)
+        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_pause_count == 0)
         {
             free_frame = frame;
             std::cout << "pause frame " << frame << ": nothing holds the scene (DAT_00510CEC 0)\n";
@@ -10763,7 +10763,7 @@ void play_pause_rules_run(gbtg::Game& game)
             reopened_frame = frame;
             std::cout << "pause-rules frame " << frame << ": the rules closed and the book holds open\n";
         }
-        if (reopened_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_510e58, 0x108}, 0x104) == 1)
+        if (reopened_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_scene_record, 0x108}, 0x104) == 1)
         {
             resumed_frame = frame;
         }
@@ -10813,7 +10813,7 @@ void play_pause_map_run(gbtg::Game& game)
                 }
             }
         }
-        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_510cec == 0)
+        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_pause_count == 0)
         {
             free_frame = frame;
         }
@@ -10871,7 +10871,7 @@ void play_pause_map_run(gbtg::Game& game)
             std::cout << "pause-map frame " << frame << ": back from the map, prompt row "
                       << gbtg::g_scene_pause.prompt << "\n";
         }
-        if (returned_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_510e58, 0x108}, 0x104) == 1)
+        if (returned_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_scene_record, 0x108}, 0x104) == 1)
         {
             resumed_frame = frame;
         }
@@ -10917,7 +10917,7 @@ void play_pause_quit_run(gbtg::Game& game)
                 }
             }
         }
-        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_510cec == 0)
+        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_pause_count == 0)
         {
             free_frame = frame;
             std::cout << "pause-quit frame " << frame << ": nothing holds the scene\n";
@@ -11165,7 +11165,7 @@ void start_saved_game(gbtg::Game& game, const std::string& label)
         }
         gbtg::InputState input;
         input.start = frame == 120;
-        if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+        if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
         {
             ready = frame;
             std::cout << label << ": game select ready at frame " << frame << "\n";
@@ -13592,11 +13592,11 @@ int main(int argc, char** argv)
                 // The centre of the first region record named by a live PlayerEntersRegion condition.
                 const auto region_goal = [&]() -> std::optional<gbtg::Vec3>
                 {
-                    if (gbtg::g_512344 == nullptr)
+                    if (gbtg::g_occupancy_pool == nullptr)
                     {
                         return std::nullopt;
                     }
-                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                     for (const auto& condition : gbtg::g_script_conds)
                     {
                         if (gbtg::cond_u32(condition, 0) != 8)
@@ -14392,7 +14392,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -14568,7 +14568,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -14981,7 +14981,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -15129,7 +15129,7 @@ int main(int argc, char** argv)
                     capture_as("stream_wait");
                 }
                 if (left_at >= 0 && returned_at < 0 && game.scene_script.name == "aid_script_ghoulies_gameselect_gameselect"
-                    && gbtg::g_54632c == 0)
+                    && gbtg::g_transition_phase == 0)
                 {
                     returned_at = frame;
                     std::cout << "back in game select at frame " << frame << "\n";
@@ -15183,7 +15183,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -15265,7 +15265,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -15348,7 +15348,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -15457,7 +15457,7 @@ int main(int argc, char** argv)
                 gbtg::InputState input;
                 input.start = frame == 120;
                 if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos
-                    && gbtg::g_54632c == 0)
+                    && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                     std::cout << "game select ready at frame " << frame << "\n";
@@ -15668,7 +15668,7 @@ int main(int argc, char** argv)
                         visited.push_back(game.scene_script.name);
                         std::cout << "replay run-on frame " << frame << ": scene " << game.scene_script.name << "\n";
                     }
-                    const bool running = gbtg::g_54632c == 0;
+                    const bool running = gbtg::g_transition_phase == 0;
                     if (game.scene_script.name == held[held.size() - 2] && running && played < 0)
                     {
                         played = frame;
@@ -15858,7 +15858,7 @@ int main(int argc, char** argv)
                 }
                 auto* slots = native_slot_select();
                 if (game.scene_script.name.find("gameselect") != std::string::npos && slots != nullptr
-                    && gbtg::g_54632c == 0)
+                    && gbtg::g_transition_phase == 0)
                 {
                     // Let the slot prompts come up, then press Right and give its callback (0x000E0210) time.
                     const auto tick = [&game](const gbtg::InputState& state, int frames)
@@ -15921,9 +15921,9 @@ int main(int argc, char** argv)
             game.tick(1.f / 60.f, input);
             gbtg::gfx_end_frame();
             saw_intro = saw_intro || game.scene_script.name.find("scene0_1book") != std::string::npos;
-            if (gbtg::g_546328 == 15 && (gbtg::g_54632c == 1 || gbtg::g_54632c == 3))
+            if (gbtg::g_transition_row == 15 && (gbtg::g_transition_phase == 1 || gbtg::g_transition_phase == 3))
             {
-                int& frames = gbtg::g_54632c == 1 ? goop_enter_frames : goop_exit_frames;
+                int& frames = gbtg::g_transition_phase == 1 ? goop_enter_frames : goop_exit_frames;
                 ++frames;
                 if (frames == 30)
                 {
@@ -15932,7 +15932,7 @@ int main(int argc, char** argv)
                     {
                         throw gbtg::Error("goop transition readback failed");
                     }
-                    gbtg::write_bmp(gbtg::g_54632c == 1 ? "cache/goop_enter_check.bmp" :
+                    gbtg::write_bmp(gbtg::g_transition_phase == 1 ? "cache/goop_enter_check.bmp" :
                                                                          "cache/goop_exit_check.bmp", image);
                 }
                 if (frames == 5 || frames == 15 || frames == 60)
@@ -15940,12 +15940,12 @@ int main(int argc, char** argv)
                     gbtg::RgbaImage image;
                     if (gbtg::gfx_readback(image))
                     {
-                        gbtg::write_bmp(std::string("cache/transition_goop_") + (gbtg::g_54632c == 1 ? "enter_" : "exit_")
+                        gbtg::write_bmp(std::string("cache/transition_goop_") + (gbtg::g_transition_phase == 1 ? "enter_" : "exit_")
                             + std::to_string(frames) + ".bmp", image);
                     }
                 }
             }
-            if (gbtg::g_546328 == 8 && gbtg::g_54632c != 0)
+            if (gbtg::g_transition_row == 8 && gbtg::g_transition_phase != 0)
             {
                 if (!saw_intro)
                 {
@@ -15953,8 +15953,8 @@ int main(int argc, char** argv)
                 }
                 saw_map = true;
                 ++map_frames;
-                saw_load_release = saw_load_release || gbtg::g_54632c == 2;
-                saw_close = saw_close || gbtg::g_54632c == 3;
+                saw_load_release = saw_load_release || gbtg::g_transition_phase == 2;
+                saw_close = saw_close || gbtg::g_transition_phase == 3;
                 if (map_frames == 5 || map_frames == 30 || map_frames == 90 || map_frames == 150 || map_frames == 270
                     || map_frames == 330 || map_frames == 400)
                 {
@@ -15982,13 +15982,13 @@ int main(int argc, char** argv)
                     throw gbtg::Error("next story started before the map load barrier");
                 }
                 saw_next = true;
-                if (gbtg::g_54632c == 0 && story->instances[size_t(story->index)]->time > 1.f)
+                if (gbtg::g_transition_phase == 0 && story->instances[size_t(story->index)]->time > 1.f)
                 {
                     break;
                 }
             }
         }
-        if (!saw_intro || !saw_map || !saw_load_release || !saw_close || !saw_next || gbtg::g_54632c != 0)
+        if (!saw_intro || !saw_map || !saw_load_release || !saw_close || !saw_next || gbtg::g_transition_phase != 0)
         {
             throw gbtg::Error("intro -> map -> next story did not complete");
         }
@@ -16010,7 +16010,7 @@ int main(int argc, char** argv)
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, {});
                 gbtg::gfx_end_frame();
-                if (gbtg::g_546328 == 15 && gbtg::g_54632c == 1)
+                if (gbtg::g_transition_row == 15 && gbtg::g_transition_phase == 1)
                 {
                     ++entering;
                     if (entering == 30)
@@ -16023,17 +16023,17 @@ int main(int argc, char** argv)
                         gbtg::write_bmp("cache/goop_second_check.bmp", image);
                     }
                 }
-                if (gbtg::g_546328 == 15 && gbtg::g_54632c == 3)
+                if (gbtg::g_transition_row == 15 && gbtg::g_transition_phase == 3)
                 {
                     ++exiting;
                 }
                 const auto* story = gbtg::find_scene_cutscene_runtime(game);
-                if (entering > 80 && exiting > 80 && gbtg::g_54632c == 0 && story != nullptr && -1 < story->index)
+                if (entering > 80 && exiting > 80 && gbtg::g_transition_phase == 0 && story != nullptr && -1 < story->index)
                 {
                     break;
                 }
             }
-            if (entering < 80 || exiting < 80 || gbtg::g_54632c != 0)
+            if (entering < 80 || exiting < 80 || gbtg::g_transition_phase != 0)
             {
                 throw gbtg::Error("second goop transition did not complete");
             }

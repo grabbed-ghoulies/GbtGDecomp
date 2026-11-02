@@ -13,7 +13,7 @@
 
 namespace gbtg
 {
-extern i32 g_4dea24; // DAT_004DEA24, scene_transitions.cpp.
+extern i32 g_transition_pause_count; // DAT_004DEA24, scene_transitions.cpp.
 
 namespace
 {
@@ -121,7 +121,7 @@ void open_runtime_game_stream_wait(std::span<u8> owner, GameSelectControlState& 
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     stop_pause_ditty(s.ditty, s.streams); // 0x000E5B70
-    ++g_4dea24; // DAT_004DEA24
+    ++g_transition_pause_count; // DAT_004DEA24
     set_stream_wait_state(w, 1, s); // 0x000E0AD0(1)
 }
 
@@ -130,7 +130,7 @@ void close_runtime_game_stream_wait(GameSelectWidget& widget, GameSelectControlS
 {
     auto& s = services;
     auto& w = stream_wait(widget);
-    --g_4dea24; // DAT_004DEA24
+    --g_transition_pause_count; // DAT_004DEA24
     if (w.saved_row != 0)
     {
         start_pause_ditty(s.ditty, s.streams); // 0x00038910(1) while DAT_00429BB8 is clear

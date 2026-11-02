@@ -874,8 +874,7 @@ float g_slide_param = 3.f;
 // DAT_0050e240 holds four floor grids. The count is DAT_0050e250. The Y bands
 // are two floats at DAT_0050e254 and two at DAT_0050e25c. Origins are the
 // dwords at DAT_0050e264 and DAT_0050e26c.
-constexpr float kNavBandPad = 2.f;
- // DAT_0032B110
+constexpr float kNavBandPad = 2.f; // DAT_0032B110
 
 NavGrid* g_nav_grids[kNavSlots]{};
 
@@ -897,12 +896,9 @@ constexpr float kRadiusBump[16] = {
 };
 
 
-constexpr float kCellLift = 5.f;
-    // DAT_0032B184
-constexpr float kCellHeight = 10.f;
- // DAT_0032B10C
-constexpr float kCellRadius = 4.f;
-  // DAT_00434018
+constexpr float kCellLift = 5.f; // DAT_0032B184
+constexpr float kCellHeight = 10.f; // DAT_0032B10C
+constexpr float kCellRadius = 4.f; // DAT_00434018
 
 bool nav_cell(i32 floor, i32 index, NavCell& out)
 {

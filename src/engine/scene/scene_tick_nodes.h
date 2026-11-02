@@ -8,5 +8,5 @@ struct SceneTickNode
     SceneTickNode* next = nullptr;
     void (*message)(SceneTickNode* self, const void* value) = nullptr; // Object vtable+C.
 };
-extern SceneTickNode* g_50e438;
+extern SceneTickNode* g_scene_control_nodes; // DAT_0050E438.
 }

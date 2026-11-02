@@ -159,10 +159,8 @@ struct ScriptAction
 
 ScriptAction g_script_action;
 
-i32 g_script_sample_gate = 0;
-          // DAT_00512200
-const u8* g_script_sample_bank = nullptr;
- // DAT_00545AC4
+i32 g_script_sample_gate = 0; // DAT_00512200
+const u8* g_script_sample_bank = nullptr; // DAT_00545AC4
 
 u8 kind_pair(u8 kind, int odd)
 {

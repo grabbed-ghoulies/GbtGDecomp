@@ -33,7 +33,7 @@
 
 namespace gbtg
 {
-extern u16 g_4e19b4[0x40]; // DAT_004E19B4, scene.cpp.
+extern u16 g_challenge_game_name[0x40]; // DAT_004E19B4, scene.cpp.
 
 RuntimeChallengeSelection g_challenge_selection;
 
@@ -996,9 +996,9 @@ void set_runtime_game_challenges_state(GameChallengesWidget& w, i32 state, GameS
             size_t at = 0;
             for (; at < 0x3F && w.name[at] != 0; ++at)
             {
-                g_4e19b4[at] = w.name[at]; // lstrcpyW(DAT_004E19B4, +8)
+                g_challenge_game_name[at] = w.name[at]; // lstrcpyW(DAT_004E19B4, +8)
             }
-            g_4e19b4[at] = 0;
+            g_challenge_game_name[at] = 0;
             queue_runtime_gameselect_script(*w.owner, entry(w, selection.selected).script.data(), 3,
                 s); // 0x00083B90(3), ECX +0, EAX +0x2C8
         }

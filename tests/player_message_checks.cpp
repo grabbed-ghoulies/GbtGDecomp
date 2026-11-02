@@ -222,8 +222,8 @@ void check_activation_and_navigation()
     const i32 saved_count = g_nav_count;
     const i32 saved_x = g_nav_origin_x;
     const i32 saved_z = g_nav_origin_z;
-    void* saved_pool = g_512344;
-    const i32 saved_mask = g_512348;
+    void* saved_pool = g_occupancy_pool;
+    const i32 saved_mask = g_occupancy_mask;
     NavGrid grid;
     grid.width = 3;
     grid.depth = 3;
@@ -284,8 +284,8 @@ void check_activation_and_navigation()
     sphere.center = Vec3{15.0f, 0.0f, 15.0f};
     sphere.extent_x = 4.0f;
     OccupancyPool pool{0x38, 4, &sphere, &sphere + 1, &sphere + 1};
-    g_512344 = &pool;
-    g_512348 = 6;
+    g_occupancy_pool = &pool;
+    g_occupancy_mask = 6;
     const OccupancyRecord* room = nullptr;
     const OccupancyRecord* allowed = nullptr;
     RuntimePlayerGoalRing* ring = nullptr;
@@ -337,8 +337,8 @@ void check_activation_and_navigation()
     require(second_bytes[0x98B] == 1 && sent.size() == before, "an active goal defers script override restoration");
     engine_heap_free(ring);
 
-    g_512344 = saved_pool;
-    g_512348 = saved_mask;
+    g_occupancy_pool = saved_pool;
+    g_occupancy_mask = saved_mask;
     for (size_t index = 0; index < 4; ++index)
     {
         g_nav_grids[index] = saved_grids[index];

@@ -7,26 +7,26 @@ namespace gbtg
 {
 struct Game;
 // DAT_00546328: the transition's row. Its address is the handler argument (g_scene_transition).
-extern i32& g_546328;
+extern i32& g_transition_row;
 
 // DAT_0054632C: the transition's phase. 1 runs the countdown and the handler, 3 runs the handler. A nonzero value
 // is the clear gate.
-extern i32& g_54632c;
+extern i32& g_transition_phase;
 
 // DAT_0050484C. Incremented when it is below 1 and DAT_00546344 is above 0.
-extern i32 g_50484c;
+extern i32 g_transition_guard;
 
 // DAT_0050E7A0. Counted when the scene state leaves or enters 1 or 2.
-extern i32 g_50e7a0;
+extern i32 g_scene_active_count;
 
 // DAT_00510CEC. Counted up when DAT_0054632C is 0 on entry to 0x0012C5D0.
-extern i32 g_510cec;
+extern i32 g_pause_count;
 
 // DAT_005493DC. The player's death (0x0008F4D0) sets it; 0x0012C2D0 then takes row 2 and clears it.
-extern u32 g_5493dc;
+extern u32 g_transition_row_two_pending;
 
 // DAT_004DEA24. Counted with that gate, and once more on the way out.
-extern i32 g_4dea24;
+extern i32 g_transition_pause_count;
 
 // DAT_00510F80. Scene record +0x128. Cleared when the phase is 1.
 extern i32& g_510f80;
@@ -38,14 +38,14 @@ extern i32& g_510f7c;
 extern i32 g_507df4;
 
 // DAT_00510CE8. Nonzero clears bit 0x20 of DAT_0050EA9C, then stores 0.
-extern i32 g_510ce8;
+extern i32 g_scene_paused;
 
 
 // DAT_00510E34. Nonzero decrements DAT_004DEA24, then stores 0.
-extern i32 g_510e34;
+extern i32 g_pause_holds_transition;
 
 // DAT_0050E458: a one-shot scene name that replaces the next directory lookup's (0x00116220).
-extern char g_50e458[0x80];
+extern char g_scene_name_override[0x80];
 
 // The game the frame's script pump (0x0011E4C0) runs.
 extern Game* g_transition_game;

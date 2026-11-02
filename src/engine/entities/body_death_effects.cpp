@@ -70,7 +70,7 @@ void finish_runtime_body_death(u32 create_effect, u32& scene_flags,
     {
         if ((scene_flags & 0x8000) == 0)
         {
-            request_scene_aid(reinterpret_cast<const char*>(g_510e58), 1);
+            request_scene_aid(reinterpret_cast<const char*>(g_scene_record), 1);
             restart_requested = 1;
         }
         return;
@@ -114,7 +114,7 @@ void create_runtime_body_death_effect(const char* name, u32 activate,
     auto& drops = context.drops;
     if (context.live != 0 && (drops.actor.mask_mode == 2 || drops.actor.mask_flag != 0))
     {
-        request_scene_aid(reinterpret_cast<const char*>(g_510e58), 1);
+        request_scene_aid(reinterpret_cast<const char*>(g_scene_record), 1);
         return;
     }
     float lifetime;
@@ -163,7 +163,7 @@ void create_runtime_body_named_death_effect(const char* name, const char* varian
     auto& drops = context.drops;
     if (context.live != 0 && (drops.actor.mask_mode == 2 || drops.actor.mask_flag != 0))
     {
-        request_scene_aid(reinterpret_cast<const char*>(g_510e58), 1);
+        request_scene_aid(reinterpret_cast<const char*>(g_scene_record), 1);
         return;
     }
     float lifetime;

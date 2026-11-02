@@ -505,11 +505,11 @@ void hide_runtime_actor(NativeActorFactoryInstance& view, EntityBitBlock& bits)
 // Xbox 0x00124760
 const OccupancyRecord* find_nearest_occupancy_record(const Vec3& point, u32 mask)
 {
-    if (g_512344 == nullptr)
+    if (g_occupancy_pool == nullptr)
     {
         return nullptr;
     }
-    const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+    const auto& pool = *static_cast<const OccupancyPool*>(g_occupancy_pool);
     const OccupancyRecord* nearest = nullptr;
     float nearest_distance = 0.f;
     // The stack slot both shapes write; a record of another kind compares the last value it held.

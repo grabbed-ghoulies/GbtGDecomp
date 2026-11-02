@@ -6,16 +6,16 @@
 
 namespace gbtg
 {
-extern i32 g_429bc0; // DAT_00429BC0, scene.cpp.
-extern u16 g_429bc4[0x80]; // DAT_00429BC4, scene.cpp.
+extern i32 g_frontend_next_row; // DAT_00429BC0, scene.cpp.
+extern u16 g_frontend_selected_game[0x80]; // DAT_00429BC4, scene.cpp.
 
 RuntimeFrontendState g_frontend;
 
 // Xbox 0x000E5A80
 void reset_runtime_frontend(RuntimeFrontendState& state, FrontendPauseDitty& ditty)
 {
-    g_429bc0 = 1;
-    g_429bc4[0] = 0;
+    g_frontend_next_row = 1;
+    g_frontend_selected_game[0] = 0;
     state.selected_name[0] = 0;
     ditty.playing = 0;
     state.real_0042a0cc = 0.f;

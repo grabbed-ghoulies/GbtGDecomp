@@ -163,7 +163,7 @@ const u8* chain_row(const u8* records, std::span<const u8> address_zero, u16 id)
 OccupancyRecord& add_runtime_occupancy_record(u16 kind, u8 value, u16 id, u32 first, u32 second, u32 third,
     u32 fourth, u32 mask, u16 group)
 {
-    auto* pool = static_cast<GhoulySpawnPool*>(g_512344);
+    auto* pool = static_cast<GhoulySpawnPool*>(g_occupancy_pool);
     if (pool == nullptr)
     {
         pool = static_cast<GhoulySpawnPool*>(engine_heap_allocate(i32(sizeof(GhoulySpawnPool)) + 6 * 0x38));
@@ -172,12 +172,12 @@ OccupancyRecord& add_runtime_occupancy_record(u16 kind, u8 value, u16 id, u32 fi
         pool->stride = 0x38;
         pool->grow = 6;
         pool->limit = pool->begin + 6 * 0x38;
-        g_512344 = pool;
+        g_occupancy_pool = pool;
     }
     if (pool->cursor == pool->limit)
     {
         pool = grow_runtime_shape_pool(pool);
-        g_512344 = pool;
+        g_occupancy_pool = pool;
     }
     auto* record = reinterpret_cast<OccupancyRecord*>(pool->cursor);
     pool->cursor += pool->stride;
@@ -190,7 +190,7 @@ OccupancyRecord& add_runtime_occupancy_record(u16 kind, u8 value, u16 id, u32 fi
     std::memcpy(record->values_a + 0xA, &third, 4);
     std::memcpy(record->values_a + 0xE, &fourth, 4);
     record->group = group < 2 ? 0 : i16(group);
-    g_512348 = i32(u32(g_512348) | mask);
+    g_occupancy_mask = i32(u32(g_occupancy_mask) | mask);
     return *record;
 }
 

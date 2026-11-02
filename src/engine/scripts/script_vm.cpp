@@ -182,9 +182,9 @@ bool script_end_gate_set()
 }
 
 
-u32 g_545978 = 0; // DAT_00545978.
+u32 g_broken_background_parts = 0; // DAT_00545978.
 
-u32 g_545980 = 0; // DAT_00545980.
+u32 g_running_score = 0; // DAT_00545980.
 
 // Xbox 0x0012AF10. Seven counters, each followed by 60 counters and a 60-by-61 matrix: the statistics block passed
 // in EAX.
@@ -202,7 +202,7 @@ void script_initialize_statistics(std::span<u32> statistics)
         std::fill_n(statistics.begin() + base + 1, 60, 0u);
         statistics[base] = 0;
     }
-    g_545978 = 0;
+    g_broken_background_parts = 0;
 }
 
 
@@ -236,7 +236,7 @@ void script_activate_title(Game& g, std::string_view title, i32 mode, i32 id)
         if (g_event_sequence_state != 3) // DAT_005064D8
         {
             script_initialize_statistics(g_script_tallies.second); // EAX DAT_00512B78
-            g_545980 = 0;
+            g_running_score = 0;
         }
         g_decay_arm = new_decay;
         if (old_decay != new_decay)
@@ -1294,24 +1294,20 @@ void script_tick_fired_vm(Game& g)
 
 
 // DAT_00509b20 through DAT_00509b2c. entity.cpp keeps a private copy of this tint.
-float g_509b20 = 0.f;
+float g_scene_ambient_tint_0 = 0.f; // DAT_00509B20
 
-float g_509b24 = 0.f;
+float g_scene_ambient_tint_1 = 0.f; // DAT_00509B24
 
-float g_509b28 = 0.f;
+float g_scene_ambient_tint_2 = 0.f; // DAT_00509B28
 
-float g_509b2c = 0.f;
+float g_scene_ambient_tint_3 = 0.f; // DAT_00509B2C
 
-float g_509b4c = 0.f;
- // DAT_00509b4c
-i32 g_5462fc = 0;
-     // DAT_005462FC
-i32 g_545d1c = 0;
-     // DAT_00545D1C
-i32 g_545cc8 = 0;
-     // DAT_00545CC8
-std::array<u16, 0x40> g_545c48{}; // DAT_00545C48: id pairs 0x001400A0 appends, DAT_00545CC8 of them.
-std::array<u16, 0x28> g_545ccc{}; // DAT_00545CCC: ten-id groups 0x001400D0 appends, DAT_00545D1C of them.
+float g_scene_light_intensity = 0.f; // DAT_00509b4c
+i32 g_player_start_enabled = 0; // DAT_005462FC
+i32 g_marker_group_count = 0; // DAT_00545D1C
+i32 g_marker_swap_count = 0; // DAT_00545CC8
+std::array<u16, 0x40> g_marker_swap_ids{}; // DAT_00545C48: id pairs 0x001400A0 appends, DAT_00545CC8 of them.
+std::array<u16, 0x28> g_marker_group_ids{}; // DAT_00545CCC: ten-id groups 0x001400D0 appends, DAT_00545D1C of them.
 
 // Xbox 0x0011CAC0. Writes 1.0 (0x3f800000) to DAT_00509b2c, DAT_00509b20,
 // DAT_00509b24, DAT_00509b28, and DAT_00509b4c. DAT_00509b50 becomes
@@ -1322,20 +1318,20 @@ std::array<u16, 0x28> g_545ccc{}; // DAT_00545CCC: ten-id groups 0x001400D0 appe
 // Xbox 0x0011CAC0
 void scene_reset_runtime_parameters(Game& g)
 {
-    g_509b2c = 1.f;
-    g_509b20 = 1.f;
-    g_509b24 = 1.f;
-    g_509b28 = 1.f;
-    g_509b4c = 1.f;
+    g_scene_ambient_tint_3 = 1.f;
+    g_scene_ambient_tint_0 = 1.f;
+    g_scene_ambient_tint_1 = 1.f;
+    g_scene_ambient_tint_2 = 1.f;
+    g_scene_light_intensity = 1.f;
     g_scene_light_direction.pitch = std::bit_cast<float>(0x3eb2b8c3u); // DAT_00509B50
-    g_5462fc = 1;
+    g_player_start_enabled = 1;
     g_scene_light_direction.yaw = std::bit_cast<float>(0x3f32b8c3u); // DAT_00509B54
     g_scene_light_direction.camera_relative = 1; // DAT_00509B58
     g_light_paused = 0; // DAT_00509B70
     g_light_running = 1; // DAT_00509B74
     reset_actor_camera_shakes(g_runtime_profile.unlocks.bytes[0], runtime_pad_rumble_commands()); // 0x000FAEE0
-    g_545d1c = 0;
-    g_545cc8 = 0;
+    g_marker_group_count = 0;
+    g_marker_swap_count = 0;
     reset_runtime_camera_view_tunables(); // 0x0013CBD0
     reset_scene_script_runtime(g); // 0x00116E00
     // 0x00124420, the scene load (0x00035960, 0x00034050, 0x00124490, 0x00123A80, 0x00033FB0, 0x000341E0, then

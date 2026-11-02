@@ -149,11 +149,11 @@ void set_runtime_player_goal_volume(const OccupancyRecord* volume, RuntimePlayer
 // Xbox 0x00124800
 const OccupancyRecord* find_runtime_scripted_occupancy(i16 value, const void* records)
 {
-    if (g_512344 == nullptr)
+    if (g_occupancy_pool == nullptr)
     {
         return nullptr;
     }
-    const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+    const auto& pool = *static_cast<const OccupancyPool*>(g_occupancy_pool);
     const OccupancyRecord* record = pool.begin;
     if (record < pool.cursor)
     {

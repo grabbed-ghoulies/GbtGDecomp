@@ -18,6 +18,7 @@
 #include "../navigation/navigation.h"
 #include "gbtg/entity.h"
 #include "gbtg/model_runtime.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -131,7 +132,7 @@ float attribute(RuntimeJessieClydeStrategy& context, size_t offset)
 u32 provoked(RuntimeJessieClydeStrategy& context)
 {
     const std::span<const u8> actor = goals_of(context).entry.actor_bytes;
-    return read_f32(actor, 0x978) > 0.f ? 1u : u32(actor[0x969]); // DAT_0032B100.
+    return get(actor, player_field::countdown_56) > 0.f ? 1u : u32(get(actor, player_field::provoked)); // DAT_0032B100.
 }
 
 // The current effect (+0x13C) ends (message 5).
@@ -783,7 +784,8 @@ void dispatch_runtime_jessie_clyde_message(std::span<const u32> message, Runtime
             return;
         }
         const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
-        const u32 kind = read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0 ? 1u : 0u;
+        const u32 kind =
+            get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0 ? 1u : 0u;
         if (goals.resume.references[kind] != 0 || goals.resume.decay_enabled[goals.resume.decay_index] == 0)
         {
             return;

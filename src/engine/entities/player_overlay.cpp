@@ -5,6 +5,7 @@
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <xmmintrin.h>
@@ -103,11 +104,11 @@ u32 runtime_body_health_color(std::span<const u8> body)
 // Xbox 0x0001E770
 u32 runtime_player_uses_alternate_overlay(std::span<const u8> actor, std::span<const u8> attributes)
 {
-    if (read_u32(actor, 0x98C) != 0)
+    if (get(actor, player_field::goal_volume) != 0)
     {
         return 0;
     }
-    if (!(read_f32(actor, 0x978) > 0.0f) && actor[0x969] == 0)
+    if (!(get(actor, player_field::countdown_56) > 0.0f) && get(actor, player_field::provoked) == 0)
     {
         return 0;
     }
@@ -322,8 +323,9 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
 // Xbox 0x00028050
 u32 draw_runtime_player(std::span<const u8> actor, i32 kind, RuntimePlayerDraw& context)
 {
-    if (read_u32(actor, 0xCE0) != 0 && (i16(read_u16(actor, 0xCDC)) == 2 || read_u32(actor, 0x93C) != 0)
-        && (context.runtime_flags & 4) != 0)
+    if (get(actor, player_field::live) != 0 &&
+        (i16(get(actor, player_field::mode)) == 2 || get(actor, player_field::case_link) != 0) &&
+        (context.runtime_flags & 4) != 0)
     {
         return 0;
     }

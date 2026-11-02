@@ -10,6 +10,7 @@
 #include "../scripts/script_conditions.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <bit>
@@ -108,7 +109,7 @@ void release_runtime_pickup_weapon(RuntimePickupStateContext& context)
     broadcast_actor_pulse_message(reinterpret_cast<const i32*>(pulse.data())); // 0x00122C70
     const u16 count = u16(read_u16(held->bytes, 0xAE4) - 1);
     std::memcpy(held->bytes.data() + 0xAE4, &count, 2);
-    if (read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0)
+    if (get(context.actor_bytes, player_field::mode) == 2 || get(context.actor_bytes, player_field::case_link) != 0)
     {
         const std::array<u32, 2> event{0xAD, read_u16(held->bytes, 6)};
         script_queue_event(context.game,

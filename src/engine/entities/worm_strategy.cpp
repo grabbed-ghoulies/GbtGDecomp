@@ -15,6 +15,7 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "../scripts/script_actor_query.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <string>
@@ -377,7 +378,8 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
         }
         if (get(goals.entry.events.mind, mind_field::target_record) != 0 && strategy[0x1C] == 0)
         {
-            const u32 kind = read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0 ? 1u : 0u;
+            const u32 kind =
+                get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0 ? 1u : 0u;
             if (goals.resume.references[kind] == 0 && goals.resume.decay_enabled[goals.resume.decay_index] != 0)
             {
                 // DAT_0050E764, DAT_0030F144[DAT_0051248C]. The first goal kind of the actor +0x980 ring; an empty

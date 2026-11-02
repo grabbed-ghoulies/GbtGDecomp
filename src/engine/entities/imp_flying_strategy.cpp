@@ -16,6 +16,7 @@
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/anim.h"
 #include "gbtg/entity.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <climits>
@@ -222,7 +223,7 @@ void hover_around(bool low, RuntimeImpFlyingStrategy& context)
     std::span<u8> mind = mind_of(context);
     set(strategy_of(context), field::high, !(0.5f < roll(context)) ? 1u : 0u); // DAT_0032B0F4.
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
-    const i32 floor = i32(read_u32(goals.entry.actor_bytes, 0xCEC));
+    const i32 floor = i32(get(goals.entry.actor_bytes, player_field::floor));
     struct Candidate
     {
         Vec3 point{};

@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../entities/player_fields.h"
 
 // Retail addresses of native objects, object lookup, message routing, contacts, attachments and activation.
 namespace gbtg
@@ -1843,7 +1844,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
         }
         RuntimeCameraMindMessages messages{player->mind_events, player->mind,
             target == 0 ? std::span<const u8>() : std::span<const u8>(scene.resolve_address(target, 0x24)),
-            i32(read_u32(player->actor_bytes, 0xCEC)), g_nav_grids, navigation_nodes, player->mind_storage,
+            i32(get(player->actor_bytes, player_field::floor)), g_nav_grids, navigation_nodes, player->mind_storage,
             [this](const void* pointer)
             {
                 return address_of(pointer);

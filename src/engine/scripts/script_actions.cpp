@@ -52,6 +52,7 @@
 #include "../video/movie_startup.h"
 #include "../video/movie_session.h"
 #include "../video/native_movies.h"
+#include "../entities/player_fields.h"
 
 #include <algorithm>
 #include <bit>
@@ -1209,7 +1210,7 @@ void mark_runtime_one_type_actors(u16 tag, i32 keep)
         actor[0x96D] = 1; // Node +0x29.
         actor[0x96F] = 0;
         actor[0x970] = 0;
-        if (0.f < read_f32(actor, 0x974)) // Node +0x30.
+        if (0.f < get(actor, player_field::countdown_55)) // Node +0x30.
         {
             std::memset(actor.data() + 0x974, 0, 4);
             std::array<u32, 0x42> message{0x55};
@@ -1772,7 +1773,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             const std::span<u8> actor = g_alt_node_actor_bytes(link);
             actor[0x969] = node_u8(g.scene_script, node, 0x48);
             const std::span<u8> mind = g_alt_node_mind(link);
-            if (read_u32(actor, 0x958) != 0 && !mind.empty() && get(mind, mind_field::target_record) != 0
+            if (get(actor, player_field::mind) != 0 && !mind.empty() && get(mind, mind_field::target_record) != 0
                 && !g_alt_node_target_eligible(link)) // 0x00029C80, EDX 1
             {
                 if (get(mind, mind_field::target_record) != 0)
@@ -1814,7 +1815,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             actor[0x96D] = value;
             actor[0x96F] = 0;
             actor[0x970] = 0;
-            if (read_f32(actor, 0x974) > 0.f)
+            if (get(actor, player_field::countdown_55) > 0.f)
             {
                 std::memset(actor.data() + 0x974, 0, 4);
                 std::array<u32, 0x42> message{0x55};

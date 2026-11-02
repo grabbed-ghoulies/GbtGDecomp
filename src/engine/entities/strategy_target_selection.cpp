@@ -12,6 +12,7 @@
 #include "../navigation/player_avoidance.h"
 #include "../scripts/script_conditions.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -43,7 +44,7 @@ std::span<const u8> strategy_of(RuntimePlayerStrategyGoals& context)
 // Actor +0x978 above zero (ordered) or the +0x969 byte.
 bool actor_hostile(std::span<const u8> actor)
 {
-    return read_f32(actor, 0x978) > 0.f || actor[0x969] != 0;
+    return get(actor, player_field::countdown_56) > 0.f || get(actor, player_field::provoked) != 0;
 }
 
 // Actor +0x97E/+0x97C class filters; each word above one applies while hostile.
@@ -390,7 +391,7 @@ u32 runtime_strategy_abandons_target(const RuntimeMindTarget& target, RuntimeStr
     {
         return 0;
     }
-    if (actor[0x96D] != 0 || read_f32(actor, 0x974) > 0.f)
+    if (actor[0x96D] != 0 || get(actor, player_field::countdown_55) > 0.f)
     {
         return 1;
     }
@@ -792,7 +793,7 @@ bool select_runtime_strategy_roam_position(Vec3& output, float heading, float ra
     std::span<const u8> actor = goals.entry.actor_bytes;
     const float selected = randomize_runtime_navigation_heading(heading, width, goals.random);
     const Vec3 position = actor_world_position(goals.entry.actor);
-    RuntimeNavigationHeadingSearch search{position, i32(read_u32(actor, 0xCEC)), range - 0.5f, range + 0.5f,
+    RuntimeNavigationHeadingSearch search{position, i32(get(actor, player_field::floor)), range - 0.5f, range + 0.5f,
         goals.room, goals.entry.allowed, &output, 1, 0x1C, i16(read_u16(actor, 6)), goals.random,
         context.occupancy_initial};
     return search_runtime_navigation_headings(search, selected, std::bit_cast<float>(0x3E9C61AAu), 10);
@@ -1194,10 +1195,10 @@ bool runtime_strategy_target_watching_player(const RuntimeMindTarget& target)
         return false;
     }
     const std::span<const u8> actor = target.actor_bytes;
-    if (read_u32(actor, 0xCE0) == 0)
+    if (get(actor, player_field::live) == 0)
     {
         return false;
     }
-    return read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0;
+    return get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0;
 }
 }

@@ -3,6 +3,7 @@
 #include "actor_live_attachments.h"
 #include "../scripts/script_vm.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -20,7 +21,7 @@ void put(std::span<u8> bytes, size_t offset, u32 value)
 bool request_runtime_mind_boost(RuntimeMindBoost& context)
 {
     auto body = context.attachment.body;
-    if (read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0)
+    if (get(context.actor_bytes, player_field::mode) == 2 || get(context.actor_bytes, player_field::case_link) != 0)
     {
         if ((runtime_player_can_resume_strategy(context.actor_bytes, context.resume) != 0
                 || (context.story_word & 0x80) != 0)
@@ -78,7 +79,7 @@ bool request_runtime_mind_boost(RuntimeMindBoost& context)
 bool request_runtime_mind_turn(RuntimeMindBoost& context, const Vec3& point)
 {
     auto body = context.attachment.body;
-    if ((read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0)
+    if ((get(context.actor_bytes, player_field::mode) == 2 || get(context.actor_bytes, player_field::case_link) != 0)
         && !(read_f32(context.boost, 4) > 0.f)
         && (context.flags.bytes[7] & 2) == 0 && (context.flags.bytes[7] & 4) == 0
         && get(body, body_field::energy) != 0)

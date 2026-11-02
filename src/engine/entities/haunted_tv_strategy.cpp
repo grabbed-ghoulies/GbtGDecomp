@@ -19,6 +19,7 @@
 #include "../scripts/script_vm.h"
 #include "gbtg/model_runtime.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -477,7 +478,7 @@ bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHaun
     {
         return false;
     }
-    const u32 mind = read_u32(target.actor_bytes, 0x958);
+    const u32 mind = get(target.actor_bytes, player_field::mind);
     if (mind == 0)
     {
         return true;

@@ -1,5 +1,6 @@
 #include "body_health.h"
 #include "../audio/listener_settings.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -8,7 +9,7 @@ namespace gbtg
 void initialize_runtime_body_health(std::span<u8> body, std::span<const u8> parameters,
     RuntimeBodyHealth& context)
 {
-    const u16 tag = read_u16(context.actor, 0xCF4);
+    const u16 tag = get(context.actor, player_field::damage_class);
     float health;
     if (tag != 0 && context.curve[1] != context.curve[0])
     {

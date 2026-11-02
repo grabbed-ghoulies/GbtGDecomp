@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../entities/player_fields.h"
 
 // The State's construction: every service binding the scene's actors, bodies, minds and controls call.
 namespace gbtg
@@ -3686,7 +3687,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             for (auto* player : players->instances())
             {
-                if (read_u32(player->actor_bytes, 0x960) == address)
+                if (get(player->actor_bytes, player_field::input_device) == address)
                 {
                     player->refresh_input_views();
                     return &player->input_device;

@@ -11,6 +11,7 @@
 #include "../scripts/script_conditions.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <climits>
 #include <cmath>
@@ -60,7 +61,7 @@ i32 truncate_float(float value)
 // The ground height under (x, z) on the actor's floor grid DAT_0050E240[+0xCEC]; otherwise the fallback.
 float director_ground_height(const RuntimeDirectorActor& actor, float x, float z, float fallback)
 {
-    const u32 floor = read_u32(actor.bytes, 0xCEC);
+    const u32 floor = get(actor.bytes, player_field::floor);
     if (floor >= u32(entity_detail::kNavSlots))
     {
         throw Error("camera director floor index is outside DAT_0050E240");
@@ -433,7 +434,7 @@ u32 read_camera_director_input_heading(const RuntimeDirectorActor& actor, float&
 {
     if (context.tunables.input_heading != 0)
     {
-        const u32 device_address = read_u32(actor.bytes, 0x960);
+        const u32 device_address = get(actor.bytes, player_field::input_device);
         if (device_address != 0)
         {
             const RuntimeDialogueInputDevice* device = context.input_device(device_address);

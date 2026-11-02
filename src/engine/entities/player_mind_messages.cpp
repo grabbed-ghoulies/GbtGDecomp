@@ -3,6 +3,7 @@
 #include "actor_transform.h"
 #include "../scripts/script_conditions.h"
 #include "../scripts/script_vm.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -196,8 +197,8 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
         clear_runtime_player_mind_reference(mind, 0x134, message[1]);
         break;
     case 0x7D:
-        initialize_runtime_player_mind_navigation(mind, i32(read_u32(context.actor_bytes, 0xCEC)), context.grids,
-            context.nodes, context.storage, context.address_of);
+        initialize_runtime_player_mind_navigation(mind, i32(get(context.actor_bytes, player_field::floor)),
+                                                  context.grids, context.nodes, context.storage, context.address_of);
         if (context.chapter_mode == 1)
         {
             std::array<u32, 9> goal;

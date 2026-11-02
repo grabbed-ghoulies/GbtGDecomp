@@ -1,5 +1,6 @@
 #include "scene_actor_services_state.h"
 #include "../entities/body_fields.h"
+#include "../entities/player_fields.h"
 
 // The player and background updates, owned effects, script actor queries and actor matrix bindings.
 namespace gbtg
@@ -81,8 +82,17 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
     const RuntimeWorldBounds bounds{g_amb_volume_enabled, g_amb_color_lo[0], g_amb_color_lo[1], g_amb_color_lo[2],
         g_amb_color_hi[0], g_amb_color_hi[1], g_amb_color_hi[2]};
     auto& instance = player.actor_instance;
-    RuntimePlayerUpdate update{player.self, player.input, read_u32(player.actor_bytes, 0x960), input_activation,
-        input_release, game.clock.frame, player.ring, address_zero, player.strategy_object, player.mind_object,
+    RuntimePlayerUpdate update{
+        player.self,
+        player.input,
+        get(player.actor_bytes, player_field::input_device),
+        input_activation,
+        input_release,
+        game.clock.frame,
+        player.ring,
+        address_zero,
+        player.strategy_object,
+        player.mind_object,
         player.body_object,
         [this, &player](FactoryObject& strategy)
         {
@@ -240,22 +250,10 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 }};
             tick_runtime_parent_mind(tick);
         },
-        [&body_graph](FactoryObject& body, u32 input)
-        {
-            body_graph->tick(body, input);
-        },
-        [&body_graph](FactoryObject& body)
-        {
-            body_graph->animate(body);
-        },
-        [&body_graph](FactoryObject& body)
-        {
-            body_graph->settle(body);
-        },
-        [&body_graph](FactoryObject& body)
-        {
-            return body_graph->supported(body);
-        },
+        [&body_graph](FactoryObject& body, u32 input) { body_graph->tick(body, input); },
+        [&body_graph](FactoryObject& body) { body_graph->animate(body); },
+        [&body_graph](FactoryObject& body) { body_graph->settle(body); },
+        [&body_graph](FactoryObject& body) { return body_graph->supported(body); },
         [&player](FactoryObject& action, u32) -> u16
         {
             switch (action.type)
@@ -322,10 +320,15 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
                 unbound("body action vtable +0x1C of factory type " + std::to_string(action.type));
             }
         },
-        path_search, floor_hint, collision_view, player.actor_bytes, player.body_bits, player.collision,
+        path_search,
+        floor_hint,
+        collision_view,
+        player.actor_bytes,
+        player.body_bits,
+        player.collision,
         player.body_selection,
         [this, &player](Actor& actor, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
-            const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
+                        const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
         {
             RuntimePlayerContactReport report{player.body, player.actor_bytes, contact_totals, contact_session,
                 [this, &player](void* payload)
@@ -348,11 +351,19 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             return report_runtime_player_contact(actor, object, point, contacts, velocity, word, report);
         },
         [this](entity_detail::SegmentProbe& probe) -> RuntimeSegmentContactActor&
-        {
-            return segment_contact_actor(probe);
-        },
-        entity_detail::g_world.body_a, instance.animation, instance.pose, instance.startup.attachments,
-        instance.pending, instance.frame.updates, instance.shape, *frame, clock, player.navigation, room, bounds};
+        { return segment_contact_actor(probe); },
+        entity_detail::g_world.body_a,
+        instance.animation,
+        instance.pose,
+        instance.startup.attachments,
+        instance.pending,
+        instance.frame.updates,
+        instance.shape,
+        *frame,
+        clock,
+        player.navigation,
+        room,
+        bounds};
     update_runtime_player(update);
 }
 
@@ -716,8 +727,9 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::case_actors(
         mind.maximum_energy = i16(get(body, body_field::max_energy));
         mind.bits = owner->body_bits;
         view->tag = read_u16(owner->actor_bytes, 6);
-        void* marker = read_u32(owner->actor_bytes, 0xCE0) != 0 ? static_cast<void*>(owner->actor_bytes.data() + 0xCE0)
-            : nullptr;
+        void* marker = get(owner->actor_bytes, player_field::live) != 0
+                           ? static_cast<void*>(owner->actor_bytes.data() + 0xCE0)
+                           : nullptr;
         views.push_back(RuntimeScriptActorQueryView{owner->actor, view->tag, &view->mind, nullptr, marker});
         case_actor_views.push_back(std::move(view));
     }
@@ -786,7 +798,7 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor
         // Actor +0x958 (the mind): +0xC the reference source (0x00028C10), +0x10 the target record whose +0x10
         // is its actor (flag 0x400).
         RuntimeScriptActorQueryReference* reference = nullptr;
-        if (read_u32(owner->actor_bytes, 0x958) != 0)
+        if (get(owner->actor_bytes, player_field::mind) != 0)
         {
             if (owner->mind.size() < 0x14)
             {
@@ -813,8 +825,9 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor
             }
             reference = &view->reference;
         }
-        void* marker = read_u32(owner->actor_bytes, 0xCE0) != 0 ? static_cast<void*>(owner->actor_bytes.data() + 0xCE0)
-            : nullptr;
+        void* marker = get(owner->actor_bytes, player_field::live) != 0
+                           ? static_cast<void*>(owner->actor_bytes.data() + 0xCE0)
+                           : nullptr;
         views.push_back(RuntimeScriptActorQueryView{owner->actor, view->tag, &view->mind, reference, marker});
     }
     return views;

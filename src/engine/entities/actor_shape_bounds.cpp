@@ -5,6 +5,7 @@
 #include "shape_copy.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <cmath>
 #include <bit>
 #include <cstring>
@@ -422,7 +423,8 @@ void apply_runtime_body_actor_bounds(std::span<const u8> body, Actor& actor,
             {
                 build_runtime_actor_bound(actor, first.data(), read_u32(body, 0x890), true, shapes);
             }
-            update_runtime_actor_bound_record(bound, first.data(), second.data(), actor.anchor, u8(read_u32(actor_bytes, 0xCEC)));
+            update_runtime_actor_bound_record(bound, first.data(), second.data(), actor.anchor,
+                                              u8(get(actor_bytes, player_field::floor)));
         }
         build_runtime_actor_bound(actor, first.data(), read_u32(body, 0x88C), false, shapes);
         const float inverse = 1.f / actor.radius_y;

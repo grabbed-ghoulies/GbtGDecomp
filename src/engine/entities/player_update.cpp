@@ -6,6 +6,7 @@
 #include "gbtg/model_runtime.h"
 #include "../navigation/navigation.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -56,8 +57,8 @@ void tick_status_timer(RuntimeBodyAttachedActor& self, const RuntimeActorClock& 
 // Xbox 0x00019520
 void tick_runtime_player_status_timers(RuntimeBodyAttachedActor& self, const RuntimeActorClock& clock)
 {
-    tick_status_timer(self, clock, 0x974, 0x55);
-    tick_status_timer(self, clock, 0x978, 0x56);
+    tick_status_timer(self, clock, player_field::countdown_55.offset, 0x55);
+    tick_status_timer(self, clock, player_field::countdown_56.offset, 0x56);
 }
 
 // Xbox 0x0002B450
@@ -82,7 +83,7 @@ void track_runtime_player_room(RuntimePlayerRoomTracking& context)
             put_float(actor, 0xCB4, position.z);
         }
     }
-    if (context.strategy_present && read_u16(actor, 0xCDC) == 1 && read_u32(actor, 0x93C) == 0 &&
+    if (context.strategy_present && get(actor, player_field::mode) == 1 && get(actor, player_field::case_link) == 0 &&
         read_u32(actor, 0xCB8) != 0)
     {
         send_word(context.self, 0x5D);
@@ -113,8 +114,8 @@ void check_runtime_player_bounds(RuntimePlayerBoundsCheck& context)
             bounds.min_z > position.z || position.z >= bounds.max_z);
     }
     bool off_navigation = false;
-    if (read_u16(actor, 0xCDE) == 1 && (context.body_bits->bytes[4] & 0x10) == 0 &&
-        navigation_cell_index(i32(read_u32(actor, 0xCEC)), position) == -1)
+    if (get(actor, player_field::owner_class) == 1 && (context.body_bits->bytes[4] & 0x10) == 0 &&
+        navigation_cell_index(i32(get(actor, player_field::floor)), position) == -1)
     {
         off_navigation = true;
     }

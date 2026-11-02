@@ -14,6 +14,7 @@
 #include "../navigation/mind_navigation_angles.h"
 #include "../navigation/mind_navigation_costs.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <xmmintrin.h>
@@ -78,7 +79,8 @@ u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& co
         {
             return 0;
         }
-        const i32 cell = entity_detail::navigation_cell_index(i32(read_u32(movement.actor_bytes, 0xCEC)), position);
+        const i32 cell =
+            entity_detail::navigation_cell_index(i32(get(movement.actor_bytes, player_field::floor)), position);
         if (cell != -1 && !entity_detail::navigation_cell_has_no_unblocked_neighbor(
             *movement.navigation.navigation.search->grid, u32(cell)))
         {
@@ -118,7 +120,7 @@ u32 update_runtime_cinema_mind_timed_motion(RuntimeCinemaMindMovement& context,
     {
         u32 failed;
         const u32 result = drive_runtime_player_navigation(context.navigation, destination,
-            i32(read_u32(context.actor_bytes, 0xCEC)), 0.f, 30.f, 1.f, 0, failed);
+            i32(get(context.actor_bytes, player_field::floor)), 0.f, 30.f, 1.f, 0, failed);
         if (result != 0)
         {
             write_axes = false;
@@ -182,7 +184,7 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
         {
             return dispatch_runtime_mind_target_request(selection(), 0xFFFFFFFFu, read_u32(request, 0x10)) != 1;
         }
-        if (read_u32(context.actor_bytes, 0x960) != 0)
+        if (get(context.actor_bytes, player_field::input_device) != 0)
         {
             reset_runtime_input_device(input, input_context);
         }
@@ -324,7 +326,7 @@ u32 update_runtime_cinema_mind_vertical_target(RuntimeCinemaMindMovement& contex
 // Xbox 0x0007B170
 u32 update_runtime_cinema_mind_escape_motion(RuntimeCinemaMindMovement& context, std::span<u8> request)
 {
-    if (read_u32(context.actor_bytes, 0x958) == 0 || context.escape.target.data() == nullptr)
+    if (get(context.actor_bytes, player_field::mind) == 0 || context.escape.target.data() == nullptr)
     {
         return 1;
     }
@@ -372,7 +374,7 @@ u32 update_runtime_cinema_mind_escape_motion(RuntimeCinemaMindMovement& context,
 // Xbox 0x0007B2F0
 u32 update_runtime_cinema_mind_vertical_escape_motion(RuntimeCinemaMindMovement& context, std::span<u8> request)
 {
-    if (read_u32(context.actor_bytes, 0x958) == 0 || context.escape.target.data() == nullptr)
+    if (get(context.actor_bytes, player_field::mind) == 0 || context.escape.target.data() == nullptr)
     {
         return 1;
     }
@@ -403,7 +405,8 @@ u32 update_runtime_cinema_mind_vertical_escape_motion(RuntimeCinemaMindMovement&
     value(request, 0x38, heading);
     auto* costs = suspend_runtime_mind_target_costs(context.actor_bytes, context.body,
         context.actor, context.escape.target);
-    const i32 floor = entity_detail::navigation_floor_index(destination, i32(read_u32(context.actor_bytes, 0xCEC)), 0);
+    const i32 floor =
+        entity_detail::navigation_floor_index(destination, i32(get(context.actor_bytes, player_field::floor)), 0);
     u32 failed;
     const u32 result = drive_runtime_mind_vertical_navigation(context.navigation, destination, floor,
         read_f32(request, 0x10), read_f32(request, 0x14), 2.5f, 0.f,
@@ -423,7 +426,8 @@ u32 update_runtime_cinema_mind_vertical_escape_motion(RuntimeCinemaMindMovement&
 u32 update_runtime_cinema_mind_vertical_position(RuntimeCinemaMindMovement& context, std::span<const u8> request)
 {
     const Vec3 destination = point(context.mind, 0x70);
-    const i32 floor = entity_detail::navigation_floor_index(destination, i32(read_u32(context.actor_bytes, 0xCEC)), 0);
+    const i32 floor =
+        entity_detail::navigation_floor_index(destination, i32(get(context.actor_bytes, player_field::floor)), 0);
     u32 failed;
     const u32 result = drive_runtime_mind_vertical_navigation(context.navigation, destination, floor,
         read_f32(request, 0x18), read_f32(request, 0x1C), read_f32(request, 0x20) + 1.f,
@@ -439,7 +443,8 @@ u32 update_runtime_cinema_mind_vertical_position(RuntimeCinemaMindMovement& cont
 u32 update_runtime_mind_vertical_position_request(RuntimeCinemaMindMovement& context, std::span<const u8> request)
 {
     const Vec3 destination = point(request, 0x10);
-    const i32 floor = entity_detail::navigation_floor_index(destination, i32(read_u32(context.actor_bytes, 0xCEC)), 0);
+    const i32 floor =
+        entity_detail::navigation_floor_index(destination, i32(get(context.actor_bytes, player_field::floor)), 0);
     u32 failed;
     const u32 result = drive_runtime_mind_vertical_navigation(context.navigation, destination, floor,
         read_f32(request, 0x24), read_f32(request, 0x28), read_f32(request, 0x2C) + 2.5f,
@@ -471,7 +476,7 @@ u32 select_runtime_cinema_mind_random_position(RuntimeCinemaMindMovement& contex
 {
     const Vec3 position = actor_world_position(context.actor);
     Vec3 selected;
-    if (entity_detail::select_navigation_spawn_position(i32(read_u32(context.actor_bytes, 0xCEC)), nullptr,
+    if (entity_detail::select_navigation_spawn_position(i32(get(context.actor_bytes, player_field::floor)), nullptr,
         position, read_f32(request, 0x10), read_f32(request, 0x14), context.required, context.allowed,
         0x1C, i16(context.actor.class_key), selected, context.random, context.occupancy_initial))
     {
@@ -487,7 +492,7 @@ u32 select_runtime_cinema_mind_heading_position(RuntimeCinemaMindMovement& conte
     const Vec3 position = actor_world_position(context.actor);
     const float heading = randomize_runtime_navigation_heading(context.actor.euler.y, read_f32(request, 0x10), context.random);
     Vec3 selected;
-    RuntimeNavigationHeadingSearch search{position, i32(read_u32(context.actor_bytes, 0xCEC)),
+    RuntimeNavigationHeadingSearch search{position, i32(get(context.actor_bytes, player_field::floor)),
         read_f32(request, 0x14), float(static_cast<long double>(read_f32(request, 0x18)) + .5L),
         context.required, context.allowed, &selected, 1, 0x1C, i16(context.actor.class_key), context.random,
         context.occupancy_initial};

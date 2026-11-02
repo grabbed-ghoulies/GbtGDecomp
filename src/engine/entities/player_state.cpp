@@ -1,6 +1,7 @@
 #include "player_state.h"
 #include "entity_heap.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -79,8 +80,8 @@ void change_runtime_actor_pause(u8 mask, i32 release, RuntimeActorPauseGroups& g
             while (node != nullptr)
             {
                 RuntimePauseActor* next = node->next;
-                const size_t group = read_u16(node->actor, 0xCDC) == 2 ||
-                    read_u32(node->actor, 0x93C) != 0 ? 1 : 0;
+                const size_t group = get(node->actor, player_field::mode) == 2 ||
+                    get(node->actor, player_field::case_link) != 0 ? 1 : 0;
                 if (group == i)
                 {
                     node->message(message);

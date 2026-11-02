@@ -17,6 +17,7 @@
 #include "../navigation/navigation.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -669,7 +670,7 @@ void sweep_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& conte
     if (holder != 0)
     {
         const auto source = context.record_at(holder, 0xCF8);
-        player = read_u16(source, 0xCDC) == 2 ? 1 : (read_u32(source, 0x93C) != 0 ? 1 : 0);
+        player = get(source, player_field::mode) == 2 ? 1 : (get(source, player_field::case_link) != 0 ? 1 : 0);
     }
     Vec3 position = actor_world_position(actor);
     const float radius = float(static_cast<long double>(actor_model_sweep_radius(actor))
@@ -689,7 +690,7 @@ void sweep_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& conte
         return;
     }
     float damage = context.hit_damage[1];
-    const u16 tag = read_u16(context.actor_bytes, 0xCF4);
+    const u16 tag = get(context.actor_bytes, player_field::damage_class);
     if (tag != 0)
     {
         const float low = float(i32(context.hit_bands[0]));
@@ -926,7 +927,7 @@ float runtime_floor_pitch(const Actor& actor, std::span<const u8> actor_bytes)
         float(static_cast<long double>(position.z) + retail_cos(behind) * reach)};
     Vec3 front{float(static_cast<long double>(position.x) + retail_sin(euler.y) * reach), position.y,
         float(static_cast<long double>(position.z) + retail_cos(euler.y) * reach)};
-    const i32 floor = i32(read_u32(actor_bytes, 0xCEC));
+    const i32 floor = i32(get(actor_bytes, player_field::floor));
     const i32 back_cell = entity_detail::navigation_cell_index(floor, back);
     const i32 front_cell = entity_detail::navigation_cell_index(floor, front);
     if (back_cell == -1 || front_cell == -1 || back_cell == front_cell)
@@ -1116,7 +1117,7 @@ void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCon
         if ((context.bits.bytes[5] & 2) != 0)
         {
             set(state, field::landing_point, read_vec(body, 0x178));
-            body[0x254] = entity_detail::navigation_surface_kind(i32(read_u32(context.actor_bytes, 0xCEC)),
+            body[0x254] = entity_detail::navigation_surface_kind(i32(get(context.actor_bytes, player_field::floor)),
                 get(state, field::landing_point));
         }
         else if (against)
@@ -1124,7 +1125,7 @@ void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCon
             const std::span<const u8> record = sphere_record(
                 first_hit_runtime_body_sphere(body, context.spheres)); // 0x00025FE0
             set(state, field::landing_point, read_vec(record, 0));
-            body[0x254] = entity_detail::navigation_surface_kind(i32(read_u32(context.actor_bytes, 0xCEC)),
+            body[0x254] = entity_detail::navigation_surface_kind(i32(get(context.actor_bytes, player_field::floor)),
                 get(state, field::landing_point)); // 0x001117A0
         }
         else

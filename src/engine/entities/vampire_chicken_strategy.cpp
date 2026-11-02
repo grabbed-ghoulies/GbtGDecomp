@@ -7,6 +7,7 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "strategy_target_selection.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -270,12 +271,15 @@ void update_runtime_vampire_chicken_strategy(RuntimeVampireChickenStrategy& cont
     u32 provoked = 0;
     if (target != nullptr)
     {
-        provoked = read_f32(actor, 0x978) > 0.f || actor[0x969] != 0 // DAT_0032B100.
-            || !runtime_strategy_target_watching_player(*target) ? 1u : 0u; // 0x001414F0
+        provoked = get(actor, player_field::countdown_56) > 0.f ||
+                           get(actor, player_field::provoked) != 0 // DAT_0032B100.
+                           || !runtime_strategy_target_watching_player(*target)
+                       ? 1u
+                       : 0u; // 0x001414F0
     }
     else
     {
-        provoked = read_f32(actor, 0x978) > 0.f ? 1u : u32(actor[0x969]);
+        provoked = get(actor, player_field::countdown_56) > 0.f ? 1u : u32(get(actor, player_field::provoked));
     }
     set(strategy, field::provoked, provoked);
     update_runtime_base_strategy(goals); // 0x0002C130

@@ -14,6 +14,7 @@
 #include "player_strategy_entry.h"
 #include "../graphics/actor_effect_stream.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <string>
@@ -570,7 +571,8 @@ void dispatch_runtime_vampire_message(std::span<const u32> message, RuntimeVampi
             break;
         }
         const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
-        const u32 kind = read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0 ? 1u : 0u;
+        const u32 kind =
+            get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0 ? 1u : 0u;
         if (goals.resume.references[kind] != 0 || goals.resume.decay_enabled[goals.resume.decay_index] == 0)
         {
             break; // DAT_0050E764, DAT_0030F144[DAT_0051248C].

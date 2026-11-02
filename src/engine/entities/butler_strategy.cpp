@@ -5,6 +5,7 @@
 #include "../graphics/actor_effect_stream.h"
 #include "../scripts/script_actor_query.h"
 #include "../scripts/script_conditions.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -39,7 +40,7 @@ void change_state(u16 state, RuntimeButlerStrategy& context)
 // Actor +0xCDC == 2 or a +0x93C link: the actor is a player.
 bool actor_is_player(std::span<const u8> actor)
 {
-    return read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0;
+    return get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0;
 }
 
 // The first goal kind of the actor +0x980 ring; an empty ring reads the word at address zero.

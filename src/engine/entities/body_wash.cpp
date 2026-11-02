@@ -3,6 +3,7 @@
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -76,11 +77,11 @@ float runtime_body_health_fraction(std::span<const u8> body)
 // Xbox 0x0001E770
 bool runtime_body_actor_requires_wash(std::span<const u8> actor, const u8* bound)
 {
-    if (read_u32(actor, 0x98C) != 0)
+    if (get(actor, player_field::goal_volume) != 0)
     {
         return false;
     }
-    if (!(read_f32(actor, 0x978) > 0.f) && actor[0x969] == 0)
+    if (!(get(actor, player_field::countdown_56) > 0.f) && get(actor, player_field::provoked) == 0)
     {
         return false;
     }

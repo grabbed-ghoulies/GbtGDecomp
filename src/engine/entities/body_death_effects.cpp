@@ -6,6 +6,7 @@
 #include "../scene/scene.h"
 #include "actor_bind_tree.h"
 #include "actor_render_registration.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -65,8 +66,8 @@ void finish_runtime_body_death(u32 create_effect, u32& scene_flags,
         std::memcpy(message.data() + 8, &position, 12);
         script_queue_event(context.notices.game, message);
     }
-    if (context.live != 0 && (read_u16(drops.actor_bytes, 0xCDC) == 2 ||
-        read_u32(drops.actor_bytes, 0x93C) != 0))
+    if (context.live != 0 && (get(drops.actor_bytes, player_field::mode) == 2 ||
+        get(drops.actor_bytes, player_field::case_link) != 0))
     {
         if ((scene_flags & 0x8000) == 0)
         {

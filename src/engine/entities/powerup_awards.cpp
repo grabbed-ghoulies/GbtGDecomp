@@ -10,6 +10,7 @@
 #include "body_message_helpers.h"
 #include "trigger_actor.h"
 #include "gbtg/actor_spawn_factory.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -303,7 +304,9 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
                     continue;
                 }
                 RuntimePowerupActor owner = actors.actor_at(read_u32(view.strategy, 8));
-                const u32 group = (read_u16(owner.bytes, 0xCDC) == 2 || read_u32(owner.bytes, 0x93C) != 0) ? 1u : 0u;
+                const u32 group =
+                    (get(owner.bytes, player_field::mode) == 2 || get(owner.bytes, player_field::case_link) != 0) ? 1u
+                                                                                                                  : 0u;
                 if (actors.blocked[group] != 0 || actors.modes[actors.mode] == 0)
                 {
                     continue;

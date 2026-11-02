@@ -24,6 +24,7 @@
 #include "gbtg/anim.h"
 #include "gbtg/object_factory.h"
 #include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <bit>
@@ -673,7 +674,7 @@ void throw_runtime_blood_suck_target(std::span<u8> state, RuntimeBloodSuckStateC
     const std::span<u8> target_body = target.peer.body;
     const Actor& target_actor = *target.peer.actor;
     auto& processor = target.damage->processor;
-    const u16 actor_class = read_u16(context.actor_bytes, 0xCF4);
+    const u16 actor_class = get(context.actor_bytes, player_field::damage_class);
     const bool target_player = target_actor.mask_mode == 2 || target_actor.mask_flag != 0;
     u32 amount;
     if (target_player && actor_class != 0)
@@ -683,7 +684,8 @@ void throw_runtime_blood_suck_target(std::span<u8> state, RuntimeBloodSuckStateC
     else
     {
         amount = u32(runtime_actor_damage_value(0x28, target_actor.damage_class, processor.tables)); // 0x00028DA0
-        const bool live = runtime_actor_is_live_player(context.actor, read_u32(context.actor_bytes, 0xCE0)) // 0x00028D20
+        const bool live =
+            runtime_actor_is_live_player(context.actor, get(context.actor_bytes, player_field::live)) // 0x00028D20
             && processor.player_damage != 0;
         if (amount != 0 && live)
         {

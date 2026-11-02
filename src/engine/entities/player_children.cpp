@@ -1,5 +1,6 @@
 #include "player_children.h"
 #include "entity_heap.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -103,7 +104,7 @@ void clear_runtime_player_mind_requests(RuntimePlayerMindRequests& mind)
 void destroy_runtime_player_mind(std::span<const u8> actor, u32 runtime_flags,
     RuntimeInputActivationContext& input)
 {
-    if ((runtime_flags & 0x800) == 0 && read_u32(actor, 0x960) != 0)
+    if ((runtime_flags & 0x800) == 0 && get(actor, player_field::input_device) != 0)
     {
         pop_runtime_input_entry(input);
     }

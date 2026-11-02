@@ -12,6 +12,7 @@
 #include "gbtg/anim.h"
 #include "gbtg/object_factory.h"
 #include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <cstring>
@@ -113,7 +114,7 @@ void choose_landing(std::span<u8> state, RuntimeSlamSmashStateContext& context)
         const float yaw = context.actor.euler.y; // Actor +0x18.
         landing.x = float(retail_sin(yaw) * kAhead + landing.x); // 0x00153320
         landing.z = float(retail_cos(yaw) * kAhead + landing.z); // 0x00153230
-        floor = read_u32(context.actor_bytes, 0xCEC);
+        floor = get(context.actor_bytes, player_field::floor);
     }
     const i32 cell = entity_detail::navigation_cell_index(i32(floor), landing); // 0x00110EF0, EAX floor, EBX point
     if (cell != -1)

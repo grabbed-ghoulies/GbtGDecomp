@@ -2,6 +2,7 @@
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -148,7 +149,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         set(mind, mind_field::action_record, 0);
     }
     body[0xAA] = 0;
-    if (target_address != 0 && (read_f32(messages.actor_bytes, 0x978) > 0.f
+    if (target_address != 0 && (get(messages.actor_bytes, player_field::countdown_56) > 0.f
         || messages.actor_bytes[0x969] != 0)
         && !runtime_mind_target_is_eligible(mind, messages.actor_bytes, base.actor,
             messages.actor_address, messages.target_at(target_address), true))

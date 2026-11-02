@@ -17,6 +17,7 @@
 #include "../scripts/script_vm.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -173,9 +174,12 @@ bool search_runtime_haunted_coat_heading(std::span<const u8> target, Vec3& outpu
     runtime_direction_angle(direction, angle); // 0x00105F90
     const float heading = interpolate_runtime_mind_angle(angle, actor.euler.y, get(strategy, field::turn)) // 0x00100E90
         + sway;
-    RuntimeNavigationHeadingSearch search{origin, i32(read_u32(goals.entry.actor_bytes, 0xCEC)), 32.f, 35.5f, nullptr,
-        goals.entry.allowed, &output, 0, 0x1C, i16(read_u16(goals.entry.actor_bytes, 6)), goals.random,
-        context.occupancy_initial};
+    RuntimeNavigationHeadingSearch search{origin,       i32(get(goals.entry.actor_bytes, player_field::floor)),
+                                          32.f,         35.5f,
+                                          nullptr,      goals.entry.allowed,
+                                          &output,      0,
+                                          0x1C,         i16(read_u16(goals.entry.actor_bytes, 6)),
+                                          goals.random, context.occupancy_initial};
     return search_runtime_navigation_headings(search, heading, std::bit_cast<float>(0x3E9C61AAu), 10); // 0x0013AA50
 }
 

@@ -11,6 +11,7 @@
 #include "shape_transform.h"
 #include "../camera/view_frustum.h"
 #include "gbtg/anim.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <xmmintrin.h>
@@ -452,11 +453,11 @@ void scan_runtime_fx_emitter_players(RuntimeFxAnimEmitter& context)
     for (RuntimeFxEmitterPlayer* player : context.players)
     {
         std::span<const u8> actor = player->actor_bytes;
-        if (read_u32(actor, 0xCE0) == 0)
+        if (get(actor, player_field::live) == 0)
         {
             continue;
         }
-        if (read_u16(actor, 0xCDC) != 2 && read_u32(actor, 0x93C) == 0)
+        if (get(actor, player_field::mode) != 2 && get(actor, player_field::case_link) == 0)
         {
             continue;
         }

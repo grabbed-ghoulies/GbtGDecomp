@@ -20,6 +20,7 @@
 #include "../navigation/player_avoidance.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <bit>
@@ -545,7 +546,7 @@ void place_beam(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
         const Vec3 origin = actor_world_position(actor); // 0x000412A0
         const float reach = actor.radius_xz * get(context.body, body_field::radius_scale) * 3.f; // DAT_0032B260.
         Vec3 point = get(state, field::spawn_point);
-        RuntimeNavigationHeadingSearch search{origin, i32(read_u32(context.actor_bytes, 0xCEC)), reach,
+        RuntimeNavigationHeadingSearch search{origin, i32(get(context.actor_bytes, player_field::floor)), reach,
             reach + 5.f, nullptr, nullptr, &point, 1, 0, 0, context.random, context.occupancy_initial};
         const bool found = search_runtime_navigation_headings(search, actor.euler.y,
             std::bit_cast<float>(0x3F490FDBu), 3); // 0x0013AA50
@@ -637,7 +638,7 @@ void create_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
             return;
         }
     }
-    const i32 kind = std::bit_cast<i16>(read_u16(context.actor_bytes, 0xB9C));
+    const i32 kind = std::bit_cast<i16>(get(context.actor_bytes, player_field::ghouly_kind));
     set(state, field::ghouly_kind, kind);
     if (!aid_name(name))
     {
@@ -875,7 +876,7 @@ bool initialize_runtime_generate_ghouly_state(std::span<u8> state, std::span<con
     }
     body[0x38] = 1;
     body[0x39] = 1;
-    put_half(context.actor_bytes, 0xB9E, u16(read_u16(context.actor_bytes, 0xB9E) + 1));
+    set(context.actor_bytes, player_field::ghouly_count, u16(get(context.actor_bytes, player_field::ghouly_count) + 1));
     set(state, field::light, u8(0xFF));
     place_beam(state, context); // 0x00093800, EBX state
     start_bolts(state, context); // 0x000925C0
@@ -904,7 +905,7 @@ void destroy_runtime_generate_ghouly_state(std::span<u8> state, RuntimeGenerateG
     set(state, field::ghouly, 0u);
     set(state, field::attached, 0u);
     adjust_body_counters(context.body, -1);
-    put_half(context.actor_bytes, 0xB9E, u16(read_u16(context.actor_bytes, 0xB9E) - 1));
+    set(context.actor_bytes, player_field::ghouly_count, u16(get(context.actor_bytes, player_field::ghouly_count) - 1));
     generate_ghouly_instances.erase(state.data());
 }
 

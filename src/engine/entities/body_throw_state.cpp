@@ -12,6 +12,7 @@
 #include "../camera/camera_mind_rig.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <bit>
@@ -215,7 +216,7 @@ void lead_runtime_throw_target(Vec3& aim, RuntimeThrowStateContext& context)
 {
     const auto target = context.target;
     const Vec3 seen = read_vector(target, 0x20);
-    if (!(read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0))
+    if (!(get(context.actor_bytes, player_field::mode) == 2 || get(context.actor_bytes, player_field::case_link) != 0))
     {
         aim = seen;
         return;

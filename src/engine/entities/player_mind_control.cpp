@@ -4,6 +4,7 @@
 #include "actor_live_attachments.h"
 #include "shape_copy.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -535,8 +536,8 @@ void update_runtime_player_input_tracking(std::span<u8> tracking,
 bool update_runtime_player_boost_timer(RuntimeMindBoost& boost,
     RuntimePlayerMindControl& control, const std::span<const u8>* preset, float multiplier)
 {
-    const size_t group = (read_u16(boost.actor_bytes, 0xCDC) == 2
-        || read_u32(boost.actor_bytes, 0x93C) != 0) ? 1 : 0;
+    const size_t group = (get(boost.actor_bytes, player_field::mode) == 2
+        || get(boost.actor_bytes, player_field::case_link) != 0) ? 1 : 0;
     if (boost.resume.references[group] != 0
         || boost.resume.decay_enabled[boost.resume.decay_index] == 0)
     {

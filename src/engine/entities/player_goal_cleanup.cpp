@@ -2,6 +2,7 @@
 #include "../scripts/script_conditions.h"
 #include "actor_live_attachments.h"
 #include "entity_heap.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -177,7 +178,7 @@ bool runtime_goal_requires_latches(u16 kind)
 bool restore_runtime_player_script_overrides(RuntimeBodyAttachedActor& actor,
     RuntimePlayerScriptOverrides& context)
 {
-    const i16 mode = i16(read_u16(actor.bytes, 0xCDC));
+    const i16 mode = i16(get(actor.bytes, player_field::mode));
     const bool player = mode == 1;
     if (!player && mode != 5)
     {

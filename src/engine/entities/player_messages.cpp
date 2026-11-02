@@ -2,6 +2,7 @@
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -29,7 +30,7 @@ void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
 // Shared 0xA7/0xA9/0xAA gate: a name already starting with "aid_", or a busy +0xB9E word, rejects.
 bool spawn_slot_available(std::span<const u8> actor)
 {
-    return read_u32(actor, 0xBA0) != 0x5F646961 && read_u16(actor, 0xB9E) == 0;
+    return read_u32(actor, 0xBA0) != 0x5F646961 && get(actor, player_field::ghouly_count) == 0;
 }
 
 void copy_string(std::span<u8> actor, size_t offset, const char* text)
@@ -78,7 +79,7 @@ u16 first_goal_kind(const RuntimePlayerGoalRing* ring, std::span<const u8> addre
 
 bool player_or_mode_four(std::span<const u8> actor)
 {
-    const i16 mode = i16(read_u16(actor, 0xCDC));
+    const i16 mode = i16(get(actor, player_field::mode));
     return mode == 1 || mode == 4;
 }
 }
@@ -119,7 +120,7 @@ void reset_runtime_player_attribute_timer(RuntimeBodyAttachedActor& actor, u8 va
     actor.bytes[0x96D] = value;
     actor.bytes[0x96F] = 0;
     actor.bytes[0x970] = 0;
-    if (read_f32(actor.bytes, 0x974) > 0.0f)
+    if (get(actor.bytes, player_field::countdown_55) > 0.0f)
     {
         put(actor.bytes, 0x974, 0);
         // Retail reuses its argument slot as the message, writing only the id.
@@ -212,7 +213,7 @@ void accept_runtime_player_alternate_variant(std::span<u8> actor, GhoulyVariantM
 // Xbox 0x00028D50
 u8 runtime_player_can_resume_strategy(std::span<const u8> actor, const RuntimePlayerStrategyResume& context)
 {
-    const size_t group = (i16(read_u16(actor, 0xCDC)) == 2 || read_u32(actor, 0x93C) != 0) ? 1 : 0;
+    const size_t group = (i16(get(actor, player_field::mode)) == 2 || get(actor, player_field::case_link) != 0) ? 1 : 0;
     if (context.references[group] != 0)
     {
         return 0;
@@ -224,7 +225,7 @@ u8 runtime_player_can_resume_strategy(std::span<const u8> actor, const RuntimePl
 u8 runtime_player_strategy_decay_enabled(std::span<const u8> actor,
     const RuntimePlayerStrategyResume& context)
 {
-    const size_t group = (read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0) ? 1 : 0;
+    const size_t group = (get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0) ? 1 : 0;
     if (context.references[group] != 0)
     {
         return 0;
@@ -259,7 +260,7 @@ u32 handle_runtime_player_pause_message(std::span<u8> actor, u32 id, RuntimePlay
     {
     case 9:
     {
-        const i32 count = i32(read_u32(actor, 0xCD8)) + 1;
+        const i32 count = i32(get(actor, player_field::pause_count)) + 1;
         put(actor, 0xCD8, u32(count));
         context.actor.parked_gate = count;
         if (count == 1)
@@ -278,7 +279,7 @@ u32 handle_runtime_player_pause_message(std::span<u8> actor, u32 id, RuntimePlay
     }
     case 10:
     {
-        const i32 count = i32(read_u32(actor, 0xCD8)) - 1;
+        const i32 count = i32(get(actor, player_field::pause_count)) - 1;
         put(actor, 0xCD8, u32(count));
         context.actor.parked_gate = count;
         if (count == 0 && context.strategy.bytes != nullptr && runtime_player_can_resume_strategy(actor, context.resume) != 0)
@@ -304,8 +305,8 @@ void register_runtime_player_navigation(std::span<const u8> actor, RuntimePlayer
     const float radius = context.body_owner.radius_xz * get(context.body, body_field::radius_scale);
     if (radius != 0.0f)
     {
-        const Vec3 center{read_f32(actor, 0xCC0), read_f32(actor, 0xCC4), read_f32(actor, 0xCC8)};
-        entity_detail::register_navigation_cells(context.records, center, i32(read_u32(actor, 0xCEC)), radius,
+        const Vec3 center = get(actor, player_field::start_position);
+        entity_detail::register_navigation_cells(context.records, center, i32(get(actor, player_field::floor)), radius,
             i32(read_u32(actor, 0xCF0)));
     }
 }
@@ -315,7 +316,7 @@ void activate_runtime_player(RuntimePlayerActivation& context)
 {
     auto actor = context.self.bytes;
     insert_after_first(context.world.mark, context.links[0]);
-    const i16 mode = i16(read_u16(actor, 0xCDC));
+    const i16 mode = i16(get(actor, player_field::mode));
     if (mode == 1)
     {
         insert_after_first(context.world.alt, context.links[2]);
@@ -369,7 +370,7 @@ void activate_runtime_player(RuntimePlayerActivation& context)
             actor[0x96D] = 1;
             actor[0x96F] = 0;
             actor[0x970] = 0;
-            if (read_f32(actor, 0x974) > 0.0f)
+            if (get(actor, player_field::countdown_55) > 0.0f)
             {
                 put(actor, 0x974, 0);
                 const std::array<u32, 1> message{0x55};

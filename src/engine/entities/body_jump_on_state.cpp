@@ -15,6 +15,7 @@
 #include "../navigation/navigation.h"
 #include "../navigation/spawn_candidates.h"
 #include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <bit>
@@ -861,7 +862,8 @@ bool tick_runtime_ride(std::span<u8> state, u32 keep_riding, RuntimeJumpOnStateC
     const Vec3 euler = actor_world_euler(context.actor); // 0x00041820, EDI body +0x72C
     std::memcpy(body.data() + 0x72C, &euler, sizeof(euler));
     const std::span<const u8> actor_bytes = context.actor_bytes;
-    const u32 group = (read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0) ? 1u : 0u;
+    const u32 group =
+        (get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0) ? 1u : 0u;
     if (context.player_blocked[group] == 0 && context.player_modes[context.player_mode] != 0)
     {
         const float step = actor_step(context);
@@ -1273,7 +1275,7 @@ bool find_runtime_jump_landing(const RuntimeJumpOnPeer& from, float extra, Vec3&
     }
     const float inner = read_f32(from.body, 0x888) * scale + (sword + body_reach);
     const float minimum = context.actor.radius_xz * get(context.body, body_field::radius_scale) + inner;
-    return entity_detail::select_navigation_spawn_position(i32(read_u32(context.actor_bytes, 0xCEC)), nullptr,
+    return entity_detail::select_navigation_spawn_position(i32(get(context.actor_bytes, player_field::floor)), nullptr,
         center, minimum, minimum + extra, nullptr, nullptr, 0, 0, output, context.random,
         context.occupancy_initial); // 0x00111420, EAX 0
 }

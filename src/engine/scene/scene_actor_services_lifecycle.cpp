@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../entities/player_fields.h"
 
 // Scene begin and end, teardown, and the transition, pause, book and game-select service bindings.
 namespace gbtg
@@ -785,7 +786,7 @@ void SceneActorServices::State::bind_gameselect_services()
             {
                 auto& player = players->player_at(mark.address);
                 player.refresh_body_views();
-                if (read_u16(player.actor_bytes, 0xCDC) != 1 || player.body.empty()
+                if (get(player.actor_bytes, player_field::mode) != 1 || player.body.empty()
                     || read_u16(player.body, 0x94) == 0)
                 {
                     continue;
@@ -814,7 +815,7 @@ void SceneActorServices::State::bind_gameselect_services()
                 throw Error("0x0004A990 reads the goal at an empty ring's head (a null read in retail)");
             }
             const u16 goal = read_u16(ring->rows, size_t(ring->head) * ring->stride);
-            return goal != 0 && read_u32(player.actor_bytes, 0x984) == 0;
+            return goal != 0 && get(player.actor_bytes, player_field::unk_984) == 0;
         },
         [this](u32 address)
         {

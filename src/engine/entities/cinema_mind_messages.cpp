@@ -1,5 +1,6 @@
 #include "cinema_mind_messages.h"
 #include "mind_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -51,7 +52,7 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
         request_runtime_mind_boost(context.boost);
         break;
     case 0x64:
-        if (read_u16(context.actor_bytes, 0xCDC) == 1)
+        if (get(context.actor_bytes, player_field::mode) == 1)
         {
             set(mind, mind_field::target_flags, get(mind, mind_field::target_flags) | 0x20);
         }

@@ -9,6 +9,7 @@
 #include "player_strategy_goals.h"
 #include "../audio/listener_settings.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -235,7 +236,7 @@ u8 request_runtime_mind_chain_target(RuntimeMindChainRequestSelection& context,
     auto& mind = context.mind;
     auto& selection = mind.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, mind.flags,
-        read_u16(mind.owner, 0xCDE)))
+        get(mind.owner, player_field::owner_class)))
     {
         return 1;
     }
@@ -461,7 +462,7 @@ i32 runtime_body_target_chain_length(const RuntimeBodyChainLength& context)
         return 0;
     }
     float value = context.upper;
-    const u16 classification = read_u16(context.owner, 0xCF4);
+    const u16 classification = get(context.owner, player_field::damage_class);
     if (classification != 0 && context.maximum != context.minimum)
     {
         value = ((float(context.class_table[u32(classification) * 0x87 - 0x38])
@@ -531,7 +532,7 @@ u8 request_runtime_mind_second_target(RuntimeMindTargetRequestSelection& context
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        read_u16(context.owner, 0xCDE)))
+        get(context.owner, player_field::owner_class)))
     {
         return 1;
     }
@@ -550,7 +551,7 @@ u8 request_runtime_mind_pair_target(RuntimeMindTargetRequestSelection& context, 
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        read_u16(context.owner, 0xCDE)))
+        get(context.owner, player_field::owner_class)))
     {
         return 1;
     }
@@ -569,7 +570,7 @@ u8 request_runtime_mind_category_target(RuntimeMindTargetRequestSelection& conte
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        read_u16(context.owner, 0xCDE)))
+        get(context.owner, player_field::owner_class)))
     {
         return 1;
     }
@@ -588,7 +589,7 @@ u8 request_runtime_mind_special_target(RuntimeMindTargetRequestSelection& contex
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        read_u16(context.owner, 0xCDE)))
+        get(context.owner, player_field::owner_class)))
     {
         return 1;
     }
@@ -1039,7 +1040,7 @@ bool runtime_mind_target_uses_point_shape(const RuntimeMindTarget& target, const
         {
             return true;
         }
-        if (read_u16(target.actor_bytes, 0xCDE) == 0 && (flags[2] & 2) != 0)
+        if (get(target.actor_bytes, player_field::owner_class) == 0 && (flags[2] & 2) != 0)
         {
             if ((flags[5] & 2) == 0)
             {

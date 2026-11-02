@@ -12,6 +12,7 @@
 #include "player_strategy_entry.h"
 #include "../graphics/actor_effect_stream.h"
 #include "gbtg/anim.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -206,7 +207,7 @@ void tick_inner_force(RuntimeImpNinjaStrategy& context)
     const std::array<u32, 1> message{0x4A};
     context.actor_message(message); // Actor vtable +0xC.
     bits.bytes[7] |= 0x80;
-    if (read_u16(actor_bytes, 0xCF4) != 0)
+    if (get(actor_bytes, player_field::damage_class) != 0)
     {
         const u16 zero = 0;
         std::memcpy(actor_bytes.data() + 0xCF4, &zero, 2);
@@ -424,7 +425,8 @@ void update_runtime_imp_ninja_strategy(RuntimeImpNinjaStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
     const u16 state = read_u16(strategy, 0xE);
-    const bool provoked = read_f32(actor, 0x978) > 0.f || actor[0x969] != 0; // DAT_0032B100.
+    const bool provoked =
+        get(actor, player_field::countdown_56) > 0.f || get(actor, player_field::provoked) != 0; // DAT_0032B100.
     const RuntimeMindTarget* target = mind_target(context);
     u32 open = 0;
     if (target != nullptr)
@@ -433,7 +435,7 @@ void update_runtime_imp_ninja_strategy(RuntimeImpNinjaStrategy& context)
     }
     else
     {
-        open = read_f32(actor, 0x978) > 0.f ? 1u : u32(actor[0x969]);
+        open = get(actor, player_field::countdown_56) > 0.f ? 1u : u32(get(actor, player_field::provoked));
     }
     set(strategy, field::unk_C0, open);
     update_runtime_base_strategy(goals); // 0x0002C130
@@ -496,7 +498,8 @@ void dispatch_runtime_imp_ninja_message(std::span<const u32> message, RuntimeImp
         if (message[1] == actor && strategy[0x1C] == 0)
         {
             const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
-            const u32 kind = read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0 ? 1u : 0u;
+            const u32 kind =
+                get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0 ? 1u : 0u;
             if (goals.resume.references[kind] == 0 && goals.resume.decay_enabled[goals.resume.decay_index] != 0)
             {
                 // The first goal kind of the actor +0x980 ring; an empty ring reads the word at address zero.

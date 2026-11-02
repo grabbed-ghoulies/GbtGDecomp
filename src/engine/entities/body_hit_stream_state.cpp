@@ -6,6 +6,7 @@
 #include "player_mind_events.h"
 #include "../graphics/actor_effect_nodes.h"
 #include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <cstring>
@@ -338,8 +339,9 @@ u16 drain_runtime_hit_stream(std::span<u8> state, u32& taken, RuntimeHitStreamSt
     const auto counts = [&context]()
     {
         // Not a player (+0xCDC 2, or +0x93C), or one the scene lets be hurt (0x00028D50).
-        return (read_u16(context.actor_bytes, 0xCDC) != 2 && read_u32(context.actor_bytes, 0x93C) == 0)
-            || context.damage_enabled();
+        return (get(context.actor_bytes, player_field::mode) != 2 &&
+                get(context.actor_bytes, player_field::case_link) == 0) ||
+               context.damage_enabled();
     };
     if ((context.bits.bytes[0] & 0x80) == 0 && counts())
     {

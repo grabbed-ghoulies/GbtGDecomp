@@ -31,6 +31,7 @@
 #include "../scene/scene_markers.h"
 #include "gbtg/object_factory.h"
 #include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <bit>
@@ -529,7 +530,7 @@ void throw_runtime_grab_throw_victim(std::span<u8> state, RuntimeGrabThrowStateC
     std::array<u32, 3> release{0x57, context.actor_address, victim_address};
     context.message(context.actor_address, release); // The actor's vtable +0xC.
     auto& processor = victim.damage->processor;
-    const u16 actor_class = read_u16(context.actor_bytes, 0xCF4);
+    const u16 actor_class = get(context.actor_bytes, player_field::damage_class);
     const bool victim_player = victim_actor.mask_mode == 2 || victim_actor.mask_flag != 0;
     u32 amount;
     if (victim_player && actor_class != 0)
@@ -539,7 +540,8 @@ void throw_runtime_grab_throw_victim(std::span<u8> state, RuntimeGrabThrowStateC
     else
     {
         amount = u32(runtime_actor_damage_value(0x15, victim_actor.damage_class, processor.tables)); // 0x00028DA0
-        const bool live = runtime_actor_is_live_player(context.actor, read_u32(context.actor_bytes, 0xCE0)) // 0x00028D20
+        const bool live =
+            runtime_actor_is_live_player(context.actor, get(context.actor_bytes, player_field::live)) // 0x00028D20
             && processor.player_damage != 0;
         if (amount != 0 && live)
         {

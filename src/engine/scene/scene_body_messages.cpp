@@ -19,6 +19,7 @@
 #include "../scripts/script_actions.h"
 #include "scene_actor_services.h"
 #include "gbtg/actor_spawn_factory.h"
+#include "../entities/player_fields.h"
 #include <bit>
 #include <cstring>
 #include <optional>
@@ -53,7 +54,7 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           {
               return services.source_at(services.address_of(bytes));
           }},
-      effect_commands_{player.actor, i32(read_u32(player.actor_bytes, 0xCEC)), services.effect_scene,
+      effect_commands_{player.actor, i32(get(player.actor_bytes, player_field::floor)), services.effect_scene,
           services.surfaces, services.effect_tags, services.effect_suffixes[0], services.effect_suffixes[1],
           services.effect_suffixes[2], services.effect_suffixes[3], services.effects},
       query_name_([this](RuntimeBodyAttachedActor& attached, std::span<char, 128> name)
@@ -74,7 +75,7 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           services.flags, proximity_, player.scene.address_of(player.body.data()),
           player.actor_instance.startup.resource.resource.data(),
           player.callout, player.body_lists},
-      spatial_{player.actor, player.actor_address, u8(read_u32(player.actor_bytes, 0xCEC)),
+      spatial_{player.actor, player.actor_address, u8(get(player.actor_bytes, player_field::floor)),
           player.actor_instance.live_attachments, services.global_attachments},
       parent_{player.actor, player.actor_bytes, actions_, children_, animation_, spatial_, shape_scratch_,
           services.latches, player.collision, first_timer_, second_timer_, services.contact_players,
@@ -1142,7 +1143,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     {
         // 0x000A6520 takes only the state; 0x00019840 reads the stick through actor +0x960 itself.
         const RuntimeDialogueInputDevice* device = nullptr;
-        if (read_u32(player_.actor_bytes, 0x960) != 0)
+        if (get(player_.actor_bytes, player_field::input_device) != 0)
         {
             device = &player_.input_device;
         }
@@ -1173,7 +1174,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             device = &player_.input_device;
         }
         const RuntimeDialogueInputDevice* own = nullptr;
-        if (read_u32(player_.actor_bytes, 0x960) != 0)
+        if (get(player_.actor_bytes, player_field::input_device) != 0)
         {
             own = &player_.input_device;
         }
@@ -1475,7 +1476,7 @@ void SceneBodyMessages::refresh_damage_rows()
 RuntimeBodyRecoveryAction& SceneBodyMessages::recovery_action()
 {
     recovery_.emplace(RuntimeBodyRecoveryAction{player_.body, player_.body_attributes, player_.action_table,
-        first_timer_, player_.ring, read_u16(player_.actor_bytes, 0x990), services_.address_zero,
+        first_timer_, player_.ring, get(player_.actor_bytes, player_field::goal_latch), services_.address_zero,
         [this](u32& output)
         {
             // 0x00028360: the front goal's kind in AX (0 without a ring; an empty ring reads address zero).
@@ -1569,8 +1570,8 @@ RuntimeThrowStateContext& SceneBodyMessages::throw_context()
         unbound("throw state without the body +0x15C bit block");
     }
     const u32 hit = read_u32(player_.body, 0x84);
-    const RuntimeDialogueInputDevice* own = read_u32(player_.actor_bytes, 0x960) != 0 ? &player_.input_device
-                                                                                       : nullptr;
+    const RuntimeDialogueInputDevice* own =
+        get(player_.actor_bytes, player_field::input_device) != 0 ? &player_.input_device : nullptr;
     throw_.reset();
     throw_.emplace(RuntimeThrowStateContext{player_.body, player_.actor, player_.actor_bytes, *player_.body_flags,
         player_.actor_instance.animation, services_.clock, player_.actor_instance.live_attachments,
@@ -2490,7 +2491,7 @@ RuntimeAnimStateContext& SceneBodyMessages::anim_context()
         [this]() -> u32
         {
             // Actor +0x958 is the mind; its +0xC is the target.
-            const u32 mind = read_u32(player_.actor_bytes, 0x958);
+            const u32 mind = get(player_.actor_bytes, player_field::mind);
             if (mind == 0)
             {
                 return 0;
@@ -2528,7 +2529,7 @@ RuntimeDieStateContext& SceneBodyMessages::die_context()
         [this]() -> u32
         {
             // Actor +0x958 is the mind; its +0xC is the target.
-            const u32 mind = read_u32(player_.actor_bytes, 0x958);
+            const u32 mind = get(player_.actor_bytes, player_field::mind);
             if (mind == 0)
             {
                 return 0;
@@ -2979,7 +2980,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
         }
         const EntityMaskHost mask{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
-        const i32 floor = i32(read_u32(player_.actor_bytes, 0xCEC));
+        const i32 floor = i32(get(player_.actor_bytes, player_field::floor));
         RuntimePlayerCollisionAction action{[this](RuntimePlayerCollisionReply& reply)
         {
             const u32 type = player_.body_selection.second.type;

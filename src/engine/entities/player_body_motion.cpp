@@ -4,6 +4,7 @@
 #include "body_animation_setup.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <cmath>
@@ -42,7 +43,7 @@ bool runtime_player_body_can_select_action(std::span<const u8> body,
     std::span<const u8> actor, const RuntimePlayerGoalRing* ring,
     const EntityBitBlock& flags, std::span<const u8> address_zero)
 {
-    if (i32(read_u32(actor, 0xCD8)) > 0)
+    if (i32(get(actor, player_field::pause_count)) > 0)
     {
         return false;
     }

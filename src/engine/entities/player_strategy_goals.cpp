@@ -10,6 +10,7 @@
 #include "entity_heap.h"
 #include "../navigation/spawn_candidates.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <new>
@@ -101,17 +102,17 @@ u32 tick_runtime_player_goal_delay(RuntimePlayerStrategyGoals& context)
     std::span<u8> actor = context.entry.actor_bytes;
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.entry.actor);
-    const float delay = read_f32(actor, 0x994);
+    const float delay = get(actor, player_field::goal_delay);
     if (delay > 0.0f)
     {
         const float remaining = delay - rate * step;
-        put_float(actor, 0x994, remaining);
+        set(actor, player_field::goal_delay, remaining);
         if (remaining <= 0.0f)
         {
-            put_float(actor, 0x994, 0.0f);
+            set(actor, player_field::goal_delay, 0.0f);
         }
     }
-    return read_f32(actor, 0x994) == 0.0f ? 1 : 0;
+    return get(actor, player_field::goal_delay) == 0.0f ? 1 : 0;
 }
 
 // Xbox 0x00028580
@@ -327,7 +328,7 @@ u32 runtime_player_goal_ready(RuntimePlayerStrategyGoals& context)
     case 6:
         return ~context.runtime_flags & 1;
     case 7:
-        return read_u32(context.entry.actor_bytes, 0x984);
+        return get(context.entry.actor_bytes, player_field::unk_984);
     case 9:
         return ~(context.runtime_flags >> 2) & 1;
     case 0x12:
@@ -396,12 +397,12 @@ bool find_runtime_goal_volume_target(const OccupancyRecord& volume, u32& output,
 u32 seek_runtime_player_free_position(RuntimePlayerStrategyGoals& context)
 {
     std::span<u8> actor = context.entry.actor_bytes;
-    const Vec3 saved{read_f32(actor, 0xCAC), read_f32(actor, 0xCB0), read_f32(actor, 0xCB4)};
+    const Vec3 saved = get(actor, player_field::saved_position);
     const i16 tag = i16(read_u16(actor, 6));
     // Retail leaves this stack point unwritten when no cell is selected; the path check below
     // still reads it.
     Vec3 candidate{};
-    const bool found = entity_detail::select_navigation_spawn_position(i32(read_u32(actor, 0xCEC)), nullptr,
+    const bool found = entity_detail::select_navigation_spawn_position(i32(get(actor, player_field::floor)), nullptr,
         saved, 0.0f, 20.0f, nullptr, context.entry.allowed, 4, tag, candidate, context.random,
         0.0f); // Flag 0x10 is clear, so the retained occupancy scratch is not read.
     if (context.current == nullptr)
@@ -420,7 +421,7 @@ u32 seek_runtime_player_free_position(RuntimePlayerStrategyGoals& context)
         std::span<u8> mind = context.entry.events.mind;
         set(mind, mind_field::goal_point, candidate);
         RuntimeMindGoalContext& goals = context.entry.goals;
-        if (read_u16(actor, 0xCDE) == 1)
+        if (get(actor, player_field::owner_class) == 1)
         {
             RuntimePlayerMindRequest* request = allocate_runtime_mind_request(goals.anchor, 0xF, goals.sizes);
             put_float(request->bytes, 0x10, 1.0f); // DAT_0032B0F8.
@@ -630,7 +631,7 @@ u32 select_runtime_player_goal_action(u32& output, RuntimePlayerStrategyGoals& c
 {
     static constexpr u16 keys[0x16]{0, 0x3E, 0x53, 0x52, 0x4A, 0x4C, 0, 0x3F, 0x40, 0x4D, 0x5D, 0x5E, 0x4B, 0,
         0x51, 0x4E, 0x4F, 0x50, 0x54, 0x48, 0x49, 0x55};
-    const u16 mode = read_u16(context.entry.actor_bytes, 0x990);
+    const u16 mode = get(context.entry.actor_bytes, player_field::goal_latch);
     if (mode > 0x15)
     {
         output = 0;
@@ -754,7 +755,7 @@ u32 complete_runtime_player_goal_step(RuntimePlayerStrategyGoals& context)
 u32 update_runtime_player_goal_state(RuntimePlayerStrategyGoals& context)
 {
     std::span<u8> actor = context.entry.actor_bytes;
-    if (read_u32(actor, 0x98C) != 0)
+    if (get(actor, player_field::goal_volume) != 0)
     {
         alert_runtime_goal_listener(context);
         u32 target;
@@ -886,7 +887,7 @@ bool strategy_goal_gate(RuntimePlayerStrategyGoals& context)
     {
         return false;
     }
-    const size_t group = (read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0) ? 1 : 0;
+    const size_t group = (get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0) ? 1 : 0;
     if (context.resume.references[group] != 0 || context.resume.decay_enabled[context.resume.decay_index] == 0)
     {
         return false;
@@ -989,7 +990,7 @@ void resolve_runtime_goal_alert(RuntimePlayerStrategyGoals& context)
     const u32 category = get(mind, mind_field::target_categories);
     const auto alerted = [&actor]()
     {
-        return read_f32(actor, 0x978) > 0.0f || actor[0x969] != 0;
+        return get(actor, player_field::countdown_56) > 0.0f || get(actor, player_field::provoked) != 0;
     };
     if (alerted())
     {
@@ -1031,7 +1032,7 @@ void resolve_runtime_goal_alert(RuntimePlayerStrategyGoals& context)
         }
     }
     adopt_message_target(*target, context);
-    const bool volume = read_u32(actor, 0x98C) != 0;
+    const bool volume = get(actor, player_field::goal_volume) != 0;
     const bool controlled = runtime_mind_target_is_controlled_player(*target);
     finish_runtime_player_goal(context.cleanup, context.body_bits, context.actions, context.primary_action_key,
         context.game, controlled ? 1 : 0);
@@ -1050,7 +1051,7 @@ void deliver_runtime_goal_item(std::span<const u32> message, RuntimeBaseStrategy
 {
     RuntimePlayerStrategyGoals& goals = context.goals;
     std::span<const u8> actor = goals.entry.actor_bytes;
-    if (goals.entry.ring == nullptr || current_goal_kind(goals) == 0 || read_u32(actor, 0x98C) == 0)
+    if (goals.entry.ring == nullptr || current_goal_kind(goals) == 0 || get(actor, player_field::goal_volume) == 0)
     {
         return;
     }
@@ -1084,7 +1085,7 @@ void complete_runtime_goal_contact(u32 first, u32 second, RuntimeBaseStrategyMes
     RuntimePlayerStrategyGoals& goals = context.goals;
     std::span<const u8> actor = goals.entry.actor_bytes;
     if (first != goals.cleanup.actor.address || second == 0 || goals.entry.ring == nullptr
-        || current_goal_kind(goals) == 0 || read_u32(actor, 0x98C) == 0)
+        || current_goal_kind(goals) == 0 || get(actor, player_field::goal_volume) == 0)
     {
         return;
     }
@@ -1093,7 +1094,7 @@ void complete_runtime_goal_contact(u32 first, u32 second, RuntimeBaseStrategyMes
         return;
     }
     RuntimeStrategyMessageActor& other = *context.message_actor(second);
-    if (read_u16(actor, 0x990) == 0xC || other.target == nullptr)
+    if (get(actor, player_field::goal_latch) == 0xC || other.target == nullptr)
     {
         return;
     }
@@ -1179,7 +1180,8 @@ void dispatch_runtime_base_strategy_message(std::span<const u32> message, Runtim
         resolve_runtime_goal_alert(goals);
         return;
     case 0x24:
-        if (read_u16(actor, 0xCDC) == 1 && strategy_goal_gate(goals) && get(goals.entry.events.mind, mind_field::target_record) == 0)
+        if (get(actor, player_field::mode) == 1 && strategy_goal_gate(goals) &&
+            get(goals.entry.events.mind, mind_field::target_record) == 0)
         {
             clear_runtime_player_mind_requests(*goals.setup.mind);
         }
@@ -1189,7 +1191,7 @@ void dispatch_runtime_base_strategy_message(std::span<const u32> message, Runtim
         {
             return;
         }
-        if (script_actor_current_mask(goals.entry.actor, context.query) != 0 && read_u32(actor, 0x984) == 0)
+        if (script_actor_current_mask(goals.entry.actor, context.query) != 0 && get(actor, player_field::unk_984) == 0)
         {
             return;
         }
@@ -1200,7 +1202,7 @@ void dispatch_runtime_base_strategy_message(std::span<const u32> message, Runtim
             change_runtime_player_strategy_state(goals.strategy, state, goals.setup);
             return;
         }
-        if (runtime_player_mind_target(goals) != 0 && read_u16(actor, 0xCDC) == 1)
+        if (runtime_player_mind_target(goals) != 0 && get(actor, player_field::mode) == 1)
         {
             change_runtime_player_strategy_state(goals.strategy, 0x3E9, goals.setup);
             return;

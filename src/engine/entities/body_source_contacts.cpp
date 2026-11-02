@@ -2,6 +2,7 @@
 #include "segment_records.h"
 #include "body_action_ids.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -115,14 +116,14 @@ void receive_runtime_body_source_contact(std::span<u8> body, std::span<u8> messa
         timer = read_u32(context.source_body, 0x754);
     }
     std::memcpy(damage.data() + 0x58, &timer, 4);
-    const u16 actor_class = read_u16(source.bytes, 0xCF4);
+    const u16 actor_class = get(source.bytes, player_field::damage_class);
     std::memcpy(damage.data() + 0x64, &actor_class, 2);
     const u32 one = 1;
     std::memcpy(damage.data() + 0x60, &one, 4);
     context.target.contacts = &context.contacts.contacts;
     processor.first_source = &source;
     processor.second_source = &source;
-    processor.second_source_live = read_u32(source.bytes, 0xCE0);
+    processor.second_source_live = get(source.bytes, player_field::live);
     std::array<u32, 4> result;
     receive_runtime_body_damage(body, damage, result, context.target);
     dispatch_runtime_body_damage_reply(damage, result, context.target);

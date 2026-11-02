@@ -13,6 +13,7 @@
 #include "gbtg/anim.h"
 #include "body_fields.h"
 #include "body_state_fields.h"
+#include "player_fields.h"
 
 #include <bit>
 #include <cmath>
@@ -480,7 +481,7 @@ void steer_runtime_hit_body(RuntimeHitStateTick& context)
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (read_u32(context.actor_bytes, 0x960) == 0 || get(body, body_field::move_holds) != 0 ||
+    if (get(context.actor_bytes, player_field::input_device) == 0 || get(body, body_field::move_holds) != 0 ||
         get(body, body_field::move_hold_time) != 0.f)
     {
         axes = {0.f, 0.f};
@@ -544,7 +545,7 @@ void move_runtime_hit_body(std::span<const u8> state, RuntimeHitStateTick& conte
         return;
     }
     if (get(state, field::lunging) == 0
-        && (read_u16(context.actor_bytes, 0xCDC) == 2 || context.actor.mask_flag != 0))
+        && (get(context.actor_bytes, player_field::mode) == 2 || context.actor.mask_flag != 0))
     {
         // 0x0003B260 with ECX 0: slot 0's player has a root track (player +8, set when mina +0x1A is nonzero).
         const MinaPlayer* player = slot_player(context.animation);
@@ -842,7 +843,7 @@ void scorch_runtime_hit_furnace_contacts(std::span<u8> state, RuntimeHitFurnaceT
     if (holder != 0)
     {
         const auto source = context.record_at(holder, 0xCF8);
-        player = read_u16(source, 0xCDC) == 2 ? 1 : (read_u32(source, 0x93C) != 0 ? 1 : 0);
+        player = get(source, player_field::mode) == 2 ? 1 : (get(source, player_field::case_link) != 0 ? 1 : 0);
     }
     Vec3 position = actor_world_position(context.actor); // 0x000412A0
     const float radius = float(static_cast<long double>(actor_model_sweep_radius(context.actor)) // 0x0003D9A0
@@ -881,7 +882,8 @@ void tick_runtime_hit_furnace_state(std::span<u8> state, RuntimeHitFurnaceTick& 
     const float position = player == nullptr ? 0.f : player->position;
     const auto actor = context.actor_bytes;
     bool steering = false;
-    if (read_u32(actor, 0xCE0) != 0 && (read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0))
+    if (get(actor, player_field::live) != 0 &&
+        (get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0))
     {
         std::array<float, 2> axes{};
         read_input_axes(context.input, axes, context.input_state, context.address_zero);

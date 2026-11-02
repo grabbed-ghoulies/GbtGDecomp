@@ -1,4 +1,5 @@
 #include "player_destruction.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -15,7 +16,7 @@ void put(std::span<u8> bytes, size_t offset, u32 value)
 void destroy_runtime_player(std::span<u8> actor, RuntimePlayerDestruction& context)
 {
     auto& owner = context.owner;
-    if (read_u16(actor, 0xCDC) == 1)
+    if (get(actor, player_field::mode) == 1)
     {
         --owner.player_count;
     }
@@ -90,9 +91,9 @@ void destroy_runtime_player(std::span<u8> actor, RuntimePlayerDestruction& conte
         put(actor, 0x938 + index * 8, 0);
     }
     owner.actor.mask_flag = 0; // Native alias of the cleared actor +0x93C word.
-    entity_detail::release_navigation_cell_registration(context.navigation, read_u32(actor, 0xCEC));
+    entity_detail::release_navigation_cell_registration(context.navigation, get(actor, player_field::floor));
     put(actor, 0xCE8, 0);
-    if (read_u16(actor, 0xCF4) != 0)
+    if (get(actor, player_field::damage_class) != 0)
     {
         const u16 zero = 0;
         std::memcpy(actor.data() + 0xCF4, &zero, 2);

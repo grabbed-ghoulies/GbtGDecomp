@@ -1,5 +1,6 @@
 #include "body_resources.h"
 #include "entity_heap.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -101,7 +102,7 @@ void initialize_runtime_body_friction(std::span<u8> body, std::span<const u8> pa
 {
     body[0x244] = 1;
     body[0x245] = parameters[0x1AA];
-    const u16 tag = read_u16(actor, 0xCF4);
+    const u16 tag = get(actor, player_field::damage_class);
     const float maximum = read_f32(curve, 8);
     float value = maximum;
     if (tag != 0 && curve[1] != curve[0])

@@ -1,4 +1,5 @@
 #include "player_construction.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -87,7 +88,7 @@ bool initialize_runtime_player(std::span<u8> actor, std::span<const u8> paramete
         attached = create_runtime_player_attachment(reinterpret_cast<const char*>(parameters.data() + 0x4BA),
             0, context.attachments);
     }
-    if (read_u16(actor, 0xCDC) == 1)
+    if (get(actor, player_field::mode) == 1)
     {
         ++context.player_count;
         if (attached.bytes != nullptr && (context.story_flags & 0x10) != 0)

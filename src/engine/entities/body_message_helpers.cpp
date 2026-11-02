@@ -1,5 +1,6 @@
 #include "body_message_helpers.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -210,10 +211,10 @@ bool runtime_body_latches_block(std::span<const u8> body, const Actor& actor, u3
 bool runtime_body_can_receive_push(std::span<const u8> actor,
     std::span<const u8> source, i32 mode)
 {
-    const bool receiver = read_u32(actor, 0xCE0) != 0
-        && (read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0);
-    const bool sender = read_u32(source, 0xCE0) != 0
-        && (read_u16(source, 0xCDC) == 2 || read_u32(source, 0x93C) != 0);
+    const bool receiver = get(actor, player_field::live) != 0
+        && (get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0);
+    const bool sender = get(source, player_field::live) != 0
+        && (get(source, player_field::mode) == 2 || get(source, player_field::case_link) != 0);
     return mode == 1 && receiver && !sender;
 }
 

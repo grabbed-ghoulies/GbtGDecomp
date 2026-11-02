@@ -13,6 +13,7 @@
 #include "player_strategy_entry.h"
 #include "../navigation/spawn_candidates.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <string>
@@ -114,7 +115,7 @@ void mummy_strategy_object_sizes(ObjectSizes& output)
 // Xbox 0x000BBC70
 bool initialize_runtime_mummy_strategy(std::span<u8> strategy, std::span<const u8> actor)
 {
-    if (read_f32(actor, 0x978) > 0.f || actor[0x969] != 0) // DAT_0032B100.
+    if (get(actor, player_field::countdown_56) > 0.f || get(actor, player_field::provoked) != 0) // DAT_0032B100.
     {
         set(strategy, field::provoked, 1u);
     }

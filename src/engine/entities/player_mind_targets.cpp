@@ -5,6 +5,7 @@
 #include "body_gaze.h"
 #include "body_message_helpers.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <cmath>
@@ -83,11 +84,11 @@ bool runtime_mind_target_requires_special_action(const RuntimeMindTarget& target
     {
         return true;
     }
-    if (read_u32(actor, 0xCE0) == 0)
+    if (get(actor, player_field::live) == 0)
     {
         return false;
     }
-    if (read_u16(actor, 0xCDC) != 2 && read_u32(actor, 0x93C) == 0)
+    if (get(actor, player_field::mode) != 2 && get(actor, player_field::case_link) == 0)
     {
         return false;
     }
@@ -170,7 +171,8 @@ RuntimeMindTarget* search_runtime_player_target_windows(RuntimePlayerTargetSearc
             return nullptr;
         }
         u16 excluded = 0;
-        if (read_f32(context.actor_bytes, 0x978) > 0.f || context.actor_bytes[0x969] != 0)
+        if (get(context.actor_bytes, player_field::countdown_56) > 0.f ||
+            get(context.actor_bytes, player_field::provoked) != 0)
         {
             const u16 value = read_u16(context.actor_bytes, 0x97E);
             if (value > 1)
@@ -179,7 +181,8 @@ RuntimeMindTarget* search_runtime_player_target_windows(RuntimePlayerTargetSearc
             }
         }
         u16 included = 0;
-        if (read_f32(context.actor_bytes, 0x978) > 0.f || context.actor_bytes[0x969] != 0)
+        if (get(context.actor_bytes, player_field::countdown_56) > 0.f ||
+            get(context.actor_bytes, player_field::provoked) != 0)
         {
             const u16 value = read_u16(context.actor_bytes, 0x97C);
             if (value > 1)
@@ -498,11 +501,11 @@ bool runtime_mind_target_is_controlled_player(const RuntimeMindTarget& target)
     {
         return false;
     }
-    if (read_u16(target.actor_bytes, 0xCDC) == 2)
+    if (get(target.actor_bytes, player_field::mode) == 2)
     {
         return true;
     }
-    return read_u32(target.actor_bytes, 0x93C) != 0;
+    return get(target.actor_bytes, player_field::case_link) != 0;
 }
 
 // Xbox 0x0013A2A0
@@ -550,8 +553,9 @@ bool runtime_mind_target_allowed(const RuntimeMindTarget& target, u32 flags)
     {
         return false;
     }
-    if (((flags & 0x200) != 0 && (get(target.bytes, mind_target_field::flags) & 4) != 0)
-        || ((flags & 0x400) != 0 && get(target.bytes, mind_target_field::kind) == 0 && read_u32(target.actor_bytes, 0x98C) != 0))
+    if (((flags & 0x200) != 0 && (get(target.bytes, mind_target_field::flags) & 4) != 0) ||
+        ((flags & 0x400) != 0 && get(target.bytes, mind_target_field::kind) == 0 &&
+         get(target.actor_bytes, player_field::goal_volume) != 0))
     {
         return false;
     }

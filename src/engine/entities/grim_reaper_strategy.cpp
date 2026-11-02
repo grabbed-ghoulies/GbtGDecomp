@@ -15,6 +15,7 @@
 #include "gbtg/entity.h"
 #include "gbtg/sound_runtime.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -178,7 +179,7 @@ bool kind_running(RuntimeGrimReaperStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u32 kind = read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0 ? 1u : 0u;
+    const u32 kind = get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0 ? 1u : 0u;
     return goals.resume.references[kind] == 0 && goals.resume.decay_enabled[goals.resume.decay_index] != 0;
 }
 

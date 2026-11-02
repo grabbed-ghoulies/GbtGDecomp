@@ -10,6 +10,7 @@
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -67,7 +68,7 @@ bool place_runtime_spawned_ghouly(std::span<u32> message, const Vec3& spawn, Run
     const float reach = radius * 2.f; // DAT_0032B110.
     const Vec3 ahead{float(retail_sin(heading) * static_cast<long double>(reach) + position.x), position.y,
         float(retail_cos(heading) * static_cast<long double>(reach) + position.z)}; // 0x00153320, 0x00153230
-    const i32 floor = i32(read_u32(context.actor_bytes, 0xCEC));
+    const i32 floor = i32(get(context.actor_bytes, player_field::floor));
     Vec3 found{};
     bool placed = entity_detail::select_navigation_spawn_position(floor, nullptr, ahead, 0.f, radius, nullptr,
         nullptr, 0, 0, found, context.random, context.occupancy_initial); // 0x00111420
@@ -142,7 +143,7 @@ bool initialize_runtime_spawn_ghouly_state(std::span<u8> state, std::span<const 
         parameter::animation)), context.actions);
     spawn_animations[state.data()] = record;
     set(state, field::animation, record != nullptr ? 1u : 0u);
-    if (read_u32(context.actor_bytes, 0xB98) == 0)
+    if (get(context.actor_bytes, player_field::spawn_record) == 0)
     {
         finish_runtime_body_death(1, context.scene_flags, context.restart_requested, context.death); // 0x00134AE0
     }
@@ -216,7 +217,7 @@ void tick_runtime_spawn_ghouly_state(std::span<u8> state, RuntimeSpawnGhoulyStat
             std::array<u32, 9> placement{};
             placement[0] = 0x4D;
             const bool placed = place_runtime_spawned_ghouly(placement, point, context); // 0x000A1FD0
-            const i32 kind = std::bit_cast<i16>(read_u16(context.actor_bytes, 0xB9C));
+            const i32 kind = std::bit_cast<i16>(get(context.actor_bytes, player_field::ghouly_kind));
             const Vec3 euler{std::bit_cast<float>(placement[5]), std::bit_cast<float>(placement[6]),
                 std::bit_cast<float>(placement[7])};
             if (kind == 0)

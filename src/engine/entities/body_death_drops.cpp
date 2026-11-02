@@ -3,6 +3,7 @@
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/sound_runtime.h"
 #include "player_mind_events.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -55,7 +56,7 @@ void spawn_runtime_body_death_drop(RuntimeBodyDeathDrops& context)
             char name[0x80];
             char variant[0x80];
             take_runtime_body_drop_names(context.actor_bytes, name, variant);
-            const i16 kind = std::bit_cast<i16>(read_u16(context.actor_bytes, 0xB9C));
+            const i16 kind = std::bit_cast<i16>(get(context.actor_bytes, player_field::ghouly_kind));
             FactoryObject object;
             if (kind == 0)
             {

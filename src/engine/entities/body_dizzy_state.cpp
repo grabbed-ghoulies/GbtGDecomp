@@ -10,6 +10,7 @@
 #include "gbtg/anim.h"
 #include "body_fields.h"
 #include "body_state_fields.h"
+#include "player_fields.h"
 
 #include <algorithm>
 #include <bit>
@@ -228,7 +229,8 @@ bool initialize_runtime_dizzy_state(std::span<u8> state, std::span<const u8> par
     std::ranges::fill(record(state, field::secondary_tracking), u8(0));
     set(state, field::secondary_tracking_state, 1);
     const auto actor = context.actor_bytes;
-    set(state, field::player_input, read_u16(actor, 0xCDC) == 2 ? 1 : (read_u32(actor, 0x93C) != 0 ? 1 : 0));
+    set(state, field::player_input,
+        get(actor, player_field::mode) == 2 ? 1 : (get(actor, player_field::case_link) != 0 ? 1 : 0));
     spawn_runtime_dizzy_stars(state, context);
     orbit_runtime_dizzy_stars(state, 0.f, context);
     // Actor +0x614 is sound slot 4 (slots of 0xB8 from +0x334); 0x00302740 is the cue name.

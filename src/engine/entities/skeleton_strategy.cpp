@@ -9,6 +9,7 @@
 #include "player_strategy.h"
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/anim.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -143,9 +144,10 @@ void reposition_runtime_skeleton(RuntimeSkeletonStrategy& context)
     }
     const std::span<const u8> actor = goals.entry.actor_bytes;
     Vec3 position;
-    if (!entity_detail::select_navigation_spawn_position(i32(read_u32(actor, 0xCEC)), nullptr, flank, 0.f, 60.f,
-        goals.room, goals.entry.allowed, 0xC, actor_tag(context), position, goals.random,
-        0.f)) // Flag 0x10 is clear, so the retained occupancy scratch is not read.
+    if (!entity_detail::select_navigation_spawn_position(
+            i32(get(actor, player_field::floor)), nullptr, flank, 0.f, 60.f, goals.room, goals.entry.allowed, 0xC,
+            actor_tag(context), position, goals.random,
+            0.f)) // Flag 0x10 is clear, so the retained occupancy scratch is not read.
     {
         return;
     }

@@ -12,6 +12,7 @@
 #include "../navigation/navigation.h"
 #include "gbtg/sound_runtime.h"
 #include "gbtg/anim.h"
+#include "../entities/player_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -75,7 +76,7 @@ float wrap_angle(float value)
 const RuntimeDialogueInputDevice* actor_input_device(const RuntimeDirectorActor& actor,
     const RuntimeCameraRigContext& context)
 {
-    const u32 address = read_u32(actor.bytes, 0x960);
+    const u32 address = get(actor.bytes, player_field::input_device);
     if (address == 0)
     {
         return nullptr;
@@ -171,7 +172,7 @@ float camera_floor_height(const RuntimeDirectorActor& actor, const Vec3& point, 
     float margin)
 {
     float result = point.y;
-    const i32 floor = i32(read_u32(actor.bytes, 0xCEC));
+    const i32 floor = i32(get(actor.bytes, player_field::floor));
     const i32 cell = navigation_cell_index(floor, point);
     if (cell == -1)
     {

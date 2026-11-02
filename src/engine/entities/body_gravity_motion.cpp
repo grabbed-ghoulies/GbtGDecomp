@@ -2,6 +2,7 @@
 #include "actor_sound_pose.h"
 #include "player_overlay.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -31,7 +32,7 @@ float motion_angle(float value)
 float runtime_body_motion_speed(std::span<const u8> body, std::span<const u8> actor,
     const RuntimeBodyDamageTables& tables)
 {
-    const u16 tag = read_u16(actor, 0xCF4);
+    const u16 tag = get(actor, player_field::damage_class);
     const u8 key = body[0x328];
     if (tag == 0)
     {

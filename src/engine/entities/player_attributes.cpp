@@ -1,5 +1,6 @@
 #include "player_attributes.h"
 #include "../runtime/name_lookup.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -19,7 +20,7 @@ void initialize_runtime_player_attributes(std::span<u8> actor, std::span<const u
         }
         context.resource = resource;
     }
-    if (read_u16(actor, 0xCDC) == 1)
+    if (get(actor, player_field::mode) == 1)
     {
         const auto chance = [&](size_t offset)
         {

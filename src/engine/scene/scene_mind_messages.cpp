@@ -4,6 +4,7 @@
 #include "../entities/entity.h"
 #include "../camera/display_view.h"
 #include "../entities/body_fields.h"
+#include "../entities/player_fields.h"
 #include <cstddef>
 #include <cstring>
 
@@ -32,204 +33,285 @@ EntityBitBlock& body_bits(NativePlayerInstance& player)
 }
 
 SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerInstance& player,
-    NativePlayerMindSlots& slots)
-    : services_(services),
-      player_(player),
-      event_record_(player.actor_instance.startup.resource.resource.data()),
-      actions_{player.attachment, player.body_selection,
-          [&player](std::span<const u32> message)
-          {
-              player.self.message(message);
-          },
-          event_record_, player.callout},
-      attachment_{player.body, tables_, player.body_selection, player.secondary, player.actor.class_key, body_state_,
-          [this](const u8* record)
-          {
-              return services_.address_of(record);
-          }},
-      parent_{player.mind_events, player.mind_goals, attachment_, player.actor, player.actor, *player.body_flags,
-          body_query_, player.actor_instance.animation, player.actor_instance.startup.resource, player.callout,
-          services.flag_names, services.action_names, services.callout_names, services.goal_flag_names,
-          services.random,
-          [&player](std::span<u32> message)
-          {
-              player.self.message(message);
-          },
-          [&player]() -> u16
-          {
-              if (!player.body_slot_key)
+                                     NativePlayerMindSlots& slots)
+    : services_(services), player_(player), event_record_(player.actor_instance.startup.resource.resource.data()),
+      actions_{player.attachment, player.body_selection, [&player](std::span<const u32> message)
+               { player.self.message(message); }, event_record_, player.callout},
+      attachment_{player.body,
+                  tables_,
+                  player.body_selection,
+                  player.secondary,
+                  player.actor.class_key,
+                  body_state_,
+                  [this](const u8* record) { return services_.address_of(record); }},
+      parent_{player.mind_events,
+              player.mind_goals,
+              attachment_,
+              player.actor,
+              player.actor,
+              *player.body_flags,
+              body_query_,
+              player.actor_instance.animation,
+              player.actor_instance.startup.resource,
+              player.callout,
+              services.flag_names,
+              services.action_names,
+              services.callout_names,
+              services.goal_flag_names,
+              services.random,
+              [&player](std::span<u32> message) { player.self.message(message); },
+              [&player]() -> u16
               {
-                  unbound("body effect action (vtable +0x28)");
-              }
-              return player.body_slot_key(0x28);
-          },
-          [this](const Actor* actor) -> u32
-          {
-              return actor == nullptr ? 0 : services_.address_of(actor);
-          },
-          {}, nullptr},
+                  if (!player.body_slot_key)
+                  {
+                      unbound("body effect action (vtable +0x28)");
+                  }
+                  return player.body_slot_key(0x28);
+              },
+              [this](const Actor* actor) -> u32 { return actor == nullptr ? 0 : services_.address_of(actor); },
+              {},
+              nullptr},
       // Shared 0x00137A80/0x00137C30 boost state: cinema minds at +0x94, player minds at +0x158.
-      boost_{tail(player.mind, slots.cinema != nullptr ? 0x94 : 0x158), player.actor_bytes, player.actor, player.actor,
-          *player.body_flags, player.attachment, services.resume, services.story_bits, services.story_word,
-          player.actor_address,
-          [&player]() -> u16
-          {
-              if (!player.body_slot_key)
-              {
-                  unbound("body range action (vtable +0x48)");
-              }
-              return player.body_slot_key(0x48);
-          },
-          [&player]() -> u16
-          {
-              if (!player.body_slot_key)
-              {
-                  unbound("body contact action (vtable +0x44)");
-              }
-              return player.body_slot_key(0x44);
-          }},
-      cinema_{parent_, boost_, player.actor_bytes, player.actor_address, services.allowed_count, services.allowed_rows,
-          [&services](u32 address) -> RuntimeMindTarget&
-          {
-              return services.target_at(address);
-          },
-          i32(read_u32(player.actor_bytes, 0xCEC)), services.grids, services.nodes, player.mind_storage,
-          services.address_of},
-      feedback_{player.mind, player.body, player.actor, player.input, 0, services.activation, actions_,
-          services.event_ids, services.registry, services.error},
-      binding_{player.actor_bytes, player.actor_address, player.links[1], entity_detail::g_world.case_head,
-          player.input, services.runtime_flags, services.port_devices, services.release, services.activation,
-          [this](std::span<u8> device) -> u32
-          {
-              return services_.address_of(device.data());
-          },
-          services.address_of, player.actor},
-      player_messages_{player.mind_events, feedback_, boost_, parent_, binding_, services.resume, services.game,
-          player.actor_address, player.actor_bytes, *player.body_flags, target_, &action_target_, &event_source_,
-          &actor_mind_, &body_state_view_, services.grids, services.nodes, player.mind_storage,
-          player.actor_instance.animation, services.chapter_mode, services.runtime_flags, services.pulse,
-          services.address_of,
-          [this](u32 address) -> const char*
-          {
-              return address == 0 ? nullptr : reinterpret_cast<const char*>(services_.resolve(address));
-          },
-          [this](u32 address) -> const Actor*
-          {
-              return services_.actor_at(address);
-          }},
-      mind_tick_{player.mind_events, player.requests, player.actor, player.actor, player.body, services.clock,
-          [this](RuntimePlayerMindRequest& request)
-          {
-              return i32(services_.initialize_request(player_.mind_object, request));
-          },
-          [this](RuntimePlayerMindRequest& request)
-          {
-              return services_.update_request(player_.mind_object, request);
-          }},
-      avoidance_{mind_tick_, player.ring, services.address_zero, player.request_anchor, player.scene.mind_request_sizes,
-          i32(read_u32(player.actor_bytes, 0xCEC)), player.allowed, services.random, services.occupancy_initial},
-      gaze_{player.mind, player.body, player.actor, player.actor, gaze_target_, gaze_anchor_, player.input_device,
-          services.input_state, anchor_addresses_, services.random},
-      control_{player.mind, player.attachment, body_bits(player), services.clock, player.input_device,
-          services.input_state,
-          [&player]()
-          {
-              return player.body_action_key();
-          }},
+      boost_{tail(player.mind, slots.cinema != nullptr ? 0x94 : 0x158),
+             player.actor_bytes,
+             player.actor,
+             player.actor,
+             *player.body_flags,
+             player.attachment,
+             services.resume,
+             services.story_bits,
+             services.story_word,
+             player.actor_address,
+             [&player]() -> u16
+             {
+                 if (!player.body_slot_key)
+                 {
+                     unbound("body range action (vtable +0x48)");
+                 }
+                 return player.body_slot_key(0x48);
+             },
+             [&player]() -> u16
+             {
+                 if (!player.body_slot_key)
+                 {
+                     unbound("body contact action (vtable +0x44)");
+                 }
+                 return player.body_slot_key(0x44);
+             }},
+      cinema_{parent_,
+              boost_,
+              player.actor_bytes,
+              player.actor_address,
+              services.allowed_count,
+              services.allowed_rows,
+              [&services](u32 address) -> RuntimeMindTarget& { return services.target_at(address); },
+              i32(get(player.actor_bytes, player_field::floor)),
+              services.grids,
+              services.nodes,
+              player.mind_storage,
+              services.address_of},
+      feedback_{player.mind,         player.body, player.actor,       player.input,      0,
+                services.activation, actions_,    services.event_ids, services.registry, services.error},
+      binding_{
+          player.actor_bytes,    player.actor_address,
+          player.links[1],       entity_detail::g_world.case_head,
+          player.input,          services.runtime_flags,
+          services.port_devices, services.release,
+          services.activation,   [this](std::span<u8> device) -> u32 {
+              return services_.address_of(device.data()); },
+          services.address_of,   player.actor},
+      player_messages_{player.mind_events,
+                       feedback_,
+                       boost_,
+                       parent_,
+                       binding_,
+                       services.resume,
+                       services.game,
+                       player.actor_address,
+                       player.actor_bytes,
+                       *player.body_flags,
+                       target_,
+                       &action_target_,
+                       &event_source_,
+                       &actor_mind_,
+                       &body_state_view_,
+                       services.grids,
+                       services.nodes,
+                       player.mind_storage,
+                       player.actor_instance.animation,
+                       services.chapter_mode,
+                       services.runtime_flags,
+                       services.pulse,
+                       services.address_of,
+                       [this](u32 address) -> const char*
+                       { return address == 0 ? nullptr : reinterpret_cast<const char*>(services_.resolve(address)); },
+                       [this](u32 address) -> const Actor* { return services_.actor_at(address); }},
+      mind_tick_{player.mind_events,
+                 player.requests,
+                 player.actor,
+                 player.actor,
+                 player.body,
+                 services.clock,
+                 [this](RuntimePlayerMindRequest& request)
+                 { return i32(services_.initialize_request(player_.mind_object, request)); },
+                 [this](RuntimePlayerMindRequest& request)
+                 { return services_.update_request(player_.mind_object, request); }},
+      avoidance_{mind_tick_,
+                 player.ring,
+                 services.address_zero,
+                 player.request_anchor,
+                 player.scene.mind_request_sizes,
+                 i32(get(player.actor_bytes, player_field::floor)),
+                 player.allowed,
+                 services.random,
+                 services.occupancy_initial},
+      gaze_{player.mind,  player.body,         player.actor,         player.actor,      gaze_target_,
+            gaze_anchor_, player.input_device, services.input_state, anchor_addresses_, services.random},
+      control_{player.mind,
+               player.attachment,
+               body_bits(player),
+               services.clock,
+               player.input_device,
+               services.input_state,
+               [&player]() { return player.body_action_key(); }},
       cinema_tick_{cinema_, avoidance_, gaze_, control_, player.axis_device, services.keyboard},
-      player_tick_{mind_tick_, player.actor_bytes, player.body_bits, active_player_link_, services.pause_references,
-          services.release, services.health},
-      navigation_{path_search_, player.actor, player.body,
-          *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC), player.navigation, services.clock},
-      navigation_control_{navigation_, player.actor, body_bits(player), player.input_device, services.input_state,
-          player.axis_device, services.keyboard, nullptr},
+      player_tick_{mind_tick_,          player.actor_bytes,        player.body_bits,
+                   active_player_link_, services.pause_references, services.release,
+                   services.health},
+      navigation_{path_search_,      player.actor,
+                  player.body,       *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC),
+                  player.navigation, services.clock},
+      navigation_control_{navigation_,          player.actor,       body_bits(player), player.input_device,
+                          services.input_state, player.axis_device, services.keyboard, nullptr},
       eligibility_{player.body, body_bits(player), player.actor, player.attached},
-      escape_{player.actor, player.actor_bytes, {}, static_cast<const u8*>(services.markers),
-          player.allowed, services.random, services.occupancy_initial},
-      movement_{player.mind, player.actor_bytes, player.body, player.actor, eligibility_,
-          navigation_control_, escape_, services.clock, player.room, player.allowed, services.random,
-          services.occupancy_initial, nullptr, body_query_},
-      spawn_{movement_, player.mind_action,
-          [this](Actor& actor) -> RuntimeBodyAttachedActor&
-          {
-              return services_.attached_actor_at(services_.address_of(&actor));
-          }},
-      cinema_request_{movement_, spawn_, parent_,
-          [this]() -> RuntimeMindChainRequestSelection&
-          {
-              // 0x0007B090 passes the mind's +0x10 target record to 0x00136770, as 0x0007DF50 does for players.
-              return target_action(get(player_.mind, mind_field::target_record)).requests;
-          },
-          player.body, player.input, services.release, player.cinema_resource, services.sounds,
-          services.damage_tables, services.mode_scales, player.body_selection,
-          [&player]() -> u16
-          {
-              if (!player.body_slot_key)
-              {
-                  unbound("body effect action (vtable +0x38)");
-              }
-              return player.body_slot_key(0x38);
-          },
-          [&player]() -> u16
-          {
-              if (!player.body_slot_key)
-              {
-                  unbound("body contact action (vtable +0x3C)");
-              }
-              return player.body_slot_key(0x3C);
-          },
-          [&player](RuntimeBodyAttachedActor& attached) -> u16
-          {
-              // Body vtable +0x5C: the base 0x00026C60 for types 0x27, 0x2A and 0x2D (no getter replaces it).
-              return runtime_body_near_action_id(player.body, player.actor, attached, player.action_table);
-          }},
-      boost_preset_(services.boost_preset),
-      focus_{player.mind, player.actor, gaze_target_, eligibility_, services.target_eligibility,
-          services.target_addresses, services.query, retained_cone_distance_},
-      search_{player.actor, player.actor_bytes, eligibility_, nullptr, services.address_zero, retained_angle_,
-          services.angular_limit},
-      shape_target_{player.mind, player.body, player.actor, nullptr, body_bits(player),
-          *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC),
-          player.mind.empty() ? 0 : services.address_of(player.mind.data())},
+      escape_{player.actor,    player.actor_bytes,        {}, static_cast<const u8*>(services.markers), player.allowed,
+              services.random, services.occupancy_initial},
+      movement_{player.mind,  player.actor_bytes,  player.body,     player.actor,
+                eligibility_, navigation_control_, escape_,         services.clock,
+                player.room,  player.allowed,      services.random, services.occupancy_initial,
+                nullptr,      body_query_},
+      spawn_{movement_, player.mind_action, [this](Actor& actor) -> RuntimeBodyAttachedActor&
+             { return services_.attached_actor_at(services_.address_of(&actor)); }},
+      cinema_request_{movement_,
+                      spawn_,
+                      parent_,
+                      [this]() -> RuntimeMindChainRequestSelection&
+                      {
+                          // 0x0007B090 passes the mind's +0x10 target record to 0x00136770, as 0x0007DF50 does for
+                          // players.
+                          return target_action(get(player_.mind, mind_field::target_record)).requests;
+                      },
+                      player.body,
+                      player.input,
+                      services.release,
+                      player.cinema_resource,
+                      services.sounds,
+                      services.damage_tables,
+                      services.mode_scales,
+                      player.body_selection,
+                      [&player]() -> u16
+                      {
+                          if (!player.body_slot_key)
+                          {
+                              unbound("body effect action (vtable +0x38)");
+                          }
+                          return player.body_slot_key(0x38);
+                      },
+                      [&player]() -> u16
+                      {
+                          if (!player.body_slot_key)
+                          {
+                              unbound("body contact action (vtable +0x3C)");
+                          }
+                          return player.body_slot_key(0x3C);
+                      },
+                      [&player](RuntimeBodyAttachedActor& attached) -> u16
+                      {
+                          // Body vtable +0x5C: the base 0x00026C60 for types 0x27, 0x2A and 0x2D (no getter replaces
+                          // it).
+                          return runtime_body_near_action_id(player.body, player.actor, attached, player.action_table);
+                      }},
+      boost_preset_(services.boost_preset), focus_{player.mind,
+                                                   player.actor,
+                                                   gaze_target_,
+                                                   eligibility_,
+                                                   services.target_eligibility,
+                                                   services.target_addresses,
+                                                   services.query,
+                                                   retained_cone_distance_},
+      search_{player.actor,          player.actor_bytes, eligibility_,          nullptr,
+              services.address_zero, retained_angle_,    services.angular_limit},
+      shape_target_{player.mind,
+                    player.body,
+                    player.actor,
+                    nullptr,
+                    body_bits(player),
+                    *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC),
+                    player.mind.empty() ? 0 : services.address_of(player.mind.data())},
       proposal_{search_, shape_target_, player.mind_events, services.target_views, embedded_target_},
       target_control_{focus_, proposal_, feedback_, services.clock, services.address_zero},
-      action_control_{target_control_, attachment_, body_bits(player), player.input_device, services.input_state,
-          [this](u32 target) -> RuntimePlayerTargetActionBinding&
-          {
-              return target_action(target);
-          },
-          services.attachment_notice},
-      pending_{player.mind, pending_attachment_, player.mind_action, eligibility_, player.body,
-          player.body_selection, player.input_device, services.input_state,
-          [&player](RuntimeBodyAttachedActor& attached) -> u32
-          {
-              // Body vtable +0x5C: the base 0x00026C60 for types 0x27, 0x2A and 0x2D (no getter replaces it).
-              return runtime_body_near_action_id(player.body, player.actor, attached, player.action_table);
-          }},
+      action_control_{target_control_,
+                      attachment_,
+                      body_bits(player),
+                      player.input_device,
+                      services.input_state,
+                      [this](u32 target) -> RuntimePlayerTargetActionBinding& { return target_action(target); },
+                      services.attachment_notice},
+      pending_{player.mind,
+               pending_attachment_,
+               player.mind_action,
+               eligibility_,
+               player.body,
+               player.body_selection,
+               player.input_device,
+               services.input_state,
+               [&player](RuntimeBodyAttachedActor& attached) -> u32
+               {
+                   // Body vtable +0x5C: the base 0x00026C60 for types 0x27, 0x2A and 0x2D (no getter replaces it).
+                   return runtime_body_near_action_id(player.body, player.actor, attached, player.action_table);
+               }},
       inactivity_{player.mind, body_bits(player), services.clock, player.input_device, services.input_state},
-      player_avoidance_{player.mind, player.body, player.actor,
-          *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC), player.input_device, services.input_state,
-          player.axis_device, services.keyboard, services.random, services.occupancy_initial, retained_direction_},
-      control_update_{action_control_, pending_, gaze_, inactivity_, control_, boost_, player_avoidance_,
-          player.actor_instance.animation, boost_preset_, camera_direction_, services.view_invert, services.random},
-      player_request_{parent_, control_update_, navigation_control_, player.body, body_bits(player),
-          player.body_selection, services.flag_names,
-          [&player]() -> u16
-          {
-              if (!player.body_slot_key)
-              {
-                  unbound("body effect action (vtable +0x38)");
-              }
-              return player.body_slot_key(0x38);
-          },
-          [&player]() -> u16
-          {
-              if (!player.body_slot_key)
-              {
-                  unbound("body contact action (vtable +0x3C)");
-              }
-              return player.body_slot_key(0x3C);
-          }}
+      player_avoidance_{player.mind,         player.body,
+                        player.actor,        *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC),
+                        player.input_device, services.input_state,
+                        player.axis_device,  services.keyboard,
+                        services.random,     services.occupancy_initial,
+                        retained_direction_},
+      control_update_{action_control_,
+                      pending_,
+                      gaze_,
+                      inactivity_,
+                      control_,
+                      boost_,
+                      player_avoidance_,
+                      player.actor_instance.animation,
+                      boost_preset_,
+                      camera_direction_,
+                      services.view_invert,
+                      services.random},
+      player_request_{parent_,
+                      control_update_,
+                      navigation_control_,
+                      player.body,
+                      body_bits(player),
+                      player.body_selection,
+                      services.flag_names,
+                      [&player]() -> u16
+                      {
+                          if (!player.body_slot_key)
+                          {
+                              unbound("body effect action (vtable +0x38)");
+                          }
+                          return player.body_slot_key(0x38);
+                      },
+                      [&player]() -> u16
+                      {
+                          if (!player.body_slot_key)
+                          {
+                              unbound("body contact action (vtable +0x3C)");
+                          }
+                          return player.body_slot_key(0x3C);
+                      }}
 {
     services.target_eligibility[&player.actor] = &eligibility_;
     services.target_addresses[&player.actor] = player.actor_address;
@@ -454,7 +536,7 @@ void SceneMindMessages::refresh()
     const u32 request = get(body, body_field::hit_record);
     body_state_view_ = request == 0 ? std::span<const u8>() : std::span<const u8>(services_.resolve(request), 0x24);
     body_state_ = body_state_view_.data();
-    cinema_.floor = i32(read_u32(player_.actor_bytes, 0xCEC));
+    cinema_.floor = i32(get(player_.actor_bytes, player_field::floor));
     if (cinema_mind_ == false)
     {
         event_source_ = object_at(read_u32(mind, 0x88), "player mind +0x88 event source");
@@ -505,7 +587,7 @@ void SceneMindMessages::refresh_gaze()
     const auto mind = player_.mind;
     mind_tick_.body = player_.body;
     avoidance_.goals = player_.ring;
-    avoidance_.floor = i32(read_u32(player_.actor_bytes, 0xCEC));
+    avoidance_.floor = i32(get(player_.actor_bytes, player_field::floor));
     avoidance_.allowed = player_.allowed;
     gaze_.mind = mind;
     gaze_.body = player_.body;

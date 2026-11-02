@@ -1,5 +1,6 @@
 #include "player_strategy_entry.h"
 #include "mind_fields.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -23,7 +24,7 @@ std::span<const u8> current_row(const RuntimePlayerGoalRing& ring, std::span<con
 // Xbox 0x00138870
 void enter_runtime_player_goal(RuntimePlayerStrategyEntry& context)
 {
-    if (read_u32(context.actor_bytes, 0x98C) != 0)
+    if (get(context.actor_bytes, player_field::goal_volume) != 0)
     {
         return;
     }

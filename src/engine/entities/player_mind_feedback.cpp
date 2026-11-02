@@ -5,6 +5,7 @@
 #include "entity_heap.h"
 #include "gbtg/entity.h"
 #include "body_fields.h"
+#include "player_fields.h"
 #include <new>
 #include <bit>
 #include <cstring>
@@ -168,8 +169,8 @@ void tick_runtime_player_mind(RuntimePlayerMindTick& context, std::span<u8> inpu
     const float rate = runtime_actor_rate(base.actor);
     set(base.events.mind, mind_field::unk_34, rate * step + get(base.events.mind, mind_field::unk_34));
     update_runtime_mind_alert(base);
-    const size_t group = read_u16(context.actor_bytes, 0xCDC) == 2 ||
-        read_u32(context.actor_bytes, 0x93C) != 0 ? 1 : 0;
+    const size_t group = get(context.actor_bytes, player_field::mode) == 2 ||
+        get(context.actor_bytes, player_field::case_link) != 0 ? 1 : 0;
     if ((context.references[group] == 0 && base.clock.decay_enabled[base.clock.decay_index] != 0) ||
         (context.flags->bytes[3] & 8) != 0)
     {

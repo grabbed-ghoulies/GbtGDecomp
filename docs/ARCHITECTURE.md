@@ -58,7 +58,7 @@ presenter; game code never calls `gfx_*` directly. See
 | `src/gbtg/` | `gbtg_lib`: standalone parsers for disc formats (bundles, models, textures, text). No game logic. See [File formats](FORMATS.md) |
 | `src/engine/main.cpp`, `game.cpp` | Entry point and the `frame_tick` caller |
 | `src/engine/runtime/` | Platform loop, clock, AID lookup, the CRT and XAPI functions the retail code linked against |
-| `src/engine/scene/` | Scene loading, teardown, scene controls, backgrounds, lighting, and the actor services that wire it all together |
+| `src/engine/scene/` | Scene loading, teardown, scene controls, backgrounds, lighting, and the actor services that wire it all together (`scene_actor_services*.cpp`, split by responsibility around one `State`) |
 | `src/engine/entities/` | Actors: bodies, minds, weapons, players, ghoulies, factory owners, collision. The largest subsystem |
 | `src/engine/navigation/` | Grids, path search, floor tracking, and mind navigation |
 | `src/engine/scripts/` | The scene script VM: conditions, actions, event sequences, dialogue actions |

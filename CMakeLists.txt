@@ -89,6 +89,11 @@ add_library(gbtg_lib STATIC
     src/engine/scene/dialogue_resource_owner.cpp
     src/engine/scene/scene_resource_memory.cpp
     src/engine/scene/scene_actor_services.cpp
+    src/engine/scene/scene_actor_services_actors.cpp
+    src/engine/scene/scene_actor_services_bindings.cpp
+    src/engine/scene/scene_actor_services_draw.cpp
+    src/engine/scene/scene_actor_services_lifecycle.cpp
+    src/engine/scene/scene_actor_services_objects.cpp
     src/engine/scene/scene_actor_activation.cpp
     src/engine/scene/scene_actor_update.cpp
     src/engine/scene/scene_view_actors.cpp
@@ -1091,7 +1096,8 @@ endif()
 
 if(MSVC)
     # The scene services translation unit passes the default COFF section limit in Debug.
-    set_source_files_properties(src/engine/scene/scene_actor_services.cpp PROPERTIES COMPILE_OPTIONS /bigobj)
+    set_source_files_properties(src/engine/scene/scene_actor_services.cpp
+        src/engine/scene/scene_actor_services_bindings.cpp PROPERTIES COMPILE_OPTIONS /bigobj)
     target_compile_options(gbtg_lib PRIVATE /W3 /EHsc /utf-8)
     target_compile_options(gbtg-catalog PRIVATE /W3 /EHsc /utf-8)
     target_compile_options(gbtg-dump PRIVATE /W3 /EHsc /utf-8)

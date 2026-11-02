@@ -80,7 +80,8 @@ type, and the per-type owner classes it dispatches to (for example
 `player_factory_owner.cpp`).
 
 **Actor services**: the boot-owned graph that wires scenes, actors, lists and
-message dispatch together (`scene/scene_actor_services.cpp`).
+message dispatch together (`scene/scene_actor_services*.cpp`: the public façade, then the bindings,
+lifecycle, objects, actors and draw parts of its `State`, declared in `scene_actor_services_state.h`).
 
 **Scene control**: a script-created object that drives scene-specific logic,
 such as a challenge's rules or game select.

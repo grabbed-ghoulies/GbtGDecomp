@@ -31,6 +31,10 @@ void pcm_stop_cue(const char* cue);
 void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int channels, bool loop, float volume);
 // PC mix scale, 0..1. Applied on the XAudio2 mastering voice. Cue and movie levels stay as reconstructed.
 void pcm_set_master_volume(float volume);
+// Tests: answer the game's voice-state queries (a cue still playing, a cue drained) from game time, advanced by
+// each frame's tick_native_audio, instead of the device's real-time playback. Voices still play. Headless test
+// frames don't run in real time, so the device's answers made runs of one build differ.
+void pcm_use_virtual_audio_clock();
 // Cue handles at this host boundary are live IXAudio2SourceVoice pointers.
 RuntimeSoundBoundaries native_sound_boundaries();
 

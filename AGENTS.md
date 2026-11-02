@@ -63,6 +63,11 @@ Every test that can open the audio device sets the master volume to 10%.
 test executable or test mode that plays audio must set 10% before the XAudio2
 master voice is created.
 
+Tests also call `pcm_use_virtual_audio_clock()`. The game polls whether cues are
+still playing, and headless test frames don't run in real time, so answers from
+the device made two runs of one build differ. Under the virtual clock those
+answers follow game time, and a mode's captures are byte-identical run to run.
+
 ## OriginalFiles
 
 `OriginalFiles/` is the user's retail disc dump. Never stage, commit, or distribute

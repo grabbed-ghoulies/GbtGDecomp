@@ -11191,6 +11191,8 @@ int main(int argc, char** argv)
     open_test_run(argc, argv);
     // Tests play at 10% master volume (AGENTS.md); the master voice takes it when it is created.
     gbtg::pcm_set_master_volume(0.1f);
+    // Test frames don't run in real time: cue state follows game time, so runs of one build are identical.
+    gbtg::pcm_use_virtual_audio_clock();
 #if !defined(GBTG_RETAIL_GAME_ONLY)
     // GBTG_PLUGINS_DIR loads that folder's plugins as gbtg does (docs/PLUGINS.md), for --gameselect-feature on a
     // plugin's story. Without it the tests load none.

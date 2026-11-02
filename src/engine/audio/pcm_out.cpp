@@ -22,6 +22,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <unordered_map>
 #include <string>
@@ -103,6 +104,11 @@ struct PcmVoice
 #if defined(GBTG_INSPECTOR_APP)
     float duration = 0.f; // Decoded PCM duration for host inspection diagnostics.
 #endif
+    // The virtual audio clock (pcm_use_virtual_audio_clock): how long the voice plays, how far it has played in game
+    // time, and whether it is started.
+    double virtual_length = 0.0;
+    double virtual_position = 0.0;
+    bool virtual_started = false;
 };
 
 IXAudio2* g_xa = nullptr;
@@ -134,7 +140,58 @@ constexpr float kSpatialFullLevelDistance = 40.f;
 std::map<IXAudio2SourceVoice*, IXAudio2Voice*> g_source_routes;
 std::vector<PcmVoice> g_voices;
 std::vector<PcmVoice> g_bed;
+// pcm_use_virtual_audio_clock: the game's voice-state queries are answered from game time instead of the device.
+bool g_virtual_audio_clock = false;
 u64 g_next_voice_handle = 0;
+
+PcmVoice* find_pcm_voice(IXAudio2SourceVoice* voice)
+{
+    for (auto* voices : {&g_voices, &g_bed})
+    {
+        for (PcmVoice& slot : *voices)
+        {
+            if (slot.voice == voice)
+            {
+                return &slot;
+            }
+        }
+    }
+    return nullptr;
+}
+
+// Whether the voice still has audio to play: XAudio2's BuffersQueued, or under the virtual clock whether its
+// game-time position is short of its length.
+bool pcm_voice_queued(IXAudio2SourceVoice* voice)
+{
+    if (g_virtual_audio_clock)
+    {
+        if (const PcmVoice* slot = find_pcm_voice(voice); slot != nullptr)
+        {
+            return slot->virtual_position < slot->virtual_length;
+        }
+    }
+    XAUDIO2_VOICE_STATE state{};
+    voice->GetState(&state);
+    return state.BuffersQueued != 0;
+}
+
+void start_virtual_voice(IXAudio2SourceVoice* voice, bool started)
+{
+    if (PcmVoice* slot = find_pcm_voice(voice); slot != nullptr)
+    {
+        slot->virtual_started = started;
+    }
+}
+
+// A stop that flushes the buffers: the voice has nothing left to play.
+void end_virtual_voice(IXAudio2SourceVoice* voice)
+{
+    if (PcmVoice* slot = find_pcm_voice(voice); slot != nullptr)
+    {
+        slot->virtual_position = slot->virtual_length;
+        slot->virtual_started = false;
+    }
+}
 bool g_device_failed = false;
 HRESULT g_device_result = S_OK;
 bool g_catalog_ready = false;
@@ -702,9 +759,7 @@ void reap_voices()
 {
     for (size_t i = 0; i < g_voices.size();)
     {
-        XAUDIO2_VOICE_STATE state{};
-        g_voices[i].voice->GetState(&state);
-        const bool done = state.BuffersQueued == 0;
+        const bool done = !pcm_voice_queued(g_voices[i].voice);
         if (done || g_voices.size() > 24)
         {
             g_voices[i].voice->Stop(0);
@@ -903,9 +958,23 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
         slot.voice->DestroyVoice();
         return fail(status);
     }
+    // The virtual clock's length: one pass, then each loop of the loop region (to the end when its length is 0).
+    const double seconds = fmt.nAvgBytesPerSec != 0 ? double(slot.pcm.size()) / fmt.nAvgBytesPerSec : 0.0;
+    if (buf.LoopCount == XAUDIO2_LOOP_INFINITE)
+    {
+        slot.virtual_length = std::numeric_limits<double>::infinity();
+    }
+    else
+    {
+        const double region = buf.LoopLength != 0 && fmt.nSamplesPerSec != 0
+            ? double(buf.LoopLength) / fmt.nSamplesPerSec
+            : seconds - (fmt.nSamplesPerSec != 0 ? double(buf.LoopBegin) / fmt.nSamplesPerSec : 0.0);
+        slot.virtual_length = seconds + double(buf.LoopCount) * region;
+    }
     if (start)
     {
         status = slot.voice->Start(0);
+        slot.virtual_started = true;
     }
     if (FAILED(status))
     {
@@ -999,9 +1068,7 @@ bool pcm_owned_cue_playing(u64 handle)
     {
         if (voice.handle == handle)
         {
-            XAUDIO2_VOICE_STATE state{};
-            voice.voice->GetState(&state);
-            return state.BuffersQueued != 0;
+            return pcm_voice_queued(voice.voice);
         }
     }
 #else
@@ -1068,6 +1135,8 @@ void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int cha
         return;
     }
     slot.voice->Start(0);
+    slot.virtual_length = loop ? std::numeric_limits<double>::infinity() : double(slot.pcm.size()) / fmt.nAvgBytesPerSec;
+    slot.virtual_started = true;
     g_bed.push_back(std::move(slot));
 #else
     (void)cue;
@@ -1097,6 +1166,13 @@ void pcm_set_master_volume(float volume)
     }
 #else
     (void)volume;
+#endif
+}
+
+void pcm_use_virtual_audio_clock()
+{
+#if GBTG_HAS_XAUDIO2
+    g_virtual_audio_clock = true;
 #endif
 }
 
@@ -1240,6 +1316,7 @@ RuntimeSoundBoundaries native_sound_boundaries()
     {
 #if GBTG_HAS_XAUDIO2
         auto* voice = static_cast<IXAudio2SourceVoice*>(cue);
+        start_virtual_voice(voice, !paused);
         return static_cast<i32>(paused ? voice->Stop(0) : voice->Start(0));
 #else
         return static_cast<i32>(0x80004001u);
@@ -1257,6 +1334,7 @@ RuntimeSoundBoundaries native_sound_boundaries()
         // XACT ends the cue either way (immediately, or after its release); the source buffers have no tail to
         // play out, so the remainder is dropped and the voice drains for the in-use status and reaping.
         voice->FlushSourceBuffers();
+        end_virtual_voice(voice);
 #endif
     };
     boundaries.last_error = []() -> u32
@@ -1295,6 +1373,7 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
             g_source_routes[voice] = static_cast<IXAudio2Voice*>(source);
         }
         g_cue_notes[voice].started = true;
+        start_virtual_voice(voice, true);
         return static_cast<i32>(voice->Start(0));
 #else
         (void)source;
@@ -1323,8 +1402,6 @@ void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
             if (voice != nullptr && cue->callback != nullptr)
             {
                 auto& notes = g_cue_notes[voice];
-                XAUDIO2_VOICE_STATE state{};
-                voice->GetState(&state);
                 if (notes.stopped)
                 {
                     g_cue_notes.erase(voice);
@@ -1336,7 +1413,7 @@ void dispatch_native_audio_notifications(std::span<AudioCoreBank* const> banks)
                     notes.prepared = true;
                     cue->callback(cue->callback_context, *cue, 3);
                 }
-                else if (notes.started && state.BuffersQueued == 0)
+                else if (notes.started && !pcm_voice_queued(voice))
                 {
                     g_cue_notes.erase(voice);
                     cue->callback(cue->callback_context, *cue, 1);
@@ -1708,6 +1785,21 @@ void tick_native_audio(float dt, i32 stream_gate)
         return;
     }
     auto& runtime = *g_native_audio_runtime;
+#if GBTG_HAS_XAUDIO2
+    if (g_virtual_audio_clock)
+    {
+        for (auto* voices : {&g_voices, &g_bed})
+        {
+            for (PcmVoice& slot : *voices)
+            {
+                if (slot.virtual_started)
+                {
+                    slot.virtual_position += dt;
+                }
+            }
+        }
+    }
+#endif
     dispatch_native_audio_notifications(runtime.voices.banks); // 0x0015B780
     const auto& view = *entity_detail::g_display_view; // DAT_005077A8
     runtime.listener_words = {view.position.x, view.position.y, view.position.z, view.rotation.x, view.rotation.y,
@@ -1818,9 +1910,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
             {
                 continue;
             }
-            XAUDIO2_VOICE_STATE state{};
-            slot.voice->GetState(&state);
-            if (state.BuffersQueued != 0)
+            if (pcm_voice_queued(slot.voice))
             {
                 status = 1;
             }

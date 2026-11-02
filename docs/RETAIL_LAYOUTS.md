@@ -197,6 +197,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Grabbed state (factory type 0x70, 0x00094350) | 0x28, parameters 0x18 | `grabbed_state_field`: release mark, move hold, latch hold, body bit; `grabbed_state_parameter` | `src/engine/entities/body_grabbed_state.h` |
 | Stand alert (factory type 0x87, 0x000A2590) | 0x50, parameters 0xBC | `stand_alert_field`: input, alert and moving keys, counter, pause and hold switches, model node slot and keep switch, secondary detach and mode switches with the saved mode, settle switch, sound started, body bit, saved shape mode; `stand_alert_parameter` | `src/engine/entities/body_state_actions.h` |
 | Walk alert and fly states (factory types 0x8E, 0x000A5650, and 0x6D, 0x00090D90) | 0x88 / 0x78, parameters 0xB8 / 0xA8 | `walk_alert_field` / `fly_state_field`: stop and alert keys, stick limit, heading hold, row count, band, the four speed-band rows (`walk_alert_row_field`: animation, lower and upper durations, top speed), sound started; the walk alert's settle, stop-at-once, alert-when-calm, fixed-ratio and body-bit words; the fly state's loop; and their parameters | `src/engine/entities/body_state_actions.h` |
+| fxCustom and its effects (factory types 0xC, 0x2E, 0x30, 0x31, 0x32, 0x33) | 0x18 base; 0xA8, 0x28, 0xD0, 0x54, 0x28 | `fx_custom_field` (seconds alive, actor); `fx_electric_field` (sound, texture loaded, spark count and rows, light slot); `fx_fade_field` (the fade-to-grey's and fade-out's level, target, speed and their +0x24 word); `fx_outline_field` (phase, hold end, time left, the three times, sound, texture loaded, scale, colour, level, shape group, rows, light slot); `fx_solid_fade_in_field` (phase, time left, level, the four times, colour, strength, hold end); and their parameters | `src/engine/entities/fx_custom_electric.h` |
 | Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `mind_target_field`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
@@ -255,6 +256,13 @@ walk alert's names, and a static_assert holds the fly state's rows at the same o
 writes set the whole Vec3. Against the previous build's stored captures, all match in the same nine modes, apart from
 `scene6_title.bmp`'s other known version. `--scene5` puts Cooper in the stand and walk alerts; no mode in the set is
 known to reach the fly state.
+
+fxCustom and its five effects were named by hand in `fx_custom_electric.cpp`; each function reads its effect through
+a span of the effect's own size. Against the previous build, all captures match in `--scene2a2-reaper` (the fade to
+grey), `--scene2a10` (the haunted TV's electric effect; its baseline was run fresh), `--player-death`,
+`--player-fight`, `--scene5`, `--scene3`, `--scene2b3` and `--player-opening`. `scene6_title.bmp` showed its other
+known version again. `scene3a4_2400.bmp` differed by 1 byte from all eight earlier runs, and a second run of the same
+build matched them exactly. So `--scene3a4` also varies, though rarely.
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and

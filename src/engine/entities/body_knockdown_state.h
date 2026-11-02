@@ -9,25 +9,102 @@
 #include "player_attachment.h"
 #include "../scripts/script_table_lookup.h"
 #include "body_message_helpers.h"
+#include "body_state_fields.h"
 #include "gbtg/actor_runtime.h"
+#include "gbtg/retail_field.h"
+
+#include <array>
 
 namespace gbtg
 {
 struct Game;
 
 // Factory type 0x7A (getter 0x0009C570, vtable 0x00505A20; named entityStateLookForWeapon in the type table): the
-// body's knockdown, entered from the death row. State +8 is the body. +0x14/+0x18 are the empty 0x001628B0 and
-// +0x1C is 0x0002B620.
-//
-// State words: +0x10 the state clock, +0x18 the phase (1 flying, 2 bounce-landing, 3 landed, 4 bounce, 5 bounce
-// recovery, 6 down, 7 getting up, 8 the timed end), +0x1C the phase clock, +0x20 the end timer, +0x28 the first-step
-// callout sent, +0x2C body +0x715 raised, +0x30 the saved body +0x717, +0x34 parameter +0x30, +0x38..+0x50 the seven
-// animation records, +0x54..+0x5A the follow-up keys, +0x5C the death key, +0x5E the next key, +0x60 / +0x64 the
-// sweep's previous point, +0x70 the callout tokens (0x13B8B0), +0x94 the start point, +0xA0 the saved body +0x324,
-// +0xA4 the saved shape mode, +0xA8 yaw, +0xAC pitch, +0xB0 the flight time, +0xB4..+0xBC animation marks, +0xC0
-// the landing height, +0xC4 the bounce scale, +0xC8 body +0x270, +0xCC the contact pool, +0xD0 the landing point,
-// +0xE0 the getting-up count released, +0xE4 the counted flag, +0xE8 the end time, +0xEC a body bit, +0xF0 the
-// first-step callout id.
+// body's knockdown, entered from the death row. State +8 is the body, +0xC the next key and +0x10 the state clock
+// (`body_state_field`). +0x14/+0x18 are the empty 0x001628B0 and +0x1C is 0x0002B620. The phases (+0x18): 1 flying,
+// 2 bounce-landing, 3 landed, 4 bounce, 5 bounce recovery, 6 down, 7 getting up, 8 the timed end.
+
+// The seven animations the parameters name (+0xC..+0x24) and the state's found flags (+0x38..+0x50) index.
+enum KnockdownAnimation : u32
+{
+    kKnockdownFlight = 0,
+    kKnockdownBounceLanding = 1,
+    kKnockdownLanded = 2,
+    kKnockdownLandedVariant = 3, // played instead of kKnockdownLanded when it was found
+    kKnockdownBounce = 4,
+    kKnockdownBounceRecovery = 5,
+    kKnockdownGettingUp = 6,
+    kKnockdownAnimationCount = 7,
+};
+namespace knockdown_state_parameter
+{
+// The seven animations' names, XBE strings, in KnockdownAnimation order.
+constexpr RetailField<std::array<u32, kKnockdownAnimationCount>, 0x0C> animations{};
+constexpr RetailField<u16, 0x28> getting_up_key{};
+constexpr RetailField<u16, 0x2A> landing_key{};
+constexpr RetailField<u16, 0x2C> bounce_key{};
+constexpr RetailField<u16, 0x2E> fallback_death_key{};
+constexpr RetailField<u32, 0x30> recovery_mode{};
+constexpr RetailField<float, 0x34> pitch{}; // degrees
+constexpr RetailField<float, 0x38> end_time{};
+constexpr RetailField<float, 0x3C> rise_height{}; // of the actor's +0x34 height
+constexpr RetailField<float, 0x40> bounce_scale{};
+// 0 no latches, 1 the state holds the body's latches, 2 only when the body has no energy left.
+constexpr RetailField<u32, 0x44> latch_mode{};
+constexpr RetailField<u32, 0x48> body_bit{};
+constexpr RetailField<u32, 0x4C> first_callout{};
+constexpr u32 kSize = 0x50;
+static_assert(retail_fits(kSize, first_callout));
+} // namespace knockdown_state_parameter
+namespace knockdown_state_field
+{
+constexpr RetailField<u32, 0x18> phase{};
+constexpr RetailField<float, 0x1C> phase_time{};
+constexpr RetailField<float, 0x20> end_timer{}; // phase 8 ends when it runs out
+constexpr RetailField<u32, 0x28> first_callout_sent{};
+constexpr RetailField<u32, 0x2C> contacts_raised{}; // body +0x715 is raised; cleared with the body's contacts
+constexpr RetailField<u32, 0x30> saved_717{}; // body +0x717 at entry, restored by the destructor
+// Parameter +0x30. 1: a living body ends the knockdown on landing (and late in the flight) instead of going down.
+constexpr RetailField<u32, 0x34> recovery_mode{};
+// Whether each animation's record was found, in KnockdownAnimation order.
+constexpr RetailField<std::array<u32, kKnockdownAnimationCount>, 0x38> animations_found{};
+// The keys the knockdown ends with: after getting up, after landing, after a bounce, and when the body has no energy
+// left (the death key, else the fallback death key).
+constexpr RetailField<u16, 0x54> getting_up_key{};
+constexpr RetailField<u16, 0x56> landing_key{};
+constexpr RetailField<u16, 0x58> fallback_death_key{};
+constexpr RetailField<u16, 0x5A> bounce_key{}; // nonzero also lets a late wall hit bounce at random
+constexpr RetailField<u16, 0x5C> death_key{}; // action 0x68 or 0x69, when the body's table has it
+constexpr RetailField<u16, 0x5E> end_key{}; // the key end_runtime_knockdown chose; finish hands it on
+constexpr RetailField<u32, 0x60> swept{}; // sweep_point holds the previous sweep's position
+constexpr RetailField<Vec3, 0x64> sweep_point{};
+// The callout tokens 0x0013B7C0 records for callouts 0x4A (a count and up to eight tokens, 0x24 bytes).
+constexpr RetailRecord<0x70, 0x24> callout_tokens{};
+constexpr RetailField<u32, 0x70> callout_count{};
+constexpr RetailField<std::array<u32, 8>, 0x74> callout_ids{};
+constexpr RetailField<Vec3, 0x94> start_point{};
+constexpr RetailField<float, 0xA0> saved_gravity{}; // body +0x324 at entry, restored when the body is down
+constexpr RetailField<u8, 0xA4> saved_shape_mode{};
+constexpr RetailField<float, 0xA8> yaw{};
+constexpr RetailField<float, 0xAC> pitch{}; // the launch pitch the flight eases back to zero
+constexpr RetailField<float, 0xB0> flight_time{};
+// The animation position and the actor's pitch and yaw when the landing began; the pose eases from them.
+constexpr RetailField<float, 0xB4> pose_mark{};
+constexpr RetailField<float, 0xB8> start_pitch{};
+constexpr RetailField<float, 0xBC> start_yaw{};
+constexpr RetailField<float, 0xC0> rise_height{}; // a down body nearer its floor than this gets up
+constexpr RetailField<float, 0xC4> bounce_scale{};
+constexpr RetailField<u32, 0xC8> attacker{}; // body +0x270 at entry; its pushes aren't recorded
+constexpr RetailField<u32, 0xCC> contact_pool{}; // nonzero while the host contact pool exists
+constexpr RetailField<Vec3, 0xD0> landing_point{};
+constexpr RetailField<u32, 0xE0> getting_up_released{}; // body +0x69 was dropped
+constexpr RetailField<u32, 0xE4> holds_latches{}; // the latches are held; the destructor drops body +0x7E5
+constexpr RetailField<float, 0xE8> end_time{}; // parameter +0x38: phase 8's time for a body with no energy left
+constexpr RetailField<u32, 0xEC> body_bit{}; // a body bit raised while the state lasts
+constexpr RetailField<u32, 0xF0> first_callout{}; // the callout sent on the first step, else 0x3B
+constexpr u32 kSize = 0xF4;
+static_assert(retail_fits(kSize, first_callout));
+} // namespace knockdown_state_field
 struct RuntimeKnockdownContext
 {
     std::span<u8> body;

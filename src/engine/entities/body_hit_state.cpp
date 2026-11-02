@@ -12,6 +12,7 @@
 #include "../audio/body_sound_commands.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "body_state_fields.h"
 
 #include <bit>
 #include <cmath>
@@ -19,6 +20,12 @@
 
 namespace gbtg
 {
+namespace field = hit_state_field;
+namespace parameter = hit_state_parameter;
+namespace furnace = hit_furnace_state_field;
+namespace furnace_parameter = hit_furnace_state_parameter;
+namespace base = body_state_field;
+
 namespace
 {
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
@@ -29,11 +36,6 @@ void put_word(std::span<u8> bytes, size_t offset, u32 value)
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_half(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
 }
 
 void adjust_body_counters(std::span<u8> body, i32 step)
@@ -48,7 +50,8 @@ void adjust_body_counters(std::span<u8> body, i32 step)
 // no 0x6F notice arrived (EAX state).
 void update_runtime_hit_permission(std::span<const u8> state, std::span<u8> body)
 {
-    if (read_u32(state, 0x2C) != 0 && read_u32(state, 0x30) == 0 && read_u32(state, 0x60) == 0)
+    if (get(state, field::target_hit) != 0 && get(state, field::open_windows) == 0
+        && get(state, field::target_notice) == 0)
     {
         body[0x6C] = 1;
         return;
@@ -141,8 +144,8 @@ float step_runtime_angle_toward(float target, float current, float fraction)
 // Xbox 0x00095720
 void hit_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x70;
-    output.parameters = 0x28;
+    output.instance = field::kSize;
+    output.parameters = parameter::kSize;
 }
 
 // Xbox 0x000957A0
@@ -157,25 +160,24 @@ bool initialize_runtime_hit_state(std::span<u8> state, std::span<const u8> param
     set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
     body[0x6A] = u8(body[0x6A] + 1);
     const auto target = context.target;
-    if (target.data() != nullptr && target[0x14] == 0)
+    if (target.data() != nullptr && get(target, mind_target_field::kind) == 0)
     {
         put_word(context.actor_bytes, 0x11C, get(target, mind_target_field::actor));
     }
-    // 0x00041820 with ESI actor and EDI state +0x38.
-    const Vec3 euler = actor_world_euler(context.actor);
-    std::memcpy(state.data() + 0x38, &euler, 12);
-    put_word(state, 0x48, read_u32(parameters, 0xC));
+    // 0x00041820 with ESI actor and EDI the state's start_euler.
+    set(state, field::start_euler, actor_world_euler(context.actor));
+    set(state, field::trail_rate, get(parameters, parameter::trail_rate));
     adjust_body_counters(body, 1);
-    put_word(state, 0x44, get(body, body_field::attached));
-    put_word(state, 0x34, read_u32(parameters, 0x10));
-    put_word(state, 0x54, read_u32(parameters, 0x14));
-    put_word(state, 0x58, read_u32(parameters, 0x18));
-    std::memcpy(state.data() + 0x64, parameters.data() + 0x1C, 2);
-    put_word(state, 0x68, read_u32(parameters, 0x20));
-    put_word(state, 0x6C, read_u32(parameters, 0x24));
-    put_float(state, 0x4C, 0.f);
-    put_float(state, 0x50, 0.f);
-    put_word(state, 0x5C, get(body, body_field::attached) != 0 ? 1 : 0);
+    set(state, field::attached, get(body, body_field::attached));
+    set(state, field::hit_callout, get(parameters, parameter::hit_callout));
+    set(state, field::faces_target, get(parameters, parameter::faces_target));
+    set(state, field::carries_velocity, get(parameters, parameter::carries_velocity));
+    set(state, field::next_key, get(parameters, parameter::next_key));
+    set(state, field::event_mark, get(parameters, parameter::event_mark));
+    set(state, field::body_bit, get(parameters, parameter::body_bit));
+    set(state, field::trail_timer, 0.f);
+    set(state, field::attached_trail_timer, 0.f);
+    set(state, field::was_holding, get(body, body_field::attached) != 0 ? 1 : 0);
     return true;
 }
 
@@ -183,7 +185,7 @@ bool initialize_runtime_hit_state(std::span<u8> state, std::span<const u8> param
 void destroy_runtime_hit_state(std::span<u8> state, RuntimeHitStateLifecycle& context)
 {
     const auto body = context.body;
-    const u32 bit = read_u32(state, 0x6C);
+    const u32 bit = get(state, field::body_bit);
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
@@ -220,7 +222,7 @@ void message_runtime_hit_state(std::span<u8> state, std::span<const u8> message,
         }
         if (target.data() != nullptr && compared == get(target, mind_target_field::actor))
         {
-            put_word(state, 0x2C, 1);
+            set(state, field::target_hit, 1);
             update_runtime_hit_permission(state, body);
         }
     };
@@ -230,22 +232,25 @@ void message_runtime_hit_state(std::span<u8> state, std::span<const u8> message,
         // 0x00095E30: an event whose +0xC is 1 opens (message +0x10 zero) or closes a window.
         if (read_u16(context.event, 0xC) == 1)
         {
-            const u32 count = read_u32(message, 0x10) == 0 ? read_u32(state, 0x30) + 1 : read_u32(state, 0x30) - 1;
-            put_word(state, 0x30, count);
+            const u32 count = read_u32(message, 0x10) == 0 ? get(state, field::open_windows) + 1
+                                                           : get(state, field::open_windows) - 1;
+            set(state, field::open_windows, count);
             update_runtime_hit_permission(state, body);
         }
         return;
     case 0x41:
-        report(read_u32(message, 0x28), read_u32(message, 0x14), read_u32(state, 0x34), read_u32(message, 0x14));
+        report(read_u32(message, 0x28), read_u32(message, 0x14), get(state, field::hit_callout),
+               read_u32(message, 0x14));
         return;
     case 0x5A:
         report(read_u32(message, 0x2C), context.body_attached, 0x35, read_u32(message, 0x18));
         return;
     case 0x6E:
         if (target.data() != nullptr && read_u32(message, 0x10) != 0
-            && get(target, mind_target_field::actor) == read_u32(message, 4) && context.actor_address != read_u32(message, 8))
+            && get(target, mind_target_field::actor) == read_u32(message, 4)
+            && context.actor_address != read_u32(message, 8))
         {
-            put_word(state, 0x28, 1);
+            set(state, field::unk_28, 1);
         }
         return;
     case 0x70:
@@ -258,14 +263,14 @@ void message_runtime_hit_state(std::span<u8> state, std::span<const u8> message,
     case 0x6F:
         if (target.data() != nullptr && read_u32(message, 4) == get(target, mind_target_field::actor))
         {
-            put_word(state, 0x60, 1);
+            set(state, field::target_notice, 1);
             update_runtime_hit_permission(state, body);
         }
         return;
     case 0x7C:
-        if (read_u32(message, 4) == read_u32(state, 0x44))
+        if (read_u32(message, 4) == get(state, field::attached))
         {
-            put_word(state, 0x44, 0);
+            set(state, field::attached, 0);
         }
         return;
     default:
@@ -328,14 +333,14 @@ void select_runtime_body_next_action(std::span<u8> state, u32 secondary, Runtime
         u32 output;
         if (find_runtime_script_table_row(context.table, 0x6A, output) != nullptr)
         {
-            put_half(state, 0xC, 0x6A);
+            set(state, base::next_key, 0x6A);
             return;
         }
     }
     const auto settings = context.settings;
     const u32 brake = settings.data() == nullptr ? 1 : (settings[0x1A4] == 0 ? 1 : 0);
     reset_runtime_body_turn(brake, body, context.first_timer);
-    put_half(state, 0xC, secondary != 0 ? context.secondary_key() : context.primary_key());
+    set(state, base::next_key, secondary != 0 ? context.secondary_key() : context.primary_key());
 }
 
 // Xbox 0x00096260
@@ -356,8 +361,7 @@ float runtime_hit_target_gap(float& angle, RuntimeHitStateTick& context)
         angle = 0.f;
         return 0.f;
     }
-    Vec3 aim;
-    std::memcpy(&aim, target.data() + 0x20, 12);
+    const Vec3 aim = get(target, mind_target_field::shape_position);
     const Vec3 origin = actor_world_position(context.actor);
     runtime_direction_angle(Vec3{aim.x - origin.x, aim.y - origin.y, aim.z - origin.z}, angle);
     // 0x000413B0 with EBX the record +0x20: the x87 distance from the actor's world position.
@@ -366,7 +370,9 @@ float runtime_hit_target_gap(float& angle, RuntimeHitStateTick& context)
     const long double dy = static_cast<long double>(from.y) - aim.y;
     const long double dz = static_cast<long double>(from.z) - aim.z;
     const float distance = float(std::sqrt(dx * dx + dy * dy + dz * dz));
-    const float radius = (get(target, mind_target_field::flags) & 0x10) != 0 ? get(target, mind_target_field::shape_radius) : get(target, mind_target_field::secondary_radius);
+    const float radius = (get(target, mind_target_field::flags) & 0x10) != 0
+        ? get(target, mind_target_field::shape_radius)
+        : get(target, mind_target_field::secondary_radius);
     const float gap = distance - radius - reach;
     if (-12.f > gap) // DAT_0032B4F4.
     {
@@ -389,7 +395,8 @@ void lunge_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
         return;
     }
     // A null record reads its +0x14 kind from address zero.
-    const u8 kind = context.target.data() == nullptr ? context.address_zero[0x14] : context.target[0x14];
+    const u8 kind =
+        context.target.data() == nullptr ? context.address_zero[0x14] : get(context.target, mind_target_field::kind);
     if (kind > 0 && kind <= 3)
     {
         return;
@@ -399,14 +406,13 @@ void lunge_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
     const float position = player == nullptr ? 0.f : player->position;
     const float duration = player == nullptr ? 0.f : player->duration;
     const float speed = gap / ((window - position) * duration);
-    put_float(state, 0x20, 0.f);
-    put_float(state, 0x1C, 0.f);
-    put_float(state, 0x18, 0.f);
+    Vec3 velocity{0.f, 0.f, 0.f};
     const float side = float(retail_sin(angle));
     const float forward = float(retail_cos(angle));
-    put_float(state, 0x18, side * speed + read_f32(state, 0x18));
-    put_float(state, 0x20, forward * speed + read_f32(state, 0x20));
-    put_word(state, 0x24, speed == 0.f ? 0 : 1); // DAT_0032B100.
+    velocity.x = side * speed + velocity.x;
+    velocity.z = forward * speed + velocity.z;
+    set(state, field::velocity, velocity);
+    set(state, field::lunging, speed == 0.f ? 0 : 1); // DAT_0032B100.
 }
 
 // Xbox 0x0001D5B0
@@ -451,17 +457,15 @@ bool turn_runtime_body_toward(const Vec3& target, std::span<const u8> body, cons
 // Xbox 0x00095EA0
 void face_runtime_hit_target(std::span<const u8> state, RuntimeHitStateTick& context)
 {
-    if (read_u32(state, 0x54) == 0 || context.target.data() == nullptr)
+    if (get(state, field::faces_target) == 0 || context.target.data() == nullptr)
     {
         return;
     }
-    Vec3 target;
-    std::memcpy(&target, context.target.data() + 0x20, 12);
+    const Vec3 target = get(context.target, mind_target_field::shape_position);
     Vec3 euler;
-    Vec3 current;
-    std::memcpy(&current, state.data() + 0x38, 12);
+    const Vec3 current = get(state, field::start_euler);
     if (turn_runtime_body_toward(target, context.body, current, euler, context.hit, context.actor,
-            context.animation)) // 0x0001D5B0 with state +0x38
+            context.animation)) // 0x0001D5B0 with the start euler
     {
         if (runtime_actor_step(context.actor, context.clock) > 0.f)
         {
@@ -512,22 +516,16 @@ void steer_runtime_hit_body(RuntimeHitStateTick& context)
     }
     else if (!(magnitude > 0.f))
     {
-        put_float(body, 0x318, 0.f);
-        put_float(body, 0x31C, 0.f);
-        put_float(body, 0x320, 0.f);
+        set(body, body_field::velocity, Vec3{0.f, 0.f, 0.f});
         return;
     }
-    put_float(body, 0x72C, 0.f);
-    put_float(body, 0x730, angle);
-    put_float(body, 0x734, 0.f);
+    set(body, body_field::euler, Vec3{0.f, angle, 0.f});
     put_float(body, 0x33C, angle);
     const float scale = surface_mode_scale(body, context.mode_scales);
     const float speed = runtime_body_step_speed(body, context.actor, context.tables) * scale * magnitude;
     side = float(retail_sin(angle) * speed);
     forward = float(retail_cos(angle) * speed);
-    put_float(body, 0x318, side);
-    put_float(body, 0x31C, 0.f);
-    put_float(body, 0x320, forward);
+    set(body, body_field::velocity, Vec3{side, 0.f, forward});
 }
 
 // Xbox 0x00096060
@@ -540,12 +538,12 @@ void move_runtime_hit_body(std::span<const u8> state, RuntimeHitStateTick& conte
         return;
     }
     const Vec3& velocity = context.actor.anchor; // Actor +0x3C.
-    if (read_u32(state, 0x58) != 0 && read_u32(state, 0x24) == 0)
+    if (get(state, field::carries_velocity) != 0 && get(state, field::lunging) == 0)
     {
-        std::memcpy(body.data() + 0x318, &velocity, 12);
+        set(body, body_field::velocity, velocity);
         return;
     }
-    if (read_u32(state, 0x24) == 0
+    if (get(state, field::lunging) == 0
         && (read_u16(context.actor_bytes, 0xCDC) == 2 || context.actor.mask_flag != 0))
     {
         // 0x0003B260 with ECX 0: slot 0's player has a root track (player +8, set when mina +0x1A is nonzero).
@@ -560,30 +558,31 @@ void move_runtime_hit_body(std::span<const u8> state, RuntimeHitStateTick& conte
         put_float(body, 0x20, velocity.z * step + get(body, body_field::position).z);
         return;
     }
-    if (context.target.data() == nullptr || read_u32(state, 0x2C) != 0 || read_u32(state, 0x24) == 0)
+    if (context.target.data() == nullptr || get(state, field::target_hit) != 0 || get(state, field::lunging) == 0)
     {
         return;
     }
     const float step = runtime_actor_step(context.actor, context.clock);
-    put_float(body, 0x18, get(body, body_field::position).x + read_f32(state, 0x18) * step);
-    put_float(body, 0x1C, get(body, body_field::position).y + read_f32(state, 0x1C) * step);
-    put_float(body, 0x20, get(body, body_field::position).z + read_f32(state, 0x20) * step);
+    const Vec3 lunge = get(state, field::velocity);
+    put_float(body, 0x18, get(body, body_field::position).x + lunge.x * step);
+    put_float(body, 0x1C, get(body, body_field::position).y + lunge.y * step);
+    put_float(body, 0x20, get(body, body_field::position).z + lunge.z * step);
 }
 
 // Xbox 0x00096390
 void finish_runtime_hit_state(std::span<u8> state, u32 secondary, RuntimeHitStateTick& context)
 {
-    if (read_u32(state, 0x2C) == 0)
+    if (get(state, field::target_hit) == 0)
     {
         // The message is the stack slot pushed at entry: its next words are the return address into the tick
         // and the argument.
         const u32 message[]{0x29, 0x00095BE4, secondary};
         context.actor_message(message);
     }
-    const u16 next = read_u16(state, 0x64);
+    const u16 next = get(state, field::next_key);
     if (next != 0)
     {
-        put_half(state, 0xC, next);
+        set(state, base::next_key, next);
         return;
     }
     RuntimeBodyNextAction pick = runtime_body_next_action(context);
@@ -595,28 +594,29 @@ void tick_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    put_float(state, 0x10, runtime_actor_rate(actor) * runtime_frame_step(context.clock) + read_f32(state, 0x10));
+    set(state, base::elapsed,
+        runtime_actor_rate(actor) * runtime_frame_step(context.clock) + get(state, base::elapsed));
     if (get(body, body_field::attached) != 0 && context.attached_collision != nullptr
         && context.attached_collision->active != nullptr)
     {
         const i32 frequency = context.trails.pal == 0 || context.trails.pal_override != 0 ? 0x3C : 0x32;
-        float& timer = *reinterpret_cast<float*>(state.data() + 0x50);
+        float& timer = *field_data(state, field::attached_trail_timer);
         request_actor_trail(actor, std::bit_cast<float>(0x3E4CCCCDu), timer, frequency / 2, context.trails);
     }
-    if (read_f32(state, 0x48) > 0.f
+    if (get(state, field::trail_rate) > 0.f
         && runtime_actor_has_render_bins(context.render, context.actor_bytes[0x197])
         && context.collision != nullptr && context.collision->active != nullptr)
     {
-        float& timer = *reinterpret_cast<float*>(state.data() + 0x4C);
-        request_actor_video_rate_trail(actor, read_f32(state, 0x48), timer, context.trails);
+        float& timer = *field_data(state, field::trail_timer);
+        request_actor_video_rate_trail(actor, get(state, field::trail_rate), timer, context.trails);
     }
     const MinaPlayer* player = slot_player(context.animation);
     const float position = player == nullptr ? 0.f : player->position;
-    const u32 bit = read_u32(state, 0x6C);
+    const u32 bit = get(state, field::body_bit);
     if (bit != 0 && player != nullptr)
     {
-        // The animation crossed the event position +0x68 this frame, in its play direction.
-        const float mark = read_f32(state, 0x68);
+        // The animation crossed the event mark this frame, in its play direction.
+        const float mark = get(state, field::event_mark);
         const float now = player->position;
         bool crossed = false;
         if (now != player->previous)
@@ -644,27 +644,26 @@ void tick_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
     }
     if (hit_window(context.hit) * 0.9f > position) // DAT_0032B174.
     {
-        if (read_u32(state, 0x28) == 0)
+        if (get(state, field::unk_28) == 0)
         {
             lunge_runtime_hit_state(state, context);
         }
     }
     else
     {
-        Vec3 velocity;
-        std::memcpy(&velocity, state.data() + 0x18, 12);
+        Vec3 velocity = get(state, field::velocity);
         ease_runtime_planar_velocity(velocity, context.default_position, get(body, body_field::ease_rate),
                                      context.motion_steps);
-        std::memcpy(state.data() + 0x18, &velocity, 12);
+        set(state, field::velocity, velocity);
     }
     face_runtime_hit_target(state, context);
     move_runtime_hit_body(state, context);
-    const bool released = read_u32(state, 0x5C) != 0 && get(body, body_field::attached) == 0;
+    const bool released = get(state, field::was_holding) != 0 && get(body, body_field::attached) == 0;
     std::array<float, 2> axes{};
     read_input_axes(context.input, axes, context.input_state, context.address_zero);
     if (axes[1] * axes[1] + axes[0] * axes[0] > 0.01f // DAT_0032B22C.
         && position > 0.75f // DAT_0032B2AC.
-        && read_u32(state, 0x30) == 0)
+        && get(state, field::open_windows) == 0)
     {
         finish_runtime_hit_state(state, 1, context);
         return;
@@ -683,21 +682,21 @@ void tick_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
                 finished = player->position >= 1.f; // DAT_0032B0F8.
             }
         }
-        if (!finished && (!released || read_u32(state, 0x30) != 0))
+        if (!finished && (!released || get(state, field::open_windows) != 0))
         {
             return;
         }
     }
-    if (read_u32(state, 0x2C) == 0)
+    if (get(state, field::target_hit) == 0)
     {
         // The message is the tick's own state argument slot, so its next word is the input argument.
         const u32 message[]{0x29, context.input_word};
         context.actor_message(message);
     }
-    const u16 next = read_u16(state, 0x64);
+    const u16 next = get(state, field::next_key);
     if (next != 0)
     {
-        put_half(state, 0xC, next);
+        set(state, base::next_key, next);
         return;
     }
     RuntimeBodyNextAction pick = runtime_body_next_action(context);
@@ -707,17 +706,17 @@ void tick_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context)
 // Xbox 0x00090410
 void hit_furnace_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x30;
-    output.parameters = 0x14;
+    output.instance = furnace::kSize;
+    output.parameters = furnace_parameter::kSize;
 }
 
 // Xbox 0x00096710
 bool initialize_runtime_hit_furnace_state(std::span<u8> state, std::span<const u8> parameters, std::span<u8> body,
     RuntimeBodyBitStorage& bits)
 {
-    put_word(state, 0x20, 0);
-    std::memcpy(state.data() + 0x18, parameters.data() + 0xC, 2);
-    put_word(state, 0x1C, read_u32(parameters, 0x10));
+    set(state, furnace::swept, 0);
+    set(state, furnace::next_key, get(parameters, furnace_parameter::next_key));
+    set(state, furnace::raises_bit_38, get(parameters, furnace_parameter::raises_bit_38));
     body[0x6B] = u8(body[0x6B] + 1);
     adjust_body_counters(body, 1);
     set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
@@ -727,7 +726,7 @@ bool initialize_runtime_hit_furnace_state(std::span<u8> state, std::span<const u
     body[0x38] = 1;
     body[0x39] = 1;
     bits.bytes[2] |= 2;
-    if (read_u32(state, 0x1C) != 0)
+    if (get(state, furnace::raises_bit_38) != 0)
     {
         bits.bytes[7] |= 1;
     }
@@ -748,7 +747,7 @@ void destroy_runtime_hit_furnace_state(std::span<const u8> state, std::span<u8> 
     body[0x6B] = u8(body[0x6B] - 1);
     adjust_body_counters(body, -1);
     bits.bytes[2] &= 0xFD;
-    if (read_u32(state, 0x1C) != 0)
+    if (get(state, furnace::raises_bit_38) != 0)
     {
         bits.bytes[7] &= 0xFE;
     }
@@ -787,7 +786,7 @@ void select_runtime_body_goal_action(std::span<u8> state, RuntimeBodyRecoveryAct
     const auto settings = context.settings;
     const u32 brake = settings.data() == nullptr ? 1 : (settings[0x1A4] == 0 ? 1 : 0);
     reset_runtime_body_turn(brake, context.body, context.first_timer);
-    put_half(state, 0xC, context.primary_key());
+    set(state, base::next_key, context.primary_key());
 }
 
 // Xbox 0x00133F50
@@ -815,21 +814,21 @@ void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBo
     }
     if (key != 0)
     {
-        put_half(state, 0xC, key);
+        set(state, base::next_key, key);
     }
     if (table_row)
     {
-        put_half(state, 0xC, 0x6A);
+        set(state, base::next_key, 0x6A);
         return;
     }
     if (secondary)
     {
-        put_half(state, 0xC, context.secondary_id());
+        set(state, base::next_key, context.secondary_id());
         return;
     }
     if (read_f32(body, 0x240) != 0.f)
     {
-        put_half(state, 0xC, context.primary_id());
+        set(state, base::next_key, context.primary_id());
         return;
     }
     select_runtime_body_goal_action(state, context);
@@ -853,27 +852,25 @@ void scorch_runtime_hit_furnace_contacts(std::span<u8> state, RuntimeHitFurnaceT
     {
         context.probe_messages(found, player, context.actor_address); // 0x0013FC50
     }
-    if (read_u32(state, 0x20) != 0)
+    if (get(state, furnace::swept) != 0)
     {
-        Vec3 previous{read_f32(state, 0x24), read_f32(state, 0x28), read_f32(state, 0x2C)};
+        Vec3 previous = get(state, furnace::sweep_point);
         const i32 swept = entity_record_point_probe(position, previous, radius, 0x140); // 0x001229F0, EBX position
         if (swept != 0)
         {
             context.probe_messages(swept, player, context.actor_address); // 0x0013FC50
         }
     }
-    put_float(state, 0x24, position.x);
-    put_float(state, 0x28, position.y);
-    put_float(state, 0x2C, position.z);
-    put_word(state, 0x20, 1);
+    set(state, furnace::sweep_point, position);
+    set(state, furnace::swept, 1);
 }
 
 // Xbox 0x00096890
 void tick_runtime_hit_furnace_state(std::span<u8> state, RuntimeHitFurnaceTick& context)
 {
     const auto body = context.body;
-    put_float(state, 0x10,
-        runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + read_f32(state, 0x10));
+    set(state, base::elapsed,
+        runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + get(state, base::elapsed));
     if (context.settings.data() != nullptr && read_f32(context.settings, 0x19C) > 1.f) // DAT_0032B0F8.
     {
         scorch_runtime_hit_furnace_contacts(state, context); // 0x000965C0
@@ -910,6 +907,6 @@ void tick_runtime_hit_furnace_state(std::span<u8> state, RuntimeHitFurnaceTick& 
             return;
         }
     }
-    select_runtime_body_recovery_action(state, read_u16(state, 0x18), context.recovery);
+    select_runtime_body_recovery_action(state, get(state, furnace::next_key), context.recovery);
 }
 }

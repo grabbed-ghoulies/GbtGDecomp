@@ -10,13 +10,49 @@
 #include "actor_trail_requests.h"
 #include "../frontend/dialogue_input.h"
 #include "../scripts/script_table_lookup.h"
+#include "gbtg/retail_field.h"
 
 namespace gbtg
 {
 struct RuntimePlayerGoalRing;
 
 // Factory type 0x73 entityStateHit (getter 0x00095740, vtable 0x00505940): +0x14/+0x18 are the empty 0x001628B0
-// and +0x1C is 0x0002B620. State +8 is the body.
+// and +0x1C is 0x0002B620. State +8 is the body, +0xC the next key and +0x10 the state clock (`body_state_field`).
+namespace hit_state_parameter
+{
+constexpr RetailField<float, 0x0C> trail_rate{};
+constexpr RetailField<u32, 0x10> hit_callout{};
+constexpr RetailField<u32, 0x14> faces_target{};
+constexpr RetailField<u32, 0x18> carries_velocity{};
+constexpr RetailField<u16, 0x1C> next_key{};
+constexpr RetailField<float, 0x20> event_mark{};
+constexpr RetailField<u32, 0x24> body_bit{};
+constexpr u32 kSize = 0x28;
+static_assert(retail_fits(kSize, body_bit));
+} // namespace hit_state_parameter
+namespace hit_state_field
+{
+constexpr RetailField<Vec3, 0x18> velocity{}; // the lunge toward the target, eased out after the hit window
+constexpr RetailField<u32, 0x24> lunging{}; // the lunge's speed is nonzero
+constexpr RetailField<u32, 0x28> unk_28{}; // message 0x6E about the target; no further lunge while set
+constexpr RetailField<u32, 0x2C> target_hit{}; // a hit report named the mind's target
+constexpr RetailField<u32, 0x30> open_windows{}; // animation event windows (event +0xC is 1) open now
+constexpr RetailField<u32, 0x34> hit_callout{}; // the callout a message 0x41 hit sends
+constexpr RetailField<Vec3, 0x38> start_euler{}; // the actor's euler angles at entry; the turn eases from them
+constexpr RetailField<u32, 0x44> attached{}; // body +0x48 at entry; message 0x7C for that actor clears it
+constexpr RetailField<float, 0x48> trail_rate{}; // a video-rate trail while positive
+constexpr RetailField<float, 0x4C> trail_timer{};
+constexpr RetailField<float, 0x50> attached_trail_timer{}; // the attached actor's trail
+constexpr RetailField<u32, 0x54> faces_target{};
+constexpr RetailField<u32, 0x58> carries_velocity{}; // without a lunge, body +0x318 takes the actor's velocity
+constexpr RetailField<u32, 0x5C> was_holding{}; // body +0x48 was set at entry; the state ends once it is released
+constexpr RetailField<u32, 0x60> target_notice{}; // message 0x6F (or 0x70 to this actor) about the target
+constexpr RetailField<u16, 0x64> next_key{}; // handed on at the end instead of choosing one
+constexpr RetailField<float, 0x68> event_mark{}; // body_bit is raised as the animation crosses this position
+constexpr RetailField<u32, 0x6C> body_bit{};
+constexpr u32 kSize = 0x70;
+static_assert(retail_fits(kSize, body_bit));
+} // namespace hit_state_field
 struct RuntimeHitStateLifecycle
 {
     std::span<u8> body;
@@ -109,6 +145,22 @@ void tick_runtime_hit_state(std::span<u8> state, RuntimeHitStateTick& context); 
 
 // Factory type 0x74 entityStateHitFurnace (getter 0x000966B0, vtable 0x00505960): the message and the +0x14 / +0x18
 // slots are the empty 0x001628B0 and +0x1C is 0x0002B620. State +8 is the body.
+namespace hit_furnace_state_parameter
+{
+constexpr RetailField<u16, 0x0C> next_key{};
+constexpr RetailField<u32, 0x10> raises_bit_38{};
+constexpr u32 kSize = 0x14;
+static_assert(retail_fits(kSize, raises_bit_38));
+} // namespace hit_furnace_state_parameter
+namespace hit_furnace_state_field
+{
+constexpr RetailField<u16, 0x18> next_key{}; // the recovery's key
+constexpr RetailField<u32, 0x1C> raises_bit_38{}; // body bit 0x38 is raised while the state lasts
+constexpr RetailField<u32, 0x20> swept{}; // sweep_point holds the previous scorch's position
+constexpr RetailField<Vec3, 0x24> sweep_point{};
+constexpr u32 kSize = 0x30;
+static_assert(retail_fits(kSize, sweep_point));
+} // namespace hit_furnace_state_field
 void hit_furnace_state_object_sizes(ObjectSizes& output); // Xbox 0x00090410
 bool initialize_runtime_hit_furnace_state(std::span<u8> state, std::span<const u8> parameters, std::span<u8> body,
     RuntimeBodyBitStorage& bits); // Xbox 0x00096710
@@ -156,7 +208,7 @@ struct RuntimeHitFurnaceTick
     RuntimeBodyRecoveryAction& recovery;
 };
 // The burning body's contacts (mask 0x140) within its sweep radius, and along its path from the last point
-// (state +0x24, kept while +0x20 is set), hear the scorch through 0x0013FC50.
+// (the state's sweep point, kept while swept is set), hear the scorch through 0x0013FC50.
 void scorch_runtime_hit_furnace_contacts(std::span<u8> state, RuntimeHitFurnaceTick& context); // Xbox 0x000965C0
 void tick_runtime_hit_furnace_state(std::span<u8> state, RuntimeHitFurnaceTick& context); // Xbox 0x00096890
 }

@@ -187,6 +187,8 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Save record, one field | — | `save_record_field::unk_184` (0x0010DC20 / 0x0010E2C0) | `src/engine/saves/save_scan.h` |
 | Base mind (0x00029D10), shared by every mind type | 0x7C, parameters 0xA0 | `mind_field`: actor, target, target record, action record, action actor, path search, target mode, gaze anchor and point, alert mode and timer, last request result, target flags, categories and range, goal point; unk_2C, unk_34, unk_38 | `src/engine/entities/mind_fields.h` |
 | Body record (actor +0x95C, built by 0x00024C50), first pass | not settled | `body_field`: position, move holds and move hold time, attached actor, unk_70, reach, hit record, energy and its maximum, holds, velocity, gravity, ease rate (and its saved value and swap count), euler, surface (and its override and frames), scaled surfaces, height and radius scales | `src/engine/entities/body_fields.h` |
+| Knockdown state (factory type 0x7A, 0x0009C5D0) | 0xF4, parameters 0x50 | `knockdown_state_field`: phase and its clock, end timer, the seven animations' found flags (`KnockdownAnimation` slots), the end keys, the sweep point, callout tokens, start and landing points, saved gravity and shape mode, yaw, pitch, flight time, pose marks, rise height, bounce scale, attacker, contact pool, latch and body-bit words; `knockdown_state_parameter` | `src/engine/entities/body_knockdown_state.h` |
+| Hit and furnace-hit states (factory types 0x73, 0x000957A0, and 0x74, 0x00096710) | 0x70 / 0x30, parameters 0x28 / 0x14 | `hit_state_field`: lunge velocity, target hit, open windows, hit callout, start euler, attached actor, trail rate and timers, face and carry switches, next key, event mark, body bit; `hit_furnace_state_field`: next key, bit 0x38 switch, sweep point; and their parameters | `src/engine/entities/body_hit_state.h` |
 | Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `mind_target_field`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
@@ -223,6 +225,13 @@ byte-identical to the build before the change in `--player-opening` (14), `--pla
 (34). In `--scene2c7` two captures differed from the HEAD run but matched two earlier runs exactly; that mode varies
 the same way as `--scene3c1`. In both, the frame-0 log prints a kind-0 region's yaw that changes from run to run
 (1.1e-44, 0.95, 5.4), which suggests a read of uninitialized memory.
+
+The knockdown, hit and furnace-hit states were named by hand, one file each. Every state and parameter offset now
+has a name, and the knockdown's animation slots are `KnockdownAnimation` constants. All captures are byte-identical to
+the build before the change in `--player-death` (95), `--player-fight` (52, whose imps take Cooper's knockdown
+finisher), `--scene3` (54), `--scene5` (63, where Cooper runs the hit and furnace-hit states), `--scene6` (64),
+`--scene2a2-reaper` (123), `--scene2b3` (84), `--scene3a4` (34) and `--player-opening` (14). The logs differ only in
+the exe's name and a code address in a stack trace.
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and

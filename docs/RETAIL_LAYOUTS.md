@@ -200,6 +200,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | fxCustom and its effects (factory types 0xC, 0x2E, 0x30, 0x31, 0x32, 0x33) | 0x18 base; 0xA8, 0x28, 0xD0, 0x54, 0x28 | `fx_custom_field` (seconds alive, actor); `fx_electric_field` (sound, texture loaded, spark count and rows, light slot); `fx_fade_field` (the fade-to-grey's and fade-out's level, target, speed and their +0x24 word); `fx_outline_field` (phase, hold end, time left, the three times, sound, texture loaded, scale, colour, level, shape group, rows, light slot); `fx_solid_fade_in_field` (phase, time left, level, the four times, colour, strength, hold end); and their parameters | `src/engine/entities/fx_custom_electric.h` |
 | Weapon base (factory type 0xB over the actor, 0x00145C80), its own part | 0xE54 (0x934 onward) | `weapon_field`: mask and its neighbours, firing, accepted classes, contact test, spawn-model block, names, break category, grab prompt (pulse, phase, alpha, fade), shape and point counts, pick-up count, variant name and attributes, spawn trigger, group owner, state and its next and initial values and time, scene start, thrown and follow motion, floor, voice, spawn owner, broken pieces, hit kind/strength/style, animation, target record | `src/engine/entities/weapon_fields.h` |
 | Player (factory type 5 over the actor, 0x00028830), its own part | 0xCF8 (0x934 onward) | `player_field`: case link, mind, body, input device, provoked and the two countdowns, unk_984, goal volume, latch and delay, ghouly spawn record, kind, count and box, saved, start position and euler, pause count, mode, owner class, live, cells, floor, damage class, tag | `src/engine/entities/player_fields.h` |
+| Actor parameters (type 2's block, read by 0x0003E940, filled by 0x000411A0) | 0x334 | `actor_parameter_field`: position, euler, scale, model scale, the model, animation, animation table, resource and attachment names, attachment bone, marker id and next, secondary mode and model; with `object_parameter_field`'s size, unk_2 and type before them | `include/gbtg/object_factory.h` |
 | Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `mind_target_field`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
@@ -283,6 +284,11 @@ actor, owner, source, holder and player views; the weapon modules skipped), 199 
 `--player-opening`. `scene3a4_2400.bmp` again showed its 1-byte variant; this time the log's only difference was the
 frame-0 region yaws (31.45 against 4.03, and so on). So the scene3a4 noise follows the same uninitialized region yaw
 as `--scene2c7` and `--scene3c1`.
+
+The actor's parameter block (`actor_parameter_field`, 0x334 bytes) is named in its reader (0x0003E940), its defaults
+(0x000411A0) and the marker handlers' builders, which also write the object header through `object_parameter_field`.
+The builders' type-specific fields past +0x334 stay by offset until each consuming type names its parameters. Against
+the previous build all captures match in the nine regular modes (`scene6_title.bmp` its other known version).
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and

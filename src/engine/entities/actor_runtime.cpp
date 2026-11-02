@@ -3,6 +3,7 @@
 #include "gbtg/model_runtime.h"
 #include "gbtg/actor_runtime.h"
 #include "gbtg/gfx.h"
+#include "gbtg/object_factory.h"
 
 #include <bit>
 #include <cmath>
@@ -35,12 +36,12 @@ bool initialize_runtime_actor(RuntimeActorStartupState& state, std::span<const u
     RuntimeActorStartupContext& context)
 {
     Actor& actor = state.actor;
-    actor.position = Vec3{read_f32(parameters, 8), read_f32(parameters, 0xC), read_f32(parameters, 0x10)};
+    actor.position = get(parameters, actor_parameter_field::position);
     actor.xform_valid = 0;
-    const Vec3 euler{read_f32(parameters, 0x14), read_f32(parameters, 0x18), read_f32(parameters, 0x1C)};
+    const Vec3 euler = get(parameters, actor_parameter_field::euler);
     normalize_euler_angles(actor.euler, euler);
     actor.xform_valid = 0;
-    const float scale = read_f32(parameters, 0x20);
+    const float scale = get(parameters, actor_parameter_field::scale);
     if (actor.scale_x != scale || actor.radius_y != scale || actor.radius_xz != scale)
     {
         actor.scale_x = scale;
@@ -51,10 +52,10 @@ bool initialize_runtime_actor(RuntimeActorStartupState& state, std::span<const u
     actor.quat = Quat{0.f, 0.f, 0.f, 1.f}; // DAT_002038F0 / DAT_002038F4
     actor.animation_rate = 1.f;
     actor.xform_valid = 0;
-    actor.scale_200 = read_f32(parameters, 0x24);
-    if (read_u32(parameters, 0x28) == 0x5F646961)
+    actor.scale_200 = get(parameters, actor_parameter_field::model_scale);
+    if (read_u32(parameters, actor_parameter_field::model.offset) == 0x5F646961)
     {
-        set_runtime_actor_model(state.models, reinterpret_cast<const char*>(parameters.data() + 0x28),
+        set_runtime_actor_model(state.models, field_data(parameters, actor_parameter_field::model),
             context.registry, context.error, context.models, context.deferred, context.fence,
             context.types, context.shaders, context.scratch, context.heap_free);
         bind_actor_model_view(state, context);
@@ -64,14 +65,14 @@ bool initialize_runtime_actor(RuntimeActorStartupState& state, std::span<const u
     state.value_29c = 0.f;
     state.word_2a0 = 0;
     actor_initialize_model_size(actor);
-    if (read_u32(parameters, 0x128) == 0x5F646961)
+    if (read_u32(parameters, actor_parameter_field::animation_table.offset) == 0x5F646961)
     {
-        set_actor_animation_table(state.animation, reinterpret_cast<const char*>(parameters.data() + 0x128),
+        set_actor_animation_table(state.animation, field_data(parameters, actor_parameter_field::animation_table),
             context.registry, context.error, context.tables);
     }
-    if (read_u32(parameters, 0xA8) == 0x5F646961)
+    if (read_u32(parameters, actor_parameter_field::animation.offset) == 0x5F646961)
     {
-        if (!start_actor_initial_animation(state.animation, reinterpret_cast<const char*>(parameters.data() + 0xA8),
+        if (!start_actor_initial_animation(state.animation, field_data(parameters, actor_parameter_field::animation),
             context.registry, context.error, context.random_state))
         {
             ModelAnimationState model;
@@ -87,27 +88,27 @@ bool initialize_runtime_actor(RuntimeActorStartupState& state, std::span<const u
     actor_collect_model_flags(actor);
     actor_initialize_sound_slots(actor);
     actor_initialize_shape_mode(actor);
-    state.secondary_mode = i32(read_u32(parameters, 0x2B0));
+    state.secondary_mode = i32(get(parameters, actor_parameter_field::secondary_mode));
     state.secondary_flags[0] = 0;
     state.secondary_flags[1] = 0;
     if (state.secondary_mode != 0)
     {
-        set_runtime_actor_secondary_model(state.models, reinterpret_cast<const char*>(parameters.data() + 0x2B4),
+        set_runtime_actor_secondary_model(state.models, field_data(parameters, actor_parameter_field::secondary_model),
             context.registry, context.error, context.models, context.deferred, context.fence,
             context.types, context.shaders, context.scratch, context.heap_free);
     }
     state.color = 0xFFFFFFFF; // DAT_00314F48
     state.flags = {0, 0, 0, 0xFF};
     state.bone = 0xFFFF;
-    set_runtime_actor_resource(state.resource, reinterpret_cast<const char*>(parameters.data() + 0x1A8),
+    set_runtime_actor_resource(state.resource, field_data(parameters, actor_parameter_field::resource),
         context.registry, context.error);
-    state.setting_1fc = read_u16(parameters, 0x2AA);
-    state.setting_1fe = read_u16(parameters, 0x2AC);
-    if (read_u32(parameters, 0x228) == 0x5F646961)
+    state.setting_1fc = get(parameters, actor_parameter_field::marker_id);
+    state.setting_1fe = get(parameters, actor_parameter_field::next_marker);
+    if (read_u32(parameters, actor_parameter_field::attachment.offset) == 0x5F646961)
     {
-        const u16 bone = read_u16(parameters, 0x2A8);
+        const u16 bone = get(parameters, actor_parameter_field::attachment_bone);
         ActorAttachmentNode* node = actor_create_attachment(state.attachments,
-            reinterpret_cast<const char*>(parameters.data() + 0x228), 0, 3);
+            field_data(parameters, actor_parameter_field::attachment), 0, 3);
         if (node != nullptr)
         {
             std::memcpy(node->bytes.data() + 0xC, &bone, 2);

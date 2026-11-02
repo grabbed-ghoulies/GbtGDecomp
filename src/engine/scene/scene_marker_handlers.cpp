@@ -5,6 +5,7 @@
 #include "../entities/actor_trail_requests.h"
 #include "gbtg/actor_spawn_factory.h"
 #include "../navigation/navigation.h"
+#include "gbtg/object_factory.h"
 #include <bit>
 #include <cstring>
 
@@ -563,9 +564,9 @@ void create_runtime_marker_camera(const u8* record, RuntimeMarkerObjects& contex
     if (is_aid(record + 0x28))
     {
         std::array<u8, 0xC8> parameters{};
-        put_half(parameters, 0, 0xC8);
+        set(parameters, object_parameter_field::size, 0xC8);
         put_half(parameters, 2, 0);
-        put_half(parameters, 4, 0x97);
+        set(parameters, object_parameter_field::type, 0x97);
         copy_text(parameters, 0x2C, reinterpret_cast<const char*>(record + 0x28));
         put_word(parameters, 0xAC, word_at(record, 0xB0));
         put_word(parameters, 0xB0, word_at(record, 0xB4));
@@ -680,14 +681,14 @@ void build_runtime_marker_effect_parameters(std::span<u8, 0x460> parameters, con
     std::span<const u32, 9> values, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AA, id);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::marker_id, id);
     put_word(parameters, 0x334, value);
-    put_half(parameters, 0x2AC, next);
-    put_half(parameters, 0, 0x460);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x24);
+    set(parameters, actor_parameter_field::next_marker, next);
+    set(parameters, object_parameter_field::size, 0x460);
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x24);
     copy_text(parameters, 0x338, first);
     copy_text(parameters, 0x3B8, second);
     put_word(parameters, 0x458, values[7]);
@@ -726,14 +727,14 @@ void build_runtime_marker_switch_parameters(std::span<u8, 0x3C4> parameters, con
     u32 first, u32 second, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AA, id);
-    put_half(parameters, 0x2AC, next);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::marker_id, id);
+    set(parameters, actor_parameter_field::next_marker, next);
     put_word(parameters, 0x334, value);
-    put_half(parameters, 0, 0x3C4);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x25);
+    set(parameters, object_parameter_field::size, 0x3C4);
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x25);
     put_half(parameters, 0x338, key);
     copy_text(parameters, 0x33A, name);
     put_word(parameters, 0x3BC, first);
@@ -756,14 +757,14 @@ void build_runtime_marker_named_trigger_parameters(std::span<u8, 0x4C8> paramete
     std::span<const u32, 4> values, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AA, id);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::marker_id, id);
     put_word(parameters, 0x334, value);
-    put_half(parameters, 0x2AC, next);
-    put_half(parameters, 0, 0x4C8);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x26);
+    set(parameters, actor_parameter_field::next_marker, next);
+    set(parameters, object_parameter_field::size, 0x4C8);
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x26);
     copy_text(parameters, 0x338, first);
     copy_text(parameters, 0x3B8, second);
     put_word(parameters, 0x438, values[0]);
@@ -792,15 +793,15 @@ void build_runtime_marker_multi_name_parameters(std::span<u8, 0x754> parameters,
     const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
     put_word(parameters, 0x340, values[0]);
     put_word(parameters, 0x344, values[1]);
     put_word(parameters, 0x448, values[2]);
     put_word(parameters, 0x750, values[4]);
-    put_half(parameters, 0, 0x754);
-    put_half(parameters, 2, 0x6A);
-    put_half(parameters, 4, 0x22);
+    set(parameters, object_parameter_field::size, 0x754);
+    set(parameters, object_parameter_field::unk_2, 0x6A);
+    set(parameters, object_parameter_field::type, 0x22);
     put_word(parameters, 0x44C, values[3]);
     copy_text(parameters, 0x348, names[0]);
     const u8* second = reinterpret_cast<const u8*>(names[1]);
@@ -834,13 +835,13 @@ void build_runtime_marker_named_parameters(std::span<u8, 0x3B4> parameters, cons
     const Vec3& euler, u16 id, u16 next, const char* name, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AC, next);
-    put_half(parameters, 0x2AA, id);
-    put_half(parameters, 0, 0x3B4);
-    put_half(parameters, 2, 0x47);
-    put_half(parameters, 4, 0x1E);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::next_marker, next);
+    set(parameters, actor_parameter_field::marker_id, id);
+    set(parameters, object_parameter_field::size, 0x3B4);
+    set(parameters, object_parameter_field::unk_2, 0x47);
+    set(parameters, object_parameter_field::type, 0x1E);
     copy_text(parameters, 0x334, name);
 }
 
@@ -860,8 +861,8 @@ void create_runtime_marker_companion(const char* name, const Vec3& position, con
     std::array<u8, 0x334> parameters{};
     initialize_actor_effect_parameters(parameters.data(), context.default_name);
     copy_text(parameters, 0x28, name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
     put_word(parameters, 0x20, std::bit_cast<u32>(scale));
     keep(create_factory_object(context.factory, parameters), context);
 }
@@ -933,17 +934,17 @@ void build_runtime_marker_trigger_parameters(std::span<u8, 0x65C> parameters, co
     const char* second_name, float a11, u32 a12, float a13, u32 a14, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AC, next);
-    put_half(parameters, 0x2AA, id);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::next_marker, next);
+    set(parameters, actor_parameter_field::marker_id, id);
     put_word(parameters, 0x544, a7);
     put_word(parameters, 0x334, a2);
     put_word(parameters, 0x338, a3);
     put_half(parameters, 0x340, a5);
-    put_half(parameters, 0, 0x65C);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x23);
+    set(parameters, object_parameter_field::size, 0x65C);
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x23);
     put_word(parameters, 0x33C, a4);
     put_word(parameters, 0x548, a8);
     copy_text(parameters, 0x54C, first_name);
@@ -984,15 +985,15 @@ void build_runtime_marker_area_parameters(std::span<u8, 0x348> parameters, const
     u16 id, u16 next, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AA, id);
-    put_half(parameters, 0x2AC, next);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::marker_id, id);
+    set(parameters, actor_parameter_field::next_marker, next);
     put_word(parameters, 0x33C, a4);
     put_word(parameters, 0x334, a2);
-    put_half(parameters, 0, 0x348);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x1F);
+    set(parameters, object_parameter_field::size, 0x348);
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x1F);
     put_word(parameters, 0x338, a3);
     put_word(parameters, 0x340, a5);
     put_word(parameters, 0x344, a6);

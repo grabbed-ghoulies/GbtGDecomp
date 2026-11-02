@@ -1,4 +1,5 @@
 #include "actor_trail_requests.h"
+#include "gbtg/object_factory.h"
 
 #include <cstring>
 
@@ -16,27 +17,24 @@ void store(u8* parameters, size_t offset, T value)
 // Xbox 0x000411A0
 void initialize_actor_effect_parameters(u8* parameters, const char* default_name)
 {
-    store<u16>(parameters, 0, 0x334);
-    store<u16>(parameters, 2, 0x3E);
-    store<u16>(parameters, 4, 2);
-    store<float>(parameters, 0x10, 0.f);
-    store<float>(parameters, 0xC, 0.f);
-    store<float>(parameters, 8, 0.f);
-    store<float>(parameters, 0x1C, 0.f);
-    store<float>(parameters, 0x18, 0.f);
-    store<float>(parameters, 0x14, 0.f);
-    store<float>(parameters, 0x20, 1.f);
-    store<float>(parameters, 0x24, 1.f);
-    std::strcpy(reinterpret_cast<char*>(parameters + 0xA8), default_name);
-    std::strcpy(reinterpret_cast<char*>(parameters + 0x28), default_name);
-    std::strcpy(reinterpret_cast<char*>(parameters + 0x1A8), default_name);
-    std::strcpy(reinterpret_cast<char*>(parameters + 0x128), default_name);
-    std::strcpy(reinterpret_cast<char*>(parameters + 0x228), default_name);
-    store<u16>(parameters, 0x2A8, 0xFFFF);
-    store<u32>(parameters, 0x2B0, 0);
-    std::strcpy(reinterpret_cast<char*>(parameters + 0x2B4), default_name);
-    store<u16>(parameters, 0x2AA, 0);
-    store<u16>(parameters, 0x2AC, 0);
+    const std::span<u8> block{parameters, actor_parameter_field::kSize};
+    set(block, object_parameter_field::size, u16(actor_parameter_field::kSize));
+    set(block, object_parameter_field::unk_2, 0x3E);
+    set(block, object_parameter_field::type, 2);
+    set(block, actor_parameter_field::position, Vec3{0.f, 0.f, 0.f});
+    set(block, actor_parameter_field::euler, Vec3{0.f, 0.f, 0.f});
+    set(block, actor_parameter_field::scale, 1.f);
+    set(block, actor_parameter_field::model_scale, 1.f);
+    std::strcpy(field_data(block, actor_parameter_field::animation), default_name);
+    std::strcpy(field_data(block, actor_parameter_field::model), default_name);
+    std::strcpy(field_data(block, actor_parameter_field::resource), default_name);
+    std::strcpy(field_data(block, actor_parameter_field::animation_table), default_name);
+    std::strcpy(field_data(block, actor_parameter_field::attachment), default_name);
+    set(block, actor_parameter_field::attachment_bone, 0xFFFF);
+    set(block, actor_parameter_field::secondary_mode, 0);
+    std::strcpy(field_data(block, actor_parameter_field::secondary_model), default_name);
+    set(block, actor_parameter_field::marker_id, 0);
+    set(block, actor_parameter_field::next_marker, 0);
 }
 
 // Xbox 0x0013B030

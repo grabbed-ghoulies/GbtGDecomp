@@ -1972,6 +1972,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         return first_live_attachment_at(actor_address);
     };
+    players->bindings.scene.attached_actor_at = [this](u32 address) -> RuntimeBodyAttachedActor&
+    {
+        return attached_actor_at(address);
+    };
     players->bindings.scene.medusa_parameters = data(0x004287F0, 0x58);
     players->bindings.scene.hunchback_parameters = data(0x00428770, 0x50);
     players->bindings.scene.keep_object = [this](FactoryObject object)

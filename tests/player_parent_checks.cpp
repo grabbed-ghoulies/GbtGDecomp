@@ -321,6 +321,10 @@ void check_body_dependencies(SceneExecutableResources& executable)
             {
                 calls.push_back(0x20);
                 return u16(0);
+            },
+            [&]()
+            {
+                return mind_action;
             }};
         require(!attach_runtime_player_actor(actor_view, 1, context) && calls.empty(),
             "attachment with no accepted classes must fail without side effects");

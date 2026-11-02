@@ -32,6 +32,8 @@ struct RuntimePlayerAttachment
     const char* const* weapon_names; // DAT_00434104.
     const char* const* class_names; // DAT_004340EC.
     std::function<u16()> body_action_key; // Actual body vtable +0x20.
+    // Mind +0x18's actor as the mind holds it now (0x0001B810 reads the word when the body lets go), or null.
+    std::function<RuntimeBodyAttachedActor*()> mind_action_now;
 };
 void format_runtime_body_variant(std::span<u8> body, const char* format,
     ...); // Xbox 0x00020B30

@@ -207,10 +207,13 @@ bool release_runtime_player_attachment(i32 force, u32 reason, RuntimePlayerAttac
     bool released = false;
     if (attached == nullptr)
     {
-        if ((context.ownership.flags->bytes[5] & 0x40) != 0 && context.mind_present && context.mind_action != nullptr)
+        if ((context.ownership.flags->bytes[5] & 0x40) != 0 && context.mind_present)
         {
-            const u32 message[]{0x97, reason};
-            context.mind_action->message(message);
+            if (RuntimeBodyAttachedActor* action = context.mind_action_now(); action != nullptr)
+            {
+                const u32 message[]{0x97, reason};
+                action->message(message);
+            }
         }
     }
     else

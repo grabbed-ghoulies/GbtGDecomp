@@ -1352,6 +1352,19 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
                   throw Error("player body vtable +0x20 (0x00075B90) is not attached");
               }
               return body_action_key();
+          },
+          [this]() -> RuntimeBodyAttachedActor*
+          {
+              const u32 action = mind.empty() ? 0 : read_u32(mind, 0x18);
+              if (action == 0)
+              {
+                  return nullptr;
+              }
+              if (!scene.attached_actor_at)
+              {
+                  throw Error("0x0001B810 reads mind +0x18 without the scene's attached actor views");
+              }
+              return &scene.attached_actor_at(action);
           }},
       attachment_creation{attachment, child, scene_bindings.attachment_view},
       construction{owner_instance.bat.actor, attributes, spawn, body_object, mind_object, strategy_object,

@@ -241,6 +241,7 @@ struct NativePlayerSceneBindings
     std::function<u32()> meter_actor{};
     std::function<std::span<const u8>(u32)> mind_bytes_at{}; // A mind (actor +0x958) by retail address, through +0x10.
     std::function<u32(u32)> first_live_attachment_at{}; // Actor +0x8F8 by the actor's retail address.
+    std::function<RuntimeBodyAttachedActor&(u32)> attached_actor_at{}; // An attachable actor by its retail address.
     // Vampire strategy (type 0x54, vtable 0x0050602C): the knock-back hit 0x00020690 on a player's own body.
     std::function<void(NativePlayerInstance&)> knock_back{};
     // Worm strategy (type 0x57, vtable 0x00506080): an animation event record by its bound address, the 0x00338FB0

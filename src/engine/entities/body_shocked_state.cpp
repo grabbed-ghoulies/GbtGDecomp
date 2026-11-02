@@ -1,6 +1,7 @@
 #include "body_shocked_state.h"
 #include "player_goal_cleanup.h"
 #include "gbtg/object_factory.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -19,11 +20,6 @@ std::function<RuntimeShockedStateContext&(u32)> shocked_context_of;
 u32 body_address_of(std::span<const u8> state)
 {
     return read_u32(state, 8);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
 }
 
 void step_counters(std::span<u8> body, i32 step)
@@ -125,8 +121,7 @@ void tick_runtime_shocked_state(std::span<u8> state, RuntimeShockedStateContext&
     set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
         + get(state, body_state_field::elapsed));
     hold_runtime_body_latch_timer(body, kLatchHold, context.actor, context.latches); // 0x0001F4F0, ESI body
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     const MinaPlayer* player = first_player(context.animation); // Actor +0x50 -> +0x58 -> [0].
     if (player != nullptr)
     {

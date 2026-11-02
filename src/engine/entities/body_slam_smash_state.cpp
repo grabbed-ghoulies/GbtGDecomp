@@ -289,8 +289,7 @@ void tick_runtime_slam_smash_state(std::span<u8> state, RuntimeSlamSmashStateCon
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.actor);
     set(state, body_state_field::elapsed, rate * step + get(state, body_state_field::elapsed));
-    put_float(context.body, 0x734, 0.f);
-    put_float(context.body, 0x72C, 0.f);
+    level_body_euler(context.body);
     float timer = get(state, field::timer);
     if (0.f < timer)
     {

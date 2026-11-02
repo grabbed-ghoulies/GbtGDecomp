@@ -27,11 +27,6 @@ u32 body_address_of(std::span<const u8> state)
     return read_u32(state, 8);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 bool construct_furnace_hit_state_view(FactoryObject& object, std::span<const u8>)
 {
     const std::span<u8> state{object.bytes.get(), object.size};
@@ -157,8 +152,7 @@ void tick_runtime_furnace_hit_state(std::span<u8> state, RuntimeFurnaceHitStateC
     const std::span<u8> body = knockdown.body;
     Actor& actor = knockdown.actor;
     set(state, field::elapsed, runtime_actor_step(actor, knockdown.clock) + get(state, field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     const float step = runtime_actor_step(actor, knockdown.clock);
     bool done = false;
     if (get(state, field::remaining) > 0.f)

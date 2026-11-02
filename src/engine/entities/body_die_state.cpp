@@ -15,11 +15,6 @@ namespace base = body_state_field;
 
 namespace
 {
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 }
 
 // Xbox 0x0008C1C0
@@ -119,9 +114,9 @@ void tick_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context
     set(state, base::elapsed, runtime_actor_step(actor, context.clock) + get(state, base::elapsed));
     if (get(state, field::moving_key) != 0)
     {
-        const float x = read_f32(body, 0x248);
-        const float y = read_f32(body, 0x24C);
-        const float z = read_f32(body, 0x250);
+        const float x = get(body, body_field::motion).x;
+        const float y = get(body, body_field::motion).y;
+        const float z = get(body, body_field::motion).z;
         u16 key = 0;
         if (z * z + y * y + x * x > 0.f && (context.bits.bytes[0] & 2) != 0)
         {
@@ -139,8 +134,7 @@ void tick_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context
         const u32 target = get(state, field::target);
         if (target == 0)
         {
-            put_float(body, 0x734, 0.f);
-            put_float(body, 0x72C, 0.f);
+            level_body_euler(body);
         }
         else if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
         {

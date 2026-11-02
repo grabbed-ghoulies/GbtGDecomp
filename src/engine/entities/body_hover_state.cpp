@@ -180,8 +180,9 @@ void turn_runtime_hover_state(RuntimeHoverStateContext& context)
 {
     const auto body = context.body;
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
-    const Vec3 direction{read_f32(body, 0x3C) - position.x, read_f32(body, 0x40) - position.y,
-        read_f32(body, 0x44) - position.z};
+    const Vec3 direction{get(body, body_field::focus_point).x - position.x,
+                         get(body, body_field::focus_point).y - position.y,
+                         get(body, body_field::focus_point).z - position.z};
     float angle = 0.f; // 0x00105F90 leaves the slot unwritten for a zero direction.
     runtime_direction_angle(direction, angle); // 0x00105F90
     // The 0x00152BE0 remainder into [-pi, pi): the x87 remainder is compared, its float kept.
@@ -195,8 +196,7 @@ void turn_runtime_hover_state(RuntimeHoverStateContext& context)
     {
         off -= kTau;
     }
-    put_float(body, 0x72C, 0.f);
-    put_float(body, 0x734, 0.f);
+    level_body_euler(body);
     if (std::fabs(off) > 0.8726646304130554f) // 0x00152BB0, DAT_0032B478.
     {
         put_float(body, 0x730, angle);

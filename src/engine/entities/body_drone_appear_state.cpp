@@ -60,10 +60,6 @@ void put_u16(std::span<u8> bytes, size_t offset, u16 value)
     std::memcpy(bytes.data() + offset, &value, 2);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 }
 
 // Xbox 0x0008D330
@@ -229,8 +225,7 @@ void tick_runtime_drone_appear_state(std::span<u8> state, RuntimeDroneAppearStat
 {
     set(state, body_state_field::elapsed,
         runtime_actor_step(context.actor, context.clock) + get(state, body_state_field::elapsed));
-    put_float(context.body, 0x734, 0.f);
-    put_float(context.body, 0x72C, 0.f);
+    level_body_euler(context.body);
     bool done = false;
     const float time = get(state, field::time);
     if (time > 0.f)

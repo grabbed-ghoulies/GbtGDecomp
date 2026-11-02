@@ -44,8 +44,7 @@ void face_goal_point(RuntimeScrabbleStateContext& context)
     {
         angle = context.actor.euler.y; // Actor +0x18.
     }
-    put_float(context.body, 0x734, 0.f);
-    put_float(context.body, 0x72C, 0.f);
+    level_body_euler(context.body);
     put_float(context.body, 0x730, angle);
 }
 

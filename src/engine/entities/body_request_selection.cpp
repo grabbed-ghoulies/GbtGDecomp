@@ -496,7 +496,7 @@ i32 runtime_body_target_chain_length(const RuntimeBodyChainLength& context)
     {
         return 1;
     }
-    const float scale = read_f32(context.body, 0x16C);
+    const float scale = get(context.body, body_field::stagger);
     if (context.model_state[0x1A4] != 0 && scale == 0.f
         && (context.flags.bytes[3] & 2) == 0)
     {

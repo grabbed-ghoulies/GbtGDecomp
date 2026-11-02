@@ -221,9 +221,9 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
         context.flags->bytes[1] &= 0xDF;
         body[0x874] = surface;
     }
-    if ((context.flags->bytes[5] & 2) == 0 && body[0x19E] != 0)
+    if ((context.flags->bytes[5] & 2) == 0 && get(body, body_field::has_ground) != 0)
     {
-        const float floor_y = read_f32(body, 0x17C);
+        const float floor_y = get(body, body_field::ground_point).y;
         const Vec3 world = actor_world_position(actor);
         if (floor_y + 5.f >= world.y)
         {

@@ -180,7 +180,7 @@ void tick_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateCon
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    const u32 attacker = read_u32(body, 0x270);
+    const u32 attacker = get(body, body_field::attacker);
     set(state, body_state_field::elapsed, runtime_actor_step(actor, context.clock)
         + get(state, body_state_field::elapsed));
     if (body[0xA6] != 0)
@@ -258,8 +258,7 @@ void tick_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateCon
     }
     else
     {
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
+        level_body_euler(body);
     }
     const float left = get(state, field::stream_left);
     if (0.f < left)

@@ -319,7 +319,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     put_float(body, 0x320, 0.0f);
     put_float(body, 0x31C, 0.0f);
     put_float(body, 0x318, 0.0f);
-    put_float(body, 0x33C, owner.euler.y);
+    set(body, body_field::heading, owner.euler.y);
     const Vec3 euler = actor_world_euler(owner);
     put_float(body, 0x72C, euler.x);
     put_float(body, 0x730, euler.y);

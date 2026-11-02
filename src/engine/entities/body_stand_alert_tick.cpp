@@ -5,6 +5,7 @@
 
 #include <bit>
 #include <cmath>
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -48,9 +49,9 @@ void tick_runtime_stand_alert(std::span<u8> action, RuntimeStandAlertTick& conte
     set(action, base::elapsed, elapsed);
     if (get(action, field::moving_key) != 0)
     {
-        const float z = read_f32(context.body, 0x250);
-        const float y = read_f32(context.body, 0x24C);
-        const float x = read_f32(context.body, 0x248);
+        const float z = get(context.body, body_field::motion).z;
+        const float y = get(context.body, body_field::motion).y;
+        const float x = get(context.body, body_field::motion).x;
         u16 key = 0;
         if ((z * z + y * y) + x * x > 0.f && (context.flags.bytes[0] & 2) != 0)
         {

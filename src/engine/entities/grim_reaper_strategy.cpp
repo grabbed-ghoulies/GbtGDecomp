@@ -330,12 +330,12 @@ void start_grab(RuntimeGrimReaperStrategy& context)
     if (context.collision != nullptr)
     {
         activate_runtime_body_contact_shapes(*context.collision, actor, 3, 1, kOne); // 0x0013F420
-        put_word(body, 0x2CC, 0);
+        set(body, body_field::contact_count, 0);
     }
     if (context.collision != nullptr)
     {
         activate_runtime_body_contact_shapes(*context.collision, actor, 0xD, 1, kOne);
-        put_word(body, 0x2CC, 0);
+        set(body, body_field::contact_count, 0);
     }
     put_word(body, 0x74C, 1);
     set_model_flag(1, context);

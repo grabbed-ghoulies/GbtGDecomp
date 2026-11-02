@@ -10,6 +10,7 @@
 #include <array>
 #include <bit>
 #include <cstring>
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -244,9 +245,9 @@ void request_runtime_body_death_effect(u32 activate, RuntimeBodyDeathEffects& co
 void notify_runtime_body_death_classes(RuntimeBodyDeathNotice& context)
 {
     notify_runtime_body_death_once(context.body, context.actor_address, context.game);
-    const std::array<u32, 3> death{0x6A, context.actor_address, read_u32(context.body, 0x274)};
+    const std::array<u32, 3> death{0x6A, context.actor_address, get(context.body, body_field::unk_274)};
     script_queue_event(context.game, {reinterpret_cast<const u8*>(death.data()), sizeof(death)});
-    const u32 source = read_u32(context.body, 0x274);
+    const u32 source = get(context.body, body_field::unk_274);
     u32 prefix;
     std::memcpy(&prefix, context.name, 4);
     if (prefix == 0x5F646961 ||

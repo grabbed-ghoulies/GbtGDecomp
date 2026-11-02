@@ -4,6 +4,7 @@
 #include "actor_transform.h"
 #include "player_mind_requests.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -263,8 +264,7 @@ void tick_runtime_yoyo_spin_state(std::span<u8> state, RuntimeYoYoSpinStateConte
     const std::span<u8> body = context.body;
     set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
         + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     const float timer = get(state, field::timer);
     if (0.f < timer)
     {

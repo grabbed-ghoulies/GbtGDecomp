@@ -415,7 +415,7 @@ bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8>
     body[0x38] = 1;
     body[0x39] = 1;
     put_word(body, 0x164, 0);
-    put_float(body, 0x16C, 0.99f); // DAT_0032B228.
+    set(body, body_field::stagger, 0.99f); // DAT_0032B228.
     // Each record on the actor's +0x8F4 list (actor +0x8F8 is the first) gains a +0x15 hold.
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
@@ -442,7 +442,7 @@ bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8>
     set(state, field::landing_key, get(parameters, parameter::landing_key));
     set(state, field::bounce_key, get(parameters, parameter::bounce_key));
     set(state, field::fallback_death_key, get(parameters, parameter::fallback_death_key));
-    set(state, field::attacker, read_u32(body, 0x270));
+    set(state, field::attacker, get(body, body_field::attacker));
     set(state, field::saved_shape_mode, set_runtime_body_shape_mode(3, context.shape));
     set(state, field::rise_height, actor.radius_y * get(parameters, parameter::rise_height));
     set(state, field::bounce_scale, get(parameters, parameter::bounce_scale));
@@ -665,7 +665,7 @@ void sweep_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& conte
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    const u32 holder = read_u32(body, 0x274);
+    const u32 holder = get(body, body_field::unk_274);
     u32 player = 0;
     if (holder != 0)
     {
@@ -1235,9 +1235,9 @@ void tick_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& 
         sweep_runtime_knockdown(state, context);
         bool rise = false;
         // 0x0001F060: body +0x19E holds a floor height at +0x17C.
-        if (body[0x19E] != 0)
+        if (get(body, body_field::has_ground) != 0)
         {
-            const float above = actor_world_position(actor).y - read_f32(body, 0x17C);
+            const float above = actor_world_position(actor).y - get(body, body_field::ground_point).y;
             rise = get(state, field::rise_height) > above;
         }
         if (!rise && runtime_knockdown_contact_kind(state, context) != 2 && (context.bits.bytes[1] & 0x10) == 0

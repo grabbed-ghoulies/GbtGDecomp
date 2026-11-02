@@ -26,11 +26,6 @@ struct StruggleRecords
 };
 std::unordered_map<const u8*, StruggleRecords> struggle_records;
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 const StruggleRecords& records_of(std::span<const u8> state)
 {
     const auto found = struggle_records.find(state.data());
@@ -147,8 +142,7 @@ void turn_runtime_struggle_body(bool targeted, std::span<u8> state, RuntimeStrug
             return;
         }
     }
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
 }
 
 // Xbox 0x000A3070
@@ -202,9 +196,9 @@ void select_runtime_struggle_key(std::span<u8> state, RuntimeStruggleTick& conte
     const auto body = context.body;
     if (get(state, field::moving_key) != 0)
     {
-        const float z = read_f32(body, 0x250);
-        const float y = read_f32(body, 0x24C);
-        const float x = read_f32(body, 0x248);
+        const float z = get(body, body_field::motion).z;
+        const float y = get(body, body_field::motion).y;
+        const float x = get(body, body_field::motion).x;
         u16 key = 0;
         if ((z * z + y * y) + x * x > 0.f && (context.flags.bytes[0] & 2) != 0) // DAT_0032B100.
         {

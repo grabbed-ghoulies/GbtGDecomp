@@ -15,11 +15,6 @@ namespace base = body_state_field;
 
 namespace
 {
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void step_holds(std::span<u8> body, entity_detail::ListHead& live_attachments, i32 step)
 {
     set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + step));
@@ -151,8 +146,7 @@ void tick_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateContext&
     const float elapsed =
         runtime_actor_rate(pickup.actor) * runtime_frame_step(pickup.clock) + get(state, base::elapsed);
     set(state, base::elapsed, elapsed);
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     const MinaPlayer* player = first_player(pickup.animation);
     if (player != nullptr && crossed(*player, std::bit_cast<float>(0x3F19999Au))) // DAT_0032B248, 0.6
     {

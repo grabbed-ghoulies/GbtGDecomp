@@ -309,8 +309,7 @@ void tick_runtime_dizzy_state(std::span<u8> state, RuntimeDizzyStateContext& con
     Actor& actor = context.actor;
     set(state, base::elapsed,
         runtime_actor_rate(actor) * runtime_frame_step(context.clock) + get(state, base::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     if (get(state, field::settles) != 0)
     {
         settle_runtime_body_turn(body, actor);

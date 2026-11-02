@@ -6,6 +6,7 @@
 #include "actor_shape_bounds.h"
 #include "shape_transform.h"
 #include "gbtg/entity.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -25,11 +26,6 @@ constexpr float kStrikeEnd = 0.32f; // DAT_0032B4FC.
 u32 body_address_of(std::span<const u8> state)
 {
     return read_u32(state, 8);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
 }
 
 void step_byte(std::span<u8> bytes, size_t offset, i32 step)
@@ -149,8 +145,7 @@ void tick_runtime_scoop_whack_state(std::span<u8> state, RuntimeScoopWhackStateC
     const u32 target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::target_record);
     set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
         + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     if (get(state, field::struck) == 0 && target != 0)
     {
         const MinaPlayer* player = slot_player(context);

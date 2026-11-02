@@ -304,7 +304,7 @@ void reset_runtime_body_turn(u32 brake, std::span<u8> body, RuntimeBodyTimerReci
         put_word(body, 0x164, 0);
         if (brake != 0)
         {
-            put_float(body, 0x16C, 0.99f); // DAT_0032B228.
+            set(body, body_field::stagger, 0.99f); // DAT_0032B228.
         }
     }
     if (read_u32(body, 0x760) != 0 && read_u32(body, 0x754) == 0)
@@ -521,7 +521,7 @@ void steer_runtime_hit_body(RuntimeHitStateTick& context)
         return;
     }
     set(body, body_field::euler, Vec3{0.f, angle, 0.f});
-    put_float(body, 0x33C, angle);
+    set(body, body_field::heading, angle);
     const float scale = surface_mode_scale(body, context.mode_scales);
     const float speed = runtime_body_step_speed(body, context.actor, context.tables) * scale * magnitude;
     side = float(retail_sin(angle) * speed);
@@ -808,7 +808,7 @@ void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBo
         {
             secondary = true;
         }
-        else if (read_f32(body, 0x16C) == 0.f)
+        else if (get(body, body_field::stagger) == 0.f)
         {
             secondary = true;
         }
@@ -838,7 +838,7 @@ void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBo
 // Xbox 0x000965C0
 void scorch_runtime_hit_furnace_contacts(std::span<u8> state, RuntimeHitFurnaceTick& context)
 {
-    const u32 holder = read_u32(context.body, 0x274);
+    const u32 holder = get(context.body, body_field::unk_274);
     u32 player = 0;
     if (holder != 0)
     {
@@ -876,8 +876,7 @@ void tick_runtime_hit_furnace_state(std::span<u8> state, RuntimeHitFurnaceTick& 
     {
         scorch_runtime_hit_furnace_contacts(state, context); // 0x000965C0
     }
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     const MinaPlayer* player = slot_player(context.animation);
     const float position = player == nullptr ? 0.f : player->position;
     const auto actor = context.actor_bytes;

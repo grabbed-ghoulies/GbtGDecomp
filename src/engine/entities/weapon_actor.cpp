@@ -870,8 +870,8 @@ void break_runtime_weapon_by_player(RuntimeWeaponActor& weapon, std::span<u32> m
     {
         // The player's body +0x270 / +0x274 name its two partners; a live one picks the category.
         const auto body = weapon.services.body_of(message[4]);
-        const Actor* first = weapon.actor_or_null(read_u32(body, 0x270));
-        const Actor* second = weapon.actor_or_null(read_u32(body, 0x274));
+        const Actor* first = weapon.actor_or_null(get(body, body_field::attacker));
+        const Actor* second = weapon.actor_or_null(get(body, body_field::unk_274));
         if (first != nullptr && (first->mask_mode == 2 || first->mask_flag != 0))
         {
             set(bytes, weapon_field::break_category, 2);

@@ -273,8 +273,7 @@ void tick_runtime_grab_throw_state(std::span<u8> state, RuntimeGrabThrowStateCon
     const u32 record = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
     set(state, field::elapsed, runtime_actor_rate(actor) * runtime_frame_step(context.clock)
         + get(state, field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     if (get(state, field::thrown) == 0)
     {
         if (get(state, field::grabbed) == 0 && record != 0)

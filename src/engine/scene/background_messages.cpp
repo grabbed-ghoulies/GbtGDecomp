@@ -8,6 +8,7 @@
 
 #include <bit>
 #include <cstring>
+#include "../entities/body_fields.h"
 
 namespace gbtg
 {
@@ -113,8 +114,8 @@ void handle_background_message(Actor& actor, std::span<u32> message, BackgroundM
         if (attacker != 0 && !runtime_actor_is_player(*context.actor_at(attacker)))
         {
             const std::span<const u8> body = context.body_of(attacker); // Attacker +0x95C.
-            const u32 first = read_u32(body, 0x270);
-            const u32 second = read_u32(body, 0x274);
+            const u32 first = get(body, body_field::attacker);
+            const u32 second = get(body, body_field::unk_274);
             if (first != 0 && runtime_actor_is_player(*context.actor_at(first)))
             {
                 category = 2;

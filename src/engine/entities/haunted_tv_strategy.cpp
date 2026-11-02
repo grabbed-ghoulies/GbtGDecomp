@@ -200,7 +200,7 @@ void start_runtime_haunted_tv_attack(RuntimeHauntedTvStrategy& context)
     if (context.collision != nullptr)
     {
         activate_runtime_body_contact_shapes(*context.collision, actor, 0, 1, 1.f); // 0x0013F420, DAT_0032B0F8
-        put_word(body, 0x2CC, 0);
+        set(body, body_field::contact_count, 0);
     }
     // EAX body +0x5C, EBX 0x65.
     if (context.attack_resource.data() == nullptr)

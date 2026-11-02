@@ -17,6 +17,8 @@ constexpr RetailField<Vec3, 0x18> position{};
 constexpr RetailField<u16, 0x30> move_holds{};
 // Seconds the body is held still: decays to zero (0x00025AE0), and a random hold only ever lengthens it (0x0001AE50).
 constexpr RetailField<float, 0x34> move_hold_time{};
+// The point the body faces (0x000197B0's heading runs from the actor to it): a target's position (0x000412A0).
+constexpr RetailField<Vec3, 0x3C> focus_point{};
 // The actor the body holds or carries (a held weapon, the Baron's cane), by address.
 constexpr RetailField<u32, 0x48> attached{};
 // Decays to zero (0x00025AE0); message 0x4E sets it (0x000253B0), and a target request waits while it is positive
@@ -28,11 +30,24 @@ constexpr RetailField<float, 0x78> reach{};
 constexpr RetailField<u32, 0x84> hit_record{};
 constexpr RetailField<u16, 0x94> energy{};
 constexpr RetailField<u16, 0x96> max_energy{}; // restored into energy on revival (0x000253B0)
+// The stagger meter: a hit empties it in steps (0x0001FF60); at zero the body can be finished.
+constexpr RetailField<float, 0x16C> stagger{};
+// The ground under the body while has_ground is set; its y is the floor height 0x0001F060 reads.
+constexpr RetailField<Vec3, 0x178> ground_point{};
+constexpr RetailField<u8, 0x19E> has_ground{};
+// The body's own motion; a moving body (nonzero, with flag bit 1) takes its moving key (0x000A2930, 0x0008C310).
+constexpr RetailField<Vec3, 0x248> motion{};
 // Counts holds on the body; the last release sends it message 0x4A.
 constexpr RetailField<u32, 0x258> holds{};
+// The actor that last hit the body, by address: a hit stream pushes the body away from it (0x00097500).
+constexpr RetailField<u32, 0x270> attacker{};
+constexpr RetailField<u32, 0x274> unk_274{}; // a player's: the actor 0x00138B40 reports; messages 0x31 and 0x6A carry it
+constexpr RetailField<u32, 0x2CC> contact_count{};
 // The velocity the actor's +0x3C eases toward, at ease_rate (move action 0x5A).
 constexpr RetailField<Vec3, 0x318> velocity{};
 constexpr RetailField<float, 0x324> gravity{};
+constexpr RetailField<float, 0x32C> step_speed{}; // times the class value (0x000259C0) is the walking speed
+constexpr RetailField<float, 0x33C> heading{}; // the heading the body walks on
 // ease_rate as it was before a state swapped in its own (0x000957A0, 0x0007FD30); restored when the state ends.
 constexpr RetailField<float, 0x330> saved_ease_rate{};
 constexpr RetailField<float, 0x334> ease_rate{};
@@ -54,4 +69,14 @@ constexpr RetailField<u16, 0x880> surface_override_frames{};
 constexpr RetailField<float, 0x884> height_scale{};
 constexpr RetailField<float, 0x888> radius_scale{};
 } // namespace body_field
+
+// The states' common pair of writes, pitch (+0x72C) and roll (+0x734) to zero: the body stands level, keeping its
+// yaw.
+inline void level_body_euler(std::span<u8> body)
+{
+    Vec3 euler = get(body, body_field::euler);
+    euler.x = 0.f;
+    euler.z = 0.f;
+    set(body, body_field::euler, euler);
+}
 } // namespace gbtg

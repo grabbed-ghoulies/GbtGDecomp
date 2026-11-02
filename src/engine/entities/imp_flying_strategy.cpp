@@ -21,6 +21,7 @@
 #include <bit>
 #include <climits>
 #include <cstring>
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -608,9 +609,9 @@ void enter_rise(RuntimeImpFlyingStrategy& context)
     const std::span<const u8> body = goals.entry.body; // Actor +0x95C.
     // Without body +0x19E the height is the stack slot of the first argument: the strategy pointer's bits.
     float height = std::bit_cast<float>(goals.address_of(strategy_of(context).data()));
-    if (body[0x19E] != 0)
+    if (get(body, body_field::has_ground) != 0)
     {
-        const float floor = read_f32(body, 0x17C);
+        const float floor = get(body, body_field::ground_point).y;
         height = actor_world_position(goals.entry.actor).y - floor; // 0x000412A0 on body +8
     }
     const float hover = parameter(context, 8);

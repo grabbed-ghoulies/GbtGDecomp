@@ -8,6 +8,7 @@
 #include <array>
 #include <bit>
 #include <cstring>
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -670,7 +671,7 @@ u32 report_runtime_player_contact(Actor& actor, RuntimeSegmentContactActor& obje
     context.message(&report);
     if (notice.reply != 0)
     {
-        u32 count = read_u32(body, 0x2CC);
+        u32 count = get(body, body_field::contact_count);
         if (count == 0)
         {
             const size_t index = size_t(read_u16(context.actor, 6)) * 0x3D;
@@ -679,7 +680,7 @@ u32 report_runtime_player_contact(Actor& actor, RuntimeSegmentContactActor& obje
             ++context.session[index];
             ++context.session[0];
         }
-        count = read_u32(body, 0x2CC) + 1;
+        count = get(body, body_field::contact_count) + 1;
         std::memcpy(body.data() + 0x2CC, &count, 4);
     }
     return 0;

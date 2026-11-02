@@ -138,8 +138,7 @@ void steer_runtime_flip_state(std::span<const u8> state, RuntimeFlipStateContext
     put_float(body, 0x318, across);
     put_float(body, 0x31C, 0.f);
     put_float(body, 0x320, along);
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
 }
 
 // Xbox 0x00090760
@@ -181,8 +180,7 @@ void tick_runtime_flip_state(std::span<u8> state, RuntimeFlipStateContext& conte
     put_float(body, 0x318, context.default_position.x);
     put_float(body, 0x31C, context.default_position.y);
     put_float(body, 0x320, context.default_position.z);
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     const AnimationController* controller = context.animation.controller.get(); // Actor +0x50.
     const MinaPlayer* player = controller == nullptr || controller->slots.empty() ? nullptr
                                                                                   : controller->slots[0].player.get();

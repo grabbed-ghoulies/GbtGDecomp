@@ -33,11 +33,6 @@ u32 body_address_of(std::span<const u8> state)
     return read_u32(state, 8);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // The inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
 const AnimationRecord* find_animation(std::span<const u8> parameters, u32 offset, RuntimeShootStateContext& context)
 {
@@ -279,8 +274,7 @@ void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& con
         }
         else
         {
-            put_float(body, 0x734, 0.f);
-            put_float(body, 0x72C, 0.f);
+            level_body_euler(body);
         }
         if (!runtime_actor_animation_slot_complete(context.actions.animation, 0)) // The inlined 0x0003B290.
         {
@@ -334,8 +328,7 @@ void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& con
     else
     {
         stop = true;
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
+        level_body_euler(body);
     }
     aim_runtime_shoot_state(state, record, context); // 0x000A0160, EAX target
     if (context.input == nullptr)

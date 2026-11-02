@@ -316,7 +316,7 @@ void steer_runtime_body_by_stick(RuntimeWalkTargetTick& context)
     float forward = 0.f;
     if (magnitude > 0.f)
     {
-        put_float(body, 0x33C, angle);
+        set(body, body_field::heading, angle);
         const float scale = surface_mode_scale(body, context.mode_scales);
         const float speed = runtime_body_step_speed(body, context.actor, context.tables) * scale * magnitude;
         side = float(retail_sin(angle) * speed);
@@ -366,7 +366,7 @@ u32 runtime_walk_target_side(float turn)
 u32 runtime_walk_target_direction(RuntimeWalkTargetTick& context)
 {
     // x87: body +0x33C - actor +0x18, stored as a float.
-    const float turn = float(static_cast<long double>(read_f32(context.body, 0x33C))
+    const float turn = float(static_cast<long double>(get(context.body, body_field::heading))
         - static_cast<long double>(context.actor.euler.y));
     return runtime_walk_target_side(wrap_signed(turn));
 }
@@ -376,9 +376,9 @@ long double runtime_walk_target_distance(RuntimeWalkTargetTick& context)
 {
     const auto body = context.body;
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0, ESI actor.
-    const float dx = position.x - read_f32(body, 0x3C);
-    const float dy = position.y - read_f32(body, 0x40);
-    const float dz = position.z - read_f32(body, 0x44);
+    const float dx = position.x - get(body, body_field::focus_point).x;
+    const float dy = position.y - get(body, body_field::focus_point).y;
+    const float dz = position.z - get(body, body_field::focus_point).z;
     const long double sum = (static_cast<long double>(dz) * dz + static_cast<long double>(dy) * dy)
         + static_cast<long double>(dx) * dx;
     return std::sqrt(sum);
@@ -389,12 +389,12 @@ void aim_runtime_walk_target(std::span<const u8> state, RuntimeWalkTargetTick& c
 {
     const auto body = context.body;
     const u8 alert = context.mind.empty() ? 0 : get(context.mind, mind_field::target_mode);
-    const Vec3 target{read_f32(body, 0x3C), read_f32(body, 0x40), read_f32(body, 0x44)};
+    const Vec3 target = get(body, body_field::focus_point);
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0, ESI actor.
     const Vec3 direction{target.x - position.x, target.y - position.y, target.z - position.z};
     float angle;
     runtime_direction_angle(direction, angle); // 0x00105F90, EAX direction, EBX angle.
-    const float heading = read_f32(body, 0x33C);
+    const float heading = get(body, body_field::heading);
     const float turned = step_runtime_angle_toward(angle, heading, float(alert != 0 ? 1 : 0));
     const long double distance = runtime_walk_target_distance(context); // Kept in x87.
     float limit = float((distance - 12.0L) // DAT_0032B470.
@@ -411,8 +411,7 @@ void aim_runtime_walk_target(std::span<const u8> state, RuntimeWalkTargetTick& c
         limit = lower;
     }
     const float facing = runtime_turn_within_arc(heading, turned, limit);
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     put_float(body, 0x730, facing);
     if (get(state, field::settle_turn) != 0)
     {
@@ -650,7 +649,7 @@ u32 runtime_fly_alert_side(float turn)
 u32 runtime_fly_alert_direction(RuntimeWalkTargetTick& context)
 {
     // x87: body +0x33C - actor +0x18, stored as a float.
-    const float turn = float(static_cast<long double>(read_f32(context.body, 0x33C))
+    const float turn = float(static_cast<long double>(get(context.body, body_field::heading))
         - static_cast<long double>(context.actor.euler.y));
     return runtime_fly_alert_side(wrap_signed(turn));
 }
@@ -713,8 +712,7 @@ void aim_runtime_fly_alert(RuntimeWalkTargetTick& context)
         const float yaw = context.actor.euler.y; // Actor +0x18.
         const float heading = runtime_body_point_heading(body, context.actor); // 0x000197B0, EAX body
         static_cast<void>(animation_remainder(heading - yaw, tau)); // 0x00152BE0; the result is discarded.
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
+        level_body_euler(body);
         put_float(body, 0x730, heading);
         float limit = float((runtime_walk_target_distance(context) - 12.0L) // 0x000A6950, DAT_0032B470.
             * static_cast<long double>(std::bit_cast<float>(0x3F490FDBu)) // DAT_0032B2D0.
@@ -729,12 +727,11 @@ void aim_runtime_fly_alert(RuntimeWalkTargetTick& context)
         {
             limit = lower;
         }
-        const float facing = read_f32(body, 0x33C);
+        const float facing = get(body, body_field::heading);
         static_cast<void>(runtime_turn_within_arc(facing, heading, limit)); // 0x00092120; the result is discarded.
         static_cast<void>(runtime_facing_weight(facing, heading)); // 0x000921E0; the result is discarded.
     }
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
 }
 
 // Xbox 0x00091B10, EAX body, EDI state

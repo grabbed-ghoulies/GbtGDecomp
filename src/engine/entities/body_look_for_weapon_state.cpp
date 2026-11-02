@@ -34,11 +34,6 @@ u32 body_address_of(std::span<const u8> state)
     return read_u32(state, 8);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // A sprite AID (0x00035E90); a missing one raises resource error 2 (0x00032700).
 std::span<const u8> acquire_sprite(const char* name, RuntimeLookForWeaponStateContext& context)
 {
@@ -156,8 +151,7 @@ void tick_runtime_look_for_weapon_state(std::span<u8> state, RuntimeLookForWeapo
     const u32 phase = get(state, field::found);
     if (phase == 0)
     {
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
+        level_body_euler(body);
         const bool found = find_runtime_mind_weapon(context); // 0x0009DC70
         if (get(state, body_state_field::elapsed) < get(state, field::wait))
         {

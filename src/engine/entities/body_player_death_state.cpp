@@ -32,11 +32,6 @@ struct PlayerDeathRecords
 };
 std::unordered_map<const u8*, PlayerDeathRecords> player_death_records;
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 const PlayerDeathRecords& records_of(std::span<const u8> state)
 {
     const auto found = player_death_records.find(state.data());
@@ -306,8 +301,7 @@ void tick_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathCont
     }
     else
     {
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
+        level_body_euler(body);
     }
     switch (get(state, field::phase))
     {

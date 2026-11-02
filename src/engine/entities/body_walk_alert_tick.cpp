@@ -17,11 +17,6 @@ namespace base = body_state_field;
 
 namespace
 {
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // The inlined surface-mode scale: DAT_00217EC0[mode] when body +0x878 has the mode's bit, otherwise 1.
 float surface_mode_scale(std::span<const u8> body, std::span<const float> mode_scales)
 {
@@ -110,9 +105,9 @@ i32 runtime_walk_alert_band(std::span<const u8> state, std::span<const u8> body,
     {
         const float factor = runtime_class_damage_value(body[0x328], actor.damage_class, tables);
         const float scale = surface_mode_scale(body, mode_scales);
-        if (speed >= 0.f
-            && read_f32(body, 0x32C) * get(record(state, walk::rows, size_t(index)), row::top_speed) * factor * scale
-                > speed)
+        if (speed >= 0.f && get(body, body_field::step_speed) *
+                                    get(record(state, walk::rows, size_t(index)), row::top_speed) * factor * scale >
+                                speed)
         {
             return index;
         }
@@ -258,7 +253,7 @@ void steer_runtime_walk_alert(std::span<const u8> state, RuntimeWalkAlertTick& c
         {
             heading = context.actor.euler.y; // Actor +0x18.
         }
-        put_float(body, 0x33C, heading);
+        set(body, body_field::heading, heading);
         const float scale = surface_mode_scale(body, context.mode_scales);
         const float speed = runtime_body_step_speed(body, context.actor, context.tables) * scale * magnitude;
         side = float(retail_sin(heading) * speed);

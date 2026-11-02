@@ -141,7 +141,7 @@ void settle_runtime_body_turn(std::span<u8> body, const Actor& actor)
     float x = 0.f;
     float y = get(body, body_field::euler).y;
     float z = 0.f;
-    if (body[0x19E] != 0)
+    if (get(body, body_field::has_ground) != 0)
     {
         const Vec3 direction{read_f32(body, 0x184), read_f32(body, 0x188), read_f32(body, 0x18C)};
         runtime_direction_lean(direction, actor.euler.y, x, z); // 0x001068E0, actor +0x18
@@ -154,7 +154,7 @@ void settle_runtime_body_turn(std::span<u8> body, const Actor& actor)
 // Xbox 0x000197B0
 float runtime_body_point_heading(std::span<const u8> body, const Actor& actor)
 {
-    const Vec3 point{read_f32(body, 0x3C), read_f32(body, 0x40), read_f32(body, 0x44)};
+    const Vec3 point = get(body, body_field::focus_point);
     const Vec3 position = actor_world_position(actor);
     const Vec3 direction{point.x - position.x, point.y - position.y, point.z - position.z};
     float angle = 0.f;

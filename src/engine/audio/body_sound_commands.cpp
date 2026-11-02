@@ -30,7 +30,7 @@ const char* runtime_actor_tag_suffix(u16 tag, std::span<const char* const> names
 // Xbox 0x000259C0
 float runtime_body_step_speed(std::span<const u8> body, const Actor& actor, const RuntimeBodyDamageTables& tables)
 {
-    return read_f32(body, 0x32C) * runtime_class_damage_value(body[0x328], actor.damage_class, tables);
+    return get(body, body_field::step_speed) * runtime_class_damage_value(body[0x328], actor.damage_class, tables);
 }
 
 // Xbox 0x0001A020

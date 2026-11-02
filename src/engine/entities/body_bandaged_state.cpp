@@ -218,8 +218,7 @@ void tick_runtime_bandaged_state(std::span<u8> state, RuntimeBandagedStateContex
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.actor);
     set(state, body_state_field::elapsed, rate * step + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     std::memcpy(body.data() + 0x318, &context.default_position, sizeof(Vec3));
     if (context.input == nullptr)
     {
@@ -352,7 +351,7 @@ void set_runtime_bandaged_phase(u32 phase, std::span<u8> state, RuntimeBandagedS
         set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
         set(state, field::held, 1u);
         request_actor_sound(actor, 5, kWrapSound, context.sounds); // 0x00041D00, EDX actor, ECX 5
-        const std::array<u32, 3> words{0x68, context.actor_address, read_u32(body, 0x270)};
+        const std::array<u32, 3> words{0x68, context.actor_address, get(body, body_field::attacker)};
         broadcast_actor_world_message(words); // 0x00122CE0, EDI the message
         return;
     }

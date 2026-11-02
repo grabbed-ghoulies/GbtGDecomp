@@ -292,8 +292,8 @@ void hit_runtime_arc_attack(std::span<u8> state, const Vec3& normal, const Vec3&
             }
         }
         put_word(body, 0x26C, victim);
-        put_word(body, 0x270, victim);
-        put_word(body, 0x274, victim);
+        set(body, body_field::attacker, victim);
+        set(body, body_field::unk_274, victim);
         put_word(body, 0x27C, 3);
         put_word(body, 0x280, amount);
         put_word(body, 0x278, 0);
@@ -809,7 +809,7 @@ void tick_runtime_arc_attack_state(std::span<u8> state, RuntimeArcAttackStateCon
                 {
                     activate_runtime_body_contact_shapes(*context.collision, actor, get(state, field::shape_tag),
                         0xFF, get(state, field::shape_scale)); // 0x0013F420
-                    put_word(context.body, 0x2CC, 0);
+                    set(context.body, body_field::contact_count, 0);
                 }
                 set(state, field::shapes_active, 1);
             }

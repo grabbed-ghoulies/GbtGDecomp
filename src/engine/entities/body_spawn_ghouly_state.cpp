@@ -32,11 +32,6 @@ u32 body_address_of(std::span<const u8> state)
     return read_u32(state, 8);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // The four input counters (+0x309 .. +0x30C) move together.
 void step_inputs(std::span<u8> body, i32 step)
 {
@@ -171,8 +166,7 @@ void tick_runtime_spawn_ghouly_state(std::span<u8> state, RuntimeSpawnGhoulyStat
     Actor& actor = context.actor;
     set(state, body_state_field::elapsed, runtime_actor_rate(actor) * runtime_frame_step(context.clock)
         + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     if ((context.bits.bytes[0] & 4) != 0) // Body +0x15C -> +8, bit 2: the animation's spawn moment.
     {
         std::array<char, 0x80> name{};

@@ -26,11 +26,6 @@ u32 body_address_of(std::span<const u8> state)
     return read_u32(state, 8);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -109,7 +104,7 @@ void slide(std::span<u8> state, RuntimeSlideStateContext& context)
         {
             activate_runtime_body_contact_shapes(*context.collision, context.actor, get(state, field::shape_tag), 7,
                 1.f); // 0x0013F420, XMM4 DAT_0032B0F8
-            put_word(context.body, 0x2CC, 0);
+            set(context.body, body_field::contact_count, 0);
         }
     }
     if (!runtime_actor_animation_slot_complete(context.actions.animation, 0)) // The inlined 0x0003B290.
@@ -244,8 +239,7 @@ void tick_runtime_slide_state(std::span<u8> state, RuntimeSlideStateContext& con
     Actor& actor = context.actor;
     set(state, body_state_field::elapsed, runtime_actor_rate(actor) * runtime_frame_step(context.clock)
         + get(state, body_state_field::elapsed));
-    put_float(context.body, 0x734, 0.f);
-    put_float(context.body, 0x72C, 0.f);
+    level_body_euler(context.body);
     if (get(state, field::shapes_active) != 0)
     {
         float timer = get(state, field::trail_timer);

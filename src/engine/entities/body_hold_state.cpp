@@ -14,11 +14,6 @@ namespace
 namespace field = hold_state_field;
 
 // Body fields wait for the body's layout.
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // Body +0x6B, +0x30 (a word) and +0x309..+0x30C move together.
 void adjust_hold_counters(std::span<u8> body, i32 step)
 {
@@ -52,7 +47,8 @@ bool initialize_runtime_hold_state(std::span<u8> state, RuntimeBodyStateContext&
     set(state, field::settle_turn, u32(get(state, body_state_field::next_key))
         | u32(get(state, body_state_field::unk_E)) << 16);
     const float scale = std::bit_cast<float>(0x3E19999Au); // DAT_0032B168.
-    set(state, field::timer, (1.f - read_f32(body, 0x16C)) * scale + get(state, field::timer)); // DAT_0032B0F8.
+    set(state, field::timer,
+        (1.f - get(body, body_field::stagger)) * scale + get(state, field::timer)); // DAT_0032B0F8.
     const u32 bit = get(state, field::body_bit);
     if (bit != 0)
     {
@@ -79,8 +75,7 @@ void tick_runtime_hold_state(std::span<u8> state, RuntimeHoldStateTick& context)
     const auto body = context.body;
     set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
         + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     if (get(state, field::settle_turn) != 0)
     {
         settle_runtime_body_turn(body, context.actor); // 0x00134720, ESI body.

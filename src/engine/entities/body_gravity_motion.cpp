@@ -36,9 +36,9 @@ float runtime_body_motion_speed(std::span<const u8> body, std::span<const u8> ac
     const u8 key = body[0x328];
     if (tag == 0)
     {
-        return read_f32(body, 0x32C) * read_f32(tables.values, size_t(key) * 12 + 8);
+        return get(body, body_field::step_speed) * read_f32(tables.values, size_t(key) * 12 + 8);
     }
-    return read_f32(body, 0x32C) * interpolate_runtime_damage_value(key,
+    return get(body, body_field::step_speed) * interpolate_runtime_damage_value(key,
         tables.classes[size_t(tag) * 0x87 + key - 0x48], tables);
 }
 
@@ -47,7 +47,7 @@ void limit_runtime_body_backward_motion(Vec3& motion, std::span<const u8> body,
     const EntityBitBlock& flags, float lower)
 {
     if ((motion.x != 0.f || motion.y != 0.f || motion.z != 0.f)
-        && (flags.bytes[5] & 2) != 0 && body[0x19E] != 0)
+        && (flags.bytes[5] & 2) != 0 && get(body, body_field::has_ground) != 0)
     {
         Vec3 direction{motion.x, 0.f, motion.z};
         normalize_vector_in_place(&direction.x);
@@ -88,7 +88,7 @@ void step_runtime_gravity_motion(std::span<u8> body, std::span<const u8> actor_b
         const float scale = actor.scale_200 * actor.radius_xz;
         const Vec3 root{scale * controller->selected_root->translation.x, 0.f,
             scale * controller->selected_root->translation.z};
-        float yaw = motion_angle(read_f32(body, 0x33C));
+        float yaw = motion_angle(get(body, body_field::heading));
         if (reverse != 0)
         {
             const float delta = motion_angle(float(static_cast<long double>(yaw) - actor.euler.y));

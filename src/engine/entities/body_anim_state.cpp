@@ -16,11 +16,6 @@ namespace base = body_state_field;
 
 namespace
 {
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 }
 
 // Xbox 0x00088500
@@ -132,8 +127,7 @@ void tick_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& conte
     }
     else
     {
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
+        level_body_euler(body);
     }
     if (get(state, field::settles) != 0)
     {

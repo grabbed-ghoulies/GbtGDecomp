@@ -28,7 +28,7 @@ bool notify_runtime_body_death_once(std::span<u8> body, u32 actor_address, Game&
 {
     if (read_u32(body, 0x284) == 0)
     {
-        const std::array<u32, 3> message{0x31, actor_address, read_u32(body, 0x274)};
+        const std::array<u32, 3> message{0x31, actor_address, get(body, body_field::unk_274)};
         broadcast_actor_pulse_message(reinterpret_cast<const i32*>(message.data()));
         script_queue_event(game, {reinterpret_cast<const u8*>(message.data()), sizeof(message)});
         const u32 one = 1;

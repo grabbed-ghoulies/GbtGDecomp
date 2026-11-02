@@ -105,7 +105,7 @@ bool sweep_runtime_player_body_floor(std::span<u8> body, Actor& actor,
         return false;
     }
     entity_copy_match_block(body.data() + 0x178, entity_detail::g_segment_slots[0].pool.begin);
-    const Vec3 surface{read_f32(body, 0x178), read_f32(body, 0x17C), read_f32(body, 0x180)};
+    const Vec3 surface = get(body, body_field::ground_point);
     const Vec3 anchor = actor.anchor;
     const float difference = base.y - surface.y;
     if (surface.y > minimum)

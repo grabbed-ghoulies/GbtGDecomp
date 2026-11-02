@@ -173,8 +173,7 @@ void approach_runtime_pickup(std::span<const u8> state, RuntimePlayerAttachmentA
     float angle = 0.f;
     if (runtime_direction_angle(direction, angle)) // 0x00105F90
     {
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
+        level_body_euler(body);
         put_float(body, 0x730, angle);
     }
     const MinaPlayer* player = first_player(context.animation);
@@ -202,8 +201,7 @@ void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& c
     const u32 weapon_address = mind.empty() ? 0 : get(mind, mind_field::action_actor);
     set(state, body_state_field::elapsed,
         runtime_actor_step(actor, context.clock) + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     if (weapon_address != 0)
     {
         auto& weapon = context.weapon_at(weapon_address);
@@ -364,8 +362,7 @@ void face_runtime_lift_weapon(u32 weapon, RuntimePickupStateContext& context)
     float angle = 0.f;
     if (runtime_direction_angle(direction, angle)) // 0x00105F90
     {
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
+        level_body_euler(body);
         put_float(body, 0x730, angle);
     }
 }
@@ -377,8 +374,7 @@ void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& con
     Actor& actor = context.actor;
     set(state, body_state_field::elapsed,
         runtime_actor_step(actor, context.clock) + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     const u32 stage = get(state, lift_state_field::stage);
     u32 weapon = 0;
     if (stage == 1)

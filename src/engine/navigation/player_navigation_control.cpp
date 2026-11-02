@@ -101,8 +101,8 @@ bool runtime_player_navigation_motion(RuntimePlayerNavigationControl& context,
         return true;
     }
     const auto body = context.navigation.body;
-    if (read_f32(body, 0x248) == 0.0f && read_f32(body, 0x24C) == 0.0f &&
-        read_f32(body, 0x250) == 0.0f)
+    if (get(body, body_field::motion).x == 0.0f && get(body, body_field::motion).y == 0.0f &&
+        get(body, body_field::motion).z == 0.0f)
     {
         return false;
     }

@@ -17,7 +17,7 @@ bool runtime_body_target_state_active(std::span<const u8> body)
 {
     if (read_f32(body, 0x23C) != 0.f
         && (get(body, body_field::energy) <= 1 || read_f32(body, 0x174) > 0.f
-            || read_f32(body, 0x16C) == 0.f))
+            || get(body, body_field::stagger) == 0.f))
     {
         return true;
     }

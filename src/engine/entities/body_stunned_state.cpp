@@ -23,11 +23,6 @@ u32 body_address_of(std::span<const u8> state)
     return read_u32(state, 8);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // The four input counters (+0x309 .. +0x30C) and the half at +0x30 move together.
 void step_holds(std::span<u8> body, i32 step)
 {
@@ -122,8 +117,7 @@ void tick_runtime_stunned_state(std::span<u8> state, RuntimeStunnedStateContext&
     const auto body = context.body;
     set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
         + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     const float step = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
     if (0.f < get(state, field::wait))
     {

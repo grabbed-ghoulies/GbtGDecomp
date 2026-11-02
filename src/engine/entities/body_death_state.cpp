@@ -7,6 +7,7 @@
 #include "../scene/scene_types.h"
 #include "../scripts/script_conditions.h"
 #include "gbtg/object_factory.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -162,8 +163,7 @@ void tick_runtime_death_state(std::span<u8> state, RuntimeDeathStateContext& con
     const auto body = knockdown.body;
     set(state, body_state_field::elapsed, runtime_actor_rate(knockdown.actor) * runtime_frame_step(knockdown.clock)
         + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    level_body_euler(body);
     switch (get(state, field::waiting))
     {
     case 0:

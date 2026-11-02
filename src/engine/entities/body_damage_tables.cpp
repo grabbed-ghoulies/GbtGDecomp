@@ -362,9 +362,9 @@ void reduce_runtime_body_damage_pulse(std::span<u8> body, const Actor& actor, i3
             const u32 duration = 0x40000000;
             std::memcpy(body.data() + 0x168, &duration, 4);
         }
-        if (read_f32(body, 0x16C) > 0.f)
+        if (get(body, body_field::stagger) > 0.f)
         {
-            const float value = read_f32(body, 0x16C) - std::bit_cast<float>(0x3F7D70A4u) / float(count);
+            const float value = get(body, body_field::stagger) - std::bit_cast<float>(0x3F7D70A4u) / float(count);
             std::memcpy(body.data() + 0x16C, &value, 4);
             if (value <= 0.f)
             {
@@ -372,7 +372,7 @@ void reduce_runtime_body_damage_pulse(std::span<u8> body, const Actor& actor, i3
                 std::memcpy(body.data() + 0x16C, &zero, 4);
             }
         }
-        if (std::bit_cast<float>(0x3A83126Fu) > read_f32(body, 0x16C))
+        if (std::bit_cast<float>(0x3A83126Fu) > get(body, body_field::stagger))
         {
             const u32 zero = 0;
             std::memcpy(body.data() + 0x16C, &zero, 4);

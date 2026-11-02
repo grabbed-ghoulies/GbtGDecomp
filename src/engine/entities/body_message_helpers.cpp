@@ -58,11 +58,11 @@ void clear_runtime_body_message_receivers(std::span<u8> body, u32 address)
 void clear_runtime_body_damage_sources(std::span<u8> body, u32 address)
 {
     const u32 zero = 0;
-    if (read_u32(body, 0x274) == address)
+    if (get(body, body_field::unk_274) == address)
     {
         std::memcpy(body.data() + 0x274, &zero, 4);
     }
-    if (read_u32(body, 0x270) == address)
+    if (get(body, body_field::attacker) == address)
     {
         std::memcpy(body.data() + 0x270, &zero, 4);
     }

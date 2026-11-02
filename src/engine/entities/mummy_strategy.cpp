@@ -126,12 +126,12 @@ void approach_runtime_mummy_ring(const RuntimeMindTarget* target, RuntimeMummySt
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const RuntimeMindTarget& ring_target = require_target(target, "0x000BBAB0");
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const float radius = read_f32(ring_target.bytes, 0x38);
+    const float radius = get(ring_target.bytes, mind_target_field::shape_radius);
     Vec3 point = actor_world_position(goals.entry.actor); // 0x000412A0
     const float reach = goals.entry.actor.radius_xz * read_f32(body_of_actor(context), 0x888); // Body +8 actor +0x38.
-    const Vec3 center{read_f32(ring_target.bytes, 0x20), read_f32(ring_target.bytes, 0x24),
-        read_f32(ring_target.bytes, 0x28)};
-    const i32 floor = ring_target.bytes[0x19];
+    const Vec3 center{get(ring_target.bytes, mind_target_field::shape_position).x, get(ring_target.bytes, mind_target_field::shape_position).y,
+        get(ring_target.bytes, mind_target_field::shape_position).z};
+    const i32 floor = get(ring_target.bytes, mind_target_field::floor);
     const i16 group = i16(read_u16(actor, 6));
     // 0x00111420, EAX 0xC, ESI the point: two then six reaches out (DAT_0032B110, DAT_0032B218).
     if (!select_navigation_spawn_position(floor, nullptr, center, reach + radius, reach * 2.f + radius, nullptr,
@@ -210,7 +210,7 @@ void choose_runtime_mummy_attack(RuntimeMummyStrategy& context)
         return;
     }
     const RuntimeMindTarget& target = require_target(mind_target(context), "0x000BC580");
-    if (target.bytes[0x14] == 0)
+    if (get(target.bytes, mind_target_field::kind) == 0)
     {
         const std::span<const u8> body = context.views.body_of(target.actor).bytes; // Target +0x10 actor's +0x95C.
         if (const RuntimeScriptLookupTable* table = context.actions_of(body); table != nullptr) // Body +0x73C.
@@ -410,7 +410,7 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
     case 0x68:
     {
         const RuntimeMindTarget* target = runtime_strategy_reactions_enabled(goals) ? mind_target(context) : nullptr;
-        if (target != nullptr && message[1] == read_u32(target->bytes, 0x10))
+        if (target != nullptr && message[1] == get(target->bytes, mind_target_field::actor))
         {
             change_state(0x3EE, context);
             set(strategy, field::unk_3C, 1u);
@@ -421,7 +421,7 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
     case 0x69:
     {
         const RuntimeMindTarget* target = mind_target(context);
-        if (target != nullptr && message[1] == read_u32(target->bytes, 0x10)
+        if (target != nullptr && message[1] == get(target->bytes, mind_target_field::actor)
             && runtime_strategy_reactions_enabled(goals))
         {
             change_state(0x411, context);

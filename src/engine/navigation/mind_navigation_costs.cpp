@@ -1,4 +1,5 @@
 #include "mind_navigation_costs.h"
+#include "../entities/player_mind_targets.h"
 #include "cell_registration.h"
 #include "../entities/entity_heap.h"
 #include "../entities/ghouly_box_decoder.h"
@@ -69,8 +70,8 @@ GhoulySpawnPool* suspend_runtime_mind_target_costs(std::span<const u8> actor,
 {
     // Body +8's +0x38 is its native actor's radius_xz.
     const float radius = float((static_cast<long double>(body_actor.radius_xz)
-        * read_f32(body, 0x888) + read_f32(target, 0x38)) * 3.L);
-    const Vec3 center{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+        * read_f32(body, 0x888) + get(target, mind_target_field::shape_radius)) * 3.L);
+    const Vec3 center{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
     auto* costs = collect_runtime_navigation_costs(target[0x19], center, radius);
     if (costs != nullptr)
     {

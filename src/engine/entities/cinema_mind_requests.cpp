@@ -1,4 +1,5 @@
 #include "cinema_mind_requests.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "body_orientation.h"
 #include "../navigation/mind_escape_position.h"
@@ -50,7 +51,7 @@ u32 face_runtime_cinema_mind_target(std::span<const u8> mind, std::span<u8> body
     }
     if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
     {
-        const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+        const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
         face_runtime_body_point(body, actor, point);
     }
     return 0;
@@ -104,7 +105,7 @@ u32 initialize_runtime_cinema_mind_request(Actor& actor, std::span<const u8> tar
             }
             else
             {
-                const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+                const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
                 angle = runtime_actor_direction_to_point(actor, point);
             }
             random = random * 0x19660Du + 0x3C6EF35Fu;

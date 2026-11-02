@@ -1,4 +1,5 @@
 #include "body_yoyo_spin_state.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_mind_requests.h"
@@ -91,8 +92,8 @@ void aim_runtime_yoyo_spin(std::span<u8> state, RuntimeYoYoSpinStateContext& con
     if (mind.data() != nullptr && get(mind, mind_field::target_record) != 0)
     {
         const std::span<const u8> target = context.target_at(get(mind, mind_field::target_record));
-        Vec3 aim{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
-        aim.y = read_f32(target, 0x30) * .5f + aim.y; // DAT_0032B0F4.
+        Vec3 aim{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
+        aim.y = get(target, mind_target_field::shape_height) * .5f + aim.y; // DAT_0032B0F4.
         set(state, field::aim, aim);
         return;
     }

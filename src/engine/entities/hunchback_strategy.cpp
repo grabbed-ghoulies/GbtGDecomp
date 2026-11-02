@@ -1,4 +1,5 @@
 #include "hunchback_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "body_contacts.h"
@@ -110,9 +111,9 @@ RuntimeMindTarget* selected_target(RuntimeHunchbackStrategy& context, bool& foun
 bool target_beyond(const RuntimeMindTarget& target, float reach, RuntimeHunchbackStrategy& context)
 {
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - read_f32(target.bytes, 0x20);
-    const float dz = position.z - read_f32(target.bytes, 0x28);
-    const float dy = position.y - read_f32(target.bytes, 0x24);
+    const float dx = position.x - get(target.bytes, mind_target_field::shape_position).x;
+    const float dz = position.z - get(target.bytes, mind_target_field::shape_position).z;
+    const float dy = position.y - get(target.bytes, mind_target_field::shape_position).y;
     return reach * reach < dx * dx + dz * dz + dy * dy;
 }
 

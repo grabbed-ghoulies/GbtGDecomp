@@ -1,4 +1,5 @@
 #include "haunted_coat_strategy.h"
+#include "player_mind_targets.h"
 #include "actor_clock.h"
 #include "actor_live_attachments.h"
 #include "actor_transform.h"
@@ -140,7 +141,7 @@ RuntimePlayerMindRequest& allocate_request(u16 kind, RuntimeHauntedCoatStrategy&
 bool runtime_haunted_coat_target_cell_closed(std::span<const u8> target)
 {
     const i32 floor = target[0x19];
-    const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+    const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
     const i32 cell = navigation_cell_index(floor, point); // 0x00110EF0
     if (cell == -1)
     {
@@ -170,8 +171,8 @@ bool search_runtime_haunted_coat_heading(std::span<const u8> target, Vec3& outpu
     const float sway_angle = phase_angle(get(strategy, field::sway) * 0.5f * tau); // DAT_0032B0F4
     const float sway = float(retail_sin(sway_angle) * static_cast<long double>(std::bit_cast<float>(0x3F860A92u)));
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const Vec3 direction{read_f32(target, 0x20) - position.x, read_f32(target, 0x24) - position.y,
-        read_f32(target, 0x28) - position.z};
+    const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x, get(target, mind_target_field::shape_position).y - position.y,
+        get(target, mind_target_field::shape_position).z - position.z};
     float angle = 0.f; // Retail leaves the stack slot as it was for a zero direction.
     runtime_direction_angle(direction, angle); // 0x00105F90
     const float heading = interpolate_runtime_mind_angle(angle, actor.euler.y, get(strategy, field::turn)) // 0x00100E90
@@ -301,7 +302,7 @@ bool runtime_haunted_coat_attack_ready(RuntimeMindTarget* target, RuntimeHaunted
             settled = !runtime_body_bit_set(bits, 0x2A); // 0x0001EF10
         }
     }
-    const Vec3 point{read_f32(target_record, 0x20), read_f32(target_record, 0x24), read_f32(target_record, 0x28)};
+    const Vec3 point{get(target_record, mind_target_field::shape_position).x, get(target_record, mind_target_field::shape_position).y, get(target_record, mind_target_field::shape_position).z};
     const bool facing = runtime_actor_faces_point(actor_of(context), point, std::bit_cast<float>(0x3F860A92u));
     if (settled && near && facing && get(strategy_of(context), field::closing) > 1.f) // DAT_0032B0F8.
     {

@@ -64,7 +64,7 @@ const RuntimeMindTarget* mind_target(RuntimeGiantHandStrategy& context)
 
 Vec3 target_position(const RuntimeMindTarget& target)
 {
-    return Vec3{read_f32(target.bytes, 0x20), read_f32(target.bytes, 0x24), read_f32(target.bytes, 0x28)};
+    return Vec3{get(target.bytes, mind_target_field::shape_position).x, get(target.bytes, mind_target_field::shape_position).y, get(target.bytes, mind_target_field::shape_position).z};
 }
 
 // A one-word notice to every active actor (0x00122C70, EDI the message) and to the script (0x00116810).

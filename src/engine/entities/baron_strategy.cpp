@@ -365,7 +365,7 @@ bool runtime_baron_target_holds_cane(const RuntimeMindTarget& target, RuntimeBar
         set(strategy, field::cane, 0u);
         return false;
     }
-    if (target.bytes[0x14] != 0)
+    if (get(target.bytes, mind_target_field::kind) != 0)
     {
         return false;
     }
@@ -388,13 +388,13 @@ void fetch_runtime_baron_cane_for(u16 state, RuntimeBaronStrategy& context)
 bool runtime_target_in_view(const Actor& actor, std::span<const u8> target, float half_angle, float radius)
 {
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const float dz = read_f32(target, 0x28) - position.z;
-    const float dx = read_f32(target, 0x20) - position.x;
+    const float dz = get(target, mind_target_field::shape_position).z - position.z;
+    const float dx = get(target, mind_target_field::shape_position).x - position.x;
     if (dz * dz + dx * dx > radius * radius)
     {
         return false;
     }
-    const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+    const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
     const float turn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
     float angle = float(runtime_float_remainder(runtime_actor_relative_target_angle(actor, point),
         turn)); // 0x00041A30, 0x00152BE0
@@ -504,8 +504,8 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
                 return;
             }
             const Vec3 position = actor_world_position(actor_of(context)); // 0x00041440's 0x000412A0
-            const float dx = read_f32(target->bytes, 0x20) - position.x;
-            const float dz = read_f32(target->bytes, 0x28) - position.z;
+            const float dx = get(target->bytes, mind_target_field::shape_position).x - position.x;
+            const float dz = get(target->bytes, mind_target_field::shape_position).z - position.z;
             if (dz * dz + dx * dx <= 6400.f) // DAT_0032B6C8.
             {
                 change_state(0x3F4, context);

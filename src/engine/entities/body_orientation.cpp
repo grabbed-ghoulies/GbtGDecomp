@@ -1,4 +1,5 @@
 #include "body_orientation.h"
+#include "player_mind_targets.h"
 #include "player_mind_feedback.h"
 #include "player_mind_events.h"
 #include "actor_transform.h"
@@ -44,7 +45,7 @@ void face_runtime_body_target(std::span<u8> body, const Actor& actor,
 {
     if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
     {
-        const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+        const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
         face_runtime_body_point(body, actor, point);
     }
 }

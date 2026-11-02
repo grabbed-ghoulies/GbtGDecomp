@@ -1,4 +1,5 @@
 #include "player_mind_requests.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
@@ -191,14 +192,14 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
         if (get(mind, mind_field::target_record) != 0)
         {
             const Vec3 position = actor_world_position(context.actor);
-            const float z = position.z - read_f32(context.target_bytes, 0x28);
-            const float x = position.x - read_f32(context.target_bytes, 0x20);
+            const float z = position.z - get(context.target_bytes, mind_target_field::shape_position).z;
+            const float x = position.x - get(context.target_bytes, mind_target_field::shape_position).x;
             const float squared = z * z + x * x;
             float radius;
             if (read_u32(request, 0x14) == 0)
             {
                 radius = context.body_actor.radius_xz * read_f32(body, 0x888) +
-                    read_f32(context.target_bytes, 0x38);
+                    get(context.target_bytes, mind_target_field::shape_radius);
             }
             else
             {

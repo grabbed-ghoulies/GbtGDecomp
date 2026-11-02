@@ -1,4 +1,5 @@
 #include "haunted_door_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "actor_transform.h"
@@ -327,7 +328,7 @@ bool runtime_haunted_door_sees_target(RuntimeHauntedDoorStrategy& context)
         return true;
     }
     const std::span<const u8> target = goals.target_at(get(mind, mind_field::target_record))->bytes;
-    const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+    const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     i32 last_cell = 0;
     return navigation_path_clear(position, point, 0, 0, 0, 0, nullptr, &last_cell,

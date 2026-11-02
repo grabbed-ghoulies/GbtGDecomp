@@ -186,6 +186,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Bg-break key (factory type 0x1E, 0x0006CC70), its own part | 0xA70, parameters 0x3B4 | `bg_break_key_field`, `bg_break_key_parameter` | `src/engine/entities/bg_break_key.h` |
 | Save record, one field | — | `save_record_field::unk_184` (0x0010DC20 / 0x0010E2C0) | `src/engine/saves/save_scan.h` |
 | Base mind (0x00029D10), shared by every mind type | 0x7C, parameters 0xA0 | `mind_field`: actor, target, target record, action record, action actor, path search, target mode, gaze anchor and point, alert mode and timer, last request result, target flags, categories and range, goal point; unk_2C, unk_34, unk_38 | `src/engine/entities/mind_fields.h` |
+| Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `mind_target_field`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
 The camera mind was checked with `--player-opening` and headless captures of `chapter1_scene1_2playcam` at 300 and
@@ -203,6 +204,15 @@ that mode has rare noise too. That noise was the game polling real-time audio; w
 (`pcm_use_virtual_audio_clock`), `--player-opening` (14 captures) and `--player-death` (95 captures and its per-frame
 imp log) are byte-identical with and without the change.
 Offsets into derived minds (the player mind's +0xB8 record, the cinema mind's +0x7C radius and +0x98) stay literal.
+
+The mind target record was named by script from the census's exact file:line pairs (204 reads in 42 files; the
+census lists no writes into it). Same-buffer reads in the blend-shape draw, the event sequence and the player mind's
+setup and events were left alone, since their buffers there aren't target records. All captures are byte-identical
+to the build before the change in `--player-opening`, `--player-death`, `--scene3`, `--scene2a2-reaper`,
+`--scene2b8`, `--scene2c1`, `--scene2c7` and `--scene3a4`. `--scene6` matched except for `scene6_title.bmp`, which
+differed from one baseline run by 3 bytes and matched a second baseline run exactly. So the title noise survives the
+virtual audio clock. `--scene3c1` can't serve as evidence: one baseline exe gives different runs, starting from the
+frame-0 region yaw (0.965 in one run, 3.800 in the other), so some source other than audio timing still varies there.
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and

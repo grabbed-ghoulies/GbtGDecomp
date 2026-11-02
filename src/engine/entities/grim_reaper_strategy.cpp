@@ -1,4 +1,5 @@
 #include "grim_reaper_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_shape_push.h"
 #include "actor_transform.h"
@@ -285,9 +286,9 @@ bool target_escaped(RuntimeMindTarget* target, RuntimeGrimReaperStrategy& contex
         throw Error("0x000AD2D0 reads the point of a missing target (address zero)");
     }
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const long double dx = static_cast<long double>(position.x) - read_f32(target->bytes, 0x20);
-    const long double dy = static_cast<long double>(position.y) - read_f32(target->bytes, 0x24);
-    const long double dz = static_cast<long double>(position.z) - read_f32(target->bytes, 0x28);
+    const long double dx = static_cast<long double>(position.x) - get(target->bytes, mind_target_field::shape_position).x;
+    const long double dy = static_cast<long double>(position.y) - get(target->bytes, mind_target_field::shape_position).y;
+    const long double dz = static_cast<long double>(position.z) - get(target->bytes, mind_target_field::shape_position).z;
     return std::sqrt(dz * dz + (dy * dy + dx * dx)) > static_cast<long double>(block(context, 0));
 }
 
@@ -762,7 +763,7 @@ void dispatch_runtime_grim_reaper_message(std::span<const u32> message, RuntimeG
     {
         // A death: his target's, or one whose body (+0x95C, its +0x270) he holds, feeds him.
         RuntimeMindTarget* target = mind_target(context);
-        if (target != nullptr && read_u32(target->bytes, 0x10) == message[1])
+        if (target != nullptr && get(target->bytes, mind_target_field::actor) == message[1])
         {
             set(strategy, field::fed, 1u);
         }

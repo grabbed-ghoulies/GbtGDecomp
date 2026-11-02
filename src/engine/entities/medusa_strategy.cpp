@@ -1,4 +1,5 @@
 #include "medusa_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_animation_commands.h"
@@ -463,9 +464,9 @@ bool face_attack(RuntimeMedusaStrategy& context)
     {
         return false;
     }
-    const Vec3 at{read_f32(target->bytes, 0x20), read_f32(target->bytes, 0x24), read_f32(target->bytes, 0x28)};
-    const float facing_x = read_f32(target->bytes, 0x5C);
-    const float facing_z = read_f32(target->bytes, 0x64);
+    const Vec3 at{get(target->bytes, mind_target_field::shape_position).x, get(target->bytes, mind_target_field::shape_position).y, get(target->bytes, mind_target_field::shape_position).z};
+    const float facing_x = get(target->bytes, mind_target_field::direction).x;
+    const float facing_z = get(target->bytes, mind_target_field::direction).z;
     Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     if (facing_z * (position.z - at.z) + (position.x - at.x) * facing_x + (position.y - at.y) * 0.f > 0.f)
     {
@@ -533,9 +534,9 @@ bool target_in_reach(RuntimeMedusaStrategy& context)
     }
     const float reach = context.attachment_radius() + 15.f; // 0x0001D3D0, DAT_0032B214
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - read_f32(target->bytes, 0x20);
-    const float dz = position.z - read_f32(target->bytes, 0x28);
-    const float dy = position.y - read_f32(target->bytes, 0x24);
+    const float dx = position.x - get(target->bytes, mind_target_field::shape_position).x;
+    const float dz = position.z - get(target->bytes, mind_target_field::shape_position).z;
+    const float dy = position.y - get(target->bytes, mind_target_field::shape_position).y;
     return dx * dx + dz * dz + dy * dy < reach * reach;
 }
 

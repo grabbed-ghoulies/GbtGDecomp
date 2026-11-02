@@ -1,4 +1,5 @@
 #include "jessie_clyde_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_action_ids.h"
@@ -208,7 +209,7 @@ bool target_in_view(RuntimeJessieClydeStrategy& context)
         return false;
     }
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const Vec3 point{read_f32(target->bytes, 0x20), read_f32(target->bytes, 0x24), read_f32(target->bytes, 0x28)};
+    const Vec3 point{get(target->bytes, mind_target_field::shape_position).x, get(target->bytes, mind_target_field::shape_position).y, get(target->bytes, mind_target_field::shape_position).z};
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     i32 last_cell = 0;
     if (!navigation_path_clear(position, point, 1, 0, 0, 0, nullptr, &last_cell,
@@ -599,7 +600,7 @@ void target_called(u32 actor, RuntimeJessieClydeStrategy& context)
         return;
     }
     const RuntimeMindTarget* target = mind_target(context);
-    if (target == nullptr || read_u32(target->bytes, 0x10) != actor)
+    if (target == nullptr || get(target->bytes, mind_target_field::actor) != actor)
     {
         return;
     }

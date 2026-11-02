@@ -1,4 +1,5 @@
 #include "imp_ninja_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_message_helpers.h"
@@ -410,9 +411,9 @@ bool runtime_imp_ninja_target_near(RuntimeImpNinjaStrategy& context)
     }
     const float reach = parameter(context, 0);
     const Vec3 position = actor_world_position(goals_of(context).entry.actor); // 0x000412A0
-    const float dx = position.x - read_f32(target->bytes, 0x20);
-    const float dz = position.z - read_f32(target->bytes, 0x28);
-    const float dy = position.y - read_f32(target->bytes, 0x24);
+    const float dx = position.x - get(target->bytes, mind_target_field::shape_position).x;
+    const float dz = position.z - get(target->bytes, mind_target_field::shape_position).z;
+    const float dy = position.y - get(target->bytes, mind_target_field::shape_position).y;
     return dx * dx + dz * dz + dy * dy < reach * reach;
 }
 

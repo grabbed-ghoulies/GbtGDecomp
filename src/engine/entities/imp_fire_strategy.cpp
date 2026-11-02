@@ -1,4 +1,5 @@
 #include "imp_fire_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "body_animation_setup.h"
 #include "body_message_helpers.h"
@@ -174,9 +175,9 @@ void release_runtime_imp_fire_hold(RuntimeImpFireStrategy& context)
 float runtime_imp_fire_range_fraction(std::span<const u8> target, RuntimeImpFireStrategy& context)
 {
     const Vec3 position = actor_world_position(goals_of(context).entry.actor);
-    const float dx = position.x - read_f32(target, 0x20);
-    const float dy = position.y - read_f32(target, 0x24);
-    const float dz = position.z - read_f32(target, 0x28);
+    const float dx = position.x - get(target, mind_target_field::shape_position).x;
+    const float dy = position.y - get(target, mind_target_field::shape_position).y;
+    const float dz = position.z - get(target, mind_target_field::shape_position).z;
     const float nearest = read_f32(context.parameters, 0x18);
     const float farthest = read_f32(context.parameters, 0x1C);
     if (farthest == nearest)
@@ -223,8 +224,8 @@ float select_runtime_imp_fire_heading(const RuntimeMindTarget& target, RuntimeIm
     Actor& actor = goals_of(context).entry.actor;
     const float fraction = runtime_imp_fire_range_fraction(target.bytes, context);
     const Vec3 position = actor_world_position(actor);
-    const Vec3 direction{read_f32(target.bytes, 0x20) - position.x, read_f32(target.bytes, 0x24) - position.y,
-        read_f32(target.bytes, 0x28) - position.z};
+    const Vec3 direction{get(target.bytes, mind_target_field::shape_position).x - position.x, get(target.bytes, mind_target_field::shape_position).y - position.y,
+        get(target.bytes, mind_target_field::shape_position).z - position.z};
     // The output reuses the caller's argument slot, which holds the parameter block address.
     float angle = std::bit_cast<float>(read_u32(strategy_of(context), 0x4C));
     runtime_direction_angle(direction, angle);
@@ -251,7 +252,7 @@ bool select_runtime_imp_fire_position(const RuntimeMindTarget& target, const Vec
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const float range = read_f32(context.parameters, 4);
-    RuntimeNavigationHeadingSearch search{origin, i32(target.bytes[0x19]), range - 0.5f, range + 0.5f, nullptr,
+    RuntimeNavigationHeadingSearch search{origin, i32(get(target.bytes, mind_target_field::floor)), range - 0.5f, range + 0.5f, nullptr,
         goals.entry.allowed, &output, 1, 0xD, i16(read_u16(goals.entry.actor_bytes, 6)), goals.random,
         0.f}; // Flag 0x10 is clear, so the retained occupancy scratch is not read.
     return search_runtime_navigation_headings(search, heading, std::bit_cast<float>(0x3E9C61AAu), 10);

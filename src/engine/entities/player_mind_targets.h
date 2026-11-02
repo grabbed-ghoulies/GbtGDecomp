@@ -4,6 +4,7 @@
 #include "../navigation/navigation.h"
 #include "player_attachment_helpers.h"
 #include "actor_live_attachments.h"
+#include "gbtg/retail_field.h"
 
 namespace gbtg
 {
@@ -25,6 +26,32 @@ struct RuntimePlayerMindFocus
     float& retained_cone_distance; // Original 0x0007E600 caller-stack word.
 };
 Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context); // Xbox 0x0007E6B0
+// The retail target record behind RuntimeMindTarget::bytes: one actor's live attachment record (0x0012AFE0, the
+// native ActorLiveAttachment) in the target pool DAT_00545988, which minds name through +0x10 and +0x14.
+namespace mind_target_field
+{
+constexpr RetailField<u32, 0x10> actor{}; // The target actor.
+// 0 for an actor target; other kinds pick a bit of the mind's target categories (0x00029C80).
+constexpr RetailField<u8, 0x14> kind{};
+constexpr RetailField<u8, 0x15> hold{}; // Held while nonzero (0x00042090 / 0x000420B0).
+// The record's flags byte (the native record's u16 tag): 1 and 4 gate the target search (0x00129920), 8 makes the
+// target require an action (0x001413C0), 0x10 picks the secondary shape's radius (0x00096260) and an isolated approach (0x0007BC80).
+constexpr RetailField<u8, 0x16> flags{};
+constexpr RetailField<u8, 0x18> unk_18{}; // Nonzero rejects the target (0x00029C80, 0x00129920).
+constexpr RetailField<u8, 0x19> floor{}; // The navigation floor the target stands on.
+// The record's two 0x20-byte shapes (0x0012AFE0 copies them in): kind +0, position +4, height +0x14, radius +0x1C.
+constexpr RetailRecord<0x1C, 0x20> shape{};
+constexpr RetailRecord<0x3C, 0x20> secondary_shape{};
+constexpr RetailField<Vec3, 0x20> shape_position{}; // shape +4
+constexpr RetailField<float, 0x30> shape_height{}; // shape +0x14
+constexpr RetailField<float, 0x38> shape_radius{}; // shape +0x1C
+constexpr RetailField<float, 0x58> secondary_radius{}; // secondary_shape +0x1C
+// The native record's origin. Its readers use it as a direction: a throw leads its aim by it (0x000A4100), and the
+// Medusa (0x000BAE60) and the cinema mind (0x0007BC80) take it as the target's facing.
+constexpr RetailField<Vec3, 0x5C> direction{};
+constexpr u32 kSize = 0x68;
+static_assert(retail_fits(kSize, direction));
+} // namespace mind_target_field
 struct RuntimeMindTarget
 {
     RuntimeMindTarget* next; // Link at +8, next at +0xC; DAT_00545988 points to link.

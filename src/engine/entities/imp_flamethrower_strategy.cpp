@@ -1,4 +1,5 @@
 #include "imp_flamethrower_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
@@ -125,7 +126,7 @@ bool approach_runtime_imp_flamethrower_target(const RuntimeMindTarget* target,
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> mind = mind_of(context);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
-    const Vec3 at{read_f32(target->bytes, 0x20), read_f32(target->bytes, 0x24), read_f32(target->bytes, 0x28)};
+    const Vec3 at{get(target->bytes, mind_target_field::shape_position).x, get(target->bytes, mind_target_field::shape_position).y, get(target->bytes, mind_target_field::shape_position).z};
     const Vec3 toward{at.x - position.x, at.y - position.y, at.z - position.z};
     float angle = 0.f; // 0x00105F90 leaves the slot unwritten for a zero direction.
     runtime_direction_angle(toward, angle); // 0x00105F90, EBX the angle

@@ -1,4 +1,5 @@
 #include "player_mind_feedback.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "entity_heap.h"
@@ -297,9 +298,9 @@ void reset_runtime_player_mind_body_event(RuntimePlayerMindFeedback& context,
     if (get(context.mind, mind_field::target_record) != 0)
     {
         const Vec3 position = actor_world_position(context.actor);
-        const float z = position.z - read_f32(target, 0x28);
-        const float x = position.x - read_f32(target, 0x20);
-        const float y = position.y - read_f32(target, 0x24);
+        const float z = position.z - get(target, mind_target_field::shape_position).z;
+        const float x = position.x - get(target, mind_target_field::shape_position).x;
+        const float y = position.y - get(target, mind_target_field::shape_position).y;
         if (900.f > (z * z + x * x) + y * y)
         {
             put(context.body, 0x88, 0);

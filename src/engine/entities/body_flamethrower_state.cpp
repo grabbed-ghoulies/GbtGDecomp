@@ -1,4 +1,5 @@
 #include "body_flamethrower_state.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_shape_bounds.h"
 #include "actor_transform.h"
@@ -323,9 +324,9 @@ float runtime_flamethrower_aim_pitch(RuntimeFlamethrowerStateContext& context)
     const Actor& actor = context.actor;
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float eye = read_f32(context.body, 0x884) * actor.radius_y + position.y;
-    const Vec3 direction{read_f32(target, 0x20) - position.x,
-        (read_f32(target, 0x30) * 0.25f + read_f32(target, 0x24)) - eye, // DAT_0032B104.
-        read_f32(target, 0x28) - position.z};
+    const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x,
+        (get(target, mind_target_field::shape_height) * 0.25f + get(target, mind_target_field::shape_position).y) - eye, // DAT_0032B104.
+        get(target, mind_target_field::shape_position).z - position.z};
     float pitch = 0.f;
     runtime_direction_pitch(direction, pitch); // 0x00106000
     return pitch - kAimOffset;

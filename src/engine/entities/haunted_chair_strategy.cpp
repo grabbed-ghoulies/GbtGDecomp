@@ -1,4 +1,5 @@
 #include "haunted_chair_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
@@ -252,9 +253,9 @@ bool target_within_reach(RuntimeHauntedChairStrategy& context)
         return false;
     }
     const Vec3 position = actor_world_position(goals_of(context).entry.actor); // 0x000412A0
-    const long double dx = static_cast<long double>(position.x) - read_f32(target->bytes, 0x20);
-    const long double dy = static_cast<long double>(position.y) - read_f32(target->bytes, 0x24);
-    const long double dz = static_cast<long double>(position.z) - read_f32(target->bytes, 0x28);
+    const long double dx = static_cast<long double>(position.x) - get(target->bytes, mind_target_field::shape_position).x;
+    const long double dy = static_cast<long double>(position.y) - get(target->bytes, mind_target_field::shape_position).y;
+    const long double dz = static_cast<long double>(position.z) - get(target->bytes, mind_target_field::shape_position).z;
     return static_cast<long double>(reach) > std::sqrt((dz * dz + dx * dx) + dy * dy);
 }
 

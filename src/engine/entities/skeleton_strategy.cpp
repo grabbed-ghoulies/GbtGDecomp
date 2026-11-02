@@ -167,10 +167,10 @@ bool runtime_skeleton_target_crowded(const RuntimeMindTarget* target, RuntimeSke
     {
         return false;
     }
-    const Vec3 point{read_f32(target->bytes, 0x20), read_f32(target->bytes, 0x24), read_f32(target->bytes, 0x28)};
+    const Vec3 point{get(target->bytes, mind_target_field::shape_position).x, get(target->bytes, mind_target_field::shape_position).y, get(target->bytes, mind_target_field::shape_position).z};
     float distance;
     return find_nearest_runtime_script_actor(&point, goals_of(context).entry.actor, actor_tag(context),
-        read_f32(target->bytes, 0x38) + 30.f, &distance, 0x88, nullptr, context.base.query) != nullptr;
+        get(target->bytes, mind_target_field::shape_radius) + 30.f, &distance, 0x88, nullptr, context.base.query) != nullptr;
 }
 
 // Xbox 0x000C0430
@@ -404,9 +404,9 @@ void update_runtime_skeleton_strategy(RuntimeSkeletonStrategy& context)
         }
         reposition_runtime_skeleton(context);
         const Vec3 position = actor_world_position(goals.entry.actor); // 0x000415A0, EBX target.
-        const float dx = position.x - read_f32(target->bytes, 0x20);
-        const float dy = position.y - read_f32(target->bytes, 0x24);
-        const float dz = position.z - read_f32(target->bytes, 0x28);
+        const float dx = position.x - get(target->bytes, mind_target_field::shape_position).x;
+        const float dy = position.y - get(target->bytes, mind_target_field::shape_position).y;
+        const float dz = position.z - get(target->bytes, mind_target_field::shape_position).z;
         if (dz * dz + dx * dx + dy * dy > 6400.f) // DAT_0032B6C8.
         {
             change_state(0x3EC, context);

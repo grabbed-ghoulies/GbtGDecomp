@@ -1,4 +1,5 @@
 #include "body_shoot_state.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
@@ -447,8 +448,8 @@ void aim_runtime_shoot_state(std::span<u8> state, std::span<const u8> target, Ru
         return;
     }
     const Actor& actor = context.actor;
-    const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x30) * 0.75f + read_f32(target, 0x24),
-        read_f32(target, 0x28)}; // DAT_0032B2AC.
+    const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_height) * 0.75f + get(target, mind_target_field::shape_position).y,
+        get(target, mind_target_field::shape_position).z}; // DAT_0032B2AC.
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float eye = actor.radius_y * read_f32(context.body, 0x884) * 0.75f + position.y;
     const Vec3 direction{point.x - position.x, point.y - eye, point.z - position.z};
@@ -484,8 +485,8 @@ Vec3 runtime_shoot_turn(std::span<const u8> target, RuntimeShootStateContext& co
 {
     const float heading = runtime_body_hit_angle(context.hit); // 0x0001D540
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
-    const Vec3 direction{read_f32(target, 0x20) - position.x, read_f32(target, 0x24) - position.y,
-        read_f32(target, 0x28) - position.z};
+    const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x, get(target, mind_target_field::shape_position).y - position.y,
+        get(target, mind_target_field::shape_position).z - position.z};
     float angle = 0.f;
     runtime_direction_angle(direction, angle); // 0x00105F90
     return Vec3{0.f, angle - heading, 0.f};

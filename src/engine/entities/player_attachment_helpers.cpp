@@ -1,4 +1,5 @@
 #include "player_attachment_helpers.h"
+#include "player_mind_targets.h"
 #include "body_message_helpers.h"
 #include "entity_heap.h"
 #include "actor_spawn_query.h"
@@ -134,9 +135,9 @@ bool runtime_player_body_point_is_near(const RuntimePlayerAttachmentEligibility&
     }
     const float reach = read_f32(body, 0x888) * context.body_actor.radius_xz;
     const Vec3 owner = actor_world_position(context.body_actor);
-    const float range = ((model_radius + margin) + read_f32(target, 0x38)) + reach;
-    const float dz = owner.z - read_f32(target, 0x28);
-    const float dx = owner.x - read_f32(target, 0x20);
+    const float range = ((model_radius + margin) + get(target, mind_target_field::shape_radius)) + reach;
+    const float dz = owner.z - get(target, mind_target_field::shape_position).z;
+    const float dx = owner.x - get(target, mind_target_field::shape_position).x;
     return range * range >= dz * dz + dx * dx;
 }
 

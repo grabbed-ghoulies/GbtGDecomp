@@ -1,4 +1,5 @@
 #include "body_request_selection.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
@@ -268,7 +269,7 @@ const u8* select_runtime_body_chain_target_request(RuntimeMindChainRequestSelect
     const u8 height_mask = u8(1u << (runtime_body_target_height(selection.requests.body,
         selection.body.body_actor, selection.target.bytes, shape.data()) & 31));
     u32 length;
-    if (selection.target.bytes[0x14] == 0)
+    if (get(selection.target.bytes, mind_target_field::kind) == 0)
     {
         if ((selection.target.body.bits->bytes[3] & 2) == 0)
         {
@@ -281,7 +282,7 @@ const u8* select_runtime_body_chain_target_request(RuntimeMindChainRequestSelect
     }
     else
     {
-        length = selection.target.bytes[0x14] == 3 ? 3 : 0;
+        length = get(selection.target.bytes, mind_target_field::kind) == 3 ? 3 : 0;
     }
     const u8* selected = nullptr;
     u32 address = 0;
@@ -967,9 +968,9 @@ bool runtime_attachment_target_row_matches(std::span<const u8> body, const Actor
     if (read_f32(row, 0xC) != 0.f)
     {
         const Vec3 position = actor_world_position(actor);
-        const float radius = actor.radius_xz * read_f32(row, 0xC) + read_f32(target, 0x38);
-        const float dz = read_f32(target, 0x28) - position.z;
-        const float dx = read_f32(target, 0x20) - position.x;
+        const float radius = actor.radius_xz * read_f32(row, 0xC) + get(target, mind_target_field::shape_radius);
+        const float dz = get(target, mind_target_field::shape_position).z - position.z;
+        const float dx = get(target, mind_target_field::shape_position).x - position.x;
         if (dz * dz + dx * dx > radius * radius)
         {
             return false;
@@ -1030,7 +1031,7 @@ u8 runtime_body_model_target_flag(const u8* state)
 // Xbox 0x001415D0
 bool runtime_mind_target_uses_point_shape(const RuntimeMindTarget& target, const u8* model_state)
 {
-    if (target.bytes[0x14] == 0)
+    if (get(target.bytes, mind_target_field::kind) == 0)
     {
         const auto* flags = target.body.bits->bytes;
         if ((flags[4] & 0x10) != 0)
@@ -1046,7 +1047,7 @@ bool runtime_mind_target_uses_point_shape(const RuntimeMindTarget& target, const
             if (runtime_body_model_target_flag(model_state) != 0)
             {
                 const Vec3 position = actor_world_position(target.actor);
-                if (read_f32(target.bytes, 0x24) > read_f32(target.bytes, 0x30) * .25f + position.y)
+                if (get(target.bytes, mind_target_field::shape_position).y > get(target.bytes, mind_target_field::shape_height) * .25f + position.y)
                 {
                     return true;
                 }
@@ -1061,12 +1062,12 @@ float runtime_body_target_surface_distance(const Actor& actor,
     const RuntimePlayerAttachmentEligibility& body, std::span<const u8> target)
 {
     const Vec3 position = actor_world_position(actor);
-    const long double dx = static_cast<long double>(position.x) - read_f32(target, 0x20);
-    const long double dy = static_cast<long double>(position.y) - read_f32(target, 0x24);
-    const long double dz = static_cast<long double>(position.z) - read_f32(target, 0x28);
+    const long double dx = static_cast<long double>(position.x) - get(target, mind_target_field::shape_position).x;
+    const long double dy = static_cast<long double>(position.y) - get(target, mind_target_field::shape_position).y;
+    const long double dz = static_cast<long double>(position.z) - get(target, mind_target_field::shape_position).z;
     const long double distance = std::sqrt((dz * dz + dx * dx) + dy * dy);
     const long double reach = static_cast<long double>(body.body_actor.radius_xz)
-        * read_f32(body.body, 0x888) + read_f32(target, 0x38);
+        * read_f32(body.body, 0x888) + get(target, mind_target_field::shape_radius);
     const long double gap = distance - reach;
     if (0.L >= gap)
     {

@@ -1,4 +1,5 @@
 #include "body_hit_state.h"
+#include "player_mind_targets.h"
 #include "actor_transform.h"
 #include "actor_shape_bounds.h"
 #include "entity_collision.h"
@@ -156,7 +157,7 @@ bool initialize_runtime_hit_state(std::span<u8> state, std::span<const u8> param
     const auto target = context.target;
     if (target.data() != nullptr && target[0x14] == 0)
     {
-        put_word(context.actor_bytes, 0x11C, read_u32(target, 0x10));
+        put_word(context.actor_bytes, 0x11C, get(target, mind_target_field::actor));
     }
     // 0x00041820 with ESI actor and EDI state +0x38.
     const Vec3 euler = actor_world_euler(context.actor);
@@ -215,7 +216,7 @@ void message_runtime_hit_state(std::span<u8> state, std::span<const u8> message,
         {
             context.callouts(hit_actor, id);
         }
-        if (target.data() != nullptr && compared == read_u32(target, 0x10))
+        if (target.data() != nullptr && compared == get(target, mind_target_field::actor))
         {
             put_word(state, 0x2C, 1);
             update_runtime_hit_permission(state, body);
@@ -240,7 +241,7 @@ void message_runtime_hit_state(std::span<u8> state, std::span<const u8> message,
         return;
     case 0x6E:
         if (target.data() != nullptr && read_u32(message, 0x10) != 0
-            && read_u32(target, 0x10) == read_u32(message, 4) && context.actor_address != read_u32(message, 8))
+            && get(target, mind_target_field::actor) == read_u32(message, 4) && context.actor_address != read_u32(message, 8))
         {
             put_word(state, 0x28, 1);
         }
@@ -253,7 +254,7 @@ void message_runtime_hit_state(std::span<u8> state, std::span<const u8> message,
         }
         [[fallthrough]];
     case 0x6F:
-        if (target.data() != nullptr && read_u32(message, 4) == read_u32(target, 0x10))
+        if (target.data() != nullptr && read_u32(message, 4) == get(target, mind_target_field::actor))
         {
             put_word(state, 0x60, 1);
             update_runtime_hit_permission(state, body);
@@ -363,7 +364,7 @@ float runtime_hit_target_gap(float& angle, RuntimeHitStateTick& context)
     const long double dy = static_cast<long double>(from.y) - aim.y;
     const long double dz = static_cast<long double>(from.z) - aim.z;
     const float distance = float(std::sqrt(dx * dx + dy * dy + dz * dz));
-    const float radius = (target[0x16] & 0x10) != 0 ? read_f32(target, 0x38) : read_f32(target, 0x58);
+    const float radius = (get(target, mind_target_field::flags) & 0x10) != 0 ? get(target, mind_target_field::shape_radius) : get(target, mind_target_field::secondary_radius);
     const float gap = distance - radius - reach;
     if (-12.f > gap) // DAT_0032B4F4.
     {

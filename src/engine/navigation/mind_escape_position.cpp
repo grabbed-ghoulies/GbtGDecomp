@@ -1,4 +1,5 @@
 #include "mind_escape_position.h"
+#include "../entities/player_mind_targets.h"
 #include "../scene/scene_markers.h"
 #include "../entities/actor_transform.h"
 #include "gbtg/anim.h"
@@ -18,9 +19,9 @@ Vec3 marker_position(const u8* row)
 float distance_to_target(const u8* row, std::span<const u8> target)
 {
     const Vec3 point = marker_position(row);
-    const float x = point.x - read_f32(target, 0x20);
-    const float y = point.y - read_f32(target, 0x24);
-    const float z = point.z - read_f32(target, 0x28);
+    const float x = point.x - get(target, mind_target_field::shape_position).x;
+    const float y = point.y - get(target, mind_target_field::shape_position).y;
+    const float z = point.z - get(target, mind_target_field::shape_position).z;
     return (z * z + y * y) + x * x;
 }
 }
@@ -38,8 +39,8 @@ bool select_runtime_mind_escape_position(RuntimeMindEscapePosition& context,
     const u8* chosen = nullptr;
     if (count != 0)
     {
-        Vec3 direction{read_f32(context.target, 0x20) - position.x,
-            read_f32(context.target, 0x24) - position.y, read_f32(context.target, 0x28) - position.z};
+        Vec3 direction{get(context.target, mind_target_field::shape_position).x - position.x,
+            get(context.target, mind_target_field::shape_position).y - position.y, get(context.target, mind_target_field::shape_position).z - position.z};
         const float length = (direction.y * direction.y + direction.z * direction.z) + direction.x * direction.x;
         const u8* farthest = nullptr;
         if (length != 0.f)

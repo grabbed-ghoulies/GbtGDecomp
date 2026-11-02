@@ -1,4 +1,5 @@
 #include "body_grab_throw_state.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "body_message_helpers.h"
 #include "player_mind_feedback.h"
@@ -181,7 +182,7 @@ bool initialize_runtime_grab_throw_state(std::span<u8> state, std::span<const u8
     set(state, field::hand_radius, 0.f);
     if (target[0x14] == 0)
     {
-        set(state, field::victim, read_u32(target, 0x10));
+        set(state, field::victim, get(target, mind_target_field::actor));
     }
     const u16 key = read_u16(context.actor_bytes, 0x1FC);
     if (key != 0)
@@ -228,7 +229,7 @@ bool initialize_runtime_grab_throw_state(std::span<u8> state, std::span<const u8
     {
         set(state, field::abandoned, 1u);
     }
-    const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+    const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
     i32 last_cell = 0;
     if (!entity_detail::navigation_path_clear(actor_world_position(context.actor), point, 1, 0, 0, 0, nullptr,
             &last_cell, i16(read_u16(context.actor_bytes, 6)))) // 0x0012CC50, EAX the actor's point
@@ -277,7 +278,7 @@ void tick_runtime_grab_throw_state(std::span<u8> state, RuntimeGrabThrowStateCon
         if (get(state, field::grabbed) == 0 && record != 0)
         {
             const std::span<const u8> target = context.target_record(record);
-            const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+            const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
             i32 last_cell = 0;
             if (!entity_detail::navigation_path_clear(actor_world_position(actor), point, 1, 0, 0, 0, nullptr,
                     &last_cell, i16(read_u16(context.actor_bytes, 6)))) // 0x0012C970, EAX actor
@@ -296,7 +297,7 @@ void tick_runtime_grab_throw_state(std::span<u8> state, RuntimeGrabThrowStateCon
                 if (!(position < kGrabFrom) && !(kGrabUntil < position)
                     && runtime_grab_throw_hand_reaches(state, record, hand, context)) // 0x00095000, EDX record
                 {
-                    const u32 victim_address = read_u32(target, 0x10);
+                    const u32 victim_address = get(target, mind_target_field::actor);
                     std::array<u32, 6> grab{0x3C, 0, context.actor_address, std::bit_cast<u32>(hand.x),
                         std::bit_cast<u32>(hand.y), std::bit_cast<u32>(hand.z)};
                     context.message(victim_address, grab); // Target vtable +0xC; the reply lands at +4.

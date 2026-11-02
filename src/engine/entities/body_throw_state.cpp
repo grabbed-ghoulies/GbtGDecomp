@@ -1,4 +1,5 @@
 #include "body_throw_state.h"
+#include "player_mind_targets.h"
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
 #include "body_action_selection.h"
@@ -235,12 +236,12 @@ void lead_runtime_throw_target(Vec3& aim, RuntimeThrowStateContext& context)
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0, ESI actor
     const float lead = read_f32(context.body, 0x7C);
     aim = seen;
-    const Actor& moving = context.actor_at(read_u32(target, 0x10));
+    const Actor& moving = context.actor_at(get(target, mind_target_field::actor));
     if (!(moving.animation_pause > 0.f)) // Target actor +0x930; DAT_0032B100.
     {
-        aim.x = read_f32(target, 0x5C) * lead + aim.x;
-        aim.y = read_f32(target, 0x60) * lead + aim.y;
-        aim.z = read_f32(target, 0x64) * lead + aim.z;
+        aim.x = get(target, mind_target_field::direction).x * lead + aim.x;
+        aim.y = get(target, mind_target_field::direction).y * lead + aim.y;
+        aim.z = get(target, mind_target_field::direction).z * lead + aim.z;
     }
     aim.y = seen.y;
     // The led direction and the direct one, each normalized when not zero (x87 from the reciprocal root).
@@ -296,7 +297,7 @@ void tick_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& con
     {
         Vec3 aim{};
         lead_runtime_throw_target(aim, context); // 0x000A4100, EBX the target record
-        const float height = read_f32(context.target, 0x30);
+        const float height = get(context.target, mind_target_field::shape_height);
         if (mode == 0)
         {
             aim.y = height * 0.8f + aim.y; // DAT_0032B244.

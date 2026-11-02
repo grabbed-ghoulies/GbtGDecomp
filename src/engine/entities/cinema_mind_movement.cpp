@@ -1,4 +1,5 @@
 #include "cinema_mind_movement.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "body_request_selection.h"
 #include "player_mind_requests.h"
@@ -200,7 +201,7 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
     {
         return 0;
     }
-    const i32 floor = target.bytes[0x19];
+    const i32 floor = get(target.bytes, mind_target_field::floor);
     const Vec3 target_position = point(target.bytes, 0x20);
     const i32 target_cell = entity_detail::navigation_cell_index(floor, target_position);
     bool isolated;
@@ -214,7 +215,7 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
     {
         isolated = entity_detail::navigation_cell_has_no_open_neighbor(*entity_detail::g_nav_grids[floor], u32(target_cell), 0);
         copy_actor_shape(shape.data(), target.bytes.data() + (isolated ? 0x3C : 0x1C));
-        if (!isolated && (target.bytes[0x16] & 0x10) != 0)
+        if (!isolated && (get(target.bytes, mind_target_field::flags) & 0x10) != 0)
         {
             Vec3 candidate;
             offset_runtime_horizontal_point(candidate, point(shape, 4), target.actor.euler.y, read_f32(shape, 0x1C) * 2.f);
@@ -232,12 +233,12 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
         const float dx = destination.x - position.x;
         const float dy = destination.y - position.y;
         const float dz = destination.z - position.z;
-        if ((read_f32(target.bytes, 0x64) * dz + dx * read_f32(target.bytes, 0x5C)) + dy * 0.f < 0.f)
+        if ((get(target.bytes, mind_target_field::direction).z * dz + dx * get(target.bytes, mind_target_field::direction).x) + dy * 0.f < 0.f)
         {
             const float offset = read_f32(request, 0x20);
-            destination.x = read_f32(target.bytes, 0x5C) * offset + destination.x;
+            destination.x = get(target.bytes, mind_target_field::direction).x * offset + destination.x;
             destination.y = offset * 0.f + destination.y;
-            destination.z = read_f32(target.bytes, 0x64) * offset + destination.z;
+            destination.z = get(target.bytes, mind_target_field::direction).z * offset + destination.z;
         }
     }
     const Vec3 position = actor_world_position(context.actor);
@@ -254,7 +255,7 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
     }
     u32 failed;
     const u32 result = drive_runtime_player_navigation(context.navigation, destination, floor, radius,
-        read_f32(request, 0x1C), read_f32(request, 0x2C), isolated ? 0 : (target.bytes[0x16] & 0x10) >> 4, failed);
+        read_f32(request, 0x1C), read_f32(request, 0x2C), isolated ? 0 : (get(target.bytes, mind_target_field::flags) & 0x10) >> 4, failed);
     if (read_u32(request, 0x24) != 0 && result == 1)
     {
         if (!script_mind_is_idle(context.body_query, 1))
@@ -281,15 +282,15 @@ u32 update_runtime_cinema_mind_vertical_target(RuntimeCinemaMindMovement& contex
     if (read_f32(request, 0x2C) > 0.f)
     {
         const Vec3 position = actor_world_position(context.actor);
-        const float dx = position.x - read_f32(target.bytes, 0x20);
-        const float dy = position.y - read_f32(target.bytes, 0x24);
-        const float dz = position.z - read_f32(target.bytes, 0x28);
-        if ((read_f32(target.bytes, 0x64) * dz + dx * read_f32(target.bytes, 0x5C)) + dy * 0.f < 0.f)
+        const float dx = position.x - get(target.bytes, mind_target_field::shape_position).x;
+        const float dy = position.y - get(target.bytes, mind_target_field::shape_position).y;
+        const float dz = position.z - get(target.bytes, mind_target_field::shape_position).z;
+        if ((get(target.bytes, mind_target_field::direction).z * dz + dx * get(target.bytes, mind_target_field::direction).x) + dy * 0.f < 0.f)
         {
             const float offset = read_f32(request, 0x2C);
-            destination.x = read_f32(target.bytes, 0x5C) * offset + destination.x;
+            destination.x = get(target.bytes, mind_target_field::direction).x * offset + destination.x;
             destination.y = offset * 0.f + destination.y;
-            destination.z = read_f32(target.bytes, 0x64) * offset + destination.z;
+            destination.z = get(target.bytes, mind_target_field::direction).z * offset + destination.z;
         }
     }
     const Vec3 position = actor_world_position(context.actor);
@@ -306,9 +307,9 @@ u32 update_runtime_cinema_mind_vertical_target(RuntimeCinemaMindMovement& contex
             context.eligibility.attached, target.actor) + read_f32(request, 0x20) + 1.f;
     }
     u32 failed;
-    const u32 result = drive_runtime_mind_vertical_navigation(context.navigation, destination, target.bytes[0x19],
+    const u32 result = drive_runtime_mind_vertical_navigation(context.navigation, destination, get(target.bytes, mind_target_field::floor),
         read_f32(request, 0x18), read_f32(request, 0x1C), radius, read_f32(request, 0x24),
-        read_f32(request, 0x38), read_f32(request, 0x28), (target.bytes[0x16] & 0x10) >> 4, failed);
+        read_f32(request, 0x38), read_f32(request, 0x28), (get(target.bytes, mind_target_field::flags) & 0x10) >> 4, failed);
     if (read_u32(request, 0x30) != 0 && result == 1)
     {
         if (!script_mind_is_idle(context.body_query, 1))

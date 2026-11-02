@@ -1,4 +1,5 @@
 #include "haunted_tv_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "actor_transform.h"
@@ -466,7 +467,7 @@ void set_runtime_haunted_tv_screen(u32 mode, RuntimeHauntedTvStrategy& context)
 // Xbox 0x00141530, ECX target: the target stands idle (body +0x30 and +0x34 clear) and is after no one but `actor`.
 bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHauntedTvStrategy& context)
 {
-    if (target.bytes[0x14] != 0)
+    if (get(target.bytes, mind_target_field::kind) != 0)
     {
         return false;
     }
@@ -501,9 +502,9 @@ u32 runtime_haunted_tv_target_range(const RuntimeMindTarget* target, RuntimeHaun
         return 3;
     }
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - read_f32(target->bytes, 0x20);
-    const float dy = position.y - read_f32(target->bytes, 0x24);
-    const float dz = position.z - read_f32(target->bytes, 0x28);
+    const float dx = position.x - get(target->bytes, mind_target_field::shape_position).x;
+    const float dy = position.y - get(target->bytes, mind_target_field::shape_position).y;
+    const float dz = position.z - get(target->bytes, mind_target_field::shape_position).z;
     const float distance = (dz * dz + dx * dx) + dy * dy;
     if (2500.f > distance) // DAT_0032B40C.
     {

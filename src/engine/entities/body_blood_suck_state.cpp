@@ -1,4 +1,5 @@
 #include "body_blood_suck_state.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_collision_culling.h"
 #include "actor_live_attachments.h"
@@ -210,7 +211,7 @@ bool initialize_runtime_blood_suck_state(std::span<u8> state, std::span<const u8
     const std::span<const u8> target_record = context.target_record(record);
     if (target_record[0x14] == 0)
     {
-        set(state, field::target, read_u32(target_record, 0x10));
+        set(state, field::target, get(target_record, mind_target_field::actor));
     }
     bool grab = false;
     if (get(state, field::target) != 0)

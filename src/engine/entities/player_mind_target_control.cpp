@@ -1,4 +1,5 @@
 #include "player_mind_target_control.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "../scripts/script_conditions.h"
 #include "actor_transform.h"
@@ -18,7 +19,7 @@ u32 select_runtime_player_target_action_direction(std::span<u8> mind,
     {
         mind[0x90] = 0;
     }
-    if (target.bytes[0x14] == 3)
+    if (get(target.bytes, mind_target_field::kind) == 3)
     {
         return 0xFFFFFFFFu;
     }

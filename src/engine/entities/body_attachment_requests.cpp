@@ -1,4 +1,5 @@
 #include "body_attachment_requests.h"
+#include "player_mind_targets.h"
 #include "body_message_helpers.h"
 #include "shape_copy.h"
 #include <bit>
@@ -15,9 +16,9 @@ u32 runtime_body_target_height(std::span<const u8> body, const Actor& actor,
         copy_actor_shape(shape, target.data() + 0x1C);
     }
     const float height = actor.radius_y * read_f32(body, 0x884);
-    const float radius = read_f32(target, 0x30);
+    const float radius = get(target, mind_target_field::shape_height);
     const Vec3 position = actor_world_position(actor);
-    const float difference = (read_f32(target, 0x24) + radius) - (position.y + height);
+    const float difference = (get(target, mind_target_field::shape_position).y + radius) - (position.y + height);
     if (difference > height * .25f)
     {
         return 2;

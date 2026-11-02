@@ -1,4 +1,5 @@
 #include "player_strategy_goals.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_pose_updates.h"
 #include "actor_render_registration.h"
@@ -384,7 +385,7 @@ bool find_runtime_goal_volume_target(const OccupancyRecord& volume, u32& output,
     }
     else if (target->bytes[0x14] == 0)
     {
-        set(mind, mind_field::target, read_u32(target->bytes, 0x10));
+        set(mind, mind_field::target, get(target->bytes, mind_target_field::actor));
     }
     output = address;
     return target != nullptr;
@@ -895,9 +896,9 @@ bool strategy_goal_gate(RuntimePlayerStrategyGoals& context)
 void adopt_message_target(RuntimeMindTarget& target, RuntimePlayerStrategyGoals& context)
 {
     set_runtime_mind_target(context.entry.events, target.address);
-    if (target.bytes[0x14] == 0)
+    if (get(target.bytes, mind_target_field::kind) == 0)
     {
-        set(context.entry.events.mind, mind_field::target, read_u32(target.bytes, 0x10));
+        set(context.entry.events.mind, mind_field::target, get(target.bytes, mind_target_field::actor));
     }
 }
 }

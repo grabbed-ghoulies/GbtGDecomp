@@ -1,4 +1,5 @@
 #include "haunted_picture_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_live_attachments.h"
@@ -160,9 +161,9 @@ float clamp_angle(float value)
 float runtime_haunted_picture_range_fraction(std::span<const u8> target, RuntimeHauntedPictureStrategy& context)
 {
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - read_f32(target, 0x20);
-    const float dy = position.y - read_f32(target, 0x24);
-    const float dz = position.z - read_f32(target, 0x28);
+    const float dx = position.x - get(target, mind_target_field::shape_position).x;
+    const float dy = position.y - get(target, mind_target_field::shape_position).y;
+    const float dz = position.z - get(target, mind_target_field::shape_position).z;
     const float nearest = read_f32(context.movement, 0x1C);
     const float farthest = read_f32(context.movement, 0x20);
     if (farthest == nearest)
@@ -190,8 +191,8 @@ float select_runtime_haunted_picture_heading(std::span<const u8> target, Runtime
     const Actor& actor = actor_of(context);
     const float fraction = runtime_haunted_picture_range_fraction(target, context); // 0x000B0AC0
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const Vec3 direction{read_f32(target, 0x20) - position.x, read_f32(target, 0x24) - position.y,
-        read_f32(target, 0x28) - position.z};
+    const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x, get(target, mind_target_field::shape_position).y - position.y,
+        get(target, mind_target_field::shape_position).z - position.z};
     // The output reuses the caller's argument slot, which holds the movement table's address.
     float angle = std::bit_cast<float>(kMovementAddress);
     runtime_direction_angle(direction, angle); // 0x00105F90
@@ -222,7 +223,7 @@ void circle_runtime_haunted_picture_target(const RuntimeMindTarget& target, floa
     const Vec3 origin = actor_world_position(actor_of(context)); // 0x000412A0
     const float ring = read_f32(movement, 8);
     Vec3 point{};
-    RuntimeNavigationHeadingSearch search{origin, i32(target.bytes[0x19]), ring - .5f, ring + .5f, nullptr,
+    RuntimeNavigationHeadingSearch search{origin, i32(get(target.bytes, mind_target_field::floor)), ring - .5f, ring + .5f, nullptr,
         goals.entry.allowed, &point, 0, 0x1C, i16(read_u16(goals.entry.actor_bytes, 6)), goals.random,
         context.occupancy_initial};
     if (!search_runtime_navigation_headings(search, heading, std::bit_cast<float>(0x3E9C61AAu), 10)) // 0x0013AA50

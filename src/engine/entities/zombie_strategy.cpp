@@ -1,4 +1,5 @@
 #include "zombie_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_action_selection.h"
@@ -201,16 +202,16 @@ RuntimePlayerMindRequest* request_runtime_zombie_flank(const RuntimeMindTarget& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const Actor& actor = goals.entry.actor;
     const Vec3 position = actor_world_position(actor);
-    const Vec3 toward{read_f32(target.bytes, 0x20) - position.x, read_f32(target.bytes, 0x24) - position.y,
-        read_f32(target.bytes, 0x28) - position.z};
+    const Vec3 toward{get(target.bytes, mind_target_field::shape_position).x - position.x, get(target.bytes, mind_target_field::shape_position).y - position.y,
+        get(target.bytes, mind_target_field::shape_position).z - position.z};
     // The angle goes to the target argument's stack slot; a zero direction leaves the target's address there.
     float angle = std::bit_cast<float>(target.address);
     runtime_direction_angle(toward, angle);
     float heading = angle;
     const Vec3 again = actor_world_position(actor);
-    const float dx = again.x - read_f32(target.bytes, 0x20);
-    const float dy = again.y - read_f32(target.bytes, 0x24);
-    const float dz = again.z - read_f32(target.bytes, 0x28);
+    const float dx = again.x - get(target.bytes, mind_target_field::shape_position).x;
+    const float dy = again.y - get(target.bytes, mind_target_field::shape_position).y;
+    const float dz = again.z - get(target.bytes, mind_target_field::shape_position).z;
     const float near = read_f32(context.parameters, 0x24);
     if (near * near > dz * dz + dy * dy + dx * dx)
     {

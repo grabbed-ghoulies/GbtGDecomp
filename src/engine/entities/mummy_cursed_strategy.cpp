@@ -1,4 +1,5 @@
 #include "mummy_cursed_strategy.h"
+#include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_model_anchors.h"
@@ -431,9 +432,9 @@ bool target_in_reach(RuntimeMummyCursedStrategy& context)
         return false;
     }
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const long double dx = static_cast<long double>(position.x) - read_f32(target->bytes, 0x20);
-    const long double dy = static_cast<long double>(position.y) - read_f32(target->bytes, 0x24);
-    const long double dz = static_cast<long double>(position.z) - read_f32(target->bytes, 0x28);
+    const long double dx = static_cast<long double>(position.x) - get(target->bytes, mind_target_field::shape_position).x;
+    const long double dy = static_cast<long double>(position.y) - get(target->bytes, mind_target_field::shape_position).y;
+    const long double dz = static_cast<long double>(position.z) - get(target->bytes, mind_target_field::shape_position).z;
     return static_cast<long double>(parameter(context, 0)) > std::sqrt(dz * dz + (dy * dy + dx * dx));
 }
 
@@ -501,7 +502,7 @@ bool engage_target(RuntimeMummyCursedStrategy& context)
     if (navigation_path_clear(actor_world_position(actor), point, 1, 0, 0, 0, nullptr, &last_cell,
             i16(read_u16(goals.entry.actor_bytes, 6)))) // 0x0012C970, EAX actor
     {
-        const u32 mount = read_u32(target->bytes, 0x10);
+        const u32 mount = get(target->bytes, mind_target_field::actor);
         RuntimeJumpOnPeer peer{&target->actor, mount, target->actor_bytes, body.bytes,
             const_cast<EntityBitBlock*>(body.bits)};
         if (claim_runtime_rider(&peer, address)) // 0x00138140, EAX the target's actor
@@ -819,7 +820,7 @@ void start_grab(RuntimeMummyCursedStrategy& context)
         change_state(0x401, context); // The inlined 0x0002B8D0.
         return;
     }
-    set(strategy, field::victim, read_u32(target->bytes, 0x10));
+    set(strategy, field::victim, get(target->bytes, mind_target_field::actor));
     const std::span<const u8> victim = target->actor_bytes;
     const bool player = target->bytes[0x14] == 0 && read_u32(victim, 0xCE0) != 0
         && (read_u16(victim, 0xCDC) == 2 || read_u32(victim, 0x93C) != 0);
@@ -878,7 +879,7 @@ void set_curse_step(u32 step, RuntimeMummyCursedStrategy& context)
             change_state(0x401, context); // 0x0002B8D0, EDI 0x401
             return;
         }
-        set(strategy, field::cursed, read_u32(target->bytes, 0x10));
+        set(strategy, field::cursed, get(target->bytes, mind_target_field::actor));
         if (read_u16(target->actor_bytes, 0xCDC) != 2)
         {
             change_state(0x401, context); // 0x0002B8D0, EDI 0x401

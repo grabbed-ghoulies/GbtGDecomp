@@ -180,7 +180,7 @@ void candle_weapon_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_candle_weapon(RuntimeWeaponActor& weapon)
 {
     RuntimeCandleFlame flame = runtime_candle_weapon_flame(weapon);
-    store32(weapon.bytes, 0x99C, 0x000C6F10);
+    set(weapon.bytes, weapon_field::contact_test, 0x000C6F10);
     flame.binding = find_actor_model_binding(weapon.actor, 0); // 0x000408D0, EDI 0
     set(flame.block, flame_field::lit, 0u);
     flame.flame = {};
@@ -400,9 +400,10 @@ u32 test_runtime_candle_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContac
     auto bytes = weapon.bytes;
     const bool lit = get(bytes.subspan(field::kFlame), flame_field::lit) != 0;
     report_runtime_weapon_contact(weapon, holder_of(weapon), object, point, contacts, velocity, word,
-        lit ? bytes[0xDAC] : u8(7), lit ? bytes[0xDAD] : u8(0x3F), bytes[0xDAE],
-        get(bytes, field::spent) == 0); // 0x00141890
-    return bytes[0x93C] == 0 ? 1u : 0u;
+                                  lit ? get(bytes, weapon_field::hit_kind) : u8(7),
+                                  lit ? get(bytes, weapon_field::hit_strength) : u8(0x3F),
+                                  get(bytes, weapon_field::hit_style), get(bytes, field::spent) == 0); // 0x00141890
+    return get(bytes, weapon_field::mask) == 0 ? 1u : 0u;
 }
 
 // Xbox 0x000C6990

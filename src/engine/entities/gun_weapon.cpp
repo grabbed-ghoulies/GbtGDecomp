@@ -51,16 +51,16 @@ float frame_step(const RuntimeWeaponActor& weapon)
 void stop_weapon_sound(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    if (bytes[0xD08] == 0)
+    if (field_data(bytes, weapon_field::voice_name)[0] == 0)
     {
         return;
     }
-    bytes[0xD08] = 0;
-    const u16 voice = read_u16(bytes, 0xD88);
+    field_data(bytes, weapon_field::voice_name)[0] = 0;
+    const u16 voice = get(bytes, weapon_field::voice);
     if (voice != 0xFFFF)
     {
         stop_actor_sound_voice(i16(voice), weapon.services.sounds); // 0x00039690
-        store16(bytes, 0xD88, 0xFFFF);
+        set(bytes, weapon_field::voice, 0xFFFF);
     }
 }
 
@@ -172,7 +172,7 @@ void gun_weapon_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_gun_weapon(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     auto bytes = weapon.bytes;
-    store32(bytes, 0x99C, 0x000CB040);
+    set(bytes, weapon_field::contact_test, 0x000CB040);
     std::strcpy(field_data(bytes, field::name), field_data(parameters, parameter::name));
     set(bytes, field::charge, 1.f); // DAT_0032B0F8.
     GunLocators& locators = gun_locators[bytes.data()];
@@ -337,7 +337,7 @@ void leave_runtime_gun_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         switch (state)
         {
         case 0x10:
-            if (read_u32(bytes, 0xDD0) == kAidPrefix)
+            if (read_u32(bytes, weapon_field::animation.offset) == kAidPrefix)
             {
                 auto* controller = weapon.view.animation.controller.get(); // Actor +0x50.
                 if (controller != nullptr)
@@ -477,7 +477,7 @@ void recharge_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Actor* holder
         }
     }
     const bool charged = 0.f < get(bytes, field::charge);
-    bytes[0x93C] = charged ? 1 : 0;
+    set(bytes, weapon_field::mask, charged ? 1 : 0);
     if (!charged)
     {
         stop_weapon_sound(weapon);
@@ -488,7 +488,7 @@ void recharge_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Actor* holder
 void exhaust_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3& direction)
 {
     auto bytes = weapon.bytes;
-    bytes[0x93C] = 0;
+    set(bytes, weapon_field::mask, 0);
     stop_weapon_sound(weapon);
     set(bytes, field::charge, 0.f);
     set(bytes, field::firing, 0u);
@@ -518,8 +518,10 @@ void report_runtime_gun_weapon_hits(RuntimeWeaponActor& weapon, Actor& holder, c
     {
         auto& hit = *reinterpret_cast<RuntimeSprayHit*>(at);
         RuntimeSegmentContactActor& object = weapon.contact_actor(*hit.object);
-        if (report_runtime_weapon_spray_contact(weapon, &holder, object, hit.point, hit.contacts, hit.velocity,
-                bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], get(bytes, field::hits) == 0) != 0) // 0x00141C00
+        if (report_runtime_weapon_spray_contact(
+                weapon, &holder, object, hit.point, hit.contacts, hit.velocity, get(bytes, weapon_field::hit_kind),
+                get(bytes, weapon_field::hit_strength), get(bytes, weapon_field::hit_style),
+                get(bytes, field::hits) == 0) != 0) // 0x00141C00
         {
             set(bytes, field::hits, get(bytes, field::hits) + 1);
         }
@@ -534,6 +536,6 @@ u32 test_runtime_gun_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContactAc
 {
     report_runtime_weapon_contact(weapon, holder_of(weapon), object, point, contacts, velocity, word, 7, 0x3A, 0x68,
         get(weapon.bytes, field::unk_EF4) == 0); // 0x00141890, EDX 0x68
-    return weapon.bytes[0x93C] == 0 ? 1u : 0u;
+    return get(weapon.bytes, weapon_field::mask) == 0 ? 1u : 0u;
 }
 }

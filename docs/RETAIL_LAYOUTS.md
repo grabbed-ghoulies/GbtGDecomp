@@ -198,6 +198,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Stand alert (factory type 0x87, 0x000A2590) | 0x50, parameters 0xBC | `stand_alert_field`: input, alert and moving keys, counter, pause and hold switches, model node slot and keep switch, secondary detach and mode switches with the saved mode, settle switch, sound started, body bit, saved shape mode; `stand_alert_parameter` | `src/engine/entities/body_state_actions.h` |
 | Walk alert and fly states (factory types 0x8E, 0x000A5650, and 0x6D, 0x00090D90) | 0x88 / 0x78, parameters 0xB8 / 0xA8 | `walk_alert_field` / `fly_state_field`: stop and alert keys, stick limit, heading hold, row count, band, the four speed-band rows (`walk_alert_row_field`: animation, lower and upper durations, top speed), sound started; the walk alert's settle, stop-at-once, alert-when-calm, fixed-ratio and body-bit words; the fly state's loop; and their parameters | `src/engine/entities/body_state_actions.h` |
 | fxCustom and its effects (factory types 0xC, 0x2E, 0x30, 0x31, 0x32, 0x33) | 0x18 base; 0xA8, 0x28, 0xD0, 0x54, 0x28 | `fx_custom_field` (seconds alive, actor); `fx_electric_field` (sound, texture loaded, spark count and rows, light slot); `fx_fade_field` (the fade-to-grey's and fade-out's level, target, speed and their +0x24 word); `fx_outline_field` (phase, hold end, time left, the three times, sound, texture loaded, scale, colour, level, shape group, rows, light slot); `fx_solid_fade_in_field` (phase, time left, level, the four times, colour, strength, hold end); and their parameters | `src/engine/entities/fx_custom_electric.h` |
+| Weapon base (factory type 0xB over the actor, 0x00145C80), its own part | 0xE54 (0x934 onward) | `weapon_field`: mask and its neighbours, firing, accepted classes, contact test, spawn-model block, names, break category, grab prompt (pulse, phase, alpha, fade), shape and point counts, pick-up count, variant name and attributes, spawn trigger, group owner, state and its next and initial values and time, scene start, thrown and follow motion, floor, voice, spawn owner, broken pieces, hit kind/strength/style, animation, target record | `src/engine/entities/weapon_fields.h` |
 | Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `mind_target_field`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
@@ -264,6 +265,15 @@ grey), `--scene2a10` (the haunted TV's electric effect; its baseline was run fre
 known version again. `scene3a4_2400.bmp` differed by 1 byte from all eight earlier runs, and a second run of the same
 build matched them exactly. So `--scene3a4` also varies, though rarely.
 
+The weapon base is its own part of type 0xB (+0x934..+0xE54 over the 0x934-byte actor). Players (type 5, 0xCF8
+bytes) also derive from the actor, so a player's +0xCDC..+0xCF4 are different fields from the weapon's at the same
+offsets. The weapon modules were rewritten by script: typed reads and stores whose width matches the field, the u8
+fields' byte accesses, the strings' address forms, and float stores through `std::bit_cast`. The last float zeroes
+and the aim's writes were edited by hand. Against the previous build, all captures match in `--scene3` (the pick-up,
+lift and throw of weapons), `--scene2a10`, `--scene2a2-reaper`, `--player-death`, `--player-fight`, `--scene5`,
+`--scene2b3` and `--player-opening`. `scene6_title.bmp` and `scene3a4_2400.bmp` matched other earlier runs exactly
+(their known variation).
+
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and
 8–11, through both failure and success. It doesn't reach phases 6 and 7 or the DAT_005122F0 auto-press path, and it
@@ -287,7 +297,10 @@ types are named. `strategy_target_selection.cpp` touches only such shared object
 - The 0x30-byte screen texture (0x000533A0) is the engine's texture resource (width +8, height +0xA, header offset
   +4, data +0x14, size +0x18), which the widgets' `texture_width` helpers and the presenter also read. It belongs
   with the texture resource's own layout.
-- The attract control, starting with `scene_control_field::elapsed`, then the entities. The shared objects the
-  scene 3 types reach (the player body, mind, actor and weapon base) are the largest remaining sets. Player body +0x728 (written by Super Scary through
-  `set_body_word_728`) waits for the body's layout.
+- The attract control, starting with `scene_control_field::elapsed`, then the entities. The body (`body_field`),
+  base mind (`mind_field`), mind target records (`mind_target_field`) and weapon base (`weapon_field`) are named now;
+  the actor (type 2, 0x934 bytes) and the player's part after it (type 5, up to 0xCF8: its +0xCDC class, +0xCE0,
+  +0xCEC floor and +0xCF4 tag, read across the body and strategy files) are the largest remaining sets. The body's
+  first pass leaves most offsets literal; player body +0x728 (written by Super Scary through `set_body_word_728`) is
+  one of them. The weapon base's accepted-class rows (+0x948) and the +0xAC0 kept flags are still read by offset.
 - `DAT_` globals, with the same evidence rule.

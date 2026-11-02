@@ -67,7 +67,7 @@ bool initialize_runtime_container_weapon(RuntimeWeaponActor& weapon, std::span<c
     set(weapon.bytes, field::uses, get(parameters, parameter::uses));
     set(weapon.bytes, field::left, get(parameters, parameter::uses));
     set(weapon.bytes, field::caption, get(parameters, parameter::caption));
-    weapon.bytes[0x942] = 1;
+    set(weapon.bytes, weapon_field::unk_942, 1);
     return true;
 }
 
@@ -94,16 +94,16 @@ void drop_runtime_container_weapon(RuntimeWeaponActor& weapon)
         message[1] = 0;
         weapon.message(message); // Vtable +0xC.
     }
-    bytes[0x93C] = 0;
+    set(bytes, weapon_field::mask, 0);
     actor.mask_flag = i32(u32(actor.mask_flag) & ~0xFFu);
-    if (bytes[0xD08] != 0)
+    if (field_data(bytes, weapon_field::voice_name)[0] != 0)
     {
-        const u16 voice = read_u16(bytes, 0xD88);
-        bytes[0xD08] = 0;
+        const u16 voice = get(bytes, weapon_field::voice);
+        field_data(bytes, weapon_field::voice_name)[0] = 0;
         if (voice != 0xFFFF)
         {
             stop_actor_sound_voice(i16(voice), weapon.services.sounds); // 0x00039690
-            store16(bytes, 0xD88, 0xFFFF);
+            set(bytes, weapon_field::voice, 0xFFFF);
         }
     }
     actor.model_mode = 0; // +0x118.
@@ -134,7 +134,7 @@ void dispatch_runtime_container_weapon_message(RuntimeWeaponActor& weapon, std::
     }
     case 0x99:
     {
-        if (bytes[0x93C] == 0)
+        if (get(bytes, weapon_field::mask) == 0)
         {
             break;
         }
@@ -190,7 +190,7 @@ void update_runtime_container_weapon_state(RuntimeWeaponActor& weapon, u16 state
     case 0xC:
         return;
     case 7:
-        store16(weapon.bytes, 0xC0E, 0x10);
+        set(weapon.bytes, weapon_field::next_state, 0x10);
         return;
     case 0x10:
         notify_runtime_weapon_grab_points(weapon); // The tail jump to 0x00147430.
@@ -208,20 +208,21 @@ void enter_runtime_container_weapon_state(RuntimeWeaponActor& weapon, u16 state,
     switch (state)
     {
     case 6:
-        if (read_u32(bytes, 0x9A0) == 0 && actor_has_spawn_model(weapon.actor)) // The inlined 0x00145470.
+        if (get(bytes, weapon_field::spawn_model_blocked) == 0 &&
+            actor_has_spawn_model(weapon.actor)) // The inlined 0x00145470.
         {
             drop_runtime_container_weapon(weapon); // 0x000C7A50
         }
-        bytes[0x93C] = 0;
+        set(bytes, weapon_field::mask, 0);
         weapon.actor.mask_flag = i32(u32(weapon.actor.mask_flag) & ~0xFFu);
-        if (bytes[0xD08] != 0)
+        if (field_data(bytes, weapon_field::voice_name)[0] != 0)
         {
-            const u16 voice = read_u16(bytes, 0xD88);
-            bytes[0xD08] = 0;
+            const u16 voice = get(bytes, weapon_field::voice);
+            field_data(bytes, weapon_field::voice_name)[0] = 0;
             if (voice != 0xFFFF)
             {
                 stop_actor_sound_voice(i16(voice), weapon.services.sounds); // 0x00039690
-                store16(bytes, 0xD88, 0xFFFF);
+                set(bytes, weapon_field::voice, 0xFFFF);
             }
         }
         return;
@@ -237,7 +238,7 @@ void enter_runtime_container_weapon_state(RuntimeWeaponActor& weapon, u16 state,
         register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770
         weapon.actor.model_flags |= 0x100u;
         start_runtime_weapon_idle(weapon); // 0x00144D00
-        if (read_u32(bytes, 0xDA8) == 0)
+        if (get(bytes, weapon_field::unk_DA8) == 0)
         {
             attach_runtime_weapon_volume(weapon); // The tail jump to 0x00146310.
         }
@@ -256,12 +257,12 @@ void leave_runtime_container_weapon_state(RuntimeWeaponActor& weapon, u16 state,
     {
         if (state == 0xC)
         {
-            if (read_u32(bytes, 0xDD0) == kAidPrefix)
+            if (read_u32(bytes, weapon_field::animation.offset) == kAidPrefix)
             {
                 resume_idle_slot(weapon); // +0x50's slot 0.
             }
             weapon.actor.spawn_blocked -= 1;
-            store32(bytes, 0xAD0, u32(weapon.actor.spawn_blocked));
+            set(bytes, weapon_field::spawn_blocked, u32(weapon.actor.spawn_blocked));
             if (weapon.actor.spawn_blocked == 0)
             {
                 register_actor_model_anchors(weapon.actor, weapon.view.anchors); // 0x0003EEB0
@@ -273,7 +274,7 @@ void leave_runtime_container_weapon_state(RuntimeWeaponActor& weapon, u16 state,
             leave_runtime_weapon_state(weapon, state, next); // 0x0014A180's cases, inlined.
             return;
         }
-        if (read_u32(bytes, 0xDD0) == kAidPrefix)
+        if (read_u32(bytes, weapon_field::animation.offset) == kAidPrefix)
         {
             resume_idle_slot(weapon); // 0x0003B340
         }
@@ -282,7 +283,8 @@ void leave_runtime_container_weapon_state(RuntimeWeaponActor& weapon, u16 state,
     }
     if (weapon.cells != nullptr)
     {
-        entity_detail::release_navigation_cell_registration(weapon.cells, read_u32(bytes, 0xD00)); // 0x001108B0
+        entity_detail::release_navigation_cell_registration(weapon.cells,
+                                                            get(bytes, weapon_field::floor)); // 0x001108B0
     }
     weapon.actor.model_mode &= ~4;
     register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770, inlined

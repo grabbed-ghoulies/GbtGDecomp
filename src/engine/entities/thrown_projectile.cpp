@@ -52,7 +52,8 @@ void lower_model_mode(RuntimeWeaponActor& weapon)
 {
     if (weapon.cells != nullptr)
     {
-        entity_detail::release_navigation_cell_registration(weapon.cells, read_u32(weapon.bytes, 0xD00)); // 0x001108B0
+        entity_detail::release_navigation_cell_registration(weapon.cells,
+                                                            get(weapon.bytes, weapon_field::floor)); // 0x001108B0
     }
     weapon.actor.model_mode &= ~4;
     register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770
@@ -93,7 +94,7 @@ void thrown_projectile_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_thrown_projectile(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     auto bytes = weapon.bytes;
-    store32(bytes, 0x99C, 0x000CBF80); // The class's contact test, called through +0x99C.
+    set(bytes, weapon_field::contact_test, 0x000CBF80); // The class's contact test, called through +0x99C.
     // 0x0003AAA0 with EAX 0 (no variant), ECX the name and the actor's +0x48 table.
     const u32 name = get(parameters, parameter::flight_animation);
     const char* text = nullptr;
@@ -152,7 +153,7 @@ void update_runtime_thrown_projectile_state(RuntimeWeaponActor& weapon, u16 stat
     case 4:
         if (update_runtime_thrown_projectile_shatter(weapon)) // 0x000CC530
         {
-            store16(weapon.bytes, 0xC0E, 0xB);
+            set(weapon.bytes, weapon_field::next_state, 0xB);
         }
         return;
     case 9:
@@ -180,7 +181,7 @@ void dispatch_runtime_thrown_projectile_message(RuntimeWeaponActor& weapon, std:
     case 0x18:
         message[4] = 1;
         send_callout(weapon, 0x19); // 0x0003C040
-        store16(bytes, 0xC0E, 9);
+        set(bytes, weapon_field::next_state, 9);
         break;
     case 0x49:
         if (message[0xB] != 0)
@@ -196,7 +197,7 @@ void dispatch_runtime_thrown_projectile_message(RuntimeWeaponActor& weapon, std:
         }
         break;
     case 0x7D:
-        if (read_u16(bytes, 0xC0C) == 0)
+        if (get(bytes, weapon_field::state) == 0)
         {
             change_runtime_weapon_state(weapon, 0x10); // 0x0014A290
         }
@@ -290,7 +291,7 @@ void enter_runtime_thrown_projectile_state(RuntimeWeaponActor& weapon, u16 state
         raise_model_mode(weapon, 4); // 0x0003C750 inlined
         weapon.actor.model_flags |= 0x100u;
         start_runtime_weapon_idle(weapon); // 0x00144D00
-        if (read_u32(weapon.bytes, 0xDA8) == 0)
+        if (get(weapon.bytes, weapon_field::unk_DA8) == 0)
         {
             attach_runtime_weapon_volume(weapon); // 0x00146310
         }
@@ -406,7 +407,9 @@ u32 test_runtime_thrown_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSe
 {
     auto bytes = weapon.bytes;
     if (report_runtime_projectile_contact(weapon, weapon.actor.spawn_owner, object, point, contacts, velocity, word,
-            bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], get(bytes, field::hits) == 0, 0) != 0) // 0x00141A30
+                                          get(bytes, weapon_field::hit_kind), get(bytes, weapon_field::hit_strength),
+                                          get(bytes, weapon_field::hit_style), get(bytes, field::hits) == 0,
+                                          0) != 0) // 0x00141A30
     {
         set(bytes, field::hits, get(bytes, field::hits) + 1);
     }
@@ -414,7 +417,7 @@ u32 test_runtime_thrown_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSe
     {
         insert_runtime_body_contact_override(weapon.collision_overrides, object, 0, weapon.players); // 0x0013EBE0
     }
-    return bytes[0x93C] == 0 ? 1u : 0u;
+    return get(bytes, weapon_field::mask) == 0 ? 1u : 0u;
 }
 
 // Xbox 0x000CC010, ECX actor, EAX the euler out, the stack the position out
@@ -538,15 +541,15 @@ bool land_runtime_thrown_projectile(RuntimeWeaponActor& weapon, std::span<u32> m
 void end_runtime_thrown_projectile_flight(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    store8(bytes, 0x93C, 0);
+    set(bytes, weapon_field::mask, 0);
     weapon.actor.mask_flag = i32(u32(weapon.actor.mask_flag) & ~0xFFu); // Native alias of the +0x93C byte.
-    if (bytes[0xD08] != 0)
+    if (field_data(bytes, weapon_field::voice_name)[0] != 0)
     {
-        store8(bytes, 0xD08, 0);
-        if (read_u16(bytes, 0xD88) != 0xFFFF)
+        field_data(bytes, weapon_field::voice_name)[0] = 0;
+        if (get(bytes, weapon_field::voice) != 0xFFFF)
         {
-            stop_actor_sound_voice(i16(read_u16(bytes, 0xD88)), weapon.services.sounds); // 0x00039690
-            store16(bytes, 0xD88, 0xFFFF);
+            stop_actor_sound_voice(i16(get(bytes, weapon_field::voice)), weapon.services.sounds); // 0x00039690
+            set(bytes, weapon_field::voice, 0xFFFF);
         }
     }
     change_runtime_weapon_state(weapon, get(bytes, field::shatters) != 0 ? 4 : 9); // Inlined as 0x0014A290.
@@ -671,11 +674,11 @@ void start_runtime_weapon_flight(RuntimeWeaponActor& weapon, const Vec3* velocit
         std::memcpy(bytes.data() + 0xC34, euler, 12);
     }
     std::memcpy(bytes.data() + 0xC30, &gravity, 4);
-    store32(bytes, 0xC24, 1);
-    store32(bytes, 0xC28, slide);
-    store32(bytes, 0xC2C, quiet);
-    store32(bytes, 0xC40, mask);
-    store32(bytes, 0xC44, 0);
+    set(bytes, weapon_field::probes_contacts, 1);
+    set(bytes, weapon_field::slides, slide);
+    set(bytes, weapon_field::quiet, quiet);
+    set(bytes, weapon_field::contact_mask, mask);
+    set(bytes, weapon_field::hit, 0);
     if (quiet == 0 && weapon.markers != nullptr)
     {
         activate_all_runtime_body_contact_shapes(weapon.actor, *weapon.markers, 0xFF); // 0x0013F5B0

@@ -507,7 +507,7 @@ void end_runtime_water_pistol_fire(RuntimeWeaponActor& weapon, const Vec3& point
 void retire_runtime_water_pistol_block(RuntimeWeaponActor& weapon)
 {
     WaterPistolBlocks& blocks = blocks_of(weapon);
-    weapon.bytes[0x940] = 0;
+    set(weapon.bytes, weapon_field::firing, 0);
     GhoulySpawnPool* block = blocks.active;
     if (block == nullptr)
     {
@@ -592,7 +592,7 @@ void emit_runtime_water_pistol(RuntimeWeaponActor& weapon, u32 firing, const Vec
 {
     auto bytes = weapon.bytes;
     const float step = frame_rate(weapon.actor) * frame_step(weapon.frame);
-    bytes[0x940] = u8(firing);
+    set(bytes, weapon_field::firing, u8(firing));
     if (firing == 0)
     {
         return;

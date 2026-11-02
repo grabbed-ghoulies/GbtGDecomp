@@ -332,7 +332,7 @@ void emit_runtime_extinguisher_spray(RuntimeWeaponActor& weapon, u32 firing, con
     const Vec3& direction)
 {
     auto bytes = weapon.bytes;
-    bytes[0x940] = u8(firing);
+    set(bytes, weapon_field::firing, u8(firing));
     if (firing == 0)
     {
         const float reach = get(bytes, field::reach) - weapon_step(weapon) * 4.949999809265137f; // DAT_0032B464.

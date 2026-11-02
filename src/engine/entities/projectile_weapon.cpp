@@ -90,7 +90,7 @@ void raise_model_mode(RuntimeWeaponActor& weapon, i32 bits)
 void set_spawn_blocked(RuntimeWeaponActor& weapon, i32 value)
 {
     weapon.actor.spawn_blocked = value;
-    store32(weapon.bytes, 0xAD0, u32(value));
+    set(weapon.bytes, weapon_field::spawn_blocked, u32(value));
 }
 }
 
@@ -105,7 +105,7 @@ void large_projectile_weapon_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_large_projectile(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     auto bytes = weapon.bytes;
-    store32(bytes, 0x99C, 0x000CE5D0); // The class's contact test, called through +0x99C.
+    set(bytes, weapon_field::contact_test, 0x000CE5D0); // The class's contact test, called through +0x99C.
     set(bytes, field::bounces_left, i16(0));
     set(bytes, field::hold_turn, get(parameters, parameter::hold_turn));
     set(bytes, field::hold_forward, get(parameters, parameter::hold_forward));
@@ -128,16 +128,16 @@ void destroy_runtime_large_projectile(RuntimeWeaponActor& weapon)
 void mark_runtime_weapon_player_category(RuntimeWeaponActor& weapon)
 {
     const Actor* owner = weapon.actor.spawn_owner; // +0xD8C.
-    store16(weapon.bytes, 0xAA8, owner != nullptr && runtime_actor_is_player(*owner) ? 1 : 0);
+    set(weapon.bytes, weapon_field::break_category, owner != nullptr && runtime_actor_is_player(*owner) ? 1 : 0);
 }
 
 // Xbox 0x000CDF40, EAX actor
 void start_runtime_large_projectile_idle(RuntimeWeaponActor& weapon)
 {
     // The body of 0x00144D40 inlined over +0xDD0, through 0x0003ADA0.
-    if (read_u32(weapon.bytes, 0xDD0) == kAidPrefix)
+    if (read_u32(weapon.bytes, weapon_field::animation.offset) == kAidPrefix)
     {
-        start_runtime_weapon_animation(weapon, reinterpret_cast<const char*>(weapon.bytes.data() + 0xDD0));
+        start_runtime_weapon_animation(weapon, field_data(weapon.bytes, weapon_field::animation));
     }
 }
 
@@ -204,7 +204,7 @@ void dispatch_runtime_large_projectile_message(RuntimeWeaponActor& weapon, std::
         break;
     case 0xA0:
     {
-        if (read_u16(bytes, 0xC0C) != 0x10)
+        if (get(bytes, weapon_field::state) != 0x10)
         {
             break;
         }
@@ -321,7 +321,7 @@ void enter_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state,
         raise_model_mode(weapon, 4); // 0x0003C750
         weapon.actor.model_flags |= 0x100u;
         start_runtime_large_projectile_idle(weapon); // 0x000CDF40
-        if (read_u32(weapon.bytes, 0xDA8) == 0)
+        if (get(weapon.bytes, weapon_field::unk_DA8) == 0)
         {
             attach_runtime_weapon_volume(weapon); // 0x00146310
         }
@@ -373,7 +373,7 @@ void leave_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state,
         }
         return;
     case 0xC:
-        if (read_u32(bytes, 0xDD0) == kAidPrefix)
+        if (read_u32(bytes, weapon_field::animation.offset) == kAidPrefix)
         {
             resume_idle_slot(weapon); // 0x0003B340
         }
@@ -386,7 +386,7 @@ void leave_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state,
     case 0xF:
         return;
     case 0x10:
-        if (read_u32(bytes, 0xDD0) == kAidPrefix)
+        if (read_u32(bytes, weapon_field::animation.offset) == kAidPrefix)
         {
             resume_idle_slot(weapon); // 0x0003B340
         }
@@ -606,11 +606,11 @@ void fly_runtime_large_projectile(RuntimeWeaponActor& weapon)
     else if (result == 3)
     {
         // Vtable +0x40 / +0x3C straight to state 4.
-        store16(bytes, 0xC0E, 0);
-        leave_state(weapon, read_u16(bytes, 0xC0C), 4);
-        const u16 previous = read_u16(bytes, 0xC0C);
-        store16(bytes, 0xC0C, 4);
-        store32(bytes, 0xC14, 0);
+        set(bytes, weapon_field::next_state, 0);
+        leave_state(weapon, get(bytes, weapon_field::state), 4);
+        const u16 previous = get(bytes, weapon_field::state);
+        set(bytes, weapon_field::state, 4);
+        set(bytes, weapon_field::state_time, 0.f);
         enter_state(weapon, 4, previous);
     }
 }
@@ -697,8 +697,10 @@ bool update_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon)
     for (auto& [probe, records] : found)
     {
         RuntimeSegmentContactActor& object = weapon.contact_actor(*probe);
-        if (report_runtime_projectile_contact(weapon, weapon.actor.spawn_owner, object, position, records, still, 0,
-                bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], get(bytes, field::hits) == 0, 0) != 0) // 0x00141A30
+        if (report_runtime_projectile_contact(
+                weapon, weapon.actor.spawn_owner, object, position, records, still, 0,
+                get(bytes, weapon_field::hit_kind), get(bytes, weapon_field::hit_strength),
+                get(bytes, weapon_field::hit_style), get(bytes, field::hits) == 0, 0) != 0) // 0x00141A30
         {
             set(bytes, field::hits, get(bytes, field::hits) + 1);
         }
@@ -831,7 +833,7 @@ void update_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state
         }
         [[fallthrough]];
     case 6:
-        store16(weapon.bytes, 0xC0E, 0xB);
+        set(weapon.bytes, weapon_field::next_state, 0xB);
         return;
     case 0xF:
         lift_runtime_large_projectile(weapon); // 0x000CE810

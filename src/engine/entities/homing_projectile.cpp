@@ -54,7 +54,8 @@ void lower_model_mode(RuntimeWeaponActor& weapon)
 {
     if (weapon.cells != nullptr)
     {
-        entity_detail::release_navigation_cell_registration(weapon.cells, read_u32(weapon.bytes, 0xD00)); // 0x001108B0
+        entity_detail::release_navigation_cell_registration(weapon.cells,
+                                                            get(weapon.bytes, weapon_field::floor)); // 0x001108B0
     }
     weapon.actor.model_mode &= ~4;
     register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770
@@ -76,7 +77,7 @@ void start_flight_animation(RuntimeWeaponActor& weapon)
 // The actor of the weapon's follow record (+0xE50 -> +0x10), by its retail address; zero without a record.
 u32 follow_target_address(RuntimeWeaponActor& weapon)
 {
-    const u32 record = read_u32(weapon.bytes, 0xE50);
+    const u32 record = get(weapon.bytes, weapon_field::target_record);
     if (record == 0)
     {
         return 0;
@@ -101,7 +102,7 @@ void end_runtime_homing_projectile_flight(RuntimeWeaponActor& weapon)
 void start_runtime_homing_projectile_flight(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    store32(bytes, 0xCDC, 1);
+    set(bytes, weapon_field::starting, 1);
     weapon.actor.mask_mode = 1; // Native alias of the +0xCDC word.
     const float slack = get(bytes, field::follow_slack);
     const float speed = get(bytes, field::follow_speed);
@@ -109,7 +110,7 @@ void start_runtime_homing_projectile_flight(RuntimeWeaponActor& weapon)
     std::memcpy(bytes.data() + 0xCEC, &slack, 4);
     std::memcpy(bytes.data() + 0xCF0, &speed, 4);
     std::memcpy(bytes.data() + 0xCF4, &rise, 4);
-    store32(bytes, 0xCF8, get(bytes, field::ghost));
+    set(bytes, weapon_field::ghost, get(bytes, field::ghost));
     weapon.actor.anchor = actor_transform_origin; // DAT_0050DD80.
     start_flight_animation(weapon); // The tail jumps to 0x0003A9E0 / 0x0003AC20.
 }
@@ -193,8 +194,10 @@ bool update_runtime_homing_projectile_shatter(RuntimeWeaponActor& weapon)
     for (auto& [probe, records] : found)
     {
         if (report_runtime_projectile_contact(weapon, weapon.actor.spawn_owner, weapon.contact_actor(*probe), position,
-                records, still, 0, bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], get(bytes, field::hits) == 0,
-                get(bytes, field::contact_tail)) != 0) // 0x00141A30
+                                              records, still, 0, get(bytes, weapon_field::hit_kind),
+                                              get(bytes, weapon_field::hit_strength),
+                                              get(bytes, weapon_field::hit_style), get(bytes, field::hits) == 0,
+                                              get(bytes, field::contact_tail)) != 0) // 0x00141A30
         {
             set(bytes, field::hits, get(bytes, field::hits) + 1);
         }
@@ -278,7 +281,7 @@ void homing_projectile_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_homing_projectile(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     auto bytes = weapon.bytes;
-    store32(bytes, 0x99C, 0x000CD1B0); // The class's contact test, called through +0x99C.
+    set(bytes, weapon_field::contact_test, 0x000CD1B0); // The class's contact test, called through +0x99C.
     // 0x0003AAA0 with EAX 0 (no variant), ECX the name and the actor's +0x48 table.
     const u32 name = get(parameters, parameter::flight_animation);
     const char* text = nullptr;
@@ -339,7 +342,7 @@ void update_runtime_homing_projectile_state(RuntimeWeaponActor& weapon, u16 stat
     case 4:
         if (update_runtime_homing_projectile_shatter(weapon)) // 0x000CD3A0
         {
-            store16(weapon.bytes, 0xC0E, 0xB);
+            set(weapon.bytes, weapon_field::next_state, 0xB);
         }
         return;
     case 9:
@@ -372,11 +375,11 @@ void dispatch_runtime_homing_projectile_message(RuntimeWeaponActor& weapon, std:
     case 0x18:
         message[4] = 1;
         send_callout(weapon, 0x19); // 0x0003C040
-        store16(bytes, 0xC0E, 9);
+        set(bytes, weapon_field::next_state, 9);
         break;
     case 0x31:
         // The holder or the follow target noticed in flight ends it.
-        if (read_u16(bytes, 0xC0C) == 10 && read_u32(bytes, 0xE50) != 0)
+        if (get(bytes, weapon_field::state) == 10 && get(bytes, weapon_field::target_record) != 0)
         {
             const Actor* holder = weapon.actor.spawn_owner; // +0xD8C.
             const u32 holder_address = holder == nullptr ? 0 : weapon.services.actor_address(*holder);
@@ -387,13 +390,14 @@ void dispatch_runtime_homing_projectile_message(RuntimeWeaponActor& weapon, std:
         }
         break;
     case 0x49:
-        if (message[0xB] != 0 && read_u32(bytes, 0xE50) != 0 && message[6] == follow_target_address(weapon))
+        if (message[0xB] != 0 && get(bytes, weapon_field::target_record) != 0 &&
+            message[6] == follow_target_address(weapon))
         {
             end_runtime_homing_projectile_flight(weapon); // 0x000CD2A0
         }
         break;
     case 0x7D:
-        if (read_u16(bytes, 0xC0C) == 0)
+        if (get(bytes, weapon_field::state) == 0)
         {
             change_runtime_weapon_state(weapon, 0x10); // 0x0014A290
         }
@@ -484,7 +488,7 @@ void enter_runtime_homing_projectile_state(RuntimeWeaponActor& weapon, u16 state
         raise_model_mode(weapon, 4); // 0x0003C750 inlined
         weapon.actor.model_flags |= 0x100u;
         start_runtime_weapon_idle(weapon); // 0x00144D00
-        if (read_u32(weapon.bytes, 0xDA8) == 0)
+        if (get(weapon.bytes, weapon_field::unk_DA8) == 0)
         {
             attach_runtime_weapon_volume(weapon); // 0x00146310
         }
@@ -546,12 +550,13 @@ u32 test_runtime_homing_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSe
 {
     auto bytes = weapon.bytes;
     if (report_runtime_projectile_contact(weapon, weapon.actor.spawn_owner, object, point, contacts, velocity, word,
-            bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], get(bytes, field::hits) == 0,
-            get(bytes, field::contact_tail)) != 0) // 0x00141A30
+                                          get(bytes, weapon_field::hit_kind), get(bytes, weapon_field::hit_strength),
+                                          get(bytes, weapon_field::hit_style), get(bytes, field::hits) == 0,
+                                          get(bytes, field::contact_tail)) != 0) // 0x00141A30
     {
         set(bytes, field::hits, get(bytes, field::hits) + 1);
     }
-    return bytes[0x93C] == 0 ? 1u : 0u;
+    return get(bytes, weapon_field::mask) == 0 ? 1u : 0u;
 }
 
 // Xbox 0x000CD090

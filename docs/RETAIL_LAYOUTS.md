@@ -199,7 +199,9 @@ The base mind was named in one pass over 81 files: accessors whose type matched 
 the rest (float fields written as words, the +0x20 byte, the Vec3 blocks, `memcpy` writes) by hand. Every replaced
 access keeps its offset, width and bits. `--scene3` (54 captures) and `--scene6` (64 captures) are byte-identical to
 the build before the change; one `--scene6` run differed in 3 bytes of `scene6_title.bmp`, and two reruns matched, so
-that mode has rare noise too. `--player-opening` and `--player-death` pass but can't be compared by capture.
+that mode has rare noise too. That noise was the game polling real-time audio; with the tests' virtual audio clock
+(`pcm_use_virtual_audio_clock`), `--player-opening` (14 captures) and `--player-death` (95 captures and its per-frame
+imp log) are byte-identical with and without the change.
 Offsets into derived minds (the player mind's +0xB8 record, the cinema mind's +0x7C radius and +0x98) stay literal.
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the

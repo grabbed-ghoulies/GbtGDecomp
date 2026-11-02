@@ -290,6 +290,14 @@ The actor's parameter block (`actor_parameter_field`, 0x334 bytes) is named in i
 The builders' type-specific fields past +0x334 stay by offset until each consuming type names its parameters. Against
 the previous build all captures match in the nine regular modes (`scene6_title.bmp` its other known version).
 
+The kind-0 region yaw the scene logs printed was an occupancy sphere's +0x34, which 0x001246A0 never writes (only
+boxes have a yaw) on a block from `engine_heap_allocate`, whose retail HeapAlloc doesn't zero. The host heap now
+zero-fills new and grown blocks, so it reads 0 every run. That did not make `--scene2c7` or `--scene3c1` repeat:
+two runs of one exe still diverge in scene3c1's ghoul fights (near frame 28,600 in one pair, 30,000 in another, with
+the exe's own ASLR turned off), and scene2c7 still varies in one capture. Nothing reads a sphere's yaw, so it was a
+symptom of uninitialized memory, not the cause; the source is still to be found. The nine regular modes match the
+previous build with the zero-filled heap.
+
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and
 8–11, through both failure and success. It doesn't reach phases 6 and 7 or the DAT_005122F0 auto-press path, and it

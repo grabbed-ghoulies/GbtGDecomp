@@ -4,11 +4,17 @@
 #include "../audio/body_sound_commands.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "body_state_fields.h"
 
 #include <cstring>
 
 namespace gbtg
 {
+namespace walk = walk_alert_field;
+namespace fly = fly_state_field;
+namespace row = walk_alert_row_field;
+namespace base = body_state_field;
+
 namespace
 {
 void put_float(std::span<u8> bytes, size_t offset, float value)
@@ -99,13 +105,14 @@ bool runtime_body_stride_duration(float speed, const Actor& actor, const ActorAn
 i32 runtime_walk_alert_band(std::span<const u8> state, std::span<const u8> body, const Actor& actor,
     float speed, const RuntimeBodyDamageTables& tables, std::span<const float> mode_scales)
 {
-    const i32 count = i16(read_u16(state, 0x2C));
+    const i32 count = get(state, walk::row_count);
     for (i32 index = 0; index < count; ++index)
     {
         const float factor = runtime_class_damage_value(body[0x328], actor.damage_class, tables);
         const float scale = surface_mode_scale(body, mode_scales);
         if (speed >= 0.f
-            && read_f32(body, 0x32C) * read_f32(state, 0x3C + size_t(index) * 0x10) * factor * scale > speed)
+            && read_f32(body, 0x32C) * get(record(state, walk::rows, size_t(index)), row::top_speed) * factor * scale
+                > speed)
         {
             return index;
         }
@@ -120,13 +127,15 @@ void retime_runtime_walk_alert(std::span<const u8> state, float speed, RuntimeWa
     float duration;
     if (!runtime_body_stride_duration(speed, context.actor, context.actions.animation, duration))
     {
-        const size_t band = read_u16(state, 0x2E);
-        const float lower_limit = band == 0 ? 0.f : read_f32(state, band * 0x10 + 0x2C);
-        const float upper_limit = read_f32(state, band * 0x10 + 0x3C);
+        const size_t band = get(state, walk::band);
+        // The band starts at the previous band's top speed.
+        const float lower_limit = band == 0 ? 0.f : get(record(state, walk::rows, band - 1), row::top_speed);
+        const auto current = record(state, walk::rows, band);
+        const float upper_limit = get(current, row::top_speed);
         const float scale = surface_mode_scale(body, context.mode_scales);
         const float base = runtime_body_step_speed(body, context.actor, context.tables) * scale;
-        const float lower_rate = read_f32(state, band * 0x10 + 0x34);
-        const float upper_rate = read_f32(state, band * 0x10 + 0x38);
+        const float lower_rate = get(current, row::lower_duration);
+        const float upper_rate = get(current, row::upper_duration);
         const float upper = base * upper_limit;
         const float lower = base * lower_limit;
         if (upper == lower)
@@ -164,7 +173,7 @@ void retime_runtime_walk_alert(std::span<const u8> state, float speed, RuntimeWa
                 duration = value;
             }
         }
-        duration = runtime_body_turn_ratio(body, context.actor, read_u32(state, 0x80), context.tables,
+        duration = runtime_body_turn_ratio(body, context.actor, get(state, walk::fixed_turn_ratio), context.tables,
             context.mode_scales) * duration;
     }
     if (context.actions.animation.controller != nullptr)
@@ -187,7 +196,7 @@ void select_runtime_walk_alert_band(std::span<u8> state, RuntimeWalkAlertTick& c
     static_cast<void>(retail_square_root(vz * vz + vx * vx)); // Popped unused.
     const i32 band = runtime_walk_alert_band(state, body, context.actor, speed, context.tables,
         context.mode_scales);
-    if (u32(band) != read_u16(state, 0x2E))
+    if (u32(band) != get(state, walk::band))
     {
         context.actions.animation.retain_position = 1; // Actor +0x84.
         const AnimationRecord* record = runtime_walk_alert_record(state, u16(band));
@@ -196,8 +205,7 @@ void select_runtime_walk_alert_band(std::span<u8> state, RuntimeWalkAlertTick& c
             throw Error("walk-alert band record is null; 0x0001AFA0 reads its +0x117");
         }
         start_runtime_body_animation_record(*record, context.actions);
-        const u16 stored = u16(band);
-        std::memcpy(state.data() + 0x2E, &stored, 2);
+        set(state, walk::band, u16(band));
     }
     retime_runtime_walk_alert(state, speed, context);
 }
@@ -231,7 +239,7 @@ void steer_runtime_walk_alert(std::span<const u8> state, RuntimeWalkAlertTick& c
     {
         angle = float(retail_atan2(axes[1], axes[0]));
     }
-    const float limit = read_f32(state, 0x28);
+    const float limit = get(state, walk::stick_limit);
     if (magnitude > limit)
     {
         magnitude = limit;
@@ -240,15 +248,13 @@ void steer_runtime_walk_alert(std::span<const u8> state, RuntimeWalkAlertTick& c
     float side = 0.f;
     if (magnitude > 0.f)
     {
-        put_float(body, 0x72C, 0.f);
-        put_float(body, 0x730, angle);
-        put_float(body, 0x734, 0.f);
+        set(body, body_field::euler, Vec3{0.f, angle, 0.f});
         float heading = angle;
-        if (read_u32(state, 0x20) != 0)
+        if (get(state, walk::settles) != 0)
         {
             context.orient();
         }
-        if (read_u32(state, 0x74) != 0 && magnitude > read_f32(state, 0x78))
+        if (get(state, walk::holds_heading) != 0 && magnitude > get(state, walk::hold_heading_above))
         {
             heading = context.actor.euler.y; // Actor +0x18.
         }
@@ -258,9 +264,7 @@ void steer_runtime_walk_alert(std::span<const u8> state, RuntimeWalkAlertTick& c
         side = float(retail_sin(heading) * speed);
         forward = float(retail_cos(heading) * speed);
     }
-    put_float(body, 0x318, side);
-    put_float(body, 0x31C, 0.f);
-    put_float(body, 0x320, forward);
+    set(body, body_field::velocity, Vec3{side, 0.f, forward});
 }
 
 // Xbox 0x000A5EA0
@@ -271,17 +275,17 @@ void select_runtime_walk_alert_key(std::span<u8> state, RuntimeWalkAlertTick& co
     const float z = context.actor.anchor.z;
     const float vx = get(body, body_field::velocity).x;
     const float vz = get(body, body_field::velocity).z;
-    if ((context.flags.bytes[7] & 8) == 0 && read_u16(state, 0x1C) != 0)
+    if ((context.flags.bytes[7] & 8) == 0 && get(state, walk::alert_key) != 0)
     {
         const bool alert = context.mind_present && context.mind_alert != 0;
-        if (read_u32(state, 0x7C) != 0 ? !alert : alert)
+        if (get(state, walk::alert_when_calm) != 0 ? !alert : alert)
         {
             context.actions.animation.retain_position = 1; // Actor +0x84.
-            std::memcpy(state.data() + 0xC, state.data() + 0x1C, 2);
+            set(state, base::next_key, get(state, walk::alert_key));
             return;
         }
     }
-    const u16 key = read_u16(state, 0x1A);
+    const u16 key = get(state, walk::stop_key);
     if (key == 0)
     {
         return;
@@ -292,9 +296,9 @@ void select_runtime_walk_alert_key(std::span<u8> state, RuntimeWalkAlertTick& co
     const float threshold = runtime_body_step_speed(body, context.actor, context.tables) * scale * 0.01f;
     if (desired == 0.f) // DAT_0032B100; DAT_0032B124 above.
     {
-        if (threshold * threshold >= actor_speed || read_u32(state, 0x24) != 0)
+        if (threshold * threshold >= actor_speed || get(state, walk::stops_at_once) != 0)
         {
-            std::memcpy(state.data() + 0xC, &key, 2);
+            set(state, base::next_key, key);
         }
     }
 }
@@ -303,8 +307,8 @@ void select_runtime_walk_alert_key(std::span<u8> state, RuntimeWalkAlertTick& co
 void tick_runtime_walk_alert(std::span<u8> state, RuntimeWalkAlertTick& context)
 {
     const float elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
-        + read_f32(state, 0x10);
-    put_float(state, 0x10, elapsed);
+        + get(state, base::elapsed);
+    set(state, base::elapsed, elapsed);
     steer_runtime_walk_alert(state, context);
     select_runtime_walk_alert_band(state, context);
     select_runtime_walk_alert_key(state, context);
@@ -362,7 +366,7 @@ void steer_runtime_fly_state(std::span<const u8> state, RuntimeWalkAlertTick& co
         runtime_input_tertiary_axes(*context.input, third, context.input_state); // 0x00108AB0, EAX input
         rise = third[1];
     }
-    const float limit = read_f32(state, 0x20);
+    const float limit = get(state, fly::stick_limit);
     if (magnitude > limit)
     {
         magnitude = limit;
@@ -371,11 +375,9 @@ void steer_runtime_fly_state(std::span<const u8> state, RuntimeWalkAlertTick& co
     float forward = 0.f;
     if (magnitude > 0.f)
     {
-        put_float(body, 0x72C, 0.f);
-        put_float(body, 0x730, angle);
-        put_float(body, 0x734, 0.f);
+        set(body, body_field::euler, Vec3{0.f, angle, 0.f});
         float heading = angle;
-        if (read_u32(state, 0x24) != 0 && magnitude > read_f32(state, 0x28))
+        if (get(state, fly::holds_heading) != 0 && magnitude > get(state, fly::hold_heading_above))
         {
             heading = context.actor.euler.y; // Actor +0x18.
         }
@@ -386,9 +388,7 @@ void steer_runtime_fly_state(std::span<const u8> state, RuntimeWalkAlertTick& co
     }
     const float scale = surface_mode_scale(body, context.mode_scales);
     const float lift = runtime_body_step_speed(body, context.actor, context.tables) * scale * rise; // 0x000259C0
-    put_float(body, 0x318, side);
-    put_float(body, 0x31C, lift);
-    put_float(body, 0x320, forward);
+    set(body, body_field::velocity, Vec3{side, lift, forward});
 }
 
 // Xbox 0x00091480, EAX body, EBX state
@@ -398,13 +398,15 @@ void retime_runtime_fly_state(std::span<const u8> state, float speed, RuntimeWal
     float duration;
     if (!runtime_body_stride_duration(speed, context.actor, context.actions.animation, duration)) // 0x00133C90
     {
-        const size_t band = read_u16(state, 0x2E);
-        const float lower_limit = band == 0 ? 0.f : read_f32(state, band * 0x10 + 0x2C);
-        const float upper_limit = read_f32(state, band * 0x10 + 0x3C);
+        const size_t band = get(state, fly::band);
+        // The band starts at the previous band's top speed.
+        const float lower_limit = band == 0 ? 0.f : get(record(state, fly::rows, band - 1), row::top_speed);
+        const auto current = record(state, fly::rows, band);
+        const float upper_limit = get(current, row::top_speed);
         const float scale = surface_mode_scale(body, context.mode_scales);
         const float base = runtime_body_step_speed(body, context.actor, context.tables) * scale;
-        const float lower_rate = read_f32(state, band * 0x10 + 0x34);
-        const float upper_rate = read_f32(state, band * 0x10 + 0x38);
+        const float lower_rate = get(current, row::lower_duration);
+        const float upper_rate = get(current, row::upper_duration);
         const float upper = base * upper_limit;
         const float lower = base * lower_limit;
         if (upper == lower)
@@ -467,7 +469,7 @@ void select_runtime_fly_band(std::span<u8> state, RuntimeWalkAlertTick& context)
         context.mode_scales); // 0x000A5FD0
     const i32 band = runtime_walk_alert_band(state, body, context.actor, speed, context.tables,
         context.mode_scales); // 0x000A5FD0
-    if (band == steered_band && u32(steered_band) != read_u16(state, 0x2E))
+    if (band == steered_band && u32(steered_band) != get(state, fly::band))
     {
         context.actions.animation.retain_position = 1; // Actor +0x84.
         const AnimationRecord* record = runtime_walk_alert_record(state, u16(steered_band));
@@ -476,8 +478,7 @@ void select_runtime_fly_band(std::span<u8> state, RuntimeWalkAlertTick& context)
             throw Error("fly band record is null; 0x0001AFA0 reads its +0x117");
         }
         start_runtime_body_animation_record(*record, context.actions); // 0x0001AFA0
-        const u16 stored = u16(steered_band);
-        std::memcpy(state.data() + 0x2E, &stored, 2);
+        set(state, fly::band, u16(steered_band));
     }
     retime_runtime_fly_state(state, speed, context); // 0x00091480
 }
@@ -491,13 +492,13 @@ void select_runtime_fly_key(std::span<u8> state, RuntimeWalkAlertTick& context)
     const float vx = get(body, body_field::velocity).x;
     const float vy = get(body, body_field::velocity).y;
     const float vz = get(body, body_field::velocity).z;
-    if (read_u16(state, 0x1C) != 0 && context.mind_present && context.mind_alert != 0)
+    if (get(state, fly::alert_key) != 0 && context.mind_present && context.mind_alert != 0)
     {
         context.actions.animation.retain_position = 1; // Actor +0x84.
-        std::memcpy(state.data() + 0xC, state.data() + 0x1C, 2);
+        set(state, base::next_key, get(state, fly::alert_key));
         return;
     }
-    const u16 key = read_u16(state, 0x1A);
+    const u16 key = get(state, fly::stop_key);
     if (key == 0)
     {
         return;
@@ -508,7 +509,7 @@ void select_runtime_fly_key(std::span<u8> state, RuntimeWalkAlertTick& context)
     {
         if (threshold * threshold >= z * z + x * x)
         {
-            std::memcpy(state.data() + 0xC, &key, 2);
+            set(state, base::next_key, key);
         }
     }
 }
@@ -517,8 +518,8 @@ void select_runtime_fly_key(std::span<u8> state, RuntimeWalkAlertTick& context)
 void tick_runtime_fly_state(std::span<u8> state, RuntimeWalkAlertTick& context)
 {
     const float elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
-        + read_f32(state, 0x10);
-    put_float(state, 0x10, elapsed);
+        + get(state, base::elapsed);
+    set(state, base::elapsed, elapsed);
     steer_runtime_fly_state(state, context); // 0x00091210
     select_runtime_fly_band(state, context); // 0x000915D0
     select_runtime_fly_key(state, context); // 0x000916C0

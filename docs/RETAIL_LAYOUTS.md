@@ -195,6 +195,8 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Die state (factory type 0x62, 0x0008C240) | 0x6C, parameters 0x20 | `die_state_field`: animation name, body bit, moving-key, face-view and settle switches, target; `die_state_parameter` | `src/engine/entities/body_die_state.h` |
 | Player death state (factory type 0x69, 0x0008EF30) | 0x3C, parameters 0x18 | `player_death_state_field`: phase, wait timer, saved shape mode, death word, contacts raised, fail stream, saved body +0x717, animations found; `player_death_state_parameter` | `src/engine/entities/body_player_death_state.h` |
 | Grabbed state (factory type 0x70, 0x00094350) | 0x28, parameters 0x18 | `grabbed_state_field`: release mark, move hold, latch hold, body bit; `grabbed_state_parameter` | `src/engine/entities/body_grabbed_state.h` |
+| Stand alert (factory type 0x87, 0x000A2590) | 0x50, parameters 0xBC | `stand_alert_field`: input, alert and moving keys, counter, pause and hold switches, model node slot and keep switch, secondary detach and mode switches with the saved mode, settle switch, sound started, body bit, saved shape mode; `stand_alert_parameter` | `src/engine/entities/body_state_actions.h` |
+| Walk alert and fly states (factory types 0x8E, 0x000A5650, and 0x6D, 0x00090D90) | 0x88 / 0x78, parameters 0xB8 / 0xA8 | `walk_alert_field` / `fly_state_field`: stop and alert keys, stick limit, heading hold, row count, band, the four speed-band rows (`walk_alert_row_field`: animation, lower and upper durations, top speed), sound started; the walk alert's settle, stop-at-once, alert-when-calm, fixed-ratio and body-bit words; the fly state's loop; and their parameters | `src/engine/entities/body_state_actions.h` |
 | Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `mind_target_field`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
@@ -246,6 +248,13 @@ build's stored captures as its baseline instead of re-running it. All captures m
 `--scene6` matched except for `scene6_title.bmp`, which has two versions 3 bytes apart that every build has produced.
 The imp fight in `--player-fight` and `--player-death` runs the dizzy, die and anim states, and `--player-death` runs
 the player death state. No mode in the set is known to reach the struggle, grabbed or hover states.
+
+The stand alert, walk alert and fly states were named by hand across their constructors (`body_state_actions.cpp`)
+and ticks (`body_walk_alert_tick.cpp`, `body_stand_alert_tick.cpp`); the band code both alert states share reads the
+walk alert's names, and a static_assert holds the fly state's rows at the same offsets. Body velocity and euler
+writes set the whole Vec3. Against the previous build's stored captures, all match in the same nine modes, apart from
+`scene6_title.bmp`'s other known version. `--scene5` puts Cooper in the stand and walk alerts; no mode in the set is
+known to reach the fly state.
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and

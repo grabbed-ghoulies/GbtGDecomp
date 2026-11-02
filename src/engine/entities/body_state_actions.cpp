@@ -16,6 +16,7 @@
 #include "body_throw_state.h"
 #include "gbtg/entity.h"
 #include "body_fields.h"
+#include "body_state_fields.h"
 #include <bit>
 #include <cstring>
 #include <unordered_map>
@@ -23,6 +24,14 @@
 
 namespace gbtg
 {
+namespace stand = stand_alert_field;
+namespace stand_parameter = stand_alert_parameter;
+namespace walk = walk_alert_field;
+namespace walk_parameter = walk_alert_parameter;
+namespace fly = fly_state_field;
+namespace fly_parameter = fly_state_parameter;
+namespace row = walk_alert_row_field;
+
 namespace
 {
 std::function<RuntimeBodyStateContext(u32)> body_context_of;
@@ -35,19 +44,14 @@ std::function<RuntimeGrabbedStateContext&(u32)> grabbed_context_of;
 std::function<RuntimeThrowStateContext&(u32)> throw_context_of;
 std::function<RuntimeAnimStateContext&(u32)> anim_context_of;
 std::function<RuntimePickupStateContext&(u32)> pickup_context_of;
-// Walk-alert speed-band records by state, the host side of state +0x30 + 0x10 * index.
+// Walk-alert (and fly) speed-band records by state, the host side of the state's rows.
 std::unordered_map<const u8*, std::vector<const AnimationRecord*>> walk_alert_records;
-// The fly state's looping animation record (+0x74), by the state's bytes.
+// The fly state's looping animation record (`loop_found`), by the state's bytes.
 std::unordered_map<const u8*, const AnimationRecord*> fly_loop_records;
 
 u32 word(std::span<const u8> bytes, size_t offset)
 {
     return read_u32(bytes, offset);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
 }
 
 // Actor +0x50 controller: the first slot's player pause count (+0x58 -> +0 -> +0x125) and dirty flag (+0x5C).
@@ -492,8 +496,8 @@ void actor_move_object_sizes(ObjectSizes& output)
 // Xbox 0x000A2510
 void stand_alert_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x50;
-    output.parameters = 0xBC;
+    output.instance = stand::kSize;
+    output.parameters = stand_parameter::kSize;
 }
 
 // Xbox 0x000A2590
@@ -501,48 +505,49 @@ bool initialize_runtime_stand_alert(std::span<u8> state, std::span<const u8> par
     RuntimeBodyStateContext& context)
 {
     const auto body = context.body;
-    std::memcpy(state.data() + 0x18, parameters.data() + 0xC, 2);
-    std::memcpy(state.data() + 0x1A, parameters.data() + 0xE, 2);
-    put_word(state, 0x1C, word(parameters, 0x10));
-    put_word(state, 0x20, word(parameters, 0x14));
-    put_word(state, 0x24, word(parameters, 0x18));
-    put_word(state, 0x28, word(parameters, 0x1C));
-    put_word(state, 0x48, word(parameters, 0xB4));
-    put_word(state, 0x2C, word(parameters, 0x20));
-    put_word(state, 0x30, word(parameters, 0x24));
-    put_word(state, 0x34, word(parameters, 0x28));
-    put_word(state, 0x38, word(parameters, 0x30));
-    put_word(state, 0x3C, word(parameters, 0x2C));
-    put_word(state, 0x40, u32(context.secondary_mode));
+    set(state, stand::input_key, get(parameters, stand_parameter::input_key));
+    set(state, stand::alert_key, get(parameters, stand_parameter::alert_key));
+    set(state, stand::moving_key, get(parameters, stand_parameter::moving_key));
+    set(state, stand::raises_counters, get(parameters, stand_parameter::raises_counters));
+    set(state, stand::pauses_animation, get(parameters, stand_parameter::pauses_animation));
+    set(state, stand::holds, get(parameters, stand_parameter::holds));
+    set(state, stand::body_bit, get(parameters, stand_parameter::body_bit));
+    set(state, stand::node_slot, get(parameters, stand_parameter::node_slot));
+    set(state, stand::keeps_node, get(parameters, stand_parameter::keeps_node));
+    set(state, stand::detaches_secondary, get(parameters, stand_parameter::detaches_secondary));
+    set(state, stand::settles, get(parameters, stand_parameter::settles));
+    set(state, stand::clears_secondary_mode, get(parameters, stand_parameter::clears_secondary_mode));
+    set(state, stand::saved_secondary_mode, context.secondary_mode);
     context.bits->bytes[6] |= 1;
     body[0x38] = 1;
     body[0x39] = 1;
     std::memset(body.data() + 0x160, 0, 2);
-    if (word(state, 0x24) != 0)
+    if (get(state, stand::pauses_animation) != 0)
     {
         adjust_animation_pause(context.animation, 1);
     }
-    if (word(state, 0x20) != 0)
+    if (get(state, stand::raises_counters) != 0)
     {
         adjust_body_counters(body, 1);
     }
-    if (parameters[0x34] != 0)
+    const char* sound = field_data(parameters, stand_parameter::sound);
+    if (sound[0] != 0)
     {
-        if (parameters[0x34] != 0)
+        if (sound[0] != 0)
         {
-            queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f,
-                reinterpret_cast<const char*>(parameters.data() + 0x34), context.sounds);
+            queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f, sound,
+                context.sounds);
         }
-        put_word(state, 0x44, 1);
+        set(state, stand::sound_started, 1);
     }
-    const u32 bit = word(state, 0x48);
+    const u32 bit = get(state, stand::body_bit);
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] |= u8(1u << (bit & 7));
     }
-    if (word(state, 0x2C) != 0xFFFFFFFF)
+    if (get(state, stand::node_slot) != 0xFFFFFFFF)
     {
-        const u8 slot = state[0x2C];
+        const u8 slot = u8(get(state, stand::node_slot));
         if (context.actor.model != nullptr && context.actor.model->runtime != nullptr)
         {
             set_runtime_model_node_state(*context.actor.model->runtime, slot, 1, context.node_states);
@@ -552,19 +557,20 @@ bool initialize_runtime_stand_alert(std::span<u8> state, std::span<const u8> par
             set_runtime_model_node_state(*context.secondary, slot, 1, context.node_states);
         }
     }
-    if (word(parameters, 0xB8) == 0)
+    if (get(parameters, stand_parameter::shape_mode) == 0)
     {
-        put_word(state, 0x4C, body[0x244]);
+        set(state, stand::saved_shape_mode, body[0x244]);
     }
     else
     {
-        put_word(state, 0x4C, set_runtime_body_shape_mode(parameters[0xB8], context));
+        set(state, stand::saved_shape_mode,
+            set_runtime_body_shape_mode(u8(get(parameters, stand_parameter::shape_mode)), context));
     }
-    if (word(state, 0x28) != 0)
+    if (get(state, stand::holds) != 0)
     {
         set(body, body_field::holds, get(body, body_field::holds) + 1);
     }
-    if (word(state, 0x3C) != 0 && context.secondary != nullptr)
+    if (get(state, stand::clears_secondary_mode) != 0 && context.secondary != nullptr)
     {
         context.secondary_mode = 0;
     }
@@ -576,26 +582,26 @@ void destroy_runtime_stand_alert(std::span<u8> state, RuntimeBodyStateContext& c
 {
     const auto body = context.body;
     context.bits->bytes[6] &= 0xFE;
-    if (word(state, 0x20) != 0)
+    if (get(state, stand::raises_counters) != 0)
     {
         adjust_body_counters(body, -1);
     }
-    if (word(state, 0x24) != 0)
+    if (get(state, stand::pauses_animation) != 0)
     {
         adjust_animation_pause(context.animation, -1);
     }
-    if (word(state, 0x44) != 0)
+    if (get(state, stand::sound_started) != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds);
     }
-    const u32 bit = word(state, 0x48);
+    const u32 bit = get(state, stand::body_bit);
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
     }
-    if (word(state, 0x2C) != 0xFFFFFFFF && word(state, 0x30) == 0)
+    if (get(state, stand::node_slot) != 0xFFFFFFFF && get(state, stand::keeps_node) == 0)
     {
-        const u8 slot = state[0x2C];
+        const u8 slot = u8(get(state, stand::node_slot));
         if (context.actor.model != nullptr && context.actor.model->runtime != nullptr)
         {
             set_runtime_model_node_state(*context.actor.model->runtime, slot, 0, context.node_states);
@@ -605,8 +611,8 @@ void destroy_runtime_stand_alert(std::span<u8> state, RuntimeBodyStateContext& c
             set_runtime_model_node_state(*context.secondary, slot, 0, context.node_states);
         }
     }
-    set_runtime_body_shape_mode(state[0x4C], context);
-    if (word(state, 0x28) != 0)
+    set_runtime_body_shape_mode(u8(get(state, stand::saved_shape_mode)), context);
+    if (get(state, stand::holds) != 0)
     {
         const u32 count = get(body, body_field::holds) - 1;
         set(body, body_field::holds, count);
@@ -616,24 +622,24 @@ void destroy_runtime_stand_alert(std::span<u8> state, RuntimeBodyStateContext& c
             context.body_message(message);
         }
     }
-    if (word(state, 0x34) != 0 && context.attached != nullptr)
+    if (get(state, stand::detaches_secondary) != 0 && context.attached != nullptr)
     {
         auto* attached = context.attached;
         detach_runtime_body_secondary(body, context.attached, context.receiver);
         const u32 message[]{0x97, 0};
         attached->message(message);
     }
-    if (word(state, 0x3C) != 0 && context.secondary != nullptr)
+    if (get(state, stand::clears_secondary_mode) != 0 && context.secondary != nullptr)
     {
-        context.secondary_mode = i32(word(state, 0x40));
+        context.secondary_mode = get(state, stand::saved_secondary_mode);
     }
 }
 
 // Xbox 0x000A55D0
 void walk_alert_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x88;
-    output.parameters = 0xB8;
+    output.instance = walk::kSize;
+    output.parameters = walk_parameter::kSize;
 }
 
 // Xbox 0x000A5650
@@ -641,53 +647,55 @@ bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> para
     RuntimeBodyStateContext& context)
 {
     const auto body = context.body;
-    const i16 count = i16(read_u16(parameters, 0xC));
-    std::memcpy(state.data() + 0x2C, &count, 2);
+    const i16 count = get(parameters, walk_parameter::row_count);
+    set(state, walk::row_count, count);
     auto& records = walk_alert_records[state.data()];
     records.assign(count > 0 ? size_t(count) : 0, nullptr);
     for (i16 index = 0; index < count; ++index)
     {
-        const auto entry = context.resolve(word(parameters, 0x10) + u32(index) * 0x10, 0x10);
-        const u32 name_address = word(entry, 0);
+        const auto entry = context.resolve(get(parameters, walk_parameter::rows) + u32(index) * row::kSize, row::kSize);
+        const u32 name_address = get(entry, row::animation);
         const char* name = name_address == 0 ? nullptr
             : reinterpret_cast<const char*>(context.resolve(name_address, 0).data());
         // The inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
         const AnimationRecord* record = find_runtime_body_animation(name, context.actions);
         records[size_t(index)] = record;
-        put_word(state, 0x30 + size_t(index) * 0x10, record != nullptr ? 1 : 0);
-        put_word(state, 0x34 + size_t(index) * 0x10, word(entry, 4));
-        put_word(state, 0x38 + size_t(index) * 0x10, word(entry, 8));
-        put_word(state, 0x3C + size_t(index) * 0x10, word(entry, 0xC));
+        const auto band = gbtg::record(state, walk::rows, size_t(index));
+        set(band, row::animation, record != nullptr ? 1 : 0);
+        set(band, row::lower_duration, get(entry, row::lower_duration));
+        set(band, row::upper_duration, get(entry, row::upper_duration));
+        set(band, row::top_speed, get(entry, row::top_speed));
     }
-    std::memset(state.data() + 0x2E, 0, 2);
-    std::memcpy(state.data() + 0x1A, parameters.data() + 0x94, 2);
-    std::memcpy(state.data() + 0x1C, parameters.data() + 0x96, 2);
-    put_word(state, 0x20, word(parameters, 0x98));
-    put_word(state, 0x24, word(parameters, 0x9C));
-    put_word(state, 0x28, word(parameters, 0xA0));
-    put_word(state, 0x74, word(parameters, 0xA4));
-    put_word(state, 0x78, word(parameters, 0xA8));
-    put_word(state, 0x7C, word(parameters, 0xAC));
-    put_word(state, 0x80, word(parameters, 0xB0));
-    put_word(state, 0x84, word(parameters, 0xB4));
+    set(state, walk::band, 0);
+    set(state, walk::stop_key, get(parameters, walk_parameter::stop_key));
+    set(state, walk::alert_key, get(parameters, walk_parameter::alert_key));
+    set(state, walk::settles, get(parameters, walk_parameter::settles));
+    set(state, walk::stops_at_once, get(parameters, walk_parameter::stops_at_once));
+    set(state, walk::stick_limit, get(parameters, walk_parameter::stick_limit));
+    set(state, walk::holds_heading, get(parameters, walk_parameter::holds_heading));
+    set(state, walk::hold_heading_above, get(parameters, walk_parameter::hold_heading_above));
+    set(state, walk::alert_when_calm, get(parameters, walk_parameter::alert_when_calm));
+    set(state, walk::fixed_turn_ratio, get(parameters, walk_parameter::fixed_turn_ratio));
+    set(state, walk::body_bit, get(parameters, walk_parameter::body_bit));
     context.bits->bytes[6] |= 0x80;
-    if (parameters[0x14] != 0)
+    const char* sound = field_data(parameters, walk_parameter::sound);
+    if (sound[0] != 0)
     {
-        if (parameters[0x14] != 0)
+        if (sound[0] != 0)
         {
-            queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f,
-                reinterpret_cast<const char*>(parameters.data() + 0x14), context.sounds);
+            queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f, sound,
+                context.sounds);
         }
-        put_word(state, 0x70, 1);
+        set(state, walk::sound_started, 1);
     }
-    const u32 bit = word(state, 0x84);
+    const u32 bit = get(state, walk::body_bit);
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] |= u8(1u << (bit & 7));
     }
-    // The inlined 0x0003A9E0 for band +0x2E (0): 0x000322A0 with actor +0x84, the +0x50 controller (0x0003ACB0
+    // The inlined 0x0003A9E0 for the band (0): 0x000322A0 with actor +0x84, the +0x50 controller (0x0003ACB0
     // inline) and 0x00030880, then actor +0x84 is cleared.
-    const u16 band = read_u16(state, 0x2E);
+    const u16 band = get(state, walk::band);
     if (band >= records.size() || records[band] == nullptr)
     {
         throw Error("walk-alert band record is null; 0x000A5650 reads its +0x117");
@@ -703,11 +711,11 @@ bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> para
 // Xbox 0x000A5950
 void destroy_runtime_walk_alert(std::span<u8> state, RuntimeBodyStateContext& context)
 {
-    if (word(state, 0x70) != 0)
+    if (get(state, walk::sound_started) != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds);
     }
-    const u32 bit = word(state, 0x84);
+    const u32 bit = get(state, walk::body_bit);
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
@@ -719,8 +727,8 @@ void destroy_runtime_walk_alert(std::span<u8> state, RuntimeBodyStateContext& co
 // Xbox 0x00090D10
 void fly_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x78;
-    output.parameters = 0xA8;
+    output.instance = fly::kSize;
+    output.parameters = fly_parameter::kSize;
 }
 
 // Xbox 0x00090D90
@@ -728,54 +736,56 @@ bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> param
     RuntimeBodyStateContext& context)
 {
     const auto body = context.body;
-    const i16 count = i16(read_u16(parameters, 0xC));
-    std::memcpy(state.data() + 0x2C, &count, 2);
+    const i16 count = get(parameters, fly_parameter::row_count);
+    set(state, fly::row_count, count);
     auto& records = walk_alert_records[state.data()];
     records.assign(count > 0 ? size_t(count) : 0, nullptr);
     for (i16 index = 0; index < count; ++index)
     {
-        const auto entry = context.resolve(word(parameters, 0x10) + u32(index) * 0x10, 0x10);
-        const u32 name_address = word(entry, 0);
+        const auto entry = context.resolve(get(parameters, fly_parameter::rows) + u32(index) * row::kSize, row::kSize);
+        const u32 name_address = get(entry, row::animation);
         const char* name = name_address == 0 ? nullptr
             : reinterpret_cast<const char*>(context.resolve(name_address, 0).data());
         // The inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
         const AnimationRecord* record = find_runtime_body_animation(name, context.actions);
         records[size_t(index)] = record;
-        put_word(state, 0x30 + size_t(index) * 0x10, record != nullptr ? 1 : 0);
-        put_word(state, 0x34 + size_t(index) * 0x10, word(entry, 4));
-        put_word(state, 0x38 + size_t(index) * 0x10, word(entry, 8));
-        put_word(state, 0x3C + size_t(index) * 0x10, word(entry, 0xC));
+        const auto band = gbtg::record(state, fly::rows, size_t(index));
+        set(band, row::animation, record != nullptr ? 1 : 0);
+        set(band, row::lower_duration, get(entry, row::lower_duration));
+        set(band, row::upper_duration, get(entry, row::upper_duration));
+        set(band, row::top_speed, get(entry, row::top_speed));
     }
-    std::memset(state.data() + 0x2E, 0, 2);
-    std::memcpy(state.data() + 0x1A, parameters.data() + 0x94, 2);
-    std::memcpy(state.data() + 0x1C, parameters.data() + 0x96, 2);
-    put_word(state, 0x20, word(parameters, 0x98));
-    put_word(state, 0x24, word(parameters, 0x9C));
-    put_word(state, 0x28, word(parameters, 0xA0));
-    if (parameters[0x14] != 0)
+    set(state, fly::band, 0);
+    set(state, fly::stop_key, get(parameters, fly_parameter::stop_key));
+    set(state, fly::alert_key, get(parameters, fly_parameter::alert_key));
+    set(state, fly::stick_limit, get(parameters, fly_parameter::stick_limit));
+    set(state, fly::holds_heading, get(parameters, fly_parameter::holds_heading));
+    set(state, fly::hold_heading_above, get(parameters, fly_parameter::hold_heading_above));
+    const char* sound = field_data(parameters, fly_parameter::sound);
+    if (sound[0] != 0)
     {
-        if (parameters[0x14] != 0)
+        if (sound[0] != 0)
         {
-            queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f,
-                reinterpret_cast<const char*>(parameters.data() + 0x14), context.sounds); // 0x0012A260
+            queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f, sound,
+                context.sounds); // 0x0012A260
         }
-        put_word(state, 0x70, 1);
+        set(state, fly::sound_started, 1);
     }
-    // The looping animation (+0xA4): the inlined 0x0003AAA0 pair, then the inlined 0x0001AFA0.
-    const u32 loop_address = word(parameters, 0xA4);
+    // The looping animation: the inlined 0x0003AAA0 pair, then the inlined 0x0001AFA0.
+    const u32 loop_address = get(parameters, fly_parameter::loop);
     const char* loop_name = loop_address == 0 ? nullptr
         : reinterpret_cast<const char*>(context.resolve(loop_address, 0).data());
     const AnimationRecord* loop = find_runtime_body_animation(loop_name, context.actions);
     fly_loop_records[state.data()] = loop;
-    put_word(state, 0x74, loop != nullptr ? 1 : 0);
+    set(state, fly::loop_found, loop != nullptr ? 1 : 0);
     if (loop != nullptr)
     {
         start_actor_animation(context.actions.animation, *loop, context.actions.registry, context.actions.error,
             context.actions.random);
         notify_runtime_body_animation(context.actions); // 0x0001B020
     }
-    // The inlined 0x0001AFA0 for band +0x2E (0).
-    const u16 band = read_u16(state, 0x2E);
+    // The inlined 0x0001AFA0 for the band (0).
+    const u16 band = get(state, fly::band);
     if (band >= records.size() || records[band] == nullptr)
     {
         throw Error("fly band record is null; 0x00090D90 reads its +0x117");
@@ -792,11 +802,11 @@ bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> param
 // Xbox 0x00091110
 void destroy_runtime_fly_state(std::span<u8> state, RuntimeBodyStateContext& context)
 {
-    if (word(state, 0x70) != 0)
+    if (get(state, fly::sound_started) != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds); // 0x0012A3D0
     }
-    if (word(state, 0x74) != 0)
+    if (get(state, fly::loop_found) != 0)
     {
         // The loop's slot fades out over 0.25 s (DAT_0032B104).
         const AnimationRecord* loop = fly_loop_records[state.data()];

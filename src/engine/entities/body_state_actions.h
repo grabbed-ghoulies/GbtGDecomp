@@ -6,6 +6,8 @@
 #include "body_animation_setup.h"
 #include "player_attachment.h"
 #include "body_action_selection.h"
+#include "gbtg/retail_field.h"
+#include <array>
 #include <functional>
 
 namespace gbtg
@@ -33,6 +35,139 @@ struct RuntimeBodyStateContext
 };
 u8 set_runtime_body_shape_mode(u8 mode, RuntimeBodyStateContext& context); // Xbox 0x0001FEB0, BL mode, EDI body
 void actor_move_object_sizes(ObjectSizes& output); // Xbox 0x00095530
+
+// Type 0x87, entityStateStandAlert: the body stands, optionally holding still, pausing its animation, showing a model
+// node or playing a sound, and takes its next key from the stick, the mind's alert or its own movement. State +0xC
+// is the next key and +0x10 the state clock (`body_state_field`).
+namespace stand_alert_parameter
+{
+constexpr RetailField<u16, 0x0C> input_key{};
+constexpr RetailField<u16, 0x0E> alert_key{};
+constexpr RetailField<u32, 0x10> moving_key{};
+constexpr RetailField<u32, 0x14> raises_counters{};
+constexpr RetailField<u32, 0x18> pauses_animation{};
+constexpr RetailField<u32, 0x1C> holds{};
+constexpr RetailField<u32, 0x20> node_slot{};
+constexpr RetailField<u32, 0x24> keeps_node{};
+constexpr RetailField<u32, 0x28> detaches_secondary{};
+constexpr RetailField<u32, 0x2C> clears_secondary_mode{};
+constexpr RetailField<u32, 0x30> settles{};
+constexpr RetailField<std::array<char, 0x80>, 0x34> sound{}; // an inline cue name; empty plays none
+constexpr RetailField<u32, 0xB4> body_bit{};
+constexpr RetailField<u32, 0xB8> shape_mode{}; // 0 keeps the body's; otherwise its low byte is set
+constexpr u32 kSize = 0xBC;
+static_assert(retail_fits(kSize, shape_mode));
+} // namespace stand_alert_parameter
+namespace stand_alert_field
+{
+constexpr RetailField<u16, 0x18> input_key{}; // the next key once the stick is pushed
+constexpr RetailField<u16, 0x1A> alert_key{}; // the next key while the mind is alert
+constexpr RetailField<u32, 0x1C> moving_key{}; // the body's moving action (vtable +0x40) is the next key while it moves
+constexpr RetailField<u32, 0x20> raises_counters{}; // body +0x309..+0x30C are raised
+constexpr RetailField<u32, 0x24> pauses_animation{}; // the actor's animation is paused
+constexpr RetailField<u32, 0x28> holds{}; // body +0x258 is raised; the turn is left alone
+constexpr RetailField<u32, 0x2C> node_slot{}; // a model node shown while the state lasts, or 0xFFFFFFFF
+constexpr RetailField<u32, 0x30> keeps_node{}; // the node stays shown afterwards
+constexpr RetailField<u32, 0x34> detaches_secondary{}; // the body's secondary attachment is let go at the end
+constexpr RetailField<u32, 0x38> settles{}; // the body's turn settles each tick (0x00134720)
+constexpr RetailField<u32, 0x3C> clears_secondary_mode{}; // actor +0x30C is 0 while the state lasts
+constexpr RetailField<i32, 0x40> saved_secondary_mode{};
+constexpr RetailField<u32, 0x44> sound_started{};
+constexpr RetailField<u32, 0x48> body_bit{}; // raised while the state lasts
+constexpr RetailField<u32, 0x4C> saved_shape_mode{}; // the body's shape mode at entry, in the low byte
+constexpr u32 kSize = 0x50;
+static_assert(retail_fits(kSize, saved_shape_mode));
+} // namespace stand_alert_field
+
+// One of the walk alert's and the fly state's speed bands (0x10 bytes): the animation for the band, its durations at
+// the band's slowest and fastest, and the band's top speed (over the body's step speed). The parameters' rows hold
+// the animation's name (an XBE string) where the state's hold whether it was found.
+namespace walk_alert_row_field
+{
+constexpr RetailField<u32, 0x0> animation{};
+constexpr RetailField<float, 0x4> lower_duration{};
+constexpr RetailField<float, 0x8> upper_duration{};
+constexpr RetailField<float, 0xC> top_speed{};
+constexpr u32 kSize = 0x10;
+static_assert(retail_fits(kSize, top_speed));
+} // namespace walk_alert_row_field
+
+// Type 0x8E, entityStateWalkAlert: the stick walks the body through its speed bands. State +0xC is the next key and
+// +0x10 the state clock (`body_state_field`).
+namespace walk_alert_parameter
+{
+constexpr RetailField<i16, 0x0C> row_count{};
+constexpr RetailField<u32, 0x10> rows{}; // the rows' XBE address
+constexpr RetailField<std::array<char, 0x80>, 0x14> sound{}; // an inline cue name; empty plays none
+constexpr RetailField<u16, 0x94> stop_key{};
+constexpr RetailField<u16, 0x96> alert_key{};
+constexpr RetailField<u32, 0x98> settles{};
+constexpr RetailField<u32, 0x9C> stops_at_once{};
+constexpr RetailField<float, 0xA0> stick_limit{};
+constexpr RetailField<u32, 0xA4> holds_heading{};
+constexpr RetailField<float, 0xA8> hold_heading_above{};
+constexpr RetailField<u32, 0xAC> alert_when_calm{};
+constexpr RetailField<u32, 0xB0> fixed_turn_ratio{};
+constexpr RetailField<u32, 0xB4> body_bit{};
+constexpr u32 kSize = 0xB8;
+static_assert(retail_fits(kSize, body_bit));
+} // namespace walk_alert_parameter
+namespace walk_alert_field
+{
+constexpr RetailField<u16, 0x1A> stop_key{}; // the next key once the body stops
+constexpr RetailField<u16, 0x1C> alert_key{}; // the next key while the mind is alert
+constexpr RetailField<u32, 0x20> settles{}; // the body's turn settles while it walks (0x00134720)
+constexpr RetailField<u32, 0x24> stops_at_once{}; // stop_key without waiting for the actor to slow down
+constexpr RetailField<float, 0x28> stick_limit{}; // the most of the stick's push that counts
+constexpr RetailField<i16, 0x2C> row_count{};
+constexpr RetailField<u16, 0x2E> band{}; // the row playing now
+constexpr RetailRecord<0x30, walk_alert_row_field::kSize, 4> rows{};
+constexpr RetailField<u32, 0x70> sound_started{};
+constexpr RetailField<u32, 0x74> holds_heading{}; // above hold_heading_above the actor keeps its own heading
+constexpr RetailField<float, 0x78> hold_heading_above{};
+constexpr RetailField<u32, 0x7C> alert_when_calm{}; // alert_key is taken while the mind is not alert instead
+constexpr RetailField<u32, 0x80> fixed_turn_ratio{}; // 0x00133D50's fixed ratio
+constexpr RetailField<u32, 0x84> body_bit{}; // raised while the state lasts
+constexpr u32 kSize = 0x88;
+static_assert(retail_fits(kSize, body_bit));
+} // namespace walk_alert_field
+
+// Type 0x6D, entityStateFly: the walk alert's rows steered in the air. State +0xC is the next key and +0x10 the
+// state clock (`body_state_field`).
+namespace fly_state_parameter
+{
+constexpr RetailField<i16, 0x0C> row_count{};
+constexpr RetailField<u32, 0x10> rows{}; // the rows' XBE address
+constexpr RetailField<std::array<char, 0x80>, 0x14> sound{}; // an inline cue name; empty plays none
+constexpr RetailField<u16, 0x94> stop_key{};
+constexpr RetailField<u16, 0x96> alert_key{};
+constexpr RetailField<float, 0x98> stick_limit{};
+constexpr RetailField<u32, 0x9C> holds_heading{};
+constexpr RetailField<float, 0xA0> hold_heading_above{};
+constexpr RetailField<u32, 0xA4> loop{}; // the looping animation's name, an XBE string
+constexpr u32 kSize = 0xA8;
+static_assert(retail_fits(kSize, loop));
+} // namespace fly_state_parameter
+namespace fly_state_field
+{
+constexpr RetailField<u16, 0x1A> stop_key{}; // the next key once the body stops
+constexpr RetailField<u16, 0x1C> alert_key{}; // the next key while the mind is alert
+constexpr RetailField<float, 0x20> stick_limit{}; // the most of the stick's push that counts
+constexpr RetailField<u32, 0x24> holds_heading{}; // above hold_heading_above the actor keeps its own heading
+constexpr RetailField<float, 0x28> hold_heading_above{};
+constexpr RetailField<i16, 0x2C> row_count{};
+constexpr RetailField<u16, 0x2E> band{}; // the row playing now
+constexpr RetailRecord<0x30, walk_alert_row_field::kSize, 4> rows{};
+constexpr RetailField<u32, 0x70> sound_started{};
+constexpr RetailField<u32, 0x74> loop_found{};
+constexpr u32 kSize = 0x78;
+static_assert(retail_fits(kSize, loop_found));
+} // namespace fly_state_field
+// 0x000A5FD0 and the band code read both states' rows through the same offsets.
+static_assert(fly_state_field::row_count.offset == walk_alert_field::row_count.offset
+    && fly_state_field::band.offset == walk_alert_field::band.offset
+    && fly_state_field::rows.offset == walk_alert_field::rows.offset);
+
 void stand_alert_object_sizes(ObjectSizes& output); // Xbox 0x000A2510
 bool initialize_runtime_stand_alert(std::span<u8> state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x000A2590
@@ -41,16 +176,14 @@ void walk_alert_object_sizes(ObjectSizes& output); // Xbox 0x000A55D0
 bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x000A5650
 void destroy_runtime_walk_alert(std::span<u8> state, RuntimeBodyStateContext& context); // Xbox 0x000A5950
-// Type 0x6D, entityStateFly (getter 0x00090D30, vtable 0x00505880): the walk alert's rows (+0x2C count, +0x30 rows,
-// +0x2E band) steered in the air, with a looping animation (the parameters' +0xA4 name, +0x74) under them. +0x1A is
-// the key once the body stops, +0x1C the key while the mind is alert, +0x20 the stick's limit and +0x24 / +0x28 hold
-// the heading above that magnitude.
+// Type 0x6D, entityStateFly (getter 0x00090D30, vtable 0x00505880): `fly_state_field`, with a looping animation
+// under the band's.
 void fly_state_object_sizes(ObjectSizes& output); // Xbox 0x00090D10
 bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x00090D90
 void destroy_runtime_fly_state(std::span<u8> state, RuntimeBodyStateContext& context); // Xbox 0x00091110
-// Walk-alert state +0x30 + 0x10 * index: the animation record 0x000A5650 found for speed band `index`. The
-// record lives on the host, so the native word only says whether one was found.
+// The animation record 0x000A5650 found for the walk alert's (or fly state's) speed band `index`. The record lives
+// on the host, so the band's native word only says whether one was found.
 const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 index);
 struct RuntimeHitStateLifecycle;
 struct RuntimeDizzyStateContext;

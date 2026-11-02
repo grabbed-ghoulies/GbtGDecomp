@@ -79,9 +79,8 @@ bool initialize_runtime_hover_state(std::span<u8> state, std::span<const u8> par
 {
     const auto body = context.body;
     context.bits.bytes[6] |= 1;
-    put_float(body, 0x71C, 1.0471975803375244f); // DAT_0032B484.
-    put_float(body, 0x720, 2.268928050994873f); // DAT_0032B63C.
-    put_float(body, 0x724, 6.f); // DAT_0032B218.
+    // DAT_0032B484, DAT_0032B63C, DAT_0032B218.
+    set(body, body_field::turn_rates, {1.0471975803375244f, 2.268928050994873f, 6.f});
     body[0x38] = 1;
     body[0x39] = 1;
     put_u16(body, 0x160, 0);
@@ -104,9 +103,8 @@ bool initialize_runtime_hover_state(std::span<u8> state, std::span<const u8> par
 void destroy_runtime_hover_state(std::span<const u8> state, RuntimeHoverStateContext& context)
 {
     const auto body = context.body;
-    put_float(body, 0x71C, 0.5585053563117981f); // DAT_0032B220.
-    put_float(body, 0x720, 12.566370964050293f); // DAT_0032B21C.
-    put_float(body, 0x724, 6.f); // DAT_0032B218.
+    // DAT_0032B220, DAT_0032B21C, DAT_0032B218.
+    set(body, body_field::turn_rates, {0.5585053563117981f, 12.566370964050293f, 6.f});
     context.bits.bytes[6] &= 0xFE;
     if (get(state, field::animation) == 0)
     {

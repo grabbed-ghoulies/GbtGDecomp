@@ -2,24 +2,19 @@
 #include "actor_live_attachments.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "body_state_fields.h"
 
 #include <bit>
 #include <cstring>
 
 namespace gbtg
 {
+namespace field = grabbed_state_field;
+namespace parameter = grabbed_state_parameter;
+namespace base = body_state_field;
+
 namespace
 {
-u32 word(std::span<const u8> bytes, size_t offset)
-{
-    return read_u32(bytes, offset);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -27,8 +22,7 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
 
 void step_holds(std::span<u8> body, entity_detail::ListHead& live_attachments, i32 step)
 {
-    const u16 count = u16(get(body, body_field::move_holds) + step);
-    std::memcpy(body.data() + 0x30, &count, 2);
+    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + step));
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + step);
@@ -72,8 +66,8 @@ bool crossed(const MinaPlayer& player, float mark)
 // Xbox 0x000942D0
 void grabbed_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x28;
-    output.parameters = 0x18;
+    output.instance = field::kSize;
+    output.parameters = parameter::kSize;
 }
 
 // Xbox 0x00094350
@@ -87,15 +81,15 @@ bool initialize_runtime_grabbed_state(std::span<u8> state, std::span<const u8> p
     body[0x39] = 1;
     pickup.bits.bytes[4] |= 0x20;
     pickup.bits.bytes[3] |= 0x80;
-    put_word(state, 0x1C, 1);
-    put_word(state, 0x18, word(parameters, 0xC));
-    put_word(state, 0x20, word(parameters, 0x10));
-    put_word(state, 0x24, word(parameters, 0x14));
-    if (word(state, 0x20) != 0)
+    set(state, field::move_hold, 1);
+    set(state, field::release_mark, get(parameters, parameter::release_mark));
+    set(state, field::holds_latches, get(parameters, parameter::holds_latches));
+    set(state, field::body_bit, get(parameters, parameter::body_bit));
+    if (get(state, field::holds_latches) != 0)
     {
         hold_runtime_body_latches(body, context.hold); // 0x00027BE0
     }
-    const u32 bit = word(state, 0x24);
+    const u32 bit = get(state, field::body_bit);
     if (bit != 0)
     {
         pickup.bits.bytes[bit >> 3] |= u8(1u << (bit & 7));
@@ -111,11 +105,10 @@ void destroy_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateConte
 {
     auto& pickup = context.pickup;
     const std::span<u8> body = pickup.body;
-    if (word(state, 0x1C) != 0)
+    if (get(state, field::move_hold) != 0)
     {
-        const u16 count = u16(get(body, body_field::move_holds) - 1);
-        std::memcpy(body.data() + 0x30, &count, 2);
-        put_word(state, 0x1C, 0);
+        set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
+        set(state, field::move_hold, 0);
     }
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
@@ -129,11 +122,11 @@ void destroy_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateConte
     --body[0x6D];
     pickup.bits.bytes[4] &= 0xDF;
     pickup.bits.bytes[3] &= 0x7F;
-    if (word(state, 0x20) != 0)
+    if (get(state, field::holds_latches) != 0)
     {
         --body[0x7E5];
     }
-    const u32 bit = word(state, 0x24);
+    const u32 bit = get(state, field::body_bit);
     if (bit != 0)
     {
         pickup.bits.bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
@@ -155,8 +148,9 @@ void tick_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateContext&
 {
     auto& pickup = context.pickup;
     const std::span<u8> body = pickup.body;
-    const float elapsed = runtime_actor_rate(pickup.actor) * runtime_frame_step(pickup.clock) + read_f32(state, 0x10);
-    put_float(state, 0x10, elapsed);
+    const float elapsed =
+        runtime_actor_rate(pickup.actor) * runtime_frame_step(pickup.clock) + get(state, base::elapsed);
+    set(state, base::elapsed, elapsed);
     put_float(body, 0x734, 0.f);
     put_float(body, 0x72C, 0.f);
     const MinaPlayer* player = first_player(pickup.animation);
@@ -181,11 +175,10 @@ void tick_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateContext&
         select_runtime_body_goal_action(state, context.recovery); // 0x00134060
         return;
     }
-    if (crossed(*player, read_f32(state, 0x18)) && word(state, 0x1C) != 0)
+    if (crossed(*player, get(state, field::release_mark)) && get(state, field::move_hold) != 0)
     {
-        const u16 count = u16(get(body, body_field::move_holds) - 1);
-        std::memcpy(body.data() + 0x30, &count, 2);
-        put_word(state, 0x1C, 0);
+        set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
+        set(state, field::move_hold, 0);
     }
     player = first_player(pickup.animation);
     if (player != nullptr)
@@ -196,7 +189,7 @@ void tick_runtime_grabbed_state(std::span<u8> state, RuntimeGrabbedStateContext&
             const bool running = 0.f > player->speed ? 0.f < player->position : player->position < 1.f;
             finished = !running;
         }
-        if (!finished && (!pushed || word(state, 0x1C) != 0))
+        if (!finished && (!pushed || get(state, field::move_hold) != 0))
         {
             return;
         }

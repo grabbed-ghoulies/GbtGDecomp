@@ -4,7 +4,9 @@
 #include "actor_clock.h"
 #include "body_animation_setup.h"
 #include "gbtg/actor_runtime.h"
+#include "gbtg/retail_field.h"
 
+#include <array>
 #include <functional>
 
 namespace gbtg
@@ -12,11 +14,28 @@ namespace gbtg
 // Factory type 0x62 (getter 0x0008C1E0, vtable 0x00505720; named entityStateDie in the type table): the body plays
 // a named animation from a random point near its end, optionally facing the view or the mind's target, and takes
 // the next key when the animation slot finishes. +0x14/+0x18 are the empty 0x001628B0 and +0x1C is 0x0002B620.
-// State +8 is the body.
-//
-// State words: +0xC the next key, +0x10 the state clock, +0x18 the animation name (parameters +0x10), +0x58 the body
-// bit it raises (parameters +0xC), +0x5C take the body's damage key while moving (parameters +0x14), +0x60 face the
-// view (parameters +0x18), +0x64 settle the body's turn (parameters +0x1C), +0x68 the mind's target when it began.
+// State +8 is the body, +0xC the next key and +0x10 the state clock (`body_state_field`).
+namespace die_state_parameter
+{
+constexpr RetailField<u32, 0x0C> body_bit{};
+constexpr RetailField<u32, 0x10> animation{}; // the animation's name, an XBE string
+constexpr RetailField<u32, 0x14> moving_key{};
+constexpr RetailField<u32, 0x18> faces_view{};
+constexpr RetailField<u32, 0x1C> settles{};
+constexpr u32 kSize = 0x20;
+static_assert(retail_fits(kSize, settles));
+} // namespace die_state_parameter
+namespace die_state_field
+{
+constexpr RetailField<std::array<char, 0x40>, 0x18> animation{}; // the animation's name, copied in
+constexpr RetailField<u32, 0x58> body_bit{}; // raised while the state lasts
+constexpr RetailField<u32, 0x5C> moving_key{}; // the body's moving action (vtable +0x40) is the next key while it moves
+constexpr RetailField<u32, 0x60> faces_view{}; // the body turns toward the view
+constexpr RetailField<u32, 0x64> settles{}; // the body's turn settles each tick (0x00134720)
+constexpr RetailField<u32, 0x68> target{}; // the mind's target at entry; message 0x7C for it clears it
+constexpr u32 kSize = 0x6C;
+static_assert(retail_fits(kSize, target));
+} // namespace die_state_field
 struct RuntimeDieStateContext
 {
     std::span<u8> body;

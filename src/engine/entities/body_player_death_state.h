@@ -12,11 +12,30 @@ struct LiveScript;
 // and +0x30, shape mode 2), drops what it holds, plays the dying animation (+0x34) then the dead one (+0x38) and starts
 // the scene's transition; a live player whose run allows it is offered a brew (state 4), every other way restarts the
 // scene (0x0008F650, 0x00134AE0). +0xC and +0x14/+0x18 are the empty 0x000D4179 case and +0x1C is 0x0002B620.
-//
-// State words: +0xC the next key, +0x10 the state clock, +0x18 the phase (0 dying, 1 dead, 2 waiting, 3 done, 4 the
-// brew offer), +0x1C the wait timer, +0x20 the saved shape mode, +0x24 message 0x34's word (parameters +0x14), +0x28
-// body +0x715 raised, +0x2C the fail stream plays, +0x30 the saved body +0x717, +0x34 / +0x38 the dying and dead
-// animations (found or not; the records stay on the host).
+// State +0xC is the next key and +0x10 the state clock (`body_state_field`).
+namespace player_death_state_parameter
+{
+constexpr RetailField<u32, 0x0C> dying{}; // the animation's name, an XBE string, or 0 to start dead
+constexpr RetailField<u32, 0x10> dead{}; // the animation's name, an XBE string
+constexpr RetailField<u32, 0x14> death_word{};
+constexpr u32 kSize = 0x18;
+static_assert(retail_fits(kSize, death_word));
+} // namespace player_death_state_parameter
+namespace player_death_state_field
+{
+constexpr RetailField<u32, 0x18> phase{}; // 0 dying, 1 dead, 2 waiting, 3 done, 4 the brew offer
+constexpr RetailField<float, 0x1C> wait_timer{};
+constexpr RetailField<u8, 0x20> saved_shape_mode{};
+constexpr RetailField<u32, 0x24> death_word{}; // the word message 0x34 carries to the actor
+constexpr RetailField<u32, 0x28> contacts_raised{}; // body +0x715 / +0x717 are raised
+constexpr RetailField<u32, 0x2C> fail_stream{}; // the fail stream plays
+constexpr RetailField<u32, 0x30> saved_717{}; // body +0x717 at entry
+// Whether the dying and dead animations were found; the records stay on the host.
+constexpr RetailField<u32, 0x34> dying_found{};
+constexpr RetailField<u32, 0x38> dead_found{};
+constexpr u32 kSize = 0x3C;
+static_assert(retail_fits(kSize, dead_found));
+} // namespace player_death_state_field
 struct RuntimePlayerDeathContext
 {
     RuntimeKnockdownContext& knockdown; // Body, actor, attachment, shape, actions, death effects and flags.

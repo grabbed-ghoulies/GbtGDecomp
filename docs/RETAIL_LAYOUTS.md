@@ -189,6 +189,12 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Body record (actor +0x95C, built by 0x00024C50), first pass | not settled | `body_field`: position, move holds and move hold time, attached actor, unk_70, reach, hit record, energy and its maximum, holds, velocity, gravity, ease rate (and its saved value and swap count), euler, surface (and its override and frames), scaled surfaces, height and radius scales | `src/engine/entities/body_fields.h` |
 | Knockdown state (factory type 0x7A, 0x0009C5D0) | 0xF4, parameters 0x50 | `knockdown_state_field`: phase and its clock, end timer, the seven animations' found flags (`KnockdownAnimation` slots), the end keys, the sweep point, callout tokens, start and landing points, saved gravity and shape mode, yaw, pitch, flight time, pose marks, rise height, bounce scale, attacker, contact pool, latch and body-bit words; `knockdown_state_parameter` | `src/engine/entities/body_knockdown_state.h` |
 | Hit and furnace-hit states (factory types 0x73, 0x000957A0, and 0x74, 0x00096710) | 0x70 / 0x30, parameters 0x28 / 0x14 | `hit_state_field`: lunge velocity, target hit, open windows, hit callout, start euler, attached actor, trail rate and timers, face and carry switches, next key, event mark, body bit; `hit_furnace_state_field`: next key, bit 0x38 switch, sweep point; and their parameters | `src/engine/entities/body_hit_state.h` |
+| Struggle state (factory type 0x88, 0x000A2B90) | 0x4C, parameters 0x34 | `struggle_state_field`: input, idle and moving keys, settle switch, animations found, band timer and mode, started, turn limit, heading offset, turn rates; `struggle_state_parameter` | `src/engine/entities/body_struggle_state.h` |
+| Dizzy state (factory type 0x64, 0x0008C9A0) | 0x184, parameters 0x11C | `dizzy_state_field`: the two input trackers and their states, player input, animation wait, settle switch, star scale, time left, star names, the three stars (`dizzy_star_field`: orbit, bob, actor), body bit; `dizzy_state_parameter` | `src/engine/entities/body_dizzy_state.h` |
+| Anim state (factory type 0x5E, 0x00088580) | 0x40, parameters 0xB0 | `anim_state_field`: next key, body bit, time left and timed switch, sound started, face-target switch and heading offset, stick point, carry and settle switches; `anim_state_parameter` (with the inline sound name) | `src/engine/entities/body_anim_state.h` |
+| Die state (factory type 0x62, 0x0008C240) | 0x6C, parameters 0x20 | `die_state_field`: animation name, body bit, moving-key, face-view and settle switches, target; `die_state_parameter` | `src/engine/entities/body_die_state.h` |
+| Player death state (factory type 0x69, 0x0008EF30) | 0x3C, parameters 0x18 | `player_death_state_field`: phase, wait timer, saved shape mode, death word, contacts raised, fail stream, saved body +0x717, animations found; `player_death_state_parameter` | `src/engine/entities/body_player_death_state.h` |
+| Grabbed state (factory type 0x70, 0x00094350) | 0x28, parameters 0x18 | `grabbed_state_field`: release mark, move hold, latch hold, body bit; `grabbed_state_parameter` | `src/engine/entities/body_grabbed_state.h` |
 | Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `mind_target_field`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
@@ -232,6 +238,14 @@ the build before the change in `--player-death` (95), `--player-fight` (52, whos
 finisher), `--scene3` (54), `--scene5` (63, where Cooper runs the hit and furnace-hit states), `--scene6` (64),
 `--scene2a2-reaper` (123), `--scene2b3` (84), `--scene3a4` (34) and `--player-opening` (14). The logs differ only in
 the exe's name and a code address in a stack trace.
+
+The struggle, dizzy, anim, die, player death and grabbed states were named by hand, along with the body's turn rates
+(+0x71C..+0x724, which the hover state now writes through `body_field::turn_rates`). The comparison reused the previous
+build's stored captures as its baseline instead of re-running it. All captures match in `--player-death`,
+`--player-fight`, `--scene5`, `--scene3`, `--scene2a2-reaper`, `--scene2b3`, `--scene3a4` and `--player-opening`.
+`--scene6` matched except for `scene6_title.bmp`, which has two versions 3 bytes apart that every build has produced.
+The imp fight in `--player-fight` and `--player-death` runs the dizzy, die and anim states, and `--player-death` runs
+the player death state. No mode in the set is known to reach the struggle, grabbed or hover states.
 
 Super Scary checked with `--scene6`: it passes, the challenge's phase sequence and the trophy-heads states match the
 log from before the change line for line, and all 45 captures are byte-identical. That run covers phases 1–5 and

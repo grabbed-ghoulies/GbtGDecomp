@@ -1,6 +1,8 @@
 #pragma once
 #include "gbtg/retail_field.h"
 
+#include <array>
+
 namespace gbtg
 {
 // The body record (actor +0x95C, built by 0x00024C50): the most-read fields, at their retail offsets (see
@@ -36,6 +38,9 @@ constexpr RetailField<float, 0x330> saved_ease_rate{};
 constexpr RetailField<float, 0x334> ease_rate{};
 // Raised with each ease_rate swap and lowered when it is given back.
 constexpr RetailField<u32, 0x338> ease_rate_swaps{};
+// Three rates the body turns by, always written together: the constructor's 0.558, 12.57, 6 (0x00024C50), the
+// struggle state's parameters (0x000A2B90) and the hover state's 1.047, 2.269, 6 (0x00097B80).
+constexpr RetailField<std::array<float, 3>, 0x71C> turn_rates{};
 // The body's euler angles (pitch, yaw, roll): 0x00041820 copies the actor's into it.
 constexpr RetailField<Vec3, 0x72C> euler{};
 // The surface the body stands on, or surface_override while surface_override_frames counts down (0x00025AE0 clears

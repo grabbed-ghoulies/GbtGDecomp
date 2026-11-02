@@ -9,12 +9,19 @@
 #include "../camera/camera_body_slots.h"
 #include "gbtg/anim.h"
 #include "body_fields.h"
+#include "body_state_fields.h"
 
+#include <algorithm>
 #include <bit>
 #include <cstring>
 
 namespace gbtg
 {
+namespace field = dizzy_state_field;
+namespace parameter = dizzy_state_parameter;
+namespace star_field = dizzy_star_field;
+namespace base = body_state_field;
+
 namespace
 {
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
@@ -75,17 +82,13 @@ float wrap_angle(float value)
     return result;
 }
 
-size_t slot_offset(i32 index)
-{
-    return 0x15C + size_t(index) * 0xC;
-}
 }
 
 // Xbox 0x0008C920
 void dizzy_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x184;
-    output.parameters = 0x11C;
+    output.instance = field::kSize;
+    output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0008D230
@@ -96,12 +99,13 @@ void place_runtime_dizzy_star(std::span<const u8> state, std::span<const u8> bod
     const float height =
         actor.radius_y * get(body, body_field::height_scale) * std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
     position = Vec3{0.f, height, 0.f};
-    const float orbit = read_f32(state, slot_offset(index));
+    const auto star = record(state, field::stars, size_t(index));
+    const float orbit = get(star, star_field::orbit);
     const float side = float(retail_sin(orbit));
     const float forward = float(retail_cos(orbit));
     position.x = side * reach + position.x;
     position.z = forward * reach + position.z;
-    const float bob = read_f32(state, slot_offset(index) + 4);
+    const float bob = get(star, star_field::bob);
     const long double lift = retail_sin(bob);
     (void)retail_cos(bob);
     position.y = float((lift + lift) + position.y);
@@ -114,23 +118,23 @@ void spawn_runtime_dizzy_stars(std::span<u8> state, RuntimeDizzyStateContext& co
     std::array<u8, 0x334> parameters{};
     initialize_actor_effect_parameters(parameters.data(), context.empty_name);
     put_half(parameters, 2, 0x3F);
-    copy_name(parameters, 0x28, state.data() + 0x5C);
-    copy_name(parameters, 0xA8, state.data() + 0xDC);
-    put_float(parameters, 0x20, read_f32(state, 0x54) * context.actor.radius_xz * 0.2f); // DAT_0032B1AC.
+    copy_name(parameters, 0x28, record(state, field::star_names, 0).data());
+    copy_name(parameters, 0xA8, record(state, field::star_names, 1).data());
+    put_float(parameters, 0x20, get(state, field::star_scale) * context.actor.radius_xz * 0.2f); // DAT_0032B1AC.
     for (i32 index = 0; index < 3; ++index)
     {
-        const size_t slot = slot_offset(index);
-        put_float(state, slot, float(index) * std::bit_cast<float>(0x40060A92u)); // DAT_0032B558.
+        const auto slot = record(state, field::stars, size_t(index));
+        set(slot, star_field::orbit, float(index) * std::bit_cast<float>(0x40060A92u)); // DAT_0032B558.
         context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
         const float unit = std::bit_cast<float>((context.random & 0x7FFFFF) | 0x3F800000u) - 1.f;
-        put_float(state, slot + 4, unit * std::bit_cast<float>(0x40C90FDBu)); // DAT_0032B298.
+        set(slot, star_field::bob, unit * std::bit_cast<float>(0x40C90FDBu)); // DAT_0032B298.
         Vec3 position;
         Vec3 euler;
         place_runtime_dizzy_star(state, context.body, context.actor, index, position, euler);
         std::memcpy(parameters.data() + 8, &position, 12);
         std::memcpy(parameters.data() + 0x14, &euler, 12);
         const u32 star = context.stars.create(parameters);
-        put_word(state, slot + 8, star);
+        set(slot, star_field::actor, star);
         if (star == 0)
         {
             continue;
@@ -181,14 +185,14 @@ void orbit_runtime_dizzy_stars(std::span<u8> state, float step, RuntimeDizzyStat
     const float bob_step = step * std::bit_cast<float>(0x405F66F3u); // DAT_0032B488.
     for (i32 index = 0; index < 3; ++index)
     {
-        const size_t slot = slot_offset(index);
-        const u32 star = read_u32(state, slot + 8);
+        const auto slot = record(state, field::stars, size_t(index));
+        const u32 star = get(slot, star_field::actor);
         if (star == 0)
         {
             continue;
         }
-        put_float(state, slot, wrap_angle(orbit_step + read_f32(state, slot)));
-        put_float(state, slot + 4, wrap_angle(bob_step + read_f32(state, slot + 4)));
+        set(slot, star_field::orbit, wrap_angle(orbit_step + get(slot, star_field::orbit)));
+        set(slot, star_field::bob, wrap_angle(bob_step + get(slot, star_field::bob)));
         Vec3 position;
         Vec3 euler;
         place_runtime_dizzy_star(state, context.body, context.actor, index, position, euler);
@@ -205,40 +209,32 @@ bool initialize_runtime_dizzy_state(std::span<u8> state, std::span<const u8> par
     RuntimeDizzyStateContext& context)
 {
     const auto body = context.body;
-    put_word(state, 0x54, read_u32(parameters, 0x110));
-    put_word(state, 0x58, read_u32(body, 0x23C));
-    put_word(state, 0x4C, read_u32(parameters, 0x114));
-    put_word(state, 0x50, read_u32(parameters, 0xC));
-    put_word(state, 0x180, read_u32(parameters, 0x118));
-    copy_name(state, 0x5C, parameters.data() + 0x10);
-    copy_name(state, 0xDC, parameters.data() + 0x90);
+    set(state, field::star_scale, get(parameters, parameter::star_scale));
+    set(state, field::time_left, read_f32(body, 0x23C));
+    set(state, field::waits_for_animation, get(parameters, parameter::waits_for_animation));
+    set(state, field::settles, get(parameters, parameter::settles));
+    set(state, field::body_bit, get(parameters, parameter::body_bit));
+    copy_name(record(state, field::star_names, 0), 0, record(parameters, parameter::star_names, 0).data());
+    copy_name(record(state, field::star_names, 1), 0, record(parameters, parameter::star_names, 1).data());
     body[0x6B] = u8(body[0x6B] + 1);
     adjust_body_counters(body, 1);
     set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
     body[0x38] = 1;
     body[0x39] = 1;
     context.bits.bytes[3] |= 2;
-    // The two input filters 0x00109810 runs over (+0x18 and +0x30).
-    put_float(state, 0x1C, 0.f);
-    put_float(state, 0x18, 0.f);
-    put_float(state, 0x24, 0.f);
-    put_float(state, 0x20, 0.f);
-    put_word(state, 0x2C, 1);
-    put_float(state, 0x28, 0.f);
-    put_float(state, 0x34, 0.f);
-    put_float(state, 0x30, 0.f);
-    put_float(state, 0x3C, 0.f);
-    put_float(state, 0x38, 0.f);
-    put_word(state, 0x44, 1);
-    put_float(state, 0x40, 0.f);
+    // The two input trackers 0x00109810 runs over: cleared, their state 1.
+    std::ranges::fill(record(state, field::primary_tracking), u8(0));
+    set(state, field::primary_tracking_state, 1);
+    std::ranges::fill(record(state, field::secondary_tracking), u8(0));
+    set(state, field::secondary_tracking_state, 1);
     const auto actor = context.actor_bytes;
-    put_word(state, 0x48, read_u16(actor, 0xCDC) == 2 ? 1 : (read_u32(actor, 0x93C) != 0 ? 1 : 0));
+    set(state, field::player_input, read_u16(actor, 0xCDC) == 2 ? 1 : (read_u32(actor, 0x93C) != 0 ? 1 : 0));
     spawn_runtime_dizzy_stars(state, context);
     orbit_runtime_dizzy_stars(state, 0.f, context);
     // Actor +0x614 is sound slot 4 (slots of 0xB8 from +0x334); 0x00302740 is the cue name.
     queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f,
         "XACT_SOUNDBANK_GBAT_DIZZY", context.sounds);
-    const u32 bit = read_u32(state, 0x180);
+    const u32 bit = get(state, field::body_bit);
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] |= u8(1u << (bit & 7));
@@ -256,8 +252,8 @@ void destroy_runtime_dizzy_state(std::span<u8> state, RuntimeDizzyStateContext& 
     context.bits.bytes[3] &= 0xFD;
     for (i32 index = 0; index < 3; ++index)
     {
-        const size_t slot = slot_offset(index) + 8;
-        const u32 star = read_u32(state, slot);
+        const auto slot = record(state, field::stars, size_t(index));
+        const u32 star = get(slot, star_field::actor);
         if (star == 0)
         {
             continue;
@@ -276,9 +272,9 @@ void destroy_runtime_dizzy_state(std::span<u8> state, RuntimeDizzyStateContext& 
                 register_actor_child_list(render);
             }
         }
-        put_word(state, slot, 0);
+        set(slot, star_field::actor, 0);
     }
-    const u32 bit = read_u32(state, 0x180);
+    const u32 bit = get(state, field::body_bit);
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
@@ -294,11 +290,12 @@ void message_runtime_dizzy_state(std::span<u8> state, std::span<const u8> messag
         return;
     }
     const u32 actor = read_u32(message, 4);
-    for (const size_t slot : {size_t(0x164), size_t(0x170), size_t(0x17C)})
+    for (size_t index = 0; index < field::stars.count; ++index)
     {
-        if (actor == read_u32(state, slot))
+        const auto slot = record(state, field::stars, index);
+        if (actor == get(slot, star_field::actor))
         {
-            put_word(state, slot, 0);
+            set(slot, star_field::actor, 0);
         }
     }
 }
@@ -308,43 +305,46 @@ void tick_runtime_dizzy_state(std::span<u8> state, RuntimeDizzyStateContext& con
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    put_float(state, 0x10, runtime_actor_rate(actor) * runtime_frame_step(context.clock) + read_f32(state, 0x10));
+    set(state, base::elapsed,
+        runtime_actor_rate(actor) * runtime_frame_step(context.clock) + get(state, base::elapsed));
     put_float(body, 0x734, 0.f);
     put_float(body, 0x72C, 0.f);
-    if (read_u32(state, 0x50) != 0)
+    if (get(state, field::settles) != 0)
     {
         settle_runtime_body_turn(body, actor);
     }
     float step = runtime_frame_step(context.clock) * runtime_actor_rate(actor);
-    if (read_u32(state, 0x48) != 0)
+    if (get(state, field::player_input) != 0)
     {
         // Both reads take the tick's input argument.
         if (context.input == nullptr || context.input_state == nullptr)
         {
-            throw Error("dizzy state +0x48 input branch without the tick's input device");
+            throw Error("dizzy state player-input branch without the tick's input device");
         }
         std::array<float, 2> axes{};
         runtime_input_axes(*context.input, axes, *context.input_state);
-        update_runtime_player_input_tracking(state.subspan(0x18), axes, context.input_preset, 1, context.clock);
+        update_runtime_player_input_tracking(record(state, field::primary_tracking), axes, context.input_preset, 1,
+                                             context.clock);
         runtime_input_secondary_axes(*context.input, axes, *context.input_state);
-        update_runtime_player_input_tracking(state.subspan(0x30), axes, context.input_preset, 1, context.clock);
-        if (read_u32(state, 0x2C) == 2 || read_u32(state, 0x44) == 2)
+        update_runtime_player_input_tracking(record(state, field::secondary_tracking), axes, context.input_preset, 1,
+                                             context.clock);
+        if (get(state, field::primary_tracking_state) == 2 || get(state, field::secondary_tracking_state) == 2)
         {
             step = context.input_scale * step;
         }
     }
     orbit_runtime_dizzy_stars(state, step, context);
-    const float remaining = read_f32(state, 0x58);
+    const float remaining = get(state, field::time_left);
     if (remaining > 0.f)
     {
         const float next = remaining - step;
-        put_float(state, 0x58, next);
+        set(state, field::time_left, next);
         if (!(0.f < next))
         {
-            put_float(state, 0x58, 0.f);
+            set(state, field::time_left, 0.f);
         }
     }
-    const bool expired = read_f32(state, 0x58) == 0.f;
+    const bool expired = get(state, field::time_left) == 0.f;
     bool crossed = false;
     const MinaPlayer* player = slot_player(context.animation);
     if (player != nullptr && player->position != player->previous)
@@ -365,7 +365,7 @@ void tick_runtime_dizzy_state(std::span<u8> state, RuntimeDizzyStateContext& con
             crossed = 1.f >= lower || upper > 1.f;
         }
     }
-    if (!expired || (read_u32(state, 0x4C) != 0 && !crossed))
+    if (!expired || (get(state, field::waits_for_animation) != 0 && !crossed))
     {
         return;
     }

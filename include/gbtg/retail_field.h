@@ -125,4 +125,12 @@ auto record(Bytes&& bytes, RetailRecord<Offset, Stride, Count>, size_t index = 0
     return std::span<Byte>(view.data() + Offset + index * Stride, Stride);
 }
 
+// The bytes of a record kept as a struct, for the functions that still take a retail byte span.
+template <typename T>
+std::span<u8> retail_bytes(T& object)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    return std::span<u8>(reinterpret_cast<u8*>(&object), sizeof(T));
+}
+
 } // namespace gbtg

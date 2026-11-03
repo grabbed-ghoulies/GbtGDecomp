@@ -13,12 +13,13 @@ namespace gbtg
 {
 namespace
 {
-void recycle_particle(ActorEffectNode& effect, std::span<u8> particle)
+void recycle_particle(ActorEffectNode& effect, EffectParticle& particle)
 {
     const u16 head = get(effect.bytes, actor_effect_field::free_head);
-    set(particle, effect_particle_field::next_free, head);
-    const i32 displacement = i32(particle.data() - effect.bytes.data()) - i32(actor_effect_field::particles_offset);
-    const u16 index = u16(displacement / i32(effect_particle_field::kSize));
+    particle.next_free = head;
+    const i32 displacement =
+        i32(reinterpret_cast<u8*>(&particle) - effect.bytes.data()) - i32(actor_effect_field::particles_offset);
+    const u16 index = u16(displacement / i32(sizeof(EffectParticle)));
     const u16 active = u16(get(effect.bytes, actor_effect_field::used_count) - 1);
     set(effect.bytes, actor_effect_field::used_count, active);
     set(effect.bytes, actor_effect_field::free_head, index);
@@ -48,11 +49,11 @@ void spawn_and_simulate_actor_effect_particle(ActorEffectNode& effect, float ste
 {
     auto& simulation = context.simulation;
     u32& random = simulation.commands.effects.random_state;
-    u8* allocated = allocate_actor_effect_particle(effect, context.address(effect.bytes.data()),
+    EffectParticle* allocated = allocate_actor_effect_particle(effect, context.address(effect.bytes.data()),
         get(effect.bytes, actor_effect_field::script), random, simulation.pal, simulation.override_pal);
     if (allocated != nullptr)
     {
-        const std::span<u8> particle{allocated, 0x150};
+        EffectParticle& particle = *allocated;
         place_actor_effect_particle(effect.bytes, particle, effect.bytes, context.scratch.placement, random);
         u32 collided = 0;
         float previous = 0.f;
@@ -73,8 +74,8 @@ void tick_active_actor_effect_particles(ActorEffectNode& effect, float step,
         u32 index = 0;
         do
         {
-            const auto particle = effect.bytes.subspan(size_t(index) * 0x150 + 0x390, 0x150);
-            if (i16(get(particle, effect_particle_field::next_free)) == -2)
+            EffectParticle& particle = actor_effect_particle(effect, index);
+            if (i16(particle.next_free) == -2)
             {
                 const u32 alive = simulate_actor_effect_particle(particle, effect, step,
                     context.scratch.collided, context.scratch.previous_collisions, context.simulation);
@@ -85,7 +86,7 @@ void tick_active_actor_effect_particles(ActorEffectNode& effect, float step,
                 else if (context.scratch.collided != 0
                     && std::bit_cast<u32>(context.scratch.previous_collisions) == 1)
                 {
-                    const Vec3 position = get(particle, effect_particle_field::position);
+                    const Vec3 position = particle.position;
                     auto& commands = context.simulation.commands;
                     const float fraction = advance_runtime_random_fraction(commands.effects.random_state);
                     notify_actor_effect_particle(effect, .5f > fraction, position, context.frame,

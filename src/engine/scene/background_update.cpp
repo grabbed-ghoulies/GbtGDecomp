@@ -61,19 +61,17 @@ void update_background_animation(RuntimeBackgroundConstruction& background,
                     do
                     {
                         const i32 signed_index = i16(particle_index);
-                        const auto particle = background.lifetime.effect->bytes.subspan(
-                            size_t(i32(actor_effect_field::particles_offset)
-                                + signed_index * i32(effect_particle_field::kSize)),
-                            effect_particle_field::kSize);
+                        const EffectParticle& particle =
+                            actor_effect_particle(*background.lifetime.effect, size_t(signed_index));
                         const u8 node = header[table + item];
                         ActorMatrixRecord& matrix = actor_matrix_records(background.matrices)[node];
-                        matrix.translation = get(particle, effect_particle_field::position);
+                        matrix.translation = particle.position;
                         background.matrices.progress = 0.f;
                         background.matrices.flags = 0;
                         store_word(background.fields, 0x29C, 0);
                         store_word(background.fields, 0x2A0, 0);
                         matrix.active = 1;
-                        matrix.euler = get(particle, effect_particle_field::euler);
+                        matrix.euler = particle.euler;
                         Vec3 euler = matrix.euler;
                         wrap_runtime_euler_angles(euler);
                         matrix.euler = euler;

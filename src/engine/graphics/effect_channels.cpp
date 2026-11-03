@@ -10,7 +10,7 @@
 namespace gbtg
 {
 // Xbox 0x000F1D20
-void configure_actor_effect_bounded_channels(std::span<u8> particle, const Vec3& first,
+void configure_actor_effect_bounded_channels(EffectParticle& particle, const Vec3& first,
     const Vec3& second, const Vec3& position, const Vec3& rates, i32 random_position,
     const i32& pal, const i32& override_pal, u32& random)
 {
@@ -18,20 +18,18 @@ void configure_actor_effect_bounded_channels(std::span<u8> particle, const Vec3&
         && runtime_wrapped_angles_equal(first.y, second.y)
         && runtime_wrapped_angles_equal(first.z, second.z))
     {
-        particle[0x58] &= 0xF7;
+        particle.channel_flags &= 0xFFF7;
         return;
     }
-    auto channels = particle.subspan(0x10C, 0x3C);
-    const float zero = 0.f;
-    for (size_t index = 0; index < 3; ++index)
+    for (BoundedChannel& channel : particle.bounded_channels)
     {
-        auto row = channels.subspan(index * 0x14, 0x14);
-        for (size_t offset : {0u, 4u, 8u, 12u})
-        {
-            std::memcpy(row.data() + offset, &zero, 4);
-        }
-        row[0x10] = 0;
+        channel.lower = 0.f;
+        channel.upper = 0.f;
+        channel.rate = 0.f;
+        channel.value = 0.f;
+        channel.mode = 0;
     }
+    const auto channels = retail_bytes(particle.bounded_channels);
     set_runtime_bounded_channel_limits(channels, first, second, pal, override_pal);
     set_runtime_bounded_channel_rates(channels, rates, pal, override_pal);
     Vec3 initial;
@@ -48,29 +46,28 @@ void configure_actor_effect_bounded_channels(std::span<u8> particle, const Vec3&
     const float* values[] = {&initial.x, &initial.y, &initial.z};
     for (size_t index = 0; index < 3; ++index)
     {
-        auto row = channels.subspan(index * 0x14, 0x14);
+        BoundedChannel& channel = particle.bounded_channels[index];
         float value = *values[index];
-        std::memcpy(row.data() + 0xC, &value, 4);
-        if (value > read_f32(row, 4))
+        channel.value = value;
+        if (value > channel.upper)
         {
-            value = read_f32(row, 4);
-            std::memcpy(row.data() + 0xC, &value, 4);
+            value = channel.upper;
+            channel.value = value;
         }
-        else if (read_f32(row, 0) > value)
+        else if (channel.lower > value)
         {
-            value = read_f32(row, 0);
-            std::memcpy(row.data() + 0xC, &value, 4);
+            value = channel.lower;
+            channel.value = value;
         }
     }
-    for (size_t index = 0; index < 3; ++index)
+    for (BoundedChannel& channel : particle.bounded_channels)
     {
-        auto row = channels.subspan(index * 0x14, 0x14);
-        if (read_f32(row, 0) != read_f32(row, 4))
+        if (channel.lower != channel.upper)
         {
-            row[0x10] = 5;
+            channel.mode = 5;
         }
     }
-    particle[0x58] |= 8;
+    particle.channel_flags |= 8;
 }
 
 // Xbox 0x000F2430
@@ -128,27 +125,24 @@ void target_actor_effect_alpha(std::span<u8> channels, u8 alpha, float duration)
 }
 
 // Xbox 0x000F1AF0
-void configure_actor_effect_oscillation(std::span<u8> particle, const Vec3& rate,
+void configure_actor_effect_oscillation(EffectParticle& particle, const Vec3& rate,
     const Vec3& phase, const Vec3& lower, const Vec3& upper, i32 random_phase, u32& random)
 {
     if (lower.x == upper.x && lower.y == upper.y && lower.z == upper.z)
     {
-        particle[0x58] &= 0xFB;
+        particle.channel_flags &= 0xFFFB;
         return;
     }
     constexpr float degrees = std::bit_cast<float>(0x3C8EFA35u);
     constexpr float turn = std::bit_cast<float>(0x40C90FDBu);
+    EffectOscillation& oscillation = particle.oscillation;
     const Vec3 rates = rate;
-    const float zero = 0.f;
-    for (size_t offset : {0xC0u,0xBCu,0xB8u,0xCCu,0xC8u,0xC4u,0xD8u,0xD4u,0xD0u,0xE4u,0xE0u,0xDCu})
-    {
-        std::memcpy(particle.data() + offset, &zero, 4);
-    }
+    oscillation.rate = {};
+    oscillation.phase = {};
+    oscillation.center = {};
+    oscillation.amplitude = {};
     const Vec3 angular_rate{rates.x * degrees, rates.y * degrees, rates.z * degrees};
-    for (size_t offset : {0xF0u,0xECu,0xE8u})
-    {
-        std::memcpy(particle.data() + offset, &zero, 4);
-    }
+    oscillation.value = {};
     Vec3 angular_phase;
     if (random_phase == 0)
     {
@@ -160,42 +154,45 @@ void configure_actor_effect_oscillation(std::span<u8> particle, const Vec3& rate
         angular_phase.y = sample_runtime_angle_range(turn, 0.f, random);
         angular_phase.z = sample_runtime_angle_range(turn, 0.f, random);
     }
-    std::memcpy(particle.data() + 0xC4, &angular_phase, 12);
-    std::memcpy(particle.data() + 0xB8, &angular_rate, 12);
+    oscillation.phase = angular_phase;
+    oscillation.rate = angular_rate;
     const float* first[] = {&lower.x, &lower.y, &lower.z};
     const float* second[] = {&upper.x, &upper.y, &upper.z};
+    float* const amplitudes[] = {&oscillation.amplitude.x, &oscillation.amplitude.y, &oscillation.amplitude.z};
+    float* const centers[] = {&oscillation.center.x, &oscillation.center.y, &oscillation.center.z};
     for (size_t index = 0; index < 3; ++index)
     {
         const float amplitude = (*second[index] - *first[index]) * .5f;
-        std::memcpy(particle.data() + 0xDC + index * 4, &amplitude, 4);
-        const float center = amplitude + *first[index];
-        std::memcpy(particle.data() + 0xD0 + index * 4, &center, 4);
+        *amplitudes[index] = amplitude;
+        *centers[index] = amplitude + *first[index];
     }
-    particle[0x58] |= 4;
+    particle.channel_flags |= 4;
 }
 
 // Xbox 0x00106A80
-void tick_actor_effect_oscillation(std::span<u8> channels, float step)
+void tick_actor_effect_oscillation(EffectOscillation& oscillation, float step)
 {
     constexpr float turn = std::bit_cast<float>(0x40C90FDBu);
+    const float rates[] = {oscillation.rate.x, oscillation.rate.y, oscillation.rate.z};
+    float* const phases[] = {&oscillation.phase.x, &oscillation.phase.y, &oscillation.phase.z};
+    const float centers[] = {oscillation.center.x, oscillation.center.y, oscillation.center.z};
+    const float amplitudes[] = {oscillation.amplitude.x, oscillation.amplitude.y, oscillation.amplitude.z};
+    float* const values[] = {&oscillation.value.x, &oscillation.value.y, &oscillation.value.z};
     for (size_t index = 0; index < 3; ++index)
     {
-        const float phase = float(ExtendedFloat{step} * ExtendedFloat{read_f32(channels, index * 4)}
-            + ExtendedFloat{read_f32(channels, 0xC + index * 4)});
+        const float phase = float(ExtendedFloat{step} * ExtendedFloat{rates[index]} + ExtendedFloat{*phases[index]});
         const long double remainder = animation_remainder(phase, turn);
         float wrapped = float(remainder);
         if (0.f > remainder)
         {
             wrapped += turn;
         }
-        std::memcpy(channels.data() + 0xC + index * 4, &wrapped, 4);
+        *phases[index] = wrapped;
     }
     for (size_t index = 0; index < 3; ++index)
     {
-        const ExtendedFloat sine{double(retail_sin(read_f32(channels, 0xC + index * 4)))};
-        const float value = float(sine * ExtendedFloat{read_f32(channels, 0x24 + index * 4)}
-            + ExtendedFloat{read_f32(channels, 0x18 + index * 4)});
-        std::memcpy(channels.data() + 0x30 + index * 4, &value, 4);
+        const ExtendedFloat sine{double(retail_sin(*phases[index]))};
+        *values[index] = float(sine * ExtendedFloat{amplitudes[index]} + ExtendedFloat{centers[index]});
     }
 }
 

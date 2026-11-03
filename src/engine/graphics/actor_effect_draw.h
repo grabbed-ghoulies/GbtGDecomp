@@ -7,13 +7,13 @@ namespace gbtg
 {
 struct RuntimeDisplaySetupContext;
 // One live particle (node +0x390 + index * 0x150) of a type-0 effect queued as a billboard.
-void draw_actor_effect_particle(ActorEffectNode& effect, size_t particle, BillboardQueue& queue); // Xbox 0x000EFEA0
+void draw_actor_effect_particle(ActorEffectNode& effect, size_t index, BillboardQueue& queue); // Xbox 0x000EFEA0
 // One live particle of a type-2 effect drawn as a world sprite quad (0x0005CF90).
-void draw_actor_effect_sprite(ActorEffectNode& effect, size_t particle,
+void draw_actor_effect_sprite(ActorEffectNode& effect, size_t index,
     RuntimeDisplaySetupContext& display); // Xbox 0x000F0010, ESI particle
 // The effect's model (+0x158) at the particle's position, euler and scale, tinted by its colour, through 0x000F9080.
 // `model_cpu` is the model's CPU resource address.
-void draw_actor_effect_model(ActorEffectNode& effect, size_t particle, u32 model_cpu,
+void draw_actor_effect_model(ActorEffectNode& effect, size_t index, u32 model_cpu,
     RuntimeDisplaySetupContext& display, SceneModelDrawContext& models); // Xbox 0x000F0160, EAX particle
 // The model at a world position, euler (y, x, z) and scale, built on DAT_0050DD70 from the identity.
 void draw_runtime_model_at(RuntimeModelInstance& model, u32 model_cpu, const Vec3* position, const Vec3* euler,

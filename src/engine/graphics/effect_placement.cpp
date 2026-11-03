@@ -43,10 +43,10 @@ void jitter_actor_effect_position(Vec3& position, std::span<const u8> effect, u3
 }
 
 // Xbox 0x000EE5C0
-void initialize_actor_effect_velocity(std::span<u8> particle, std::span<const u8> effect, u32& random)
+void initialize_actor_effect_velocity(EffectParticle& particle, std::span<const u8> effect, u32& random)
 {
     float speed = effect_speed(effect, random);
-    Vec3 velocity = get(particle, effect_particle_field::velocity);
+    Vec3 velocity = particle.velocity;
     const u32 mode = get(effect, actor_effect_field::velocity_mode);
     switch (mode)
     {
@@ -56,7 +56,7 @@ void initialize_actor_effect_velocity(std::span<u8> particle, std::span<const u8
     case 1:
     case 2:
     {
-        const Vec3 point = get(particle, effect_particle_field::position);
+        const Vec3 point = particle.position;
         const Vec3 origin = mode == 1 ? get(effect, actor_effect_field::position)
             : get(effect, actor_effect_field::emit_point);
         const Vec3 direction{point.x - origin.x, point.y - origin.y, point.z - origin.z};
@@ -99,11 +99,11 @@ void initialize_actor_effect_velocity(std::span<u8> particle, std::span<const u8
     velocity.x *= scale;
     velocity.y *= scale;
     velocity.z *= scale;
-    set(particle, effect_particle_field::velocity, velocity);
+    particle.velocity = velocity;
 }
 
 // Xbox 0x000EED50
-void place_actor_effect_particle(std::span<const u8> effect, std::span<u8> particle,
+void place_actor_effect_particle(std::span<const u8> effect, EffectParticle& particle,
     std::span<const u8> owner, Vec3& scratch, u32& random)
 {
     const u32 kind = get(effect, actor_effect_field::volume);
@@ -164,13 +164,13 @@ void place_actor_effect_particle(std::span<const u8> effect, std::span<u8> parti
         rotate_euler_vector(get(effect, actor_effect_field::euler), scratch, scratch);
     }
     const Vec3 origin = get(effect, actor_effect_field::emit_point);
-    set(particle, effect_particle_field::position, {origin.x + scratch.x, origin.y + scratch.y, origin.z + scratch.z});
+    particle.position = {origin.x + scratch.x, origin.y + scratch.y, origin.z + scratch.z};
     initialize_actor_effect_velocity(particle, effect, random);
-    Vec3 velocity = get(particle, effect_particle_field::velocity);
+    Vec3 velocity = particle.velocity;
     velocity.x = velocity.x + get(effect, actor_effect_field::motion).x;
     velocity.y = get(effect, actor_effect_field::motion).y + velocity.y;
     velocity.z = get(effect, actor_effect_field::motion).z + velocity.z;
-    set(particle, effect_particle_field::velocity, velocity);
-    set(particle, effect_particle_field::euler, get(effect, actor_effect_field::euler));
+    particle.velocity = velocity;
+    particle.euler = get(effect, actor_effect_field::euler);
 }
 }

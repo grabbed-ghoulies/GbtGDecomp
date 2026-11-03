@@ -1,6 +1,7 @@
 #pragma once
 #include "gbtg/entity.h"
 #include "gbtg/retail_field.h"
+#include <array>
 #include <span>
 
 namespace gbtg
@@ -17,6 +18,18 @@ constexpr RetailField<u8, 0x10> mode{};
 constexpr u32 kSize = 0x14;
 static_assert(retail_fits(kSize, mode));
 } // namespace bounded_channel_field
+
+// The same channel as a struct, for records kept as structs; the functions below take its retail_bytes.
+struct BoundedChannel
+{
+    float lower = 0.f; // +0
+    float upper = 0.f; // +4
+    float rate = 0.f; // +8
+    float value = 0.f; // +0xC
+    u8 mode = 0; // +0x10
+    std::array<u8, 3> unk_11{}; // +0x11, never read or written
+};
+static_assert(sizeof(BoundedChannel) == bounded_channel_field::kSize);
 
 float approach_runtime_scalar(float current, float target, float amount); // Xbox 0x00101B90
 // `value` less the whole multiples of `divisor` (the quotient truncated, x87 product), or `value` when the divisor's

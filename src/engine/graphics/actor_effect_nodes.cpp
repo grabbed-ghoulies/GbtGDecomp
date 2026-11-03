@@ -3,6 +3,7 @@
 #include "gbtg/entity.h"
 
 #include <bit>
+#include <cstddef>
 #include <cstring>
 #include <new>
 
@@ -28,8 +29,8 @@ void write(ActorEffectNode& effect, size_t offset, const T& value)
 // Particle slot `index`'s free link (its next_free) from the node's start.
 i32 particle_link_offset(i32 index)
 {
-    return i32(actor_effect_field::particles_offset) + index * i32(effect_particle_field::kSize)
-        + i32(effect_particle_field::next_free.offset);
+    return i32(actor_effect_field::particles_offset) + index * i32(sizeof(EffectParticle))
+        + i32(offsetof(EffectParticle, next_free));
 }
 }
 
@@ -75,7 +76,7 @@ ActorEffectNode* create_actor_effect_node(const char* name, u16 count,
     const Vec3& position, const Vec3& euler, AnimationResourceRegistry& registry,
     ResourceErrorState& error)
 {
-    const size_t bytes = static_cast<size_t>(count) * effect_particle_field::kSize + 0x4E0;
+    const size_t bytes = static_cast<size_t>(count) * sizeof(EffectParticle) + 0x4E0;
     auto* allocation = engine_heap_allocate(static_cast<i32>(sizeof(ActorEffectNode) + bytes));
     auto* effect = new (allocation) ActorEffectNode{};
     effect->bytes = {reinterpret_cast<u8*>(effect + 1), bytes};
@@ -140,10 +141,10 @@ void recycle_actor_effect_particles(ActorEffectNode& effect)
                 store_effect_field(effect.bytes, actor_effect_field::used_count,
                     u16(get(effect.bytes, actor_effect_field::used_count) - 1));
                 store_effect_field(effect.bytes, actor_effect_field::free_head,
-                    static_cast<i16>((offset - particle_link_offset(0)) / effect_particle_field::kSize));
+                    static_cast<i16>((offset - particle_link_offset(0)) / sizeof(EffectParticle)));
             }
             ++index;
-            offset += effect_particle_field::kSize;
+            offset += sizeof(EffectParticle);
         }
         while (index < i16(get(effect.bytes, actor_effect_field::capacity)));
     }

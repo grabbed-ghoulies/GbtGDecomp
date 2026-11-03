@@ -3,6 +3,7 @@
 
 namespace gbtg
 {
+struct EffectParticle; // effect_particles.h
 // An effect script command (0x000F0390): the opcode at +4, then its arguments. Opcodes share a few argument
 // layouts, named below by shape. See docs/RETAIL_LAYOUTS.md.
 namespace effect_command_field
@@ -79,7 +80,7 @@ constexpr RetailField<float, 0x8> bounce{};
 constexpr RetailField<float, 0xC> unk_0C{}; // stored at the particle's +0x48 (its size)
 } // namespace bounce_command
 
-bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owner, u32& cursor,
+bool execute_actor_effect_commands(EffectParticle& particle, ActorEffectNode& owner, u32& cursor,
     const std::function<std::span<const u8>(u32)>& resolve, u32& random,
     const i32& pal, const i32& override_pal); // Xbox 0x000F0390
 }

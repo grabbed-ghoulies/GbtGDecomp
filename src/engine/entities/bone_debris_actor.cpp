@@ -47,11 +47,6 @@ void put_vector(std::span<u8> bytes, size_t offset, const Vec3& value)
     std::memcpy(bytes.data() + offset, &value, 12);
 }
 
-Vec3 read_vector(std::span<const u8> bytes, size_t offset)
-{
-    return Vec3{read_f32(bytes, offset), read_f32(bytes, offset + 4), read_f32(bytes, offset + 8)};
-}
-
 // Actor +0x288 record `index`.
 ActorMatrixRecord& matrix_row(RuntimeBoneDebris& context, u32 index)
 {
@@ -71,16 +66,10 @@ ActorEffectNode& debris_effect(RuntimeBoneDebris& context)
     return *context.effect;
 }
 
-// Effect +0x390 + 0x150 * index: a debris particle.
-std::span<u8> debris_particle(RuntimeBoneDebris& context, i32 index)
+// The effect's particle `index`: a debris particle.
+EffectParticle& debris_particle(RuntimeBoneDebris& context, i32 index)
 {
-    auto& effect = debris_effect(context);
-    const size_t offset = size_t(i32(i16(u16(u32(index))))) * 0x150 + 0x390;
-    if (offset + 0x150 > effect.bytes.size())
-    {
-        throw Error("bone debris particle lies past its effect node");
-    }
-    return effect.bytes.subspan(offset, 0x150);
+    return actor_effect_particle(debris_effect(context), size_t(i32(i16(u16(u32(index))))));
 }
 
 RuntimeActorMatrixSampling matrix_sampling(RuntimeBoneDebris& context)
@@ -91,7 +80,7 @@ RuntimeActorMatrixSampling matrix_sampling(RuntimeBoneDebris& context)
 }
 
 // The particle's push away from `source`, `strength` long (x87 from the reciprocal square root on).
-void push_debris_particle(std::span<u8> particle, const Vec3& position, const Vec3* source, float strength)
+void push_debris_particle(EffectParticle& particle, const Vec3& position, const Vec3* source, float strength)
 {
     if (source == nullptr)
     {
@@ -108,7 +97,7 @@ void push_debris_particle(std::span<u8> particle, const Vec3& position, const Ve
         dy = float(dy * scale);
         dz = float(dz * scale);
     }
-    put_vector(particle, 0x18, Vec3{dx, dy, dz});
+    particle.velocity = Vec3{dx, dy, dz};
 }
 
 // The effect a piece may carry (name at +0x954, chance +0x9D4), at most eight.
@@ -194,9 +183,9 @@ void spawn_runtime_bone_debris_group(std::span<const u8> header, i32 group, i32&
             if (index == 0)
             {
                 allocate_debris_particle(context);
-                const auto particle = debris_particle(context, particles);
-                put_vector(particle, 0, position);
-                put_vector(particle, 0xC, euler);
+                EffectParticle& particle = debris_particle(context, particles);
+                particle.position = position;
+                particle.euler = euler;
                 initialize_actor_effect_velocity(particle, debris_effect(context).bytes, context.random); // 0x000EE5C0
                 push_debris_particle(particle, position, source, strength);
                 carry_debris_effect(position, 0, context);
@@ -215,9 +204,9 @@ void spawn_runtime_bone_debris_group(std::span<const u8> header, i32 group, i32&
         row.center = context.origin; // DAT_0050DD80.
         row.has_second_euler = 0;
         allocate_debris_particle(context);
-        const auto particle = debris_particle(context, particles);
-        put_vector(particle, 0, position);
-        put_vector(particle, 0xC, euler);
+        EffectParticle& particle = debris_particle(context, particles);
+        particle.position = position;
+        particle.euler = euler;
         initialize_actor_effect_velocity(particle, debris_effect(context).bytes, context.random); // 0x000EE5C0
         push_debris_particle(particle, position, source, strength);
         carry_debris_effect(position, index, context);
@@ -496,11 +485,11 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
         Vec3 group_euler{};
         for (u32 index = 0; index < count; ++index)
         {
-            const auto piece = debris_particle(context, particle);
-            const u8 resting = piece[0x54];
+            const EffectParticle& piece = debris_particle(context, particle);
+            const u8 resting = piece.stopped;
             set(bytes, field::resting, get(bytes, field::resting) != 0 && resting != 0 ? 1 : 0);
-            const Vec3 position = read_vector(piece, 0);
-            const Vec3 euler = read_vector(piece, 0xC);
+            const Vec3 position = piece.position;
+            const Vec3 euler = piece.euler;
             ActorMatrixRecord& row = matrix_row(context, joints[index]);
             if (together)
             {
@@ -527,7 +516,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
             wrap_runtime_euler_angles(wrapped); // 0x001059B0, ESI the row's euler
             row.euler = wrapped;
             row.active = 1;
-            if (get(bytes, field::landed) == 0 && read_u32(piece, 0x5C) != 0 && piece[0x55] == 0
+            if (get(bytes, field::landed) == 0 && piece.collisions != 0 && piece.unk_55 == 0
                 && context.collision_normal.y > 0.75f) // DAT_00506928, DAT_0032B2AC.
             {
                 set(bytes, field::landed, 1);

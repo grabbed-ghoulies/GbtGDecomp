@@ -7,42 +7,42 @@
 namespace gbtg
 {
 // Xbox 0x000F0300
-bool actor_effect_command_condition(std::span<const u8> command, std::span<const u8> particle)
+bool actor_effect_command_condition(std::span<const u8> command, const EffectParticle& particle)
 {
     switch (read_u32(command, 8))
     {
     case 0:
-        if (get(particle, effect_particle_field::velocity).y >= 0.f)
+        if (particle.velocity.y >= 0.f)
         {
             return true;
         }
         break;
     case 1:
-        if (get(particle, effect_particle_field::velocity).y >= -20.f)
+        if (particle.velocity.y >= -20.f)
         {
             return true;
         }
         break;
     case 2:
-        if (actor_effect_channels_are_active(record(particle, effect_particle_field::colour_channels)))
+        if (actor_effect_channels_are_active(std::span(particle.colour_channels)))
         {
             return true;
         }
         break;
     case 3:
-        if (std::bit_cast<i32>(get(particle, effect_particle_field::collisions)) < 3)
+        if (std::bit_cast<i32>(particle.collisions) < 3)
         {
             return true;
         }
         break;
     case 4:
-        if (get(particle, effect_particle_field::collisions) == 0)
+        if (particle.collisions == 0)
         {
             return true;
         }
         break;
     case 5:
-        if (get(particle, effect_particle_field::unk_108) > 0.f)
+        if (particle.unk_108 > 0.f)
         {
             return true;
         }
@@ -52,10 +52,10 @@ bool actor_effect_command_condition(std::span<const u8> command, std::span<const
 }
 
 // Xbox 0x000F0FF0
-u32 find_actor_effect_fallback_command(std::span<const u8> particle, ActorEffectNode& effect,
+u32 find_actor_effect_fallback_command(const EffectParticle& particle, ActorEffectNode& effect,
     const std::function<std::span<const u8>(u32)>& resolve)
 {
-    u32 address = get(particle, effect_particle_field::command);
+    u32 address = particle.command;
     auto command = resolve(address);
     u32 previous = 0;
     if (read_u32(command, 4) != 2)

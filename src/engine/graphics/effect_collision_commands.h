@@ -16,8 +16,8 @@ struct RuntimeEffectCollisionCommands
     const FootstepSoundNames& footsteps;
     u32& callback_result; // DAT_00506C50.
 };
-bool execute_effect_collision_commands(std::span<u8> particle,
+bool execute_effect_collision_commands(EffectParticle& particle,
     const ActorEffectNode& owner, RuntimeEffectCollisionCommands& context); // Xbox 0x000F10F0
-void notify_effect_particle_collision(std::span<u8> particle,
+void notify_effect_particle_collision(EffectParticle& particle,
     const ActorEffectNode& owner, RuntimeEffectCollisionCommands& context); // Xbox 0x000F18C0
 }

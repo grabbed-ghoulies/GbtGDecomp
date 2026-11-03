@@ -6,6 +6,7 @@
 
 namespace gbtg
 {
+struct EffectParticle; // effect_particles.h
 struct RuntimeEffectCollision
 {
     u32 kind = 0; // DAT_00506918.
@@ -24,12 +25,12 @@ struct RuntimeEffectCollisionContext
     const Vec3& maximum; // DAT_0050EA10.
     u32& random;
 };
-bool move_actor_effect_particle(std::span<u8> particle, RuntimeEffectCollisionContext& context,
+bool move_actor_effect_particle(EffectParticle& particle, RuntimeEffectCollisionContext& context,
     const std::function<void()>& hit_callback); // Xbox 0x000ECE50
 i32 probe_actor_effect_world(Vec3& source, Vec3& candidate, float radius, i32 kind,
     u32 mask, u32 grid_only, RuntimeEffectCollision& collision); // Xbox 0x000ECA20
-bool probe_actor_effect_particle(std::span<u8> particle, Vec3& candidate,
+bool probe_actor_effect_particle(EffectParticle& particle, Vec3& candidate,
     RuntimeEffectCollision& collision); // Xbox 0x000ECBD0
-void reflect_actor_effect_particle(std::span<u8> particle, u32 surface_flags,
+void reflect_actor_effect_particle(EffectParticle& particle, u32 surface_flags,
     const Vec3& normal, u32& random); // Xbox 0x000ECC30
 }

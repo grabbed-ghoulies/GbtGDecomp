@@ -14,8 +14,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = effect_particle_field;
-
 float command_fraction(u32& random)
 {
     random = random * 0x19660Du + 0x3C6EF35Fu;
@@ -44,7 +42,7 @@ float signed_command_range(float low, float high, u32& random)
 }
 
 // Xbox 0x000F0390
-bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owner, u32& cursor,
+bool execute_actor_effect_commands(EffectParticle& particle, ActorEffectNode& owner, u32& cursor,
     const std::function<std::span<const u8>(u32)>& resolve, u32& random,
     const i32& pal, const i32& override_pal)
 {
@@ -52,19 +50,18 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
     constexpr float epsilon = std::bit_cast<float>(0x3456BF95u);
     const auto detach = [&]
     {
-        set(particle, field::next_free, 0xFFFD);
+        particle.next_free = 0xFFFD;
         set(owner.bytes, actor_effect_field::free_count, u16(get(owner.bytes, actor_effect_field::free_count) + 1));
     };
     const auto update_duration = [&](std::span<const u8> command)
     {
-        if (get(particle, field::duration_low) != get(command, timed_command::duration_low)
-            || get(particle, field::duration_high) != get(command, timed_command::duration_high))
+        if (particle.duration_low != get(command, timed_command::duration_low)
+            || particle.duration_high != get(command, timed_command::duration_high))
         {
-            set(particle, field::duration,
-                command_range(get(command, timed_command::duration_low), get(command, timed_command::duration_high),
-                    random));
-            set(particle, field::duration_low, get(command, timed_command::duration_low));
-            set(particle, field::duration_high, get(command, timed_command::duration_high));
+            particle.duration = command_range(get(command, timed_command::duration_low),
+                get(command, timed_command::duration_high), random);
+            particle.duration_low = get(command, timed_command::duration_low);
+            particle.duration_high = get(command, timed_command::duration_high);
         }
     };
     while (true)
@@ -79,7 +76,7 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
         case 0x1B59:
         {
             cursor = address + 0x10;
-            float* const values = field_data(record(particle, field::colour_channels),
+            float* const values = field_data(std::span(particle.colour_channels),
                 effect_channel_field::values);
             const auto bytes = get(command, colour_command::values);
             for (size_t index = 0; index < 5; ++index)
@@ -104,7 +101,7 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
                 const long double value = static_cast<long double>(i32(high) - i32(low)) * fraction + i32(low);
                 color[index] = u8(truncate_runtime_float(value));
             }
-            float* const values = field_data(record(particle, field::colour_channels), effect_channel_field::values);
+            float* const values = field_data(std::span(particle.colour_channels), effect_channel_field::values);
             for (size_t index = 0; index < 5; ++index)
             {
                 values[index] = float(color[index]);
@@ -113,14 +110,12 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
         }
         case 0x1B5B:
             cursor = address + 0xC;
-            set(particle, field::gravity,
-                get(command, value_command::value) * get(owner.bytes, actor_effect_field::scale));
+            particle.gravity = get(command, value_command::value) * get(owner.bytes, actor_effect_field::scale);
             break;
         case 0x1B5C:
             cursor = address + 0x10;
-            set(particle, field::gravity,
-                command_range(get(command, range_command::low), get(command, range_command::high), random)
-                    * get(owner.bytes, actor_effect_field::scale));
+            particle.gravity = command_range(get(command, range_command::low), get(command, range_command::high), random)
+                * get(owner.bytes, actor_effect_field::scale);
             break;
         case 0x1B5E:
             cursor = address + 0xC;
@@ -139,36 +134,35 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             break;
         case 0x1B61:
             cursor = address + 0x14;
-            if (get(particle, field::duration_low) != get(command, timed_command::duration_low)
-                || get(particle, field::duration_high) != get(command, timed_command::duration_high))
+            if (particle.duration_low != get(command, timed_command::duration_low)
+                || particle.duration_high != get(command, timed_command::duration_high))
             {
-                set(particle, field::duration, runtime_body_random_range(random,
-                    get(command, timed_command::duration_low), get(command, timed_command::duration_high)));
-                set(particle, field::duration_low, get(command, timed_command::duration_low));
-                set(particle, field::duration_high, get(command, timed_command::duration_high));
+                particle.duration = runtime_body_random_range(random,
+                    get(command, timed_command::duration_low), get(command, timed_command::duration_high));
+                particle.duration_low = get(command, timed_command::duration_low);
+                particle.duration_high = get(command, timed_command::duration_high);
             }
-            target_actor_effect_alpha(record(particle, field::colour_channels), get(command, timed_command::colour)[0],
-                get(particle, field::duration));
+            target_actor_effect_alpha(std::span(particle.colour_channels), get(command, timed_command::colour)[0],
+                particle.duration);
             break;
         case 0x1B62:
             cursor = address + 0x14;
             update_duration(command);
-            target_actor_effect_color(record(particle, field::colour_channels),
+            target_actor_effect_color(std::span(particle.colour_channels),
                 get(command, timed_command::colour)[0], get(command, timed_command::colour)[1],
-                get(command, timed_command::colour)[2], get(particle, field::duration));
+                get(command, timed_command::colour)[2], particle.duration);
             break;
         case 0x1B63:
             cursor = address + 0xC;
-            set(particle, field::life, get(command, value_command::value));
+            particle.life = get(command, value_command::value);
             break;
         case 0x1B64:
             cursor = address + 0x10;
-            set(particle, field::life,
-                command_range(get(command, range_command::low), get(command, range_command::high), random));
+            particle.life = command_range(get(command, range_command::low), get(command, range_command::high), random);
             break;
         case 0x1B65:
             cursor = address + 0xC;
-            set(particle, field::spin, Vec3{0.f, 0.f, get(command, value_command::value) * degrees});
+            particle.spin = Vec3{0.f, 0.f, get(command, value_command::value) * degrees};
             break;
         case 0x1B66:
         {
@@ -176,37 +170,35 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             const float low = get(command, range_command::low) * degrees;
             const float high = get(command, range_command::high) * degrees;
             const float fraction = command_fraction(random);
-            set(particle, field::spin, Vec3{0.f, 0.f, (high - low) * fraction + low});
+            particle.spin = Vec3{0.f, 0.f, (high - low) * fraction + low};
             break;
         }
         case 0x1B67:
             cursor = address + 0xC;
-            set(particle, field::size,
-                get(command, value_command::value) * get(particle, field::size_scale));
+            particle.size = get(command, value_command::value) * particle.size_scale;
             break;
         case 0x1B68:
             cursor = address + 0x10;
-            set(particle, field::size,
-                command_range(get(command, range_command::low), get(command, range_command::high), random) *
-                    get(particle, field::size_scale));
+            particle.size = command_range(get(command, range_command::low), get(command, range_command::high), random)
+                * particle.size_scale;
             break;
         case 0x1B69:
         {
             cursor = address + 0x14;
-            set(particle, field::target_size, get(command, value_command::value) * get(particle, field::size_scale));
+            particle.target_size = get(command, value_command::value) * particle.size_scale;
             update_duration(command);
-            const float duration = get(particle, field::duration);
+            const float duration = particle.duration;
             if (duration > epsilon)
             {
-                const float difference = float(ExtendedFloat{get(particle, field::target_size)} -
-                    ExtendedFloat{get(particle, field::size)});
+                const float difference = float(ExtendedFloat{particle.target_size} -
+                    ExtendedFloat{particle.size});
                 const float rate = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
-                set(particle, field::size_rate, rate);
+                particle.size_rate = rate;
             }
             else
             {
-                set(particle, field::size, get(particle, field::target_size));
-                set(particle, field::size_rate, 0.f);
+                particle.size = particle.target_size;
+                particle.size_rate = 0.f;
             }
             break;
         }
@@ -214,17 +206,17 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             cursor = address + 0x10;
             if (get(command, face_command::faces) != 0)
             {
-                field_byte(particle, field::motion_flags, 0) |= 2;
+                particle.motion_flags |= 2;
             }
             if (get(command, face_command::faces_fully) != 0)
             {
-                field_byte(particle, field::motion_flags, 0) |= 8;
+                particle.motion_flags |= 8;
             }
             break;
         case 0x1B6B:
             cursor = address + 0xC;
-            field_byte(particle, field::motion_flags, 0) |= 1;
-            set(particle, field::collision_radius, get(command, value_command::value));
+            particle.motion_flags |= 1;
+            particle.collision_radius = get(command, value_command::value);
             break;
         case 0x1B6C:
             cursor = address + 0x3C;
@@ -246,19 +238,19 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             break;
         case 0x1B6E:
             cursor = address + 0x10;
-            if (get(particle, field::duration_low) == get(command, range_command::low)
-                && get(particle, field::duration_high) == get(command, range_command::high))
+            if (particle.duration_low == get(command, range_command::low)
+                && particle.duration_high == get(command, range_command::high))
             {
-                set(particle, field::unk_108, get(particle, field::duration));
+                particle.unk_108 = particle.duration;
             }
             else
             {
-                set(particle, field::unk_108,
-                    command_range(get(command, range_command::low), get(command, range_command::high), random));
+                particle.unk_108 =
+                    command_range(get(command, range_command::low), get(command, range_command::high), random);
             }
-            set(particle, field::duration_low, -1.f);
-            set(particle, field::duration_high, get(particle, field::duration_low));
-            set(particle, field::duration, get(particle, field::duration_low));
+            particle.duration_low = -1.f;
+            particle.duration_high = particle.duration_low;
+            particle.duration = particle.duration_low;
             break;
         case 0x1B6F:
         {
@@ -268,21 +260,21 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             const float x = signed_command_range(lower.x, upper.x, random);
             const float y = signed_command_range(lower.y, upper.y, random) * degrees;
             const float z = signed_command_range(lower.z, upper.z, random) * degrees;
-            set(particle, field::spin, Vec3{x * degrees, y, z});
+            particle.spin = Vec3{x * degrees, y, z};
             break;
         }
         case 0x1B70:
             cursor = address + 0x10;
-            set(particle, field::bounce, get(command, bounce_command::bounce));
-            set(particle, field::size, get(command, bounce_command::unk_0C));
+            particle.bounce = get(command, bounce_command::bounce);
+            particle.size = get(command, bounce_command::unk_0C);
             break;
         case 0x1B71:
             cursor = address + 8;
-            field_byte(particle, field::motion_flags, 0) |= 4;
+            particle.motion_flags |= 4;
             break;
         case 0x1B72:
             cursor = address + 0xC;
-            set(particle, field::drag, get(command, value_command::value));
+            particle.drag = get(command, value_command::value);
             break;
         case 0x1B73:
             cursor = address + 0x3C;
@@ -313,10 +305,10 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             case 0x1B7B: cursor = address + 0x18; break;
             case 0x1B7D: cursor = address + 0x9C; break;
             }
-            field_byte(particle, field::motion_flags, 0) |= opcode == 0x1B76 || opcode == 0x1B77 ? 0x11 : 1;
+            particle.motion_flags |= opcode == 0x1B76 || opcode == 0x1B77 ? 0x11 : 1;
             if (get(command, value_command::word) != 0)
             {
-                field_byte(particle, field::motion_flags, 0) |= 0x20;
+                particle.motion_flags |= 0x20;
             }
             break;
         }
@@ -324,7 +316,7 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             cursor = address + 0x98;
             if (get(command, value_command::word) != 0)
             {
-                field_byte(particle, field::motion_flags, 0) |= 0x20;
+                particle.motion_flags |= 0x20;
             }
             break;
         default:

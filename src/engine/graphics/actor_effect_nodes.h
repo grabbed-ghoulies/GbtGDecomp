@@ -9,7 +9,7 @@
 
 namespace gbtg
 {
-// An actor effect (0x000ED1C0): an emitter of 0x150-byte particles (effect_particle_field) placed from +0x390.
+// An actor effect (0x000ED1C0): an emitter of 0x150-byte particles (EffectParticle) placed from +0x390.
 // See docs/RETAIL_LAYOUTS.md.
 namespace actor_effect_field
 {

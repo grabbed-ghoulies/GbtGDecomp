@@ -7,6 +7,7 @@
 #include "gbtg/anim.h"
 #include "body_fields.h"
 #include "player_fields.h"
+#include "body_damage_fields.h"
 #include <cstring>
 #include <bit>
 
@@ -44,40 +45,40 @@ u32 receive_runtime_body_collision_hit(std::span<u8> body,
     std::array<u8, 0x68> damage{};
     if (knockdown)
     {
-        damage[0] = 3;
-        damage[1] = 0x37;
-        damage[2] = 0x68;
+        set(damage, body_damage_field::kind, 3);
+        set(damage, body_damage_field::key, 0x37);
+        set(damage, body_damage_field::push_key, 0x68);
         const u32 one = 1;
         const u32 two = 2;
-        std::memcpy(damage.data() + 8, &one, 4);
-        std::memcpy(damage.data() + 4, &two, 4);
+        set(damage, body_damage_field::unk_8, one);
+        set(damage, body_damage_field::latch_mask, two);
     }
     else
     {
-        damage[0] = 1;
-        damage[1] = 0x32;
-        damage[2] = 0x65;
+        set(damage, body_damage_field::kind, 1);
+        set(damage, body_damage_field::key, 0x32);
+        set(damage, body_damage_field::push_key, 0x65);
         const u32 one = 1;
-        std::memcpy(damage.data() + 4, &one, 4);
+        set(damage, body_damage_field::latch_mask, one);
     }
     const bool controlled = get(actor_bytes, player_field::mode) == 2 ||
         get(actor_bytes, player_field::case_link) != 0;
     const u32 uncontrolled = !controlled;
-    std::memcpy(damage.data() + 0x14, &uncontrolled, 4);
-    damage[3] = joint;
-    std::memcpy(damage.data() + 0x18, &position, 12);
-    std::memcpy(damage.data() + 0x24, &normal, 12);
-    std::memcpy(damage.data() + 0x34, &source.address, 4);
-    std::memcpy(damage.data() + 0x38, &source.address, 4);
-    std::memcpy(damage.data() + 0x3C, source_body.data() + 0x274, 4);
-    std::memcpy(damage.data() + 0x40, &movement, 12);
-    std::memcpy(damage.data() + 0x4C, &movement, 12);
+    set(damage, body_damage_field::skip_script, uncontrolled);
+    set(damage, body_damage_field::joint, joint);
+    set(damage, body_damage_field::position, position);
+    set(damage, body_damage_field::normal, normal);
+    set(damage, body_damage_field::source, source.address);
+    set(damage, body_damage_field::attacker, source.address);
+    std::memcpy(field_data(damage, body_damage_field::holder), source_body.data() + 0x274, 4);
+    set(damage, body_damage_field::push, movement);
+    set(damage, body_damage_field::direction, movement);
     const u32 timer = read_u32(source_body, 0x760) == 0 ? 0 : read_u32(source_body, 0x754);
-    std::memcpy(damage.data() + 0x58, &timer, 4);
+    set(damage, body_damage_field::starts_timer, timer);
     const u16 actor_class = get(source.bytes, player_field::damage_class);
-    std::memcpy(damage.data() + 0x64, &actor_class, 2);
+    set(damage, body_damage_field::source_class, actor_class);
     const u32 one = 1;
-    std::memcpy(damage.data() + 0x60, &one, 4);
+    set(damage, body_damage_field::unk_60, one);
     context.contacts = nullptr;
     processor.first_source = &source;
     processor.second_source = &source;
@@ -98,30 +99,22 @@ void reflect_runtime_body_timer_hit(std::span<const u8> body, RuntimeBodyAttache
     if (read_u32(body, 0x760) != 0 &&
         (read_u32(source_body, 0x760) == 0 || read_u32(source_body, 0x754) == 0))
     {
-        float value = 0.f - read_f32(damage, 0x40);
-        std::memcpy(damage.data() + 0x40, &value, 4);
-        value = 0.f - read_f32(damage, 0x44);
-        std::memcpy(damage.data() + 0x44, &value, 4);
-        value = 0.f - read_f32(damage, 0x48);
-        std::memcpy(damage.data() + 0x48, &value, 4);
-        value = 0.f - read_f32(damage, 0x4C);
-        std::memcpy(damage.data() + 0x4C, &value, 4);
-        value = 0.f - read_f32(damage, 0x50);
-        std::memcpy(damage.data() + 0x50, &value, 4);
-        value = 0.f - read_f32(damage, 0x54);
-        std::memcpy(damage.data() + 0x54, &value, 4);
-        damage[0] = 2;
-        damage[1] = 0x34;
-        damage[2] = 0x65;
+        const Vec3 push = get(damage, body_damage_field::push);
+        set(damage, body_damage_field::push, Vec3{0.f - push.x, 0.f - push.y, 0.f - push.z});
+        const Vec3 direction = get(damage, body_damage_field::direction);
+        set(damage, body_damage_field::direction, Vec3{0.f - direction.x, 0.f - direction.y, 0.f - direction.z});
+        set(damage, body_damage_field::kind, 2);
+        set(damage, body_damage_field::key, 0x34);
+        set(damage, body_damage_field::push_key, 0x65);
         const u32 one = 1;
-        std::memcpy(damage.data() + 4, &one, 4);
-        damage[3] = 0;
-        std::memcpy(damage.data() + 0x34, &actor_address, 4);
-        std::memcpy(damage.data() + 0x38, &actor_address, 4);
-        std::memcpy(damage.data() + 0x3C, &actor_address, 4);
-        std::memcpy(damage.data() + 0x58, &one, 4);
+        set(damage, body_damage_field::latch_mask, one);
+        set(damage, body_damage_field::joint, 0);
+        set(damage, body_damage_field::source, actor_address);
+        set(damage, body_damage_field::attacker, actor_address);
+        set(damage, body_damage_field::holder, actor_address);
+        set(damage, body_damage_field::starts_timer, one);
         const u16 actor_class = get(actor.bytes, player_field::damage_class);
-        std::memcpy(damage.data() + 0x64, &actor_class, 2);
+        set(damage, body_damage_field::source_class, actor_class);
         source_context.contacts = reply_context.contacts;
         source_context.processor.first_source = &actor;
         source_context.processor.second_source = &actor;
@@ -152,13 +145,13 @@ void receive_runtime_body_timer_contact(std::span<u8> body, std::span<const u8> 
     RuntimeBodyAttachedActor& source, std::span<const u8> bound, RuntimeBodyDamageEntry& context)
 {
     std::array<u8, 0x68> damage{};
-    damage[0] = 2;
-    damage[1] = 0x44;
-    damage[2] = 0x65;
-    damage[3] = 1;
+    set(damage, body_damage_field::kind, 2);
+    set(damage, body_damage_field::key, 0x44);
+    set(damage, body_damage_field::push_key, 0x65);
+    set(damage, body_damage_field::joint, 1);
     const u32 one = 1;
-    std::memcpy(damage.data() + 4, &one, 4);
-    std::memcpy(damage.data() + 0x18, message.data() + 0x14, 12);
+    set(damage, body_damage_field::latch_mask, one);
+    std::memcpy(field_data(damage, body_damage_field::position), message.data() + 0x14, 12);
     const Vec3 source_position = actor_world_position(*source.actor);
     const Vec3 target_position = actor_world_position(context.processor.actor);
     Vec3 normal{source_position.x - target_position.x, 0.f, source_position.z - target_position.z};
@@ -170,11 +163,11 @@ void receive_runtime_body_timer_contact(std::span<u8> body, std::span<const u8> 
         normal.y = float(0.0L * reciprocal);
         normal.z = float(static_cast<long double>(normal.z) * reciprocal);
     }
-    std::memcpy(damage.data() + 0x24, &normal, 12);
-    std::memcpy(damage.data() + 0x40, message.data() + 8, 12);
-    std::memcpy(damage.data() + 0x34, &source.address, 4);
-    std::memcpy(damage.data() + 0x38, &source.address, 4);
-    std::memcpy(damage.data() + 0x3C, &source.address, 4);
+    set(damage, body_damage_field::normal, normal);
+    std::memcpy(field_data(damage, body_damage_field::push), message.data() + 8, 12);
+    set(damage, body_damage_field::source, source.address);
+    set(damage, body_damage_field::attacker, source.address);
+    set(damage, body_damage_field::holder, source.address);
     Vec3 direction;
     if (context.processor.attributes.data() != nullptr && context.processor.attributes[0x1A0] != 0 && bound.data() != nullptr)
     {
@@ -191,11 +184,11 @@ void receive_runtime_body_timer_contact(std::span<u8> body, std::span<const u8> 
     float angle;
     runtime_direction_angle(direction, angle);
     direction = {float(retail_sin(angle)), 0.f, float(retail_cos(angle))};
-    std::memcpy(damage.data() + 0x4C, &direction, 12);
+    set(damage, body_damage_field::direction, direction);
     const u16 actor_class = get(source.bytes, player_field::damage_class);
-    std::memcpy(damage.data() + 0x64, &actor_class, 2);
-    std::memcpy(damage.data() + 0x58, &one, 4);
-    std::memcpy(damage.data() + 0x60, &one, 4);
+    set(damage, body_damage_field::source_class, actor_class);
+    set(damage, body_damage_field::starts_timer, one);
+    set(damage, body_damage_field::unk_60, one);
     context.contacts = nullptr;
     context.processor.first_source = &source;
     context.processor.second_source = &source;
@@ -245,35 +238,35 @@ void receive_runtime_body_impact(std::span<u8> body, std::span<u8> message,
         std::array<u8, 0x68> damage{};
         if ((flags.bytes[4] & 0x10) == 0 && get(body, body_field::energy) != 0)
         {
-            damage[0] = 1;
-            damage[2] = 0x65;
+            set(damage, body_damage_field::kind, 1);
+            set(damage, body_damage_field::push_key, 0x65);
         }
         else
         {
-            std::memcpy(damage.data() + 0x3C, body.data() + 0x274, 4);
-            damage[0] = 3;
-            damage[2] = 0x68;
+            std::memcpy(field_data(damage, body_damage_field::holder), body.data() + 0x274, 4);
+            set(damage, body_damage_field::kind, 3);
+            set(damage, body_damage_field::push_key, 0x68);
             const u32 one = 1;
-            std::memcpy(damage.data() + 8, &one, 4);
+            set(damage, body_damage_field::unk_8, one);
         }
-        damage[1] = 0x46;
-        damage[3] = views.contacts.begin[0x24];
+        set(damage, body_damage_field::key, 0x46);
+        set(damage, body_damage_field::joint, views.contacts.begin[0x24]);
         const u32 mask = 0x20;
-        std::memcpy(damage.data() + 4, &mask, 4);
-        std::memcpy(damage.data() + 0x18, message.data() + 0x14, 12);
-        std::memcpy(damage.data() + 0x30, &views.contacts_address, 4);
+        set(damage, body_damage_field::latch_mask, mask);
+        std::memcpy(field_data(damage, body_damage_field::position), message.data() + 0x14, 12);
+        set(damage, body_damage_field::contacts, views.contacts_address);
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
-        std::memcpy(damage.data() + 0x24, &normal, 12);
-        std::memcpy(damage.data() + 0x34, message.data() + 8, 4);
+        set(damage, body_damage_field::normal, normal);
+        std::memcpy(field_data(damage, body_damage_field::source), message.data() + 8, 4);
         const Vec3 position = actor_world_position(context.processor.actor);
         const Vec3 direction{0.f - (read_f32(message, 0x14) - position.x),
             0.f - (read_f32(message, 0x18) - position.y), 0.f - (read_f32(message, 0x1C) - position.z)};
-        std::memcpy(damage.data() + 0x4C, &direction, 12);
-        std::memcpy(damage.data() + 0x58, message.data() + 0xC, 4);
+        set(damage, body_damage_field::direction, direction);
+        std::memcpy(field_data(damage, body_damage_field::starts_timer), message.data() + 0xC, 4);
         const u32 one = 1;
-        std::memcpy(damage.data() + 0x60, &one, 4);
-        std::memcpy(damage.data() + 0x64, &tag, 2);
+        set(damage, body_damage_field::unk_60, one);
+        set(damage, body_damage_field::source_class, tag);
         context.contacts = &views.contacts;
         context.processor.first_source = &views.source;
         context.processor.second_source = nullptr;
@@ -295,23 +288,23 @@ void receive_runtime_body_projectile_contact(std::span<u8> body, std::span<u8> m
     {
         auto* host = views.source.host;
         std::array<u8, 0x68> damage{};
-        damage[0] = message[4];
-        damage[1] = message[8];
-        damage[2] = message[0xC];
-        damage[3] = views.contacts.begin[0x24];
+        set(damage, body_damage_field::kind, message[4]);
+        set(damage, body_damage_field::key, message[8]);
+        set(damage, body_damage_field::push_key, message[0xC]);
+        set(damage, body_damage_field::joint, views.contacts.begin[0x24]);
         const u32 mask = 0x10;
-        std::memcpy(damage.data() + 4, &mask, 4);
-        std::memcpy(damage.data() + 0x18, message.data() + 0x28, 12);
-        std::memcpy(damage.data() + 0x30, &views.contacts_address, 4);
+        set(damage, body_damage_field::latch_mask, mask);
+        std::memcpy(field_data(damage, body_damage_field::position), message.data() + 0x28, 12);
+        set(damage, body_damage_field::contacts, views.contacts_address);
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
-        std::memcpy(damage.data() + 0x24, &normal, 12);
-        std::memcpy(damage.data() + 0x34, message.data() + 0x14, 4);
-        std::memcpy(damage.data() + 0x38, views.source.bytes.data() + 0xD8C, 4);
-        std::memcpy(damage.data() + 0x3C, views.source.bytes.data() + 0xD8C, 4);
+        set(damage, body_damage_field::normal, normal);
+        std::memcpy(field_data(damage, body_damage_field::source), message.data() + 0x14, 4);
+        std::memcpy(field_data(damage, body_damage_field::attacker), views.source.bytes.data() + 0xD8C, 4);
+        std::memcpy(field_data(damage, body_damage_field::holder), views.source.bytes.data() + 0xD8C, 4);
         const float angle = runtime_actor_angle_toward(context.processor.actor, *views.source.actor);
         const Vec3 direction{float(retail_sin(angle)), 0.f, float(retail_cos(angle))};
-        std::memcpy(damage.data() + 0x4C, &direction, 12);
+        set(damage, body_damage_field::direction, direction);
         u16 actor_class;
         if (host == nullptr)
         {
@@ -321,9 +314,9 @@ void receive_runtime_body_projectile_contact(std::span<u8> body, std::span<u8> m
         {
             actor_class = read_u16(host->bytes, 0xCF4);
         }
-        std::memcpy(damage.data() + 0x64, &actor_class, 2);
+        set(damage, body_damage_field::source_class, actor_class);
         const u32 one = 1;
-        std::memcpy(damage.data() + 0x5C, &one, 4);
+        set(damage, body_damage_field::unk_5C, one);
         context.contacts = &views.contacts;
         context.processor.first_source = &views.source;
         context.processor.second_source = host;
@@ -342,22 +335,22 @@ void receive_runtime_body_moving_contact(std::span<u8> body, std::span<u8> messa
     {
         auto* host = views.source.host;
         std::array<u8, 0x68> damage{};
-        damage[0] = message[4];
-        damage[1] = message[8];
-        damage[2] = message[0xC];
-        damage[3] = views.contacts.begin[0x24];
+        set(damage, body_damage_field::kind, message[4]);
+        set(damage, body_damage_field::key, message[8]);
+        set(damage, body_damage_field::push_key, message[0xC]);
+        set(damage, body_damage_field::joint, views.contacts.begin[0x24]);
         const u32 mask = 8;
-        std::memcpy(damage.data() + 4, &mask, 4);
-        std::memcpy(damage.data() + 0x18, message.data() + 0x30, 12);
-        std::memcpy(damage.data() + 0x30, &views.contacts_address, 4);
+        set(damage, body_damage_field::latch_mask, mask);
+        std::memcpy(field_data(damage, body_damage_field::position), message.data() + 0x30, 12);
+        set(damage, body_damage_field::contacts, views.contacts_address);
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
-        std::memcpy(damage.data() + 0x24, &normal, 12);
-        std::memcpy(damage.data() + 0x40, message.data() + 0x20, 12);
-        std::memcpy(damage.data() + 0x34, message.data() + 0x1C, 4);
-        std::memcpy(damage.data() + 0x38, views.source.bytes.data() + 0xD8C, 4);
-        std::memcpy(damage.data() + 0x3C, views.source.bytes.data() + 0xD8C, 4);
-        std::memcpy(damage.data() + 0x4C, views.source.bytes.data() + 0x3C, 12);
+        set(damage, body_damage_field::normal, normal);
+        std::memcpy(field_data(damage, body_damage_field::push), message.data() + 0x20, 12);
+        std::memcpy(field_data(damage, body_damage_field::source), message.data() + 0x1C, 4);
+        std::memcpy(field_data(damage, body_damage_field::attacker), views.source.bytes.data() + 0xD8C, 4);
+        std::memcpy(field_data(damage, body_damage_field::holder), views.source.bytes.data() + 0xD8C, 4);
+        std::memcpy(field_data(damage, body_damage_field::direction), views.source.bytes.data() + 0x3C, 12);
         u16 actor_class;
         if (host == nullptr)
         {
@@ -367,9 +360,9 @@ void receive_runtime_body_moving_contact(std::span<u8> body, std::span<u8> messa
         {
             actor_class = read_u16(host->bytes, 0xCF4);
         }
-        std::memcpy(damage.data() + 0x64, &actor_class, 2);
+        set(damage, body_damage_field::source_class, actor_class);
         const u32 one = 1;
-        std::memcpy(damage.data() + 0x5C, &one, 4);
+        set(damage, body_damage_field::unk_5C, one);
         context.contacts = &views.contacts;
         context.processor.first_source = &views.source;
         context.processor.second_source = host;
@@ -424,9 +417,9 @@ void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
     }
     if ((processor.flags.bytes[8] & 1) == 0 && i32(health) > amount)
     {
-        damage[0] = 0xD;
-        damage[1] = 0x42;
-        damage[2] = 0x67;
+        set(damage, body_damage_field::kind, 0xD);
+        set(damage, body_damage_field::key, 0x42);
+        set(damage, body_damage_field::push_key, 0x67);
         // The stack words from +0x10: 0x1A, the health, the 0x00028DA0 amount, then this damage packet.
         std::array<u32, 3 + 0x1A> words{};
         words[0] = 0x1A;
@@ -437,26 +430,26 @@ void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
     }
     else
     {
-        damage[0] = 0xC;
-        damage[1] = 0x42;
-        damage[2] = 0x68;
+        set(damage, body_damage_field::kind, 0xC);
+        set(damage, body_damage_field::key, 0x42);
+        set(damage, body_damage_field::push_key, 0x68);
     }
-    damage[3] = views.contacts.begin[0x24];
+    set(damage, body_damage_field::joint, views.contacts.begin[0x24]);
     const u32 mask = 8;
-    std::memcpy(damage.data() + 4, &mask, 4);
-    std::memcpy(damage.data() + 0x18, message.data() + 0x30, 12);
-    std::memcpy(damage.data() + 0x30, &views.contacts_address, 4);
+    set(damage, body_damage_field::latch_mask, mask);
+    std::memcpy(field_data(damage, body_damage_field::position), message.data() + 0x30, 12);
+    set(damage, body_damage_field::contacts, views.contacts_address);
     Vec3 normal;
     normalized_segment_contact_direction(views.contacts, normal); // 0x000FCA60
-    std::memcpy(damage.data() + 0x24, &normal, 12);
-    std::memcpy(damage.data() + 0x40, message.data() + 0x20, 12);
-    std::memcpy(damage.data() + 0x34, message.data() + 0x1C, 4);
-    std::memcpy(damage.data() + 0x38, views.source.bytes.data() + 0xD8C, 4);
-    std::memcpy(damage.data() + 0x3C, views.source.bytes.data() + 0xD8C, 4);
-    std::memcpy(damage.data() + 0x4C, views.source.bytes.data() + 0x3C, 12);
-    std::memcpy(damage.data() + 0x64, &actor_class, 2);
+    set(damage, body_damage_field::normal, normal);
+    std::memcpy(field_data(damage, body_damage_field::push), message.data() + 0x20, 12);
+    std::memcpy(field_data(damage, body_damage_field::source), message.data() + 0x1C, 4);
+    std::memcpy(field_data(damage, body_damage_field::attacker), views.source.bytes.data() + 0xD8C, 4);
+    std::memcpy(field_data(damage, body_damage_field::holder), views.source.bytes.data() + 0xD8C, 4);
+    std::memcpy(field_data(damage, body_damage_field::direction), views.source.bytes.data() + 0x3C, 12);
+    set(damage, body_damage_field::source_class, actor_class);
     const u32 one = 1;
-    std::memcpy(damage.data() + 0x5C, &one, 4);
+    set(damage, body_damage_field::unk_5C, one);
     context.contacts = &views.contacts;
     processor.first_source = &views.source;
     processor.second_source = host;
@@ -478,33 +471,35 @@ void receive_runtime_body_contact_health_hit(std::span<u8> body, std::span<u8> m
         !runtime_body_latches_block(body, context.processor.actor, 0x3F))
     {
         std::array<u8, 0x68> damage{};
-        damage[0] = 0x13;
-        damage[1] = 0x32;
-        damage[2] = 0x64;
-        damage[3] = views.contacts.begin[0x24];
+        set(damage, body_damage_field::kind, 0x13);
+        set(damage, body_damage_field::key, 0x32);
+        set(damage, body_damage_field::push_key, 0x64);
+        set(damage, body_damage_field::joint, views.contacts.begin[0x24]);
         const u32 one = 1;
-        std::memcpy(damage.data() + 4, &one, 4);
-        std::memcpy(damage.data() + 0x18, message.data() + 0x10, 12);
-        std::memcpy(damage.data() + 0x30, &views.contacts_address, 4);
+        set(damage, body_damage_field::latch_mask, one);
+        std::memcpy(field_data(damage, body_damage_field::position), message.data() + 0x10, 12);
+        set(damage, body_damage_field::contacts, views.contacts_address);
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
-        std::memcpy(damage.data() + 0x24, &normal, 12);
-        std::memcpy(damage.data() + 0x34, message.data() + 8, 4);
+        set(damage, body_damage_field::normal, normal);
+        std::memcpy(field_data(damage, body_damage_field::source), message.data() + 8, 4);
         if (read_u32(body, 0x278) == 0)
         {
-            std::memcpy(damage.data() + 0x38, body.data() + 0x270, 4);
-            std::memcpy(damage.data() + 0x3C, body.data() + 0x274, 4);
+            std::memcpy(field_data(damage, body_damage_field::attacker), body.data() + 0x270, 4);
+            std::memcpy(field_data(damage, body_damage_field::holder), body.data() + 0x274, 4);
         }
         const Vec3 position = actor_world_position(context.processor.actor);
         const Vec3 direction{0.f - (read_f32(message, 0x10) - position.x),
             0.f - (read_f32(message, 0x14) - position.y), 0.f - (read_f32(message, 0x18) - position.z)};
-        std::memcpy(damage.data() + 0x4C, &direction, 12);
-        std::memcpy(damage.data() + 0x58, &one, 4);
-        std::memcpy(damage.data() + 0x60, &one, 4);
+        set(damage, body_damage_field::direction, direction);
+        set(damage, body_damage_field::starts_timer, one);
+        set(damage, body_damage_field::unk_60, one);
         context.contacts = &views.contacts;
         context.processor.first_source = &views.source;
-        context.processor.second_source = read_u32(damage, 0x38) == 0 ? nullptr : views.retained_source;
-        context.processor.second_source_live = read_u32(damage, 0x38) == 0 ? 0 : read_u32(views.retained_source->bytes, 0xCE0);
+        context.processor.second_source =
+            get(damage, body_damage_field::attacker) == 0 ? nullptr : views.retained_source;
+        context.processor.second_source_live =
+            get(damage, body_damage_field::attacker) == 0 ? 0 : read_u32(views.retained_source->bytes, 0xCE0);
         std::array<u32, 4> result;
         receive_runtime_body_damage(body, damage, result, context);
         if (result[1] != 0)
@@ -531,25 +526,25 @@ void receive_runtime_body_contact_knockdown(std::span<u8> body, std::span<u8> me
     if ((context.processor.flags.bytes[7] & 0x40) == 0)
     {
         std::array<u8, 0x68> damage{};
-        damage[0] = 5;
-        damage[1] = 0x32;
-        damage[2] = 0x68;
-        damage[3] = views.contacts.begin[0x24];
+        set(damage, body_damage_field::kind, 5);
+        set(damage, body_damage_field::key, 0x32);
+        set(damage, body_damage_field::push_key, 0x68);
+        set(damage, body_damage_field::joint, views.contacts.begin[0x24]);
         const u32 one = 1;
-        std::memcpy(damage.data() + 4, &one, 4);
-        std::memcpy(damage.data() + 0xC, &one, 4);
-        std::memcpy(damage.data() + 0x10, &one, 4);
-        std::memcpy(damage.data() + 0x18, message.data() + 0x10, 12);
-        std::memcpy(damage.data() + 0x30, &views.contacts_address, 4);
+        set(damage, body_damage_field::latch_mask, one);
+        set(damage, body_damage_field::forced, one);
+        set(damage, body_damage_field::unblockable, one);
+        std::memcpy(field_data(damage, body_damage_field::position), message.data() + 0x10, 12);
+        set(damage, body_damage_field::contacts, views.contacts_address);
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
-        std::memcpy(damage.data() + 0x24, &normal, 12);
-        std::memcpy(damage.data() + 0x34, message.data() + 8, 4);
+        set(damage, body_damage_field::normal, normal);
+        std::memcpy(field_data(damage, body_damage_field::source), message.data() + 8, 4);
         const Vec3 position = actor_world_position(context.processor.actor);
         const Vec3 direction{0.f - (read_f32(message, 0x10) - position.x),
             0.f - (read_f32(message, 0x14) - position.y), 0.f - (read_f32(message, 0x18) - position.z)};
-        std::memcpy(damage.data() + 0x4C, &direction, 12);
-        std::memcpy(damage.data() + 0x60, &one, 4);
+        set(damage, body_damage_field::direction, direction);
+        set(damage, body_damage_field::unk_60, one);
         context.contacts = &views.contacts;
         context.processor.first_source = &views.source;
         context.processor.second_source = nullptr;
@@ -580,10 +575,10 @@ void runtime_body_damage_contact_position(std::span<const u8> damage,
     if (contacts != nullptr)
     {
         const std::span<const u8> row{contacts->begin, 0x54};
-        float y = read_f32(damage, 0x1C) - read_f32(row, 0x30);
-        float z = read_f32(damage, 0x20) - read_f32(row, 0x34);
+        float y = get(damage, body_damage_field::position).y - read_f32(row, 0x30);
+        float z = get(damage, body_damage_field::position).z - read_f32(row, 0x34);
         const float radius = read_f32(row, 0x38) + 1.f;
-        float x = read_f32(damage, 0x18) - read_f32(row, 0x2C);
+        float x = get(damage, body_damage_field::position).x - read_f32(row, 0x2C);
         const float squared = (y * y + z * z) + x * x;
         if (squared != 0.f)
         {
@@ -597,7 +592,7 @@ void runtime_body_damage_contact_position(std::span<const u8> damage,
         output.z = read_f32(row, 0x34) + z;
         return;
     }
-    output = {read_f32(damage, 0x18), read_f32(damage, 0x1C), read_f32(damage, 0x20)};
+    output = get(damage, body_damage_field::position);
 }
 
 // Xbox 0x0001F1D0
@@ -655,18 +650,18 @@ void dispatch_runtime_body_damage_reply(std::span<const u8> damage,
 {
     Vec3 position;
     runtime_body_damage_contact_position(damage, context.contacts, position);
-    if (result[1] != 0 && damage[0] == 0x12)
+    if (result[1] != 0 && get(damage, body_damage_field::kind) == 0x12)
     {
         notify_runtime_body_lethal_hit_position(position, context.processor.actions);
         return;
     }
-    if (read_u32(damage, 0x38) != 0)
+    if (get(damage, body_damage_field::attacker) != 0)
     {
         notify_runtime_body_contact_hit_position(context.processor.second_source->actor,
             position, result[2], result[0] == 0, context.processor.attributes, context.processor.actions);
         return;
     }
-    if (read_u32(damage, 0x5C) != 0)
+    if (get(damage, body_damage_field::unk_5C) != 0)
     {
         notify_runtime_body_contact_hit_position(context.processor.first_source != nullptr ? context.processor.first_source->actor : nullptr,
             position, result[2], result[0] == 0, context.processor.attributes, context.processor.actions);
@@ -729,22 +724,21 @@ void receive_runtime_body_direct_hit(std::span<u8> body, RuntimeBodyAttachedActo
     const Vec3& notice_position, RuntimeBodyDamageEntry& context)
 {
     std::array<u8, 0x68> damage{};
-    damage[0] = 1;
-    damage[1] = 0x45;
-    damage[2] = 0x64;
-    damage[3] = 0xE;
+    set(damage, body_damage_field::kind, 1);
+    set(damage, body_damage_field::key, 0x45);
+    set(damage, body_damage_field::push_key, 0x64);
+    set(damage, body_damage_field::joint, 0xE);
     const u32 one = 1;
-    std::memcpy(damage.data() + 4, &one, 4);
+    set(damage, body_damage_field::latch_mask, one);
     const Vec3 position = actor_world_position(*source.actor);
-    std::memcpy(damage.data() + 0x18, &position, 12);
+    set(damage, body_damage_field::position, position);
     const u16 actor_class = get(source.bytes, player_field::damage_class);
-    std::memcpy(damage.data() + 0x64, &actor_class, 2);
-    std::memcpy(damage.data() + 0x60, &one, 4);
-    const float direction_y = 1.f;
-    std::memcpy(damage.data() + 0x2C, &direction_y, 4);
-    std::memcpy(damage.data() + 0x34, &source.address, 4);
-    std::memcpy(damage.data() + 0x38, &source.address, 4);
-    std::memcpy(damage.data() + 0x3C, &source.address, 4);
+    set(damage, body_damage_field::source_class, actor_class);
+    set(damage, body_damage_field::unk_60, one);
+    set(damage, body_damage_field::normal, Vec3{0.f, 1.f, 0.f}); // straight up (DAT_0032B0F8)
+    set(damage, body_damage_field::source, source.address);
+    set(damage, body_damage_field::attacker, source.address);
+    set(damage, body_damage_field::holder, source.address);
     // Relocated native views of the three source words in this stack damage packet.
     context.contacts = nullptr;
     context.processor.first_source = &source;
@@ -793,19 +787,19 @@ void receive_runtime_body_knock_back(std::span<u8> body, const Actor& actor,
         push.z = push.z * inverse;
     }
     std::array<u8, 0x68> damage{};
-    damage[0] = 1;
-    damage[1] = 0x32;
-    damage[2] = 0x65;
-    damage[3] = 0;
+    set(damage, body_damage_field::kind, 1);
+    set(damage, body_damage_field::key, 0x32);
+    set(damage, body_damage_field::push_key, 0x65);
+    set(damage, body_damage_field::joint, 0);
     const u32 one = 1;
-    std::memcpy(damage.data() + 4, &one, 4);
+    set(damage, body_damage_field::latch_mask, one);
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    std::memcpy(damage.data() + 0x18, &position, 12);
+    set(damage, body_damage_field::position, position);
     const u32 source = background == nullptr ? 0 : background->address;
-    std::memcpy(damage.data() + 0x24, &facing, 12);
-    std::memcpy(damage.data() + 0x34, &source, 4);
-    std::memcpy(damage.data() + 0x40, &movement, 12);
-    std::memcpy(damage.data() + 0x4C, &push, 12);
+    set(damage, body_damage_field::normal, facing);
+    set(damage, body_damage_field::source, source);
+    set(damage, body_damage_field::push, movement);
+    set(damage, body_damage_field::direction, push);
     // Native views of the damage's +0x30 contacts and its +0x34 / +0x38 sources.
     context.contacts = nullptr;
     context.processor.first_source = background;

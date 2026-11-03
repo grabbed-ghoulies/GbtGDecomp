@@ -2,6 +2,7 @@
 #include "actor_live_attachments.h"
 #include "../scripts/script_conditions.h"
 #include "body_fields.h"
+#include "body_damage_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -102,14 +103,14 @@ void adjust_runtime_body_damage_kind(std::span<u8> damage,
 {
     if (attributes.data() != nullptr && attributes[0x1A3] != 0 && (flags.bytes[3] & 2) == 0)
     {
-        const u8 kind = damage[0];
+        const u8 kind = get(damage, body_damage_field::kind);
         if (kind != 3)
         {
             if (kind == 4)
             {
-                damage[0] = 2;
-                damage[1] = 0x34;
-                damage[2] = 0x65;
+                set(damage, body_damage_field::kind, 2);
+                set(damage, body_damage_field::key, 0x34);
+                set(damage, body_damage_field::push_key, 0x65);
                 return;
             }
             if (kind != 7)
@@ -117,9 +118,9 @@ void adjust_runtime_body_damage_kind(std::span<u8> damage,
                 return;
             }
         }
-        damage[0] = 1;
-        damage[1] = 0x33;
-        damage[2] = 0x65;
+        set(damage, body_damage_field::kind, 1);
+        set(damage, body_damage_field::key, 0x33);
+        set(damage, body_damage_field::push_key, 0x65);
     }
 }
 

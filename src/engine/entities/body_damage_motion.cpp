@@ -1,6 +1,7 @@
 #include "body_damage_motion.h"
 #include "player_mind_targets.h"
 #include "player_mind_events.h"
+#include "body_damage_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -190,12 +191,13 @@ void push_runtime_body_from_damage(Actor& actor, u32 actor_address,
     RuntimeBodyAttachedActor* first_source, RuntimeBodyAttachedActor* second_source,
     const RuntimeBodyDamageTables& tables, std::span<const u8> keys)
 {
-    const float value = runtime_body_damage_push_amount(actor, read_u16(damage, 0x64), key, tables, keys);
+    const float value =
+        runtime_body_damage_push_amount(actor, get(damage, body_damage_field::source_class), key, tables, keys);
     const float factor = attributes.data() == nullptr ? 1.f : read_f32(attributes, 0x19C);
     const float amount = factor * value;
     if (amount != 0.f)
     {
-        const Vec3 direction{read_f32(damage, 0x4C), read_f32(damage, 0x50), read_f32(damage, 0x54)};
+        const Vec3 direction = get(damage, body_damage_field::direction);
         float angle;
         runtime_direction_angle(direction, angle);
         const float x = float(retail_sin(angle) * static_cast<long double>(amount));

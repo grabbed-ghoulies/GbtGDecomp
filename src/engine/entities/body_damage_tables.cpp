@@ -3,6 +3,7 @@
 #include "player_mind_events.h"
 #include "actor_shape_bounds.h"
 #include "body_fields.h"
+#include "body_damage_fields.h"
 #include <bit>
 #include <immintrin.h>
 #include <cstring>
@@ -73,13 +74,13 @@ bool runtime_body_damage_classified(std::span<const u8> body, const Actor& actor
     u32 player_damage, const RuntimeBodyDamageTables& tables,
     std::span<const u8> keys)
 {
-    if (contacts == nullptr || damage[0] == 0x12)
+    if (contacts == nullptr || get(damage, body_damage_field::kind) == 0x12)
     {
         return false;
     }
     if ((runtime_actor_physical_shape_flags(actor) & 0x20000) != 0 &&
         runtime_body_damage_amount(body, actor, source, source_live, player_damage,
-            damage[1], read_u16(damage, 0x64), tables, keys) == 0)
+            get(damage, body_damage_field::key), get(damage, body_damage_field::source_class), tables, keys) == 0)
     {
         return true;
     }
@@ -96,7 +97,8 @@ bool runtime_body_damage_classified(std::span<const u8> body, const Actor& actor
     {
         return true;
     }
-    return ((nearest_contact_flags(*contacts, *contact_actor, read_f32(damage, 0x1C)) >> 0x11) & 1) != 0;
+    return ((nearest_contact_flags(*contacts, *contact_actor, get(damage, body_damage_field::position).y) >> 0x11) &
+            1) != 0;
 }
 
 // Xbox 0x000244E0

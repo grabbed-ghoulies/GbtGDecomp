@@ -205,6 +205,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Actor effect particle (0x150-byte slots from an effect's +0x390, 0x000EFE30; run by 0x000F18E0) | 0x150 | `effect_particle_field`: position, euler, velocity, spin, collision radius, bounce factors, size (and its rate, target and scale), gravity, drag, hit bytes, motion and channel flags, next free slot, collisions, colour channels, life, colour durations, oscillation, frames, bounded channels, owner, command. The debris and trail pools' records are different types and stay by offset | `src/engine/graphics/effect_particles.h` |
 | Mind requests (a mind's queued steps, run by the cinema mind's 0x0007C0E0) | varies by kind | `mind_request_field` (kind, elapsed) and one namespace per kind the cinema movement runs: target action (2), escape (0xD), vertical escape (0xE), vertical position (0xF), vertical point (0x10), vertical target (0x11), random position (0x14), heading position (0x15), timed motion (0x24), facing (0x25..0x27), position (0x2D), target position (0x2F); most fields named by the navigation calls they feed (0x00136B00, 0x00136D60) | `src/engine/entities/mind_request_fields.h` |
 | Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `mind_target_field`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
+| Damage record (built on the stack by the hit messages and handed to 0x00020DC0) | 0x68 | `body_damage_field`: kind, key, push key, joint, latch mask, forced, unblockable, skip script, position, normal, contacts, source, attacker, holder, push, direction, starts timer, source class; unk_8, unk_5C, unk_60 | `src/engine/entities/body_damage_fields.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
 The camera mind was checked with `--player-opening` and headless captures of `chapter1_scene1_2playcam` at 300 and
@@ -320,6 +321,14 @@ or the bone debris' optional sound. Only each type's own fields are named: offse
 but don't own (the player body, mind and actor, the weapon base's +0xC0C..+0xDD0, the mind's target records, the
 matrix rows and effect particles the bone debris drives, and the 0x000426F0 bound record) stay literal until those
 types are named. `strategy_target_selection.cpp` touches only such shared objects and is unchanged.
+
+The damage record was named by script in the hit messages and the damage dispatch, processors, tables, motion and
+notices: byte reads and writes of the first four bytes, scalar reads, `memcpy` writes of a whole field, and Vec3
+reads (by component where the code reads one). The reflected hit's six component negations became two Vec3
+negations that compute the same `0.f - x`. Naming it turned up a bug: the direct hit (0x000205B0, body message 0x2A)
+wrote its 1.0 at +0x2C, the normal's z, where the dump writes `local_40`, +0x28, the normal's y; it now sets the
+normal to (0, 1, 0). The ten regular modes are byte-identical to the previous build apart from `scene6_title.bmp`'s
+known 3-byte variant, so none of them shows the fix; whether they reach message 0x2A wasn't checked.
 
 ## Next
 

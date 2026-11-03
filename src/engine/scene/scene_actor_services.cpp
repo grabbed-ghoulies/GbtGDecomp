@@ -756,7 +756,7 @@ void SceneActorServices::update_effects(RuntimeEffectPassScratch& scratch)
     auto& state = *state_;
     state.frame_delta = state.game.clock.dt;
     state.pal = state.game.clock.pal ? 1 : 0;
-    RuntimeEffectDebris debris{{state.debris_pool->particles, 0x16A8}, state.debris_pool->types,
+    RuntimeEffectDebris debris{{state.debris_pool->particles, effect_debris_pool.size}, state.debris_pool->types,
         state.debris_pool->free_head, state.game.clock.frame, state.random};
     const Vec3 plane{read_f32(state.data(0x00433FFC, 12), 0),
         read_f32(state.data(0x00433FFC, 12), 4), read_f32(state.data(0x00433FFC, 12), 8)};
@@ -804,7 +804,7 @@ void SceneActorServices::update_effects(RuntimeEffectPassScratch& scratch)
         address, state.display_view->forward, scratch};
     RuntimeModelSoundRelease release{state.sounds, state.resources.registry, state.deferred,
         state.fence, state.shaders, state.heap_free};
-    RuntimeEffectTrails trails{{state.trail_pool->particles, 0x19C8}, state.trail_pool->types,
+    RuntimeEffectTrails trails{{state.trail_pool->particles, effect_trail_pool.size}, state.trail_pool->types,
         state.trail_pool->free_head, state.random, state.pal, state.pal_override, resolve};
     RuntimeGlobalEffectTick context{g_actor_effect_nodes, tick, release, debris, trails, state.clock};
     tick_global_actor_effects(context);

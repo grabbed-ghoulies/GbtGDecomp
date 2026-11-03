@@ -596,17 +596,19 @@ void SceneActorServices::State::present_view(i32 view)
         [this]()
         {
             draw_effect_debris(debris_pool->particles == nullptr ? std::span<const u8>{}
-                : std::span<const u8>(debris_pool->particles, 0x16A8), debris_pool->textures, *display_setup);
+                : std::span<const u8>(debris_pool->particles, effect_debris_pool.size), debris_pool->textures, *display_setup);
         },
         [this]()
         {
             // 0x000EBCB0: live type-2 trail records queue billboards through 0x0005C1A0.
             if (trail_pool->particles != nullptr)
             {
-                const std::span<const u8> particles(trail_pool->particles, 0x19C8);
-                for (size_t offset = 0x18; offset < 0x18 + 50 * 0x84; offset += 0x84)
+                const std::span<const u8> particles(trail_pool->particles, effect_trail_pool.size);
+                for (size_t index = 0; index < effect_trail_pool.count; ++index)
                 {
-                    if (i32(read_u32(particles, offset + 100)) == -2 && particles[offset + 0x58] == 2)
+                    const auto particle = record(particles, effect_trail_pool, index);
+                    if (get(particle, effect_trail_field::next_free) == -2
+                        && get(particle, effect_trail_field::phase) == 2)
                     {
                         unbound("trail billboard queue 0x000EBCB0 body");
                     }

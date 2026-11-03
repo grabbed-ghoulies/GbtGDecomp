@@ -6,14 +6,6 @@
 
 namespace gbtg
 {
-namespace
-{
-void store_channel_value(std::span<u8> channel, float value)
-{
-    std::memcpy(channel.data() + 0xC, &value, 4);
-}
-}
-
 // Xbox 0x00101B00
 void set_runtime_bounded_channel_limits(std::span<u8> channel, float first,
     float second, const i32& pal, const i32& override_pal)
@@ -31,25 +23,25 @@ void set_runtime_bounded_channel_limits(std::span<u8> channel, float first,
     }
     else
     {
-        channel[0x10] &= 0xFC;
+        set(channel, bounded_channel_field::mode, u8(get(channel, bounded_channel_field::mode) & 0xFC));
         lower = second;
         upper = first;
     }
-    std::memcpy(channel.data(), &lower, 4);
-    std::memcpy(channel.data() + 4, &upper, 4);
-    if (read_f32(channel, 0xC) > upper)
+    set(channel, bounded_channel_field::lower, lower);
+    set(channel, bounded_channel_field::upper, upper);
+    if (get(channel, bounded_channel_field::value) > upper)
     {
-        store_channel_value(channel, upper);
+        set(channel, bounded_channel_field::value, upper);
     }
-    else if (lower > read_f32(channel, 0xC))
+    else if (lower > get(channel, bounded_channel_field::value))
     {
-        store_channel_value(channel, lower);
+        set(channel, bounded_channel_field::value, lower);
     }
     const i32 frequency = pal != 0 && override_pal == 0 ? 50 : 60;
     const float maximum = (float(frequency) * .5f) * (upper - lower);
-    if (read_f32(channel, 8) > maximum)
+    if (get(channel, bounded_channel_field::rate) > maximum)
     {
-        std::memcpy(channel.data() + 8, &maximum, 4);
+        set(channel, bounded_channel_field::rate, maximum);
     }
 }
 
@@ -141,7 +133,7 @@ void set_runtime_bounded_channel_limits(std::span<u8> channels, const Vec3& firs
     const float* b[] = {&second.x, &second.y, &second.z};
     for (size_t index = 0; index < 3; ++index)
     {
-        auto row = channels.subspan(index * 0x14, 0x14);
+        auto row = channels.subspan(index * bounded_channel_field::kSize, bounded_channel_field::kSize);
         float lower, upper;
         if (*a[index] > *b[index])
         {
@@ -155,26 +147,27 @@ void set_runtime_bounded_channel_limits(std::span<u8> channels, const Vec3& firs
         }
         else
         {
-            row[0x10] &= 0xFC;
+            set(row, bounded_channel_field::mode, u8(get(row, bounded_channel_field::mode) & 0xFC));
             lower = *b[index];
             upper = *a[index];
         }
-        std::memcpy(row.data(), &lower, 4);
-        std::memcpy(row.data() + 4, &upper, 4);
-        const float value = read_f32(row, 0xC);
+        set(row, bounded_channel_field::lower, lower);
+        set(row, bounded_channel_field::upper, upper);
+        const float value = get(row, bounded_channel_field::value);
         if (value > upper)
         {
-            store_channel_value(row, upper);
+            set(row, bounded_channel_field::value, upper);
         }
         else if (lower > value)
         {
-            store_channel_value(row, lower);
+            set(row, bounded_channel_field::value, lower);
         }
         const i32 frequency = pal != 0 && override_pal == 0 ? 50 : 60;
-        const float maximum = (float(frequency) * .5f) * (read_f32(row, 4) - read_f32(row, 0));
-        if (read_f32(row, 8) > maximum)
+        const float maximum = (float(frequency) * .5f) *
+            (get(row, bounded_channel_field::upper) - get(row, bounded_channel_field::lower));
+        if (get(row, bounded_channel_field::rate) > maximum)
         {
-            std::memcpy(row.data() + 8, &maximum, 4);
+            set(row, bounded_channel_field::rate, maximum);
         }
     }
 }
@@ -186,15 +179,15 @@ void set_runtime_bounded_channel_rates(std::span<u8> channels, const Vec3& rates
     const float* values[] = {&rates.x, &rates.y, &rates.z};
     for (size_t index = 0; index < 3; ++index)
     {
-        auto row = channels.subspan(index * 0x14, 0x14);
+        auto row = channels.subspan(index * bounded_channel_field::kSize, bounded_channel_field::kSize);
         const float value = *values[index];
-        const float width = read_f32(row, 4) - read_f32(row, 0);
-        std::memcpy(row.data() + 8, &value, 4);
+        const float width = get(row, bounded_channel_field::upper) - get(row, bounded_channel_field::lower);
+        set(row, bounded_channel_field::rate, value);
         const i32 frequency = pal != 0 && override_pal == 0 ? 50 : 60;
         const float maximum = (float(frequency) * .5f) * width;
         if (value > maximum)
         {
-            std::memcpy(row.data() + 8, &maximum, 4);
+            set(row, bounded_channel_field::rate, maximum);
         }
     }
 }
@@ -202,42 +195,44 @@ void set_runtime_bounded_channel_rates(std::span<u8> channels, const Vec3& rates
 // Xbox 0x00101980
 void decrease_runtime_bounded_channel(std::span<u8> channel, float step)
 {
-    const float value = read_f32(channel, 0xC) - read_f32(channel, 8) * step;
-    store_channel_value(channel, value);
-    if (read_f32(channel, 0) > value)
+    const float value = get(channel, bounded_channel_field::value) - get(channel, bounded_channel_field::rate) * step;
+    set(channel, bounded_channel_field::value, value);
+    if (get(channel, bounded_channel_field::lower) > value)
     {
-        const u8 flags = channel[0x10];
+        const u8 flags = get(channel, bounded_channel_field::mode);
         if ((flags & 4) != 0)
         {
-            channel[0x10] = (flags & 0xFD) | 1;
-            store_channel_value(channel, (read_f32(channel, 0) - value) + read_f32(channel, 0));
+            set(channel, bounded_channel_field::mode, u8((flags & 0xFD) | 1));
+            set(channel, bounded_channel_field::value,
+                (get(channel, bounded_channel_field::lower) - value) + get(channel, bounded_channel_field::lower));
         }
         else if ((flags & 8) != 0)
         {
-            if (read_f32(channel, 0) > value)
+            if (get(channel, bounded_channel_field::lower) > value)
             {
-                const float width = read_f32(channel, 4) - read_f32(channel, 0);
+                const float width =
+                    get(channel, bounded_channel_field::upper) - get(channel, bounded_channel_field::lower);
                 do
                 {
-                    store_channel_value(channel, width + read_f32(channel, 0xC));
+                    set(channel, bounded_channel_field::value, width + get(channel, bounded_channel_field::value));
                 }
-                while (read_f32(channel, 0) > read_f32(channel, 0xC));
+                while (get(channel, bounded_channel_field::lower) > get(channel, bounded_channel_field::value));
             }
         }
         else
         {
-            channel[0x10] = flags & 2;
-            store_channel_value(channel, read_f32(channel, 0));
+            set(channel, bounded_channel_field::mode, u8(flags & 2));
+            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::lower));
             return;
         }
-        if (read_f32(channel, 0xC) > read_f32(channel, 4))
+        if (get(channel, bounded_channel_field::value) > get(channel, bounded_channel_field::upper))
         {
-            store_channel_value(channel, read_f32(channel, 4));
+            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::upper));
             return;
         }
-        if (read_f32(channel, 0) > read_f32(channel, 0xC))
+        if (get(channel, bounded_channel_field::lower) > get(channel, bounded_channel_field::value))
         {
-            store_channel_value(channel, read_f32(channel, 0));
+            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::lower));
         }
     }
 }
@@ -245,42 +240,44 @@ void decrease_runtime_bounded_channel(std::span<u8> channel, float step)
 // Xbox 0x00101A40
 void increase_runtime_bounded_channel(std::span<u8> channel, float step)
 {
-    const float value = read_f32(channel, 8) * step + read_f32(channel, 0xC);
-    store_channel_value(channel, value);
-    if (value > read_f32(channel, 4))
+    const float value = get(channel, bounded_channel_field::rate) * step + get(channel, bounded_channel_field::value);
+    set(channel, bounded_channel_field::value, value);
+    if (value > get(channel, bounded_channel_field::upper))
     {
-        const u8 flags = channel[0x10];
+        const u8 flags = get(channel, bounded_channel_field::mode);
         if ((flags & 4) != 0)
         {
-            channel[0x10] = (flags & 0xFE) | 2;
-            store_channel_value(channel, read_f32(channel, 4) - (value - read_f32(channel, 4)));
+            set(channel, bounded_channel_field::mode, u8((flags & 0xFE) | 2));
+            set(channel, bounded_channel_field::value,
+                get(channel, bounded_channel_field::upper) - (value - get(channel, bounded_channel_field::upper)));
         }
         else if ((flags & 8) != 0)
         {
-            if (value > read_f32(channel, 4))
+            if (value > get(channel, bounded_channel_field::upper))
             {
-                const float width = read_f32(channel, 4) - read_f32(channel, 0);
+                const float width =
+                    get(channel, bounded_channel_field::upper) - get(channel, bounded_channel_field::lower);
                 do
                 {
-                    store_channel_value(channel, read_f32(channel, 0xC) - width);
+                    set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::value) - width);
                 }
-                while (read_f32(channel, 0xC) > read_f32(channel, 4));
+                while (get(channel, bounded_channel_field::value) > get(channel, bounded_channel_field::upper));
             }
         }
         else
         {
-            channel[0x10] = flags & 1;
-            store_channel_value(channel, read_f32(channel, 4));
+            set(channel, bounded_channel_field::mode, u8(flags & 1));
+            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::upper));
             return;
         }
-        if (read_f32(channel, 0xC) > read_f32(channel, 4))
+        if (get(channel, bounded_channel_field::value) > get(channel, bounded_channel_field::upper))
         {
-            store_channel_value(channel, read_f32(channel, 4));
+            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::upper));
             return;
         }
-        if (read_f32(channel, 0) > read_f32(channel, 0xC))
+        if (get(channel, bounded_channel_field::lower) > get(channel, bounded_channel_field::value))
         {
-            store_channel_value(channel, read_f32(channel, 0));
+            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::lower));
         }
     }
 }
@@ -290,8 +287,8 @@ void tick_runtime_bounded_channels(std::span<u8> channels, float step, float* ou
 {
     for (size_t index = 0; index < 3; ++index)
     {
-        auto channel = channels.subspan(index * 0x14, 0x14);
-        const u8 flags = channel[0x10];
+        auto channel = channels.subspan(index * bounded_channel_field::kSize, bounded_channel_field::kSize);
+        const u8 flags = get(channel, bounded_channel_field::mode);
         if ((flags & 2) != 0)
         {
             decrease_runtime_bounded_channel(channel, step);
@@ -302,7 +299,7 @@ void tick_runtime_bounded_channels(std::span<u8> channels, float step, float* ou
         }
         if (output != nullptr)
         {
-            const u32 value = read_u32(channel, 0xC);
+            const float value = get(channel, bounded_channel_field::value);
             std::memcpy(output + index, &value, 4);
         }
     }

@@ -611,7 +611,7 @@ void SceneActorServices::State::background_update(NativeBackgroundInstance& back
         {
             throw Error("background particle collision has no DAT_005077A8 display view");
         }
-        RuntimeEffectDebris debris{{debris_pool->particles, 0x16A8}, debris_pool->types,
+        RuntimeEffectDebris debris{{debris_pool->particles, effect_debris_pool.size}, debris_pool->types,
             debris_pool->free_head, game.clock.frame, random};
         const Vec3 plane{read_f32(data(0x00433FFC, 12), 0), read_f32(data(0x00433FFC, 12), 4),
             read_f32(data(0x00433FFC, 12), 8)};
@@ -658,7 +658,7 @@ void SceneActorServices::State::tick_owned_effect(ActorEffectNode& effect, float
     {
         throw Error("owned effect collision has no DAT_005077A8 display view");
     }
-    RuntimeEffectDebris debris{{debris_pool->particles, 0x16A8}, debris_pool->types,
+    RuntimeEffectDebris debris{{debris_pool->particles, effect_debris_pool.size}, debris_pool->types,
         debris_pool->free_head, game.clock.frame, random};
     const Vec3 plane{read_f32(data(0x00433FFC, 12), 0), read_f32(data(0x00433FFC, 12), 4),
         read_f32(data(0x00433FFC, 12), 8)};

@@ -11,39 +11,31 @@
 
 namespace gbtg
 {
-namespace
-{
-void store_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-}
-
 // Xbox 0x000EBB10
 void bind_effect_trail_textures(RuntimeEffectTrailStorage& storage,
     AnimationResourceRegistry& registry, ResourceErrorState& error,
     const std::function<u32(const u8*)>& address)
 {
     const std::span<u8> types{const_cast<u8*>(storage.types.data()), storage.types.size()};
-    size_t offset = 0;
+    size_t index = 0;
     do
     {
+        const auto type = record(types, effect_trail_types, index);
         std::span<const u8> texture;
-        if (read_u32(types, offset + 4) == 0x5F646961u)
+        const char* name = field_data(type, effect_trail_type_field::texture);
+        if (std::memcmp(name, "aid_", 4) == 0)
         {
-            texture = acquire_animation_resource(registry,
-                reinterpret_cast<const char*>(types.data() + offset + 4));
+            texture = acquire_animation_resource(registry, name);
             if (texture.data() == nullptr)
             {
                 resource_error(error, 2);
             }
         }
-        storage.textures[offset / 0xA0] = texture;
-        const u32 pointer = address(texture.data());
-        std::memcpy(types.data() + offset, &pointer, 4);
-        offset += 0xA0;
+        storage.textures[index] = texture;
+        set(type, effect_trail_type_field::texture_address, address(texture.data()));
+        ++index;
     }
-    while (offset < 0x280);
+    while (index < effect_trail_types.count);
 }
 
 // Xbox 0x000EBB80
@@ -51,17 +43,17 @@ void initialize_effect_trails(RuntimeEffectTrailStorage& storage,
     AnimationResourceRegistry& registry, ResourceErrorState& error,
     const std::function<u32(const u8*)>& address)
 {
-    storage.particles = static_cast<u8*>(engine_heap_allocate(0x19C8));
+    storage.particles = static_cast<u8*>(engine_heap_allocate(effect_trail_pool.size));
     storage.free_head = 0;
+    const std::span<u8> particles{storage.particles, effect_trail_pool.size};
     i32 index = 0;
     do
     {
         ++index;
-        std::memcpy(storage.particles + size_t(index - 1) * 0x84 + 0x7C, &index, 4);
+        set(record(particles, effect_trail_pool, size_t(index - 1)), effect_trail_field::next_free, index);
     }
     while (index < 49);
-    const i32 end = -1;
-    std::memcpy(storage.particles + 0x19C0, &end, 4);
+    set(record(particles, effect_trail_pool, 49), effect_trail_field::next_free, -1);
     storage.types = acquire_animation_resource(registry, "aid_misc_ghoulies_fx_cheap_dust");
     if (storage.types.data() == nullptr)
     {
@@ -76,14 +68,14 @@ void release_effect_trails(RuntimeEffectTrailStorage& storage,
 {
     if (storage.particles != nullptr)
     {
-        const std::span<u8> particles{storage.particles, 0x19C8};
+        const std::span<u8> particles{storage.particles, effect_trail_pool.size};
         i32 index = 0;
         do
         {
-            const size_t offset = size_t(index) * 0x84 + 0x7C;
-            if (i32(read_u32(particles, offset)) == -2)
+            const auto particle = record(particles, effect_trail_pool, size_t(index));
+            if (get(particle, effect_trail_field::next_free) == -2)
             {
-                std::memcpy(particles.data() + offset, &storage.free_head, 4);
+                set(particle, effect_trail_field::next_free, storage.free_head);
                 storage.free_head = index;
             }
             ++index;
@@ -99,8 +91,7 @@ void release_effect_trails(RuntimeEffectTrailStorage& storage,
         {
             release_animation_resource(registry, storage.textures[index]);
             storage.textures[index] = {};
-            const u32 null = 0;
-            std::memcpy(types.data() + index * 0xA0, &null, 4);
+            set(record(types, effect_trail_types, index), effect_trail_type_field::texture_address, 0);
         }
         release_animation_resource(registry, storage.types);
         storage.types = {};
@@ -111,72 +102,76 @@ void release_effect_trails(RuntimeEffectTrailStorage& storage,
 void set_effect_trail_phase(std::span<u8> particle, i32 phase,
     RuntimeEffectTrails& context)
 {
-    const auto type = context.types.subspan(size_t(particle[0x71]) * 0xA0, 0xA0);
-    particle[0x70] = u8(phase);
+    const auto type = record(context.types, effect_trail_types, get(particle, effect_trail_field::type));
+    set(particle, effect_trail_field::phase, u8(phase));
     if (phase == 1)
     {
-        store_float(particle, 0x74, advance_runtime_random_fraction(context.random) * .25f);
+        set(particle, effect_trail_field::phase_time, advance_runtime_random_fraction(context.random) * .25f);
     }
     else if (phase == 2)
     {
         const float fraction = advance_runtime_random_fraction(context.random);
-        const auto resource = context.resource(read_u32(type, 0));
+        const auto resource = context.resource(get(type, effect_trail_type_field::texture_address));
         const float extent = float(resource[0x11]) - 1.0f;
         const float complement = 1.0f - fraction;
+        const auto channels = record(particle, effect_trail_field::channels);
+        const auto first = get(type, effect_trail_type_field::first_colour);
+        const auto second = get(type, effect_trail_type_field::second_colour);
+        float* const values = field_data(channels, effect_channel_field::values);
         for (i32 index = 3; index >= 0; --index)
         {
-            const long double value = static_cast<long double>(type[0x88 + index]) *
-                complement + static_cast<long double>(type[0x84 + index]) * fraction;
-            store_float(particle, 0x10 + size_t(index) * 4,
-                float(u8(truncate_runtime_float(value))));
+            const long double value = static_cast<long double>(second[size_t(index)]) *
+                complement + static_cast<long double>(first[size_t(index)]) * fraction;
+            values[index] = float(u8(truncate_runtime_float(value)));
         }
-        store_float(particle, 0x20, 255.0f);
-        const float duration = read_f32(particle, 0x74);
-        store_float(particle, 0x30, 128.0f); // DAT_0032B368 = 0x43000000.
+        set(channels, effect_channel_field::unk_10, 255.0f);
+        const float duration = get(particle, effect_trail_field::phase_time);
+        set(channels, effect_channel_field::target_alpha, 128.0f); // DAT_0032B368 = 0x43000000.
         if (duration > std::bit_cast<float>(0x3456BF95u))
         {
             const float difference = float(ExtendedFloat{128.0f} -
-                ExtendedFloat{read_f32(particle, 0x1C)});
-            store_float(particle, 0x44,
+                ExtendedFloat{get(channels, effect_channel_field::alpha)});
+            set(channels, effect_channel_field::alpha_rate,
                 float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration}));
         }
         else
         {
-            store_float(particle, 0x1C, 128.0f);
-            store_float(particle, 0x44, 0.0f);
+            set(channels, effect_channel_field::alpha, 128.0f);
+            set(channels, effect_channel_field::alpha_rate, 0.0f);
         }
+        const float frame_rate = get(type, effect_trail_type_field::frame_rate);
         if (extent > 0.0f)
         {
-            store_float(particle, 0x74, extent / read_f32(type, 0x9C));
+            set(particle, effect_trail_field::phase_time, extent / frame_rate);
         }
         else
         {
-            std::memcpy(particle.data() + 0x74, particle.data() + 0x78, 4);
+            set(particle, effect_trail_field::phase_time, get(particle, effect_trail_field::life));
         }
-        store_float(particle, 0x50, read_f32(type, 0x94) * read_f32(particle, 0x4C));
-        store_float(particle, 0x54, read_f32(type, 0x98) * read_f32(particle, 0x4C));
-        const float rate = (read_f32(particle, 0x54) - read_f32(particle, 0x50)) /
-            read_f32(particle, 0x74);
-        store_float(particle, 0x58, float(engine_absolute(rate)));
-        const auto channel = particle.subspan(0x5C, 0x14);
-        for (size_t offset = 0; offset < 0x10; offset += 4)
-        {
-            store_float(channel, offset, 0.0f);
-        }
-        channel[0x10] = 0;
-        set_runtime_bounded_channel_limits(channel, 0.0f, extent, context.pal, context.override_pal);
-        const float frame_rate = read_f32(type, 0x9C);
-        store_float(channel, 8, frame_rate);
+        const float scale = get(particle, effect_trail_field::scale);
+        set(particle, effect_trail_field::size, get(type, effect_trail_type_field::start_size) * scale);
+        set(particle, effect_trail_field::target_size, get(type, effect_trail_type_field::end_size) * scale);
+        const float rate = (get(particle, effect_trail_field::target_size) - get(particle, effect_trail_field::size)) /
+            get(particle, effect_trail_field::phase_time);
+        set(particle, effect_trail_field::size_rate, float(engine_absolute(rate)));
+        const auto frames = record(particle, effect_trail_field::frames);
+        set(frames, bounded_channel_field::lower, 0.0f);
+        set(frames, bounded_channel_field::upper, 0.0f);
+        set(frames, bounded_channel_field::rate, 0.0f);
+        set(frames, bounded_channel_field::value, 0.0f);
+        set(frames, bounded_channel_field::mode, 0);
+        set_runtime_bounded_channel_limits(frames, 0.0f, extent, context.pal, context.override_pal);
+        set(frames, bounded_channel_field::rate, frame_rate);
         const i32 frequency = context.pal != 0 && context.override_pal == 0 ? 50 : 60;
         const float maximum = (float(frequency) * .5f) *
-            (read_f32(channel, 4) - read_f32(channel, 0));
+            (get(frames, bounded_channel_field::upper) - get(frames, bounded_channel_field::lower));
         if (frame_rate > maximum)
         {
-            store_float(channel, 8, maximum);
+            set(frames, bounded_channel_field::rate, maximum);
         }
-        if (read_f32(channel, 0) != read_f32(channel, 4))
+        if (get(frames, bounded_channel_field::lower) != get(frames, bounded_channel_field::upper))
         {
-            channel[0x10] = 1;
+            set(frames, bounded_channel_field::mode, 1);
         }
     }
 }
@@ -186,34 +181,35 @@ void tick_effect_trail(std::span<u8> particle, RuntimeEffectTrails& context,
     const RuntimeActorClock& clock)
 {
     const float step = runtime_frame_step(clock);
-    approach_actor_effect_channels(particle.subspan(0x10, 0x3C), clock);
-    store_float(particle, 0x78, read_f32(particle, 0x78) - step);
-    if (particle[0x70] == 1)
+    approach_actor_effect_channels(record(particle, effect_trail_field::channels), clock);
+    set(particle, effect_trail_field::life, get(particle, effect_trail_field::life) - step);
+    const u8 phase = get(particle, effect_trail_field::phase);
+    if (phase == 1)
     {
-        if (read_f32(particle, 0x74) > 0.0f)
+        if (get(particle, effect_trail_field::phase_time) > 0.0f)
         {
-            store_float(particle, 0x74, read_f32(particle, 0x74) - step);
+            set(particle, effect_trail_field::phase_time, get(particle, effect_trail_field::phase_time) - step);
             return;
         }
     }
-    else if (particle[0x70] == 2)
+    else if (phase == 2)
     {
-        if (read_f32(particle, 0x74) > 0.0f)
+        if (get(particle, effect_trail_field::phase_time) > 0.0f)
         {
-            store_float(particle, 0x74, read_f32(particle, 0x74) - step);
-            float current = read_f32(particle, 0x50);
-            float rate = read_f32(particle, 0x58);
-            approach_runtime_scalar_rate(current, rate, read_f32(particle, 0x54), step);
-            store_float(particle, 0x50, current);
-            store_float(particle, 0x58, rate);
-            const auto channel = particle.subspan(0x5C, 0x14);
-            if ((channel[0x10] & 2) != 0)
+            set(particle, effect_trail_field::phase_time, get(particle, effect_trail_field::phase_time) - step);
+            float current = get(particle, effect_trail_field::size);
+            float rate = get(particle, effect_trail_field::size_rate);
+            approach_runtime_scalar_rate(current, rate, get(particle, effect_trail_field::target_size), step);
+            set(particle, effect_trail_field::size, current);
+            set(particle, effect_trail_field::size_rate, rate);
+            const auto frames = record(particle, effect_trail_field::frames);
+            if ((get(frames, bounded_channel_field::mode) & 2) != 0)
             {
-                decrease_runtime_bounded_channel(channel, step);
+                decrease_runtime_bounded_channel(frames, step);
             }
-            else if ((channel[0x10] & 1) != 0)
+            else if ((get(frames, bounded_channel_field::mode) & 1) != 0)
             {
-                increase_runtime_bounded_channel(channel, step);
+                increase_runtime_bounded_channel(frames, step);
             }
             return;
         }
@@ -222,15 +218,15 @@ void tick_effect_trail(std::span<u8> particle, RuntimeEffectTrails& context,
     {
         return;
     }
-    if (read_f32(particle, 0x78) > 0.0f)
+    if (get(particle, effect_trail_field::life) > 0.0f)
     {
         set_effect_trail_phase(particle, 2, context);
     }
     else
     {
-        const i32 index = i32((particle.data() - context.particles.data()) / 0x84);
-        std::memcpy(context.particles.data() + size_t(index) * 0x84 + 0x7C,
-            &context.free_head, 4);
+        const i32 index = i32((particle.data() - context.particles.data()) / effect_trail_field::kSize);
+        set(record(context.particles, effect_trail_pool, size_t(index)), effect_trail_field::next_free,
+            context.free_head);
         context.free_head = index;
     }
 }

@@ -101,7 +101,7 @@ void set_spawn_blocked(RuntimeWeaponActor& weapon, i32 value)
 // Xbox 0x00144A80, EAX actor
 void copy_runtime_weapon_classes(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
-    const i32 count = i32(read_u32(parameters, 0x458));
+    const i32 count = i32(get(parameters, weapon_parameter::accepted_class_count));
     set(weapon.bytes, weapon_field::accepted_class_count, read_u16(parameters, 0x458));
     set(weapon.bytes, weapon_field::accepted_class_row, 0);
     weapon.actor.accepted_class_count = i16(read_u16(parameters, 0x458));
@@ -114,7 +114,7 @@ void copy_runtime_weapon_classes(RuntimeWeaponActor& weapon, std::span<const u8>
     {
         throw Error("weapon accepted class rows overflow actor +0x948");
     }
-    const auto rows = weapon.executable(read_u32(parameters, 0x45C), size_t(count) * 0x8C);
+    const auto rows = weapon.executable(get(parameters, weapon_parameter::accepted_classes), size_t(count) * 0x8C);
     for (i32 index = 0; index < count; ++index)
     {
         const auto source = rows.subspan(size_t(index) * 0x8C, 0x8C);
@@ -136,12 +136,12 @@ void copy_runtime_weapon_classes(RuntimeWeaponActor& weapon, std::span<const u8>
 void initialize_runtime_weapon_names(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     copy_string(weapon.bytes, weapon_field::name_9A8.offset, weapon_field::name_9A8.size,
-                parameter_string(parameters, 0x474, 0x80));
+                parameter_string(parameters, weapon_parameter::name_9A8.offset, 0x80));
     copy_string(weapon.bytes, weapon_field::name_A28.offset, weapon_field::name_A28.size,
-                parameter_string(parameters, 0x4F4, 0x80));
+                parameter_string(parameters, weapon_parameter::name_A28.offset, 0x80));
     set(weapon.bytes, weapon_field::break_category, 1);
     set(weapon.bytes, weapon_field::unk_D9C, 0);
-    set(weapon.bytes, weapon_field::unk_9A4, read_u32(parameters, 0x464) == 0 ? 1u : 0u);
+    set(weapon.bytes, weapon_field::unk_9A4, get(parameters, weapon_parameter::awards_points) == 0 ? 1u : 0u);
     weapon.pieces.clear(); // +0x2A4 = 0.
     build_actor_model_pieces(weapon.actor, weapon.pieces, weapon.random); // 0x0003F170
 }
@@ -301,18 +301,18 @@ void collect_runtime_weapon_flagged_markers(RuntimeWeaponActor& weapon)
 void pick_runtime_weapon_variant(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     const float roll = next_unit(weapon.random) - 1.f; // DAT_0032B0F8.
-    if (roll <= read_f32(parameters, 0x340))
+    if (roll <= get(parameters, weapon_parameter::variant_chance))
     {
         copy_string(weapon.bytes, weapon_field::variant_name.offset, weapon_field::variant_name.size,
-                    parameter_string(parameters, 0x354, 0x80));
+                    parameter_string(parameters, weapon_parameter::variant_name.offset, 0x80));
         copy_string(weapon.bytes, weapon_field::variant_attributes.offset, weapon_field::variant_attributes.size,
-                    parameter_string(parameters, 0x3D4, 0x80));
-        set(weapon.bytes, weapon_field::trigger_radius, read_f32(parameters, 0x344));
-        set(weapon.bytes, weapon_field::trigger_chance, read_f32(parameters, 0x348));
-        set(weapon.bytes, weapon_field::unk_BF8, read_u32(parameters, 0x34C));
+                    parameter_string(parameters, weapon_parameter::variant_attributes.offset, 0x80));
+        set(weapon.bytes, weapon_field::trigger_radius, get(parameters, weapon_parameter::trigger_radius));
+        set(weapon.bytes, weapon_field::trigger_chance, get(parameters, weapon_parameter::trigger_chance));
+        set(weapon.bytes, weapon_field::unk_BF8, get(parameters, weapon_parameter::unk_BF8));
     }
-    set(weapon.bytes, weapon_field::spawn_group, read_u32(parameters, 0x454));
-    set(weapon.bytes, weapon_field::unk_BFC, read_u32(parameters, 0x350));
+    set(weapon.bytes, weapon_field::spawn_group, get(parameters, weapon_parameter::spawn_group));
+    set(weapon.bytes, weapon_field::unk_BFC, get(parameters, weapon_parameter::unk_BFC));
     set(weapon.bytes, weapon_field::unk_C00, 0);
 }
 
@@ -2826,15 +2826,15 @@ bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon, std::span<const
     Actor& actor = weapon.actor;
     set(bytes, weapon_field::mask, 1);
     actor.mask_flag = i32((u32(actor.mask_flag) & ~0xFFu) | 1u);
-    set(bytes, weapon_field::unk_93F, parameters[0x336]);
-    set(bytes, weapon_field::unk_93D, parameters[0x337]);
+    set(bytes, weapon_field::unk_93F, get(parameters, weapon_parameter::unk_93F));
+    set(bytes, weapon_field::unk_93D, get(parameters, weapon_parameter::unk_93D));
     actor.mask_flag = i32(read_u32(bytes, 0x93C)); // Native alias of the +0x93C dword (0x001460C0 reads +0x93F).
-    set(bytes, weapon_field::fades_out, read_u32(parameters, 0x460));
-    set(bytes, weapon_field::awards_points, read_u32(parameters, 0x464));
-    set(bytes, weapon_field::hit_kind, parameters[0x338]);
-    set(bytes, weapon_field::hit_strength, parameters[0x339]);
-    set(bytes, weapon_field::hit_style, parameters[0x33A]);
-    set(bytes, weapon_field::unk_DA8, read_u32(parameters, 0x46C));
+    set(bytes, weapon_field::fades_out, get(parameters, weapon_parameter::fades_out));
+    set(bytes, weapon_field::awards_points, get(parameters, weapon_parameter::awards_points));
+    set(bytes, weapon_field::hit_kind, get(parameters, weapon_parameter::hit_kind));
+    set(bytes, weapon_field::hit_strength, get(parameters, weapon_parameter::hit_strength));
+    set(bytes, weapon_field::hit_style, get(parameters, weapon_parameter::hit_style));
+    set(bytes, weapon_field::unk_DA8, get(parameters, weapon_parameter::unk_DA8));
     copy_runtime_weapon_classes(weapon, parameters); // 0x00144A80
     weapon.model_nodes.clear();
     if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
@@ -2850,19 +2850,19 @@ bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon, std::span<const
     const RuntimeBodyModelNodes nodes{weapon.model_nodes};
     weapon.markers = create_runtime_body_collision_state(actor.model != nullptr && actor.model->cpu.data() != nullptr
         ? &nodes : nullptr); // 0x0013F150 into +0x998
-    set(bytes, weapon_field::starts_scene, read_u32(parameters, 0x574));
+    set(bytes, weapon_field::starts_scene, get(parameters, weapon_parameter::starts_scene));
     initialize_runtime_weapon_names(weapon, parameters); // 0x00145150
     collect_runtime_weapon_grab_shapes(weapon); // 0x00146D10
     collect_runtime_weapon_flagged_markers(weapon); // 0x00147E10
     pick_runtime_weapon_variant(weapon, parameters); // 0x00147F00
-    set(bytes, weapon_field::initial_state, read_u16(parameters, 0x334));
+    set(bytes, weapon_field::initial_state, get(parameters, weapon_parameter::initial_state));
     set(bytes, weapon_field::was_held, 1);
     set(bytes, weapon_field::broken_groups, 0);
     set(bytes, weapon_field::broken_pieces, 0);
     set(bytes, weapon_field::unk_D98, 0);
     set(bytes, weapon_field::pieces_finished, 0);
     set(bytes, weapon_field::voice, 0xFFFF);
-    const u32 name = read_u32(parameters, 0x33C);
+    const u32 name = get(parameters, weapon_parameter::name);
     if (name != 0)
     {
         const auto text = weapon.executable(name, 0);
@@ -2874,17 +2874,17 @@ bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon, std::span<const
                     reinterpret_cast<const char*>(text.data()));
     }
     copy_string(bytes, weapon_field::animation.offset, weapon_field::animation.size,
-                parameter_string(parameters, 0xA8, 0x80));
+                parameter_string(parameters, actor_parameter_field::animation.offset, 0x80));
     initialize_actor_model_matrices(actor, weapon.matrices, weapon.model_types,
         weapon.matrix_bindings(actor)); // 0x000400D0
-    if (read_u32(parameters, 0x468) != 0)
+    if (get(parameters, weapon_parameter::blocks_spawn) != 0)
     {
         block_runtime_weapon_spawn(weapon); // 0x00147860
     }
-    if (parameters[0x578] != 0)
+    if (field_data(parameters, weapon_parameter::voice_name)[0] != 0)
     {
         copy_string(bytes, weapon_field::voice_name.offset, weapon_field::voice_name.size,
-                    parameter_string(parameters, 0x578, 0x80));
+                    parameter_string(parameters, weapon_parameter::voice_name.offset, 0x80));
     }
     actor.shape_mode = 4; // +0x120.
     const u16 state = get(bytes, weapon_field::initial_state);
@@ -2894,7 +2894,7 @@ bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon, std::span<const
     set(bytes, weapon_field::state, state);
     set(bytes, weapon_field::state_time, 0.f);
     enter_state(weapon, state, previous); // Vtable +0x3C.
-    const u32 key = read_u32(parameters, 0x470);
+    const u32 key = get(parameters, weapon_parameter::controller_key);
     if (key != 0)
     {
         if (g_ghouly_controllers.size() == g_ghouly_controllers.capacity())

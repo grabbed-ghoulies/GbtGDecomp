@@ -10,6 +10,39 @@ namespace gbtg
 // builds on it, and its class's own fields follow at +0xE54. Pointer fields the host keeps natively (+0x998 markers,
 // +0xAB8 grab shapes, +0xAC8 spawn points, +0xAD8 hand texture, +0xAE8 flagged markers, +0xC04 spawn record, +0xCFC
 // cells, +0xD04 path search) are in RuntimeWeaponActor. See docs/RETAIL_LAYOUTS.md.
+// The weapon's parameter block (0x001458E0's 0x5F8 bytes, after the actor's 0x334): what 0x00145C80 and its helpers
+// copy into the weapon base. The marker handlers' template patches (0x001007F0, 0x00146C80) write it too.
+namespace weapon_parameter
+{
+constexpr RetailField<u16, 0x334> initial_state{};
+constexpr RetailField<u8, 0x336> unk_93F{}; // into +0x93F
+constexpr RetailField<u8, 0x337> unk_93D{}; // into +0x93D
+constexpr RetailField<u8, 0x338> hit_kind{};
+constexpr RetailField<u8, 0x339> hit_strength{};
+constexpr RetailField<u8, 0x33A> hit_style{};
+constexpr RetailField<u32, 0x33C> name{}; // an XBE string, or 0
+constexpr RetailField<float, 0x340> variant_chance{}; // the variant and its trigger are kept when a roll is no more
+constexpr RetailField<float, 0x344> trigger_radius{};
+constexpr RetailField<float, 0x348> trigger_chance{};
+constexpr RetailField<u32, 0x34C> unk_BF8{};
+constexpr RetailField<u32, 0x350> unk_BFC{};
+constexpr RetailField<std::array<char, 0x80>, 0x354> variant_name{};
+constexpr RetailField<std::array<char, 0x80>, 0x3D4> variant_attributes{};
+constexpr RetailField<u32, 0x454> spawn_group{};
+constexpr RetailField<u32, 0x458> accepted_class_count{}; // the copy reads its low half
+constexpr RetailField<u32, 0x45C> accepted_classes{}; // the rows' XBE address (0x8C bytes each)
+constexpr RetailField<u32, 0x460> fades_out{};
+constexpr RetailField<u32, 0x464> awards_points{};
+constexpr RetailField<u32, 0x468> blocks_spawn{}; // set: 0x00147860 raises the actor's spawn block
+constexpr RetailField<u32, 0x46C> unk_DA8{};
+constexpr RetailField<u32, 0x470> controller_key{}; // set: the weapon's ghouly controller is registered under it
+constexpr RetailField<std::array<char, 0x80>, 0x474> name_9A8{};
+constexpr RetailField<std::array<char, 0x80>, 0x4F4> name_A28{};
+constexpr RetailField<u32, 0x574> starts_scene{};
+constexpr RetailField<std::array<char, 0x80>, 0x578> voice_name{};
+constexpr u32 kSize = 0x5F8;
+static_assert(retail_fits(kSize, voice_name));
+} // namespace weapon_parameter
 namespace weapon_field
 {
 // The low byte of the actor's mask word (0x00146230). A contact test passes only while it is clear.

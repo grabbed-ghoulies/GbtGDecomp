@@ -29,6 +29,7 @@ constexpr RetailField<u16, 0xB9C> ghouly_kind{}; // 0 a template clone, 1 or 2 0
 constexpr RetailField<u16, 0xB9E> ghouly_count{}; // ghoulies made and not yet gone (0x00093BC0 / 0x00093DF0)
 constexpr RetailField<std::array<char, 0x80>, 0xBA0> ghouly_box{}; // the box's AID, or empty
 constexpr RetailField<Vec3, 0xCAC> saved_position{}; // stored by 0x0002B450 / 0x0002B540
+constexpr RetailField<u32, 0xCB8> left_room{}; // set once the player stands in a room other than the allowed one (0x0002B450)
 constexpr RetailField<Vec3, 0xCC0> start_position{}; // the constructor's world position; revival returns there
 constexpr RetailField<Vec3, 0xCCC> start_euler{};
 constexpr RetailField<u32, 0xCD8> pause_count{}; // messages 9 and 10 raise and drop it (native: parked_gate)
@@ -37,6 +38,7 @@ constexpr RetailField<u16, 0xCDE> owner_class{}; // parameters +0x336; the class
 constexpr RetailField<u32, 0xCE0> live{};
 constexpr RetailField<u32, 0xCE8> cells{}; // the navigation cell registration
 constexpr RetailField<u32, 0xCEC> floor{}; // the navigation floor
+constexpr RetailField<u32, 0xCF0> outer_cells{}; // registers the outer navigation cells too (0x001104E0)
 constexpr RetailField<u16, 0xCF4> damage_class{}; // the tag's row (native: damage_class)
 constexpr RetailField<u16, 0xCF6> tag{}; // parameters +0x338
 constexpr u32 kSize = 0xCF8;

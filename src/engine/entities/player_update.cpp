@@ -7,6 +7,7 @@
 #include "../navigation/navigation.h"
 #include "body_fields.h"
 #include "player_fields.h"
+#include "actor_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -14,11 +15,6 @@ namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -68,23 +64,21 @@ void track_runtime_player_room(RuntimePlayerRoomTracking& context)
     const Vec3 position = actor_world_position(*context.self.actor);
     const OccupancyRecord* record = find_occupancy_record(position, 0.0f, 4, nullptr, 0);
     context.current = record;
-    if (read_u32(actor, 0xCB8) == 0)
+    if (get(actor, player_field::left_room) == 0)
     {
         if (record != nullptr && record != context.allowed &&
             (record->group == 0 || u16(record->group) == read_u16(actor, 6)))
         {
-            put(actor, 0xCB8, 1);
+            set(actor, player_field::left_room, 1);
         }
         else if (get(context.body, body_field::move_holds) == 0 &&
                  get(context.body, body_field::move_hold_time) == 0.0f)
         {
-            put_float(actor, 0xCAC, position.x);
-            put_float(actor, 0xCB0, position.y);
-            put_float(actor, 0xCB4, position.z);
+            set(actor, player_field::saved_position, position);
         }
     }
     if (context.strategy_present && get(actor, player_field::mode) == 1 && get(actor, player_field::case_link) == 0 &&
-        read_u32(actor, 0xCB8) != 0)
+        get(actor, player_field::left_room) != 0)
     {
         send_word(context.self, 0x5D);
     }
@@ -155,7 +149,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     std::span<u8> body = context.body.body;
     Actor& owner = context.body.owner;
     const RuntimeActorClock& clock = context.clock;
-    const u32 paused = i32(read_u32(bytes, 0xCD8)) > 0 ? 1 : 0;
+    const u32 paused = i32(get(bytes, player_field::pause_count)) > 0 ? 1 : 0;
     if (read_u32(context.input, 0) == 1)
     {
         reset_runtime_analog_input(context.input);
@@ -195,15 +189,15 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         }
         if (context.mind.bytes != nullptr)
         {
-            context.mind_tick(context.mind, read_u32(bytes, 0x960));
+            context.mind_tick(context.mind, get(bytes, player_field::input_device));
         }
     }
-    context.body_tick(context.body_object, read_u32(bytes, 0x960));
+    context.body_tick(context.body_object, get(bytes, player_field::input_device));
     context.body_bits->bytes[0] &= 0xFB;
     context.body_bits->bytes[0] &= 0xF7;
     float step = runtime_frame_step(clock);
     float rate = runtime_actor_rate(actor);
-    const bool root_bone = read_u16(bytes, 0x194) == 0;
+    const bool root_bone = get(bytes, actor_field::bone) == 0;
     if (context.animation.controller != nullptr)
     {
         tick_animation_controller(*context.animation.controller, rate * step, root_bone,
@@ -227,9 +221,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
             register_actor_shape_probe(actor, context.shape_probe);
             push_runtime_body_spheres(context.body);
             const Vec3 position = actor_world_position(actor);
-            put_float(body, 0x24, position.x);
-            put_float(body, 0x28, position.y);
-            put_float(body, 0x2C, position.z);
+            set(body, body_field::unk_24, position);
             if (context.body_supported(context.body_object) == 0)
             {
                 context.body_bits->bytes[1] |= 0x10;
@@ -244,19 +236,15 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         }
         else
         {
-            body[0x716] = 0;
+            set(body, body_field::unk_716, 0);
             const Vec3 local = get(body, body_field::position);
             const Vec3 world = actor_world_position(actor);
             const Vec3 delta{local.x - world.x, local.y - world.y, local.z - world.z};
             record_runtime_body_motion(body.subspan(0x340, 4 + 0x50 * 12), delta, owner, clock);
-            put_float(body, 0x704, delta.x);
-            put_float(body, 0x708, delta.y);
-            put_float(body, 0x70C, delta.z);
+            set(body, body_field::unk_704, delta);
             actor_set_world_position(actor, local);
             const Vec3 settled = actor_world_position(owner);
-            put_float(body, 0x18, settled.x);
-            put_float(body, 0x1C, settled.y);
-            put_float(body, 0x20, settled.z);
+            set(body, body_field::position, settled);
         }
     }
     actor_refresh_transform(actor);
@@ -268,19 +256,16 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         update = next;
     }
     update_actor_attachment_effects(actor, context.attachments, context.pending, context.frame.effects);
-    float z = read_f32(bytes, 0x32C);
-    float y = read_f32(bytes, 0x328);
-    float x = read_f32(bytes, 0x324);
+    Vec3 eased = get(bytes, actor_field::ease_target);
     if (context.frame.ease != 0)
     {
         constexpr float kFraction = std::bit_cast<float>(0x3DCCCCCDu); // DAT_0032B254.
-        x = (x - read_f32(bytes, 0x318)) * kFraction + read_f32(bytes, 0x318);
-        y = (y - read_f32(bytes, 0x31C)) * kFraction + read_f32(bytes, 0x31C);
-        z = (z - read_f32(bytes, 0x320)) * kFraction + read_f32(bytes, 0x320);
+        const Vec3 previous = get(bytes, actor_field::eased);
+        eased.x = (eased.x - previous.x) * kFraction + previous.x;
+        eased.y = (eased.y - previous.y) * kFraction + previous.y;
+        eased.z = (eased.z - previous.z) * kFraction + previous.z;
     }
-    put_float(bytes, 0x318, x);
-    put_float(bytes, 0x31C, y);
-    put_float(bytes, 0x320, z);
+    set(bytes, actor_field::eased, eased);
     if (actor.model != nullptr && actor.model->runtime->shader_animations != nullptr)
     {
         tick_runtime_model_shader_animations(*actor.model->runtime->shader_animations, 1.f,
@@ -300,7 +285,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     }
     else
     {
-        key = context.action_key(context.actions.second, read_u32(context.owner_bytes, 0x960));
+        key = context.action_key(context.actions.second, get(context.owner_bytes, player_field::input_device));
     }
     if (key != 0 && context.actions.table != nullptr)
     {
@@ -313,17 +298,11 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         }
     }
     const Vec3 settled = actor_world_position(owner);
-    put_float(body, 0x18, settled.x);
-    put_float(body, 0x1C, settled.y);
-    put_float(body, 0x20, settled.z);
-    put_float(body, 0x320, 0.0f);
-    put_float(body, 0x31C, 0.0f);
-    put_float(body, 0x318, 0.0f);
+    set(body, body_field::position, settled);
+    set(body, body_field::velocity, Vec3{0.0f, 0.0f, 0.0f});
     set(body, body_field::heading, owner.euler.y);
     const Vec3 euler = actor_world_euler(owner);
-    put_float(body, 0x72C, euler.x);
-    put_float(body, 0x730, euler.y);
-    put_float(body, 0x734, euler.z);
+    set(body, body_field::euler, euler);
     tick_runtime_player_status_timers(self, clock);
     track_runtime_player_room(context.room);
     if (entity_detail::g_nav_grids[0] != nullptr)
@@ -350,10 +329,10 @@ void update_runtime_player(RuntimePlayerUpdate& context)
             search = context.path_search;
             preferred = context.floor_hint != nullptr ? i32(context.floor_hint[0x19]) : -1;
         }
-        i32 floor = i32(read_u32(bytes, 0xCEC));
+        i32 floor = i32(get(bytes, player_field::floor));
         const u32 changed = entity_detail::update_navigation_floor(position, floor, context.navigation, search,
-            preferred, read_u16(bytes, 0xCDE) == 1 ? 1 : 0);
-        put(bytes, 0xCEC, u32(floor));
+            preferred, get(bytes, player_field::owner_class) == 1 ? 1 : 0);
+        set(bytes, player_field::floor, u32(floor));
         if (changed != 0)
         {
             send_word(self, 0x24);
@@ -362,13 +341,14 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         {
             if (context.navigation != nullptr)
             {
-                entity_detail::release_navigation_cell_registration(context.navigation, read_u32(bytes, 0xCEC));
+                entity_detail::release_navigation_cell_registration(context.navigation,
+                    get(bytes, player_field::floor));
             }
         }
         else
         {
-            entity_detail::register_navigation_cells(context.navigation, position, i32(read_u32(bytes, 0xCEC)),
-                radius, i32(read_u32(bytes, 0xCF0)));
+            entity_detail::register_navigation_cells(context.navigation, position, i32(get(bytes, player_field::floor)),
+                radius, i32(get(bytes, player_field::outer_cells)));
         }
     }
     RuntimePlayerBoundsCheck bounds{self, context.bounds, context.body_bits, context.ring, context.address_zero};
@@ -388,7 +368,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     }
     step = runtime_frame_step(clock);
     rate = runtime_actor_rate(actor);
-    put_float(bytes, 0x924, rate * step + read_f32(bytes, 0x924));
-    put(bytes, 0x928, read_u32(bytes, 0x928) + 1);
+    set(bytes, actor_field::age, rate * step + get(bytes, actor_field::age));
+    set(bytes, actor_field::ticks, get(bytes, actor_field::ticks) + 1);
 }
 }

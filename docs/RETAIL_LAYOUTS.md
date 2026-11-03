@@ -220,6 +220,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Actor matrix record (actor +0x288, one per ndMtxArray matrix; 0x00040200, 0x00040640) | 0x48 | `actor_matrix_field`: binding, translation, euler, scale, center, second euler and its switch, active | `include/gbtg/actor_runtime.h` |
 | Animation event (0x0003A380 runs it by kind) | varies by kind | `animation_event_field` (begin, end, kind) and per-kind namespaces: shader bits (4), effect (0xC, 0x11, 0x24, 0x26, 0x27, 0x29, 0x2A), camera effect (0x16), stop sound (0x1F), trail (0x25), voice (0x30), node state (0x31) | `src/engine/entities/actor_event_messages.h` |
 | Cinema mind (its own part after the base mind; 0x0007C7D0) | 0xD0, parameters 0x128 | `cinema_mind_field`: roam and target radii, sound resource, count and timer, notices, avoidance time, unk_9C..unk_CC; `cinema_mind_parameter`: the radii and the sound resource name | `src/engine/entities/mind_fields.h` |
+| Actor base raw fields (the type-2 actor's bytes the native `Actor` doesn't keep) | 0x934 | `actor_field`: bone, eased and its target, age, ticks | `src/engine/entities/actor_fields.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
 The camera mind was checked with `--player-opening` and headless captures of `chapter1_scene1_2playcam` at 300 and
@@ -397,6 +398,12 @@ computed the same cell count, so they share `resolve_grid_mesh`; the triangle lo
 once. All 602 captures of the ten regular modes are byte-identical to the previous build. In `book_map.cpp` and
 `scene_pause.cpp` the census's largest remaining clusters are reads of executable constants by address
 (`real(s, 0x0032B0F4)`), not object fields; they belong with the global names below.
+
+`player_update.cpp` was named through `player_field`, `body_field` and the new `actor_field`; its runs of component
+writes into one Vec3 field (position, velocity, euler, the saved position) became single Vec3 writes, which store the
+same bytes since nothing reads the field between them. The hit and walk-target states and the hit messages were
+done the same way, adding the body's hit timer (+0x754, +0x760) and a few `unk_` fields. All 602 captures of the ten
+regular modes are byte-identical to the previous build.
 
 ## Next
 

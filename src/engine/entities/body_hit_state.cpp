@@ -156,7 +156,7 @@ bool initialize_runtime_hit_state(std::span<u8> state, std::span<const u8> param
     const auto body = context.body;
     body[0x38] = 1;
     body[0x39] = 1;
-    put_word(body, 0x330, read_u32(body, 0x334));
+    set(body, body_field::saved_ease_rate, get(body, body_field::ease_rate));
     set(body, body_field::ease_rate, 7.f); // DAT_0032B284.
     set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
     body[0x6A] = u8(body[0x6A] + 1);
@@ -192,7 +192,7 @@ void destroy_runtime_hit_state(std::span<u8> state, RuntimeHitStateLifecycle& co
         context.bits->bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
     }
     body[0x6A] = u8(body[0x6A] - 1);
-    put_word(body, 0x334, read_u32(body, 0x330));
+    set(body, body_field::ease_rate, get(body, body_field::saved_ease_rate));
     body[0x6C] = 0;
     set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
     adjust_body_counters(body, -1);
@@ -299,15 +299,15 @@ bool runtime_actor_has_render_bins(const ActorRenderRegistration& render, u8 hid
 // Xbox 0x001346B0
 void reset_runtime_body_turn(u32 brake, std::span<u8> body, RuntimeBodyTimerRecipient* first_timer)
 {
-    if (read_f32(body, 0x168) == 0.f) // DAT_0032B100.
+    if (get(body, body_field::unk_168) == 0.f) // DAT_0032B100.
     {
-        put_word(body, 0x164, 0);
+        set(body, body_field::unk_164, 0);
         if (brake != 0)
         {
             set(body, body_field::stagger, 0.99f); // DAT_0032B228.
         }
     }
-    if (read_u32(body, 0x760) != 0 && read_u32(body, 0x754) == 0)
+    if (get(body, body_field::hit_timer) != 0 && get(body, body_field::hit_timer_running) == 0)
     {
         if (first_timer == nullptr)
         {
@@ -316,7 +316,7 @@ void reset_runtime_body_turn(u32 brake, std::span<u8> body, RuntimeBodyTimerReci
         const u32 message[]{5, 0};
         first_timer->message(message);
     }
-    put_word(body, 0x278, 1);
+    set(body, body_field::unk_278, 1);
 }
 
 RuntimeBodyNextAction runtime_body_next_action(const RuntimeHitStateTick& context)
@@ -554,9 +554,9 @@ void move_runtime_hit_body(std::span<const u8> state, RuntimeHitStateTick& conte
             return;
         }
         const float step = runtime_actor_step(context.actor, context.clock);
-        put_float(body, 0x18, velocity.x * step + get(body, body_field::position).x);
-        put_float(body, 0x1C, velocity.y * step + get(body, body_field::position).y);
-        put_float(body, 0x20, velocity.z * step + get(body, body_field::position).z);
+        const Vec3 position = get(body, body_field::position);
+        set(body, body_field::position,
+            Vec3{velocity.x * step + position.x, velocity.y * step + position.y, velocity.z * step + position.z});
         return;
     }
     if (context.target.data() == nullptr || get(state, field::target_hit) != 0 || get(state, field::lunging) == 0)
@@ -565,9 +565,9 @@ void move_runtime_hit_body(std::span<const u8> state, RuntimeHitStateTick& conte
     }
     const float step = runtime_actor_step(context.actor, context.clock);
     const Vec3 lunge = get(state, field::velocity);
-    put_float(body, 0x18, get(body, body_field::position).x + lunge.x * step);
-    put_float(body, 0x1C, get(body, body_field::position).y + lunge.y * step);
-    put_float(body, 0x20, get(body, body_field::position).z + lunge.z * step);
+    const Vec3 position = get(body, body_field::position);
+    set(body, body_field::position,
+        Vec3{position.x + lunge.x * step, position.y + lunge.y * step, position.z + lunge.z * step});
 }
 
 // Xbox 0x00096390
@@ -721,7 +721,7 @@ bool initialize_runtime_hit_furnace_state(std::span<u8> state, std::span<const u
     body[0x6B] = u8(body[0x6B] + 1);
     adjust_body_counters(body, 1);
     set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
-    put_word(body, 0x330, read_u32(body, 0x334));
+    set(body, body_field::saved_ease_rate, get(body, body_field::ease_rate));
     set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
     set(body, body_field::ease_rate, 7.f); // DAT_0032B284.
     body[0x38] = 1;
@@ -733,7 +733,7 @@ bool initialize_runtime_hit_furnace_state(std::span<u8> state, std::span<const u
     }
     if (body[0xA6] != 0)
     {
-        put_float(body, 0xB4, 2.f); // DAT_0032B110.
+        set(body, body_field::unk_B4, 2.f); // DAT_0032B110.
     }
     // EAX still holds the 1 stored to body +0x38.
     return true;
@@ -744,7 +744,7 @@ void destroy_runtime_hit_furnace_state(std::span<const u8> state, std::span<u8> 
 {
     set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
     set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
-    put_word(body, 0x334, read_u32(body, 0x330));
+    set(body, body_field::ease_rate, get(body, body_field::saved_ease_rate));
     body[0x6B] = u8(body[0x6B] - 1);
     adjust_body_counters(body, -1);
     bits.bytes[2] &= 0xFD;
@@ -802,9 +802,9 @@ void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBo
         table_row = find_runtime_script_table_row(context.table, 0x6A, output) != nullptr;
     }
     bool secondary = false;
-    if (read_f32(body, 0x23C) != 0.f)
+    if (get(body, body_field::unk_23C) != 0.f)
     {
-        if (level < 2 || read_f32(body, 0x174) > 0.f)
+        if (level < 2 || get(body, body_field::unk_174) > 0.f)
         {
             secondary = true;
         }
@@ -827,7 +827,7 @@ void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBo
         set(state, base::next_key, context.secondary_id());
         return;
     }
-    if (read_f32(body, 0x240) != 0.f)
+    if (get(body, body_field::unk_240) != 0.f)
     {
         set(state, base::next_key, context.primary_id());
         return;

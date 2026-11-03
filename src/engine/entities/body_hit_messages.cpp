@@ -73,7 +73,8 @@ u32 receive_runtime_body_collision_hit(std::span<u8> body,
     std::memcpy(field_data(damage, body_damage_field::holder), source_body.data() + 0x274, 4);
     set(damage, body_damage_field::push, movement);
     set(damage, body_damage_field::direction, movement);
-    const u32 timer = read_u32(source_body, 0x760) == 0 ? 0 : read_u32(source_body, 0x754);
+    const u32 timer = get(source_body, body_field::hit_timer) == 0 ? 0
+        : get(source_body, body_field::hit_timer_running);
     set(damage, body_damage_field::starts_timer, timer);
     const u16 actor_class = get(source.bytes, player_field::damage_class);
     set(damage, body_damage_field::source_class, actor_class);
@@ -96,8 +97,8 @@ void reflect_runtime_body_timer_hit(std::span<const u8> body, RuntimeBodyAttache
     RuntimeBodyDamageEntry& source_context, RuntimeBodyDamageEntry& reply_context)
 {
     const u32 actor_address = read_u32(body, 8);
-    if (read_u32(body, 0x760) != 0 &&
-        (read_u32(source_body, 0x760) == 0 || read_u32(source_body, 0x754) == 0))
+    if (get(body, body_field::hit_timer) != 0 &&
+        (get(source_body, body_field::hit_timer) == 0 || get(source_body, body_field::hit_timer_running) == 0))
     {
         const Vec3 push = get(damage, body_damage_field::push);
         set(damage, body_damage_field::push, Vec3{0.f - push.x, 0.f - push.y, 0.f - push.z});
@@ -133,8 +134,8 @@ void request_runtime_body_timer_contact(std::span<u8> body, std::span<const u8> 
     RuntimeBodyAttachedActor& source, std::span<const u8> source_body,
     std::span<const u8> bound, RuntimeBodyDamageEntry& context)
 {
-    if (read_u32(source_body, 0x760) != 0 && read_u32(source_body, 0x754) != 0 &&
-        read_u32(body, 0x760) == 0 && !(read_f32(body, 0x75C) > 0.f))
+    if (get(source_body, body_field::hit_timer) != 0 && get(source_body, body_field::hit_timer_running) != 0 &&
+        get(body, body_field::hit_timer) == 0 && !(get(body, body_field::unk_75C) > 0.f))
     {
         receive_runtime_body_timer_contact(body, message, source, bound, context);
     }

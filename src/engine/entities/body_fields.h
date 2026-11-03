@@ -14,6 +14,7 @@ namespace body_field
 constexpr RetailField<Vec3, 0x18> position{};
 // Raised while something holds the body still (states raise it with the +0x309..+0x30C counters and drop it when they
 // end). With it clear and move_hold_time at zero nothing moves the body (0x00024C20).
+constexpr RetailField<Vec3, 0x24> unk_24{}; // the actor's position after its spheres are pushed (0x0002C2B0)
 constexpr RetailField<u16, 0x30> move_holds{};
 // Seconds the body is held still: decays to zero (0x00025AE0), and a random hold only ever lengthens it (0x0001AE50).
 constexpr RetailField<float, 0x34> move_hold_time{};
@@ -30,11 +31,17 @@ constexpr RetailField<float, 0x78> reach{};
 constexpr RetailField<u32, 0x84> hit_record{};
 constexpr RetailField<u16, 0x94> energy{};
 constexpr RetailField<u16, 0x96> max_energy{}; // restored into energy on revival (0x000253B0)
+constexpr RetailField<float, 0xB4> unk_B4{}; // 2 after a furnace hit while +0xA6 is set (0x00096710)
+constexpr RetailField<u32, 0x164> unk_164{}; // cleared with the turn once unk_168 is 0 (0x001346B0)
+constexpr RetailField<float, 0x168> unk_168{};
 // The stagger meter: a hit empties it in steps (0x0001FF60); at zero the body can be finished.
 constexpr RetailField<float, 0x16C> stagger{};
+constexpr RetailField<float, 0x174> unk_174{};
 // The ground under the body while has_ground is set; its y is the floor height 0x0001F060 reads.
 constexpr RetailField<Vec3, 0x178> ground_point{};
 constexpr RetailField<u8, 0x19E> has_ground{};
+constexpr RetailField<float, 0x23C> unk_23C{}; // nonzero: a hit takes the secondary action (0x00133F50)
+constexpr RetailField<float, 0x240> unk_240{}; // nonzero: a hit takes the primary action (0x00133F50)
 // The body's own motion; a moving body (nonzero, with flag bit 1) takes its moving key (0x000A2930, 0x0008C310).
 constexpr RetailField<Vec3, 0x248> motion{};
 // Counts holds on the body; the last release sends it message 0x4A.
@@ -42,6 +49,7 @@ constexpr RetailField<u32, 0x258> holds{};
 // The actor that last hit the body, by address: a hit stream pushes the body away from it (0x00097500).
 constexpr RetailField<u32, 0x270> attacker{};
 constexpr RetailField<u32, 0x274> unk_274{}; // a player's: the actor 0x00138B40 reports; messages 0x31 and 0x6A carry it
+constexpr RetailField<u32, 0x278> unk_278{}; // set when the turn resets (0x001346B0)
 constexpr RetailField<u32, 0x2CC> contact_count{};
 // The velocity the actor's +0x3C eases toward, at ease_rate (move action 0x5A).
 constexpr RetailField<Vec3, 0x318> velocity{};
@@ -55,9 +63,14 @@ constexpr RetailField<float, 0x334> ease_rate{};
 constexpr RetailField<u32, 0x338> ease_rate_swaps{};
 // Three rates the body turns by, always written together: the constructor's 0.558, 12.57, 6 (0x00024C50), the
 // struggle state's parameters (0x000A2B90) and the hover state's 1.047, 2.269, 6 (0x00097B80).
+constexpr RetailField<Vec3, 0x704> unk_704{}; // a held body's offset from its actor (0x0002C2B0)
+constexpr RetailField<u8, 0x716> unk_716{}; // cleared while the body is held (0x0002C2B0)
 constexpr RetailField<std::array<float, 3>, 0x71C> turn_rates{};
 // The body's euler angles (pitch, yaw, roll): 0x00041820 copies the actor's into it.
 constexpr RetailField<Vec3, 0x72C> euler{};
+constexpr RetailField<u32, 0x754> hit_timer_running{};
+constexpr RetailField<float, 0x75C> unk_75C{};
+constexpr RetailField<u32, 0x760> hit_timer{}; // the hit timer's recipient, by address; message 5 stops it
 // The surface the body stands on, or surface_override while surface_override_frames counts down (0x00025AE0 clears
 // the override when it reaches zero).
 constexpr RetailField<u8, 0x874> surface{};

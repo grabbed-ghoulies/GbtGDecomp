@@ -208,6 +208,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Damage record (built on the stack by the hit messages and handed to 0x00020DC0) | 0x68 | `body_damage_field`: kind, key, push key, joint, latch mask, forced, unblockable, skip script, position, normal, contacts, source, attacker, holder, push, direction, starts timer, source class; unk_8, unk_5C, unk_60 | `src/engine/entities/body_damage_fields.h` |
 | Motion-blur avatar (entityAvatarFxMotionBlur, type 15, 0x00066E20): a dying actor's fading copy | 0xA50, parameters 0x4B8 | `avatar_motion_blur_field`: height scale, timer, fade, light, phase, pixel shader, resource, effect, ignite effect; `avatar_motion_blur_parameter`: source, resource, effect, ignite effect | `src/engine/entities/avatar_fields.h` |
 | After-image avatar (type 16, 0x000690F0): the swing trail's fading copy | 0x968, parameters 0x354 | `avatar_afterimage_field`: time left, life, alpha, start alpha, start and end scale, texture parameter, texture, glow; `avatar_afterimage_parameter`: source, life, alpha, end scale, glow, texture record (built by 0x0013B030) | `src/engine/entities/avatar_fields.h` |
+| Event step (a DAT_005064E0 pool row, built by script nodes 0x19..0x88, run by 0x000D0B40) | 0x88 | `event_step_field` (type, delay and its block, icon, icon shown), `event_step_delay_field` (the +4 block: left, started, waits for cutscene) and one namespace per type with fields after +0x18: tag (2), kill count (3), timed (4, 5), done (6), spare tag (7), next different (8), unhit since (10), one type (0xD), number (0xE), key carrier (0xF), attack limit (0x10), tag kill count (0x12) | `src/engine/scripts/script_event_step_fields.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
 The camera mind was checked with `--player-opening` and headless captures of `chapter1_scene1_2playcam` at 300 and
@@ -338,6 +339,14 @@ same per-component blend, and the builder's three end-scale stores became one Ve
 death effect's parameters (type 0x42, 0x55C bytes, `body_death_effects.cpp`) share the source and name offsets but
 are their own type and stay by offset. The ten regular modes are byte-identical to the previous build apart from
 `scene6_title.bmp`'s known variant; which of them create either avatar wasn't checked.
+
+The event steps were named in their runners (`script_event_sequence.cpp`, by function, then the icon setup and
+"next one different" by hand) and their builders (`script_actions.cpp`). The time steps' builders copy the node's
+word as the seconds' bits, now through `std::bit_cast<float>`; signed fields replace `std::bit_cast<i32>` reads.
+"Next one different" reads its tag and total rows with `.at()`, so a count past the rows throws where retail would
+read on. The ten regular modes are byte-identical to the previous build apart from `scene6_title.bmp`'s known
+variant. `--scene2a2-reaper` plays the "Kill All/Time Limit" event (steps 0 and 4, their icons and delay blocks)
+five times; the other step types weren't run.
 
 ## Next
 

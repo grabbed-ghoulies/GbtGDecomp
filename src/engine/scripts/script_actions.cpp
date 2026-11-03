@@ -44,6 +44,7 @@
 #include "script_conditions.h"
 #include "../runtime/random_state.h"
 #include "script_event_sequence.h"
+#include "script_event_step_fields.h"
 #include "script_event_tallies.h"
 #include "../cutscenes/door_registration.h"
 #include "../cutscenes/actor_tracks.h"
@@ -1280,7 +1281,7 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         // 0x00125C80 builds step type 0 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
         std::array<u8, 0x88> step{};
         const float delay = 1.5f;
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::delay, delay);
         queue_script_event_step(step);
         return 2;
     }
@@ -1290,9 +1291,9 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         // unless bit 0x10 of DAT_0050EA9C is set.
         std::array<u8, 0x88> step{};
         const u32 type = 4;
-        std::memcpy(step.data(), &type, 4);
+        set(step, event_step_field::type, type);
         const u32 seconds = node_u32(g.scene_script, node, 8);
-        std::memcpy(step.data() + 0x18, &seconds, 4);
+        set(step, timed_event_step::seconds, std::bit_cast<float>(seconds));
         if ((g_flags_ea9c & 0x10u) != 0)
         {
             return 2;
@@ -1305,7 +1306,7 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         // 0x00125CC0 builds step type 1 with XMM0 = 0 at +4, then 0x000D05D0 queues it.
         std::array<u8, 0x88> step{};
         const u32 type = 1;
-        std::memcpy(step.data(), &type, 4);
+        set(step, event_step_field::type, type);
         queue_script_event_step(step);
         return 2;
     }
@@ -1317,12 +1318,12 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 2;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        std::memcpy(step.data() + 0x18, &tag, 2);
+        set(step, tag_event_step::tag, tag);
         const u32 absent = node_u32(g.scene_script, node, 0x48) == 0 ? 1u : 0u;
-        std::memcpy(step.data() + 0x1C, &absent, 4);
+        set(step, tag_event_step::seen, absent);
         queue_script_event_step(step);
         return 2;
     }
@@ -1333,14 +1334,14 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 3;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         const i32 low = i32(node_u32(g.scene_script, node, 8));
         const i32 high = i32(node_u32(g.scene_script, node, 0xC)) + 1;
         const i32 count = draw_runtime_random_count(high, low, g_shared_random); // 0x0001BB60, ESI DAT_0054DD7C
-        std::memcpy(step.data() + 0x18, &count, 4);
+        set(step, kill_count_event_step::required, count);
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 0x10).c_str()));
-        std::memcpy(step.data() + 0x1C, &tag, 2);
+        set(step, kill_count_event_step::tag, tag);
         queue_script_event_step(step);
         return 2;
     }
@@ -1350,9 +1351,9 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         // queues it.
         std::array<u8, 0x88> step{};
         const u32 type = 5;
-        std::memcpy(step.data(), &type, 4);
+        set(step, event_step_field::type, type);
         const u32 seconds = node_u32(g.scene_script, node, 8);
-        std::memcpy(step.data() + 0x18, &seconds, 4);
+        set(step, timed_event_step::seconds, std::bit_cast<float>(seconds));
         queue_script_event_step(step);
         return 2;
     }
@@ -1362,8 +1363,8 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 0xF;
         const float delay = 2.f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         queue_script_event_step(step);
         return 2;
     }
@@ -1374,10 +1375,10 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 6;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         const u32 word = u32(node_u16(g.scene_script, node, 8));
-        std::memcpy(step.data() + 0x18, &word, 4);
+        set(step, done_event_step::unk_18, word);
         queue_script_event_step(step);
         return 2;
     }
@@ -1388,12 +1389,11 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 7;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        std::memcpy(step.data() + 0x18, &tag, 2);
-        const u32 unset = 0xffffffffu;
-        std::memcpy(step.data() + 0x1C, &unset, 4);
+        set(step, spare_tag_event_step::tag, tag);
+        set(step, spare_tag_event_step::kept_total, -1);
         queue_script_event_step(step);
         return 2;
     }
@@ -1404,10 +1404,9 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 10;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
-        const u32 unset = 0xffffffffu;
-        std::memcpy(step.data() + 0x18, &unset, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
+        set(step, unhit_since_event_step::kept_total, -1);
         queue_script_event_step(step);
         return 2;
     }
@@ -1417,8 +1416,8 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 9;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         queue_script_event_step(step);
         return 2;
     }
@@ -1436,10 +1435,10 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 8;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
-        std::memcpy(step.data() + 0x1A, words, size_t(count) * 2);
-        step[0x4C] = u8(count);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
+        std::memcpy(field_data(step, next_different_event_step::tags), words, size_t(count) * 2);
+        set(step, next_different_event_step::count, u8(count));
         queue_script_event_step(step);
         return 2;
     }
@@ -1449,8 +1448,8 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 0xB;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         queue_script_event_step(step);
         return 2;
     }
@@ -1462,9 +1461,9 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         const u32 type = 0x10;
         const float delay = 1.5f;
         const u32 value = node_u32(g.scene_script, node, 8);
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
-        std::memcpy(step.data() + 0x18, &value, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
+        set(step, attack_limit_event_step::limit, std::bit_cast<i32>(value));
         queue_script_event_step(step);
         return 2;
     }
@@ -1474,8 +1473,8 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 0xC;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         queue_script_event_step(step);
         return 2;
     }
@@ -1494,11 +1493,11 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 0xD;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         const i32 index = draw_runtime_random_count(i32(u16(count)), 0, g_shared_random); // 0x0001BB60, ECX count
         const u16 tag = words[size_t(index)];
-        std::memcpy(step.data() + 0x18, &tag, 2);
+        set(step, one_type_event_step::tag, tag);
         if (node_u32(g.scene_script, node, 0x15c) != 0)
         {
             mark_runtime_one_type_actors(tag, 0); // 0x00126940, DI the tag
@@ -1524,10 +1523,10 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 0xE;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         const i32 drawn = draw_runtime_random_count(i32(hi), i32(lo), g_shared_random); // 0x0001BB60
-        std::memcpy(step.data() + 0x18, &drawn, 4);
+        set(step, number_event_step::target, drawn);
         queue_script_event_step(step);
         return 2;
     }
@@ -1537,8 +1536,8 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 0x11;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         queue_script_event_step(step);
         return 2;
     }
@@ -1570,12 +1569,12 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         std::array<u8, 0x88> step{};
         const u32 type = 0x12;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        set(step, event_step_field::type, type);
+        set(step, event_step_field::delay, delay);
         const i32 index = draw_runtime_random_count(i32(u16(count)), 0, g_shared_random); // 0x0001BB60, ECX count
         const u16 tag = words[size_t(index)];
-        std::memcpy(step.data() + 0x18, &tag, 2);
-        std::memcpy(step.data() + 0x1C, &counts[size_t(index)], 4);
+        set(step, tag_kill_count_event_step::tag, tag);
+        set(step, tag_kill_count_event_step::required, std::bit_cast<i32>(counts[size_t(index)]));
         if (node_u32(g.scene_script, node, 0x170) != 0)
         {
             mark_runtime_one_type_actors(tag, 0); // 0x00126940, DI the tag

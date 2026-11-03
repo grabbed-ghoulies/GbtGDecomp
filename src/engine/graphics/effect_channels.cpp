@@ -76,9 +76,8 @@ void configure_actor_effect_bounded_channels(std::span<u8> particle, const Vec3&
 // Xbox 0x000F2430
 bool actor_effect_channels_are_active(std::span<const u8> channels)
 {
-    if (read_f32(channels, 0x28) == 0.f && read_f32(channels, 0x2C) == 0.f
-        && read_f32(channels, 0x30) == 0.f && read_f32(channels, 0x34) == 0.f
-        && read_f32(channels, 0x38) == 0.f)
+    const auto rates = get(channels, effect_channel_field::rates);
+    if (rates[0] == 0.f && rates[1] == 0.f && rates[2] == 0.f && rates[3] == 0.f && rates[4] == 0.f)
     {
         return false;
     }
@@ -89,24 +88,23 @@ bool actor_effect_channels_are_active(std::span<const u8> channels)
 void target_actor_effect_color(std::span<u8> channels, u8 red, u8 green, u8 blue, float duration)
 {
     constexpr float epsilon = std::bit_cast<float>(0x3456BF95u);
-    const float targets[] = {float(red), float(green), float(blue)};
-    std::memcpy(channels.data() + 0x18, &targets[1], 4);
-    std::memcpy(channels.data() + 0x1C, &targets[2], 4);
-    std::memcpy(channels.data() + 0x14, &targets[0], 4);
+    set(channels, effect_channel_field::target_green, float(green));
+    set(channels, effect_channel_field::target_blue, float(blue));
+    set(channels, effect_channel_field::target_red, float(red));
+    float* const values = field_data(channels, effect_channel_field::values);
+    float* const rates = field_data(channels, effect_channel_field::rates);
     for (size_t index = 0; index < 3; ++index)
     {
-        const float target = read_f32(channels, 0x14 + index * 4);
+        const float target = get(channels, effect_channel_field::targets)[index];
         if (duration > epsilon)
         {
-            const float difference = float(ExtendedFloat{target} - ExtendedFloat{read_f32(channels, index * 4)});
-            const float rate = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
-            std::memcpy(channels.data() + 0x28 + index * 4, &rate, 4);
+            const float difference = float(ExtendedFloat{target} - ExtendedFloat{values[index]});
+            rates[index] = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
         }
         else
         {
-            const float zero = 0.f;
-            std::memcpy(channels.data() + index * 4, &target, 4);
-            std::memcpy(channels.data() + 0x28 + index * 4, &zero, 4);
+            values[index] = target;
+            rates[index] = 0.f;
         }
     }
 }
@@ -116,17 +114,17 @@ void target_actor_effect_alpha(std::span<u8> channels, u8 alpha, float duration)
 {
     constexpr float epsilon = std::bit_cast<float>(0x3456BF95u);
     const float target = float(alpha);
-    std::memcpy(channels.data() + 0x20, &target, 4);
+    set(channels, effect_channel_field::target_alpha, target);
     if (duration > epsilon)
     {
-        const float difference = float(ExtendedFloat{target} - ExtendedFloat{read_f32(channels, 0xC)});
-        const float rate = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
-        std::memcpy(channels.data() + 0x34, &rate, 4);
+        const float difference = float(ExtendedFloat{target}
+            - ExtendedFloat{get(channels, effect_channel_field::alpha)});
+        set(channels, effect_channel_field::alpha_rate,
+            float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration}));
         return;
     }
-    const float zero = 0.f;
-    std::memcpy(channels.data() + 0xC, &target, 4);
-    std::memcpy(channels.data() + 0x34, &zero, 4);
+    set(channels, effect_channel_field::alpha, target);
+    set(channels, effect_channel_field::alpha_rate, 0.f);
 }
 
 // Xbox 0x000F1AF0
@@ -205,33 +203,31 @@ void tick_actor_effect_oscillation(std::span<u8> channels, float step)
 void approach_actor_effect_channels(std::span<u8> channels, const RuntimeActorClock& clock)
 {
     const float dt = runtime_frame_step(clock);
+    float* const values = field_data(channels, effect_channel_field::values);
+    const float* const targets = field_data(channels, effect_channel_field::targets);
+    float* const rates = field_data(channels, effect_channel_field::rates);
     for (size_t index = 0; index < 5; ++index)
     {
-        const size_t value_offset = index * 4;
-        const size_t target_offset = 0x14 + index * 4;
-        const size_t rate_offset = 0x28 + index * 4;
-        if (read_f32(channels, rate_offset) != 0.f)
+        if (rates[index] != 0.f)
         {
-            const float target = read_f32(channels, target_offset);
-            const float difference = target - read_f32(channels, value_offset);
+            const float target = targets[index];
+            const float difference = target - values[index];
             const float distance = engine_absolute(difference);
-            const float step = read_f32(channels, rate_offset) * dt;
-            if (read_f32(channels, rate_offset) != 0.f)
+            const float step = rates[index] * dt;
+            if (rates[index] != 0.f)
             {
                 if (step > distance)
                 {
-                    const float zero = 0.f;
-                    std::memcpy(channels.data() + rate_offset, &zero, 4);
-                    std::memcpy(channels.data() + value_offset, &target, 4);
+                    rates[index] = 0.f;
+                    values[index] = target;
                 }
                 else
                 {
-                    const float current = read_f32(channels, value_offset);
-                    const float value = 0.f > difference ? current - step : current + step;
-                    std::memcpy(channels.data() + value_offset, &value, 4);
+                    const float current = values[index];
+                    values[index] = 0.f > difference ? current - step : current + step;
                 }
             }
-            float value = read_f32(channels, value_offset);
+            float value = values[index];
             if (0.f > value)
             {
                 value = 0.f;
@@ -240,7 +236,7 @@ void approach_actor_effect_channels(std::span<u8> channels, const RuntimeActorCl
             {
                 value = 255.f;
             }
-            std::memcpy(channels.data() + value_offset, &value, 4);
+            values[index] = value;
         }
     }
 }

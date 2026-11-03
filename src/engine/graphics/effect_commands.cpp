@@ -149,14 +149,14 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
                 command_word(particle, 0xAC, read_u32(command, 0xC));
                 command_word(particle, 0xB0, read_u32(command, 0x10));
             }
-            target_actor_effect_alpha(particle.subspan(0x60), command[8],
+            target_actor_effect_alpha(record(particle, effect_particle_field::colour_channels), command[8],
                                       get(particle, effect_particle_field::duration));
             break;
         case 0x1B62:
             cursor = address + 0x14;
             update_duration(command);
-            target_actor_effect_color(particle.subspan(0x60), command[8], command[9], command[10],
-                                      get(particle, effect_particle_field::duration));
+            target_actor_effect_color(record(particle, effect_particle_field::colour_channels), command[8], command[9],
+                                      command[10], get(particle, effect_particle_field::duration));
             break;
         case 0x1B63:
             cursor = address + 0xC;

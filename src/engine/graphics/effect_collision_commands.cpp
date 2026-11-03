@@ -3,6 +3,7 @@
 #include "../entities/player_mind_events.h"
 #include "../entities/entity.h"
 #include "../runtime/random_state.h"
+#include "effect_particles.h"
 
 #include <bit>
 #include <cstring>
@@ -40,7 +41,7 @@ bool execute_effect_collision_commands(std::span<u8> particle,
     u32& random = context.effects.random_state;
     while (true)
     {
-        const i32 count = i32(read_u32(particle, 0x5C));
+        const i32 count = i32(get(particle, effect_particle_field::collisions));
         switch (read_u32(command, 4))
         {
         case 0x1B74:
@@ -178,7 +179,7 @@ bool execute_effect_collision_commands(std::span<u8> particle,
 void notify_effect_particle_collision(std::span<u8> particle,
     const ActorEffectNode& owner, RuntimeEffectCollisionCommands& context)
 {
-    const u32 count = read_u32(particle, 0x5C) + 1u;
+    const u32 count = get(particle, effect_particle_field::collisions) + 1u;
     std::memcpy(particle.data() + 0x5C, &count, 4);
     context.callback_result = execute_effect_collision_commands(particle, owner, context);
 }

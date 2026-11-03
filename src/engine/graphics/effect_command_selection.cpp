@@ -1,5 +1,6 @@
 #include "effect_command_selection.h"
 #include "effect_channels.h"
+#include "effect_particles.h"
 #include <bit>
 #include <cstring>
 
@@ -11,13 +12,13 @@ bool actor_effect_command_condition(std::span<const u8> command, std::span<const
     switch (read_u32(command, 8))
     {
     case 0:
-        if (read_f32(particle, 0x1C) >= 0.f)
+        if (get(particle, effect_particle_field::velocity).y >= 0.f)
         {
             return true;
         }
         break;
     case 1:
-        if (read_f32(particle, 0x1C) >= -20.f)
+        if (get(particle, effect_particle_field::velocity).y >= -20.f)
         {
             return true;
         }
@@ -29,19 +30,19 @@ bool actor_effect_command_condition(std::span<const u8> command, std::span<const
         }
         break;
     case 3:
-        if (std::bit_cast<i32>(read_u32(particle, 0x5C)) < 3)
+        if (std::bit_cast<i32>(get(particle, effect_particle_field::collisions)) < 3)
         {
             return true;
         }
         break;
     case 4:
-        if (read_u32(particle, 0x5C) == 0)
+        if (get(particle, effect_particle_field::collisions) == 0)
         {
             return true;
         }
         break;
     case 5:
-        if (read_f32(particle, 0x108) > 0.f)
+        if (get(particle, effect_particle_field::unk_108) > 0.f)
         {
             return true;
         }
@@ -54,7 +55,7 @@ bool actor_effect_command_condition(std::span<const u8> command, std::span<const
 u32 find_actor_effect_fallback_command(std::span<const u8> particle, ActorEffectNode& effect,
     const std::function<std::span<const u8>(u32)>& resolve)
 {
-    u32 address = read_u32(particle, 0x14C);
+    u32 address = get(particle, effect_particle_field::command);
     auto command = resolve(address);
     u32 previous = 0;
     if (read_u32(command, 4) != 2)

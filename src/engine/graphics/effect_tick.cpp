@@ -75,7 +75,7 @@ void tick_active_actor_effect_particles(ActorEffectNode& effect, float step,
         do
         {
             const auto particle = effect.bytes.subspan(size_t(index) * 0x150 + 0x390, 0x150);
-            if (i16(read_u16(particle, 0x5A)) == -2)
+            if (i16(get(particle, effect_particle_field::next_free)) == -2)
             {
                 const u32 alive = simulate_actor_effect_particle(particle, effect, step,
                     context.scratch.collided, context.scratch.previous_collisions, context.simulation);
@@ -86,7 +86,7 @@ void tick_active_actor_effect_particles(ActorEffectNode& effect, float step,
                 else if (context.scratch.collided != 0
                     && std::bit_cast<u32>(context.scratch.previous_collisions) == 1)
                 {
-                    const Vec3 position{read_f32(particle, 0), read_f32(particle, 4), read_f32(particle, 8)};
+                    const Vec3 position = get(particle, effect_particle_field::position);
                     auto& commands = context.simulation.commands;
                     const float fraction = advance_runtime_random_fraction(commands.effects.random_state);
                     notify_actor_effect_particle(effect, .5f > fraction, position, context.frame,

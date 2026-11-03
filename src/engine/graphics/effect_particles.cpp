@@ -65,16 +65,16 @@ void initialize_actor_effect_particle(std::span<u8> particle, const ActorEffectN
     {
         word(particle, offset, 0);
     }
-    word(particle, 0x108, 0);
-    number(particle, 0xA0, 1.f);
+    set(particle, effect_particle_field::unk_108, 0.f);
+    set(particle, effect_particle_field::target_size, 1.f);
     for (size_t offset = 0xA8; offset <= 0xB4; offset += 4)
     {
         number(particle, offset, -1.f);
     }
-    word(particle, 0x5C, 0);
+    set(particle, effect_particle_field::collisions, 0);
     const u16 zero = 0;
     std::memcpy(particle.data() + 0x58, &zero, 2);
-    particle[0x104] = 0;
+    set(particle, effect_particle_field::frame_mode, 0);
     for (size_t offset = 0xF4; offset <= 0x100; offset += 4)
     {
         word(particle, offset, 0);
@@ -92,17 +92,17 @@ void initialize_actor_effect_particle(std::span<u8> particle, const ActorEffectN
         }
     }
     std::memset(particle.data(), 0, 0x58);
-    number(particle, 0x40, 1.f);
-    number(particle, 0x44, 1.f);
-    number(particle, 0x48, 1.f);
-    particle[0x55] = 1;
+    set(particle, effect_particle_field::bounce, 1.f);
+    set(particle, effect_particle_field::spin_bounce, 1.f);
+    set(particle, effect_particle_field::size, 1.f);
+    set(particle, effect_particle_field::unk_55, 1);
     const float variance = read_f32(effect.bytes, 0x9C);
     const float minimum = 1.f - variance;
     const float range = (variance + 1.f) - minimum;
     const float fraction = random_fraction(random);
     const __m128 varied = _mm_add_ss(_mm_mul_ss(_mm_set_ss(range), _mm_set_ss(fraction)), _mm_set_ss(minimum));
     const float scale = _mm_cvtss_f32(_mm_mul_ss(varied, _mm_set_ss(read_f32(effect.bytes, 0x98))));
-    number(particle, 0xA4, scale);
+    set(particle, effect_particle_field::size_scale, scale);
 }
 
 // Xbox 0x000EFB20
@@ -126,65 +126,66 @@ void initialize_actor_effect_particle_frames(std::span<u8> particle, const Actor
     const float frames = float(count);
     if (0.f > frames)
     {
-        number(particle, 0xF4, frames);
-        word(particle, 0xF8, 0);
+        set(particle, effect_particle_field::first_frame, frames);
+        set(particle, effect_particle_field::last_frame, 0.f);
     }
     else if (!(frames > 0.f))
     {
         particle[0x104] &= 0xFC;
-        number(particle, 0xF4, frames);
-        word(particle, 0xF8, 0);
+        set(particle, effect_particle_field::first_frame, frames);
+        set(particle, effect_particle_field::last_frame, 0.f);
     }
     else
     {
-        word(particle, 0xF4, 0);
-        number(particle, 0xF8, frames);
+        set(particle, effect_particle_field::first_frame, 0.f);
+        set(particle, effect_particle_field::last_frame, frames);
     }
-    if (read_f32(particle, 0x100) > read_f32(particle, 0xF8))
+    if (get(particle, effect_particle_field::frame) > get(particle, effect_particle_field::last_frame))
     {
-        word(particle, 0x100, read_u32(particle, 0xF8));
+        set(particle, effect_particle_field::frame, get(particle, effect_particle_field::last_frame));
     }
-    else if (read_f32(particle, 0xF4) > read_f32(particle, 0x100))
+    else if (get(particle, effect_particle_field::first_frame) > get(particle, effect_particle_field::frame))
     {
-        word(particle, 0x100, read_u32(particle, 0xF4));
+        set(particle, effect_particle_field::frame, get(particle, effect_particle_field::first_frame));
     }
     const i32 rate = pal != 0 && pal_override == 0 ? 50 : 60;
-    const float maximum = (float(rate) * .5f) * (read_f32(particle, 0xF8) - read_f32(particle, 0xF4));
-    if (read_f32(particle, 0xFC) > maximum)
+    const float maximum = (float(rate) * .5f) * (get(particle, effect_particle_field::last_frame) -
+                                                 get(particle, effect_particle_field::first_frame));
+    if (get(particle, effect_particle_field::frame_speed) > maximum)
     {
-        number(particle, 0xFC, maximum);
+        set(particle, effect_particle_field::frame_speed, maximum);
     }
     const float fraction = random_fraction(random);
     const float speed = (second - first) * fraction + first;
-    number(particle, 0xFC, speed);
+    set(particle, effect_particle_field::frame_speed, speed);
     if (speed > maximum)
     {
-        number(particle, 0xFC, maximum);
+        set(particle, effect_particle_field::frame_speed, maximum);
     }
     if ((flags & 1) != 0)
     {
         const float fraction = random_fraction(random);
         const float position = fraction * float(count + 1u);
-        number(particle, 0x100, position);
-        if (position > read_f32(particle, 0xF8))
+        set(particle, effect_particle_field::frame, position);
+        if (position > get(particle, effect_particle_field::last_frame))
         {
-            word(particle, 0x100, read_u32(particle, 0xF8));
+            set(particle, effect_particle_field::frame, get(particle, effect_particle_field::last_frame));
         }
-        else if (read_f32(particle, 0xF4) > position)
+        else if (get(particle, effect_particle_field::first_frame) > position)
         {
-            word(particle, 0x100, read_u32(particle, 0xF4));
+            set(particle, effect_particle_field::frame, get(particle, effect_particle_field::first_frame));
         }
     }
     else
     {
-        word(particle, 0x100, 0);
-        if (0.f > read_f32(particle, 0xF8))
+        set(particle, effect_particle_field::frame, 0.f);
+        if (0.f > get(particle, effect_particle_field::last_frame))
         {
-            word(particle, 0x100, read_u32(particle, 0xF8));
+            set(particle, effect_particle_field::frame, get(particle, effect_particle_field::last_frame));
         }
-        else if (read_f32(particle, 0xF4) > 0.f)
+        else if (get(particle, effect_particle_field::first_frame) > 0.f)
         {
-            word(particle, 0x100, read_u32(particle, 0xF4));
+            set(particle, effect_particle_field::frame, get(particle, effect_particle_field::first_frame));
         }
     }
     if ((effect.bytes[0x154] & 8) != 0)
@@ -199,9 +200,9 @@ void initialize_actor_effect_particle_frames(std::span<u8> particle, const Actor
     {
         mode = 1;
     }
-    if (read_f32(particle, 0xF4) != read_f32(particle, 0xF8))
+    if (get(particle, effect_particle_field::first_frame) != get(particle, effect_particle_field::last_frame))
     {
-        particle[0x104] = mode;
+        set(particle, effect_particle_field::frame_mode, mode);
     }
 }
 
@@ -214,12 +215,12 @@ u8* allocate_actor_effect_particle(ActorEffectNode& effect, u32 owner_address, u
     {
         const size_t offset = size_t(slot) * 0x150 + 0x390;
         auto particle = effect.bytes.subspan(offset, 0x150);
-        const u16 next = read_u16(particle, 0x5A);
+        const u16 next = get(particle, effect_particle_field::next_free);
         std::memcpy(effect.bytes.data() + 6, &next, 2);
-        word(particle, 0x14C, user);
+        set(particle, effect_particle_field::command, user);
         const u16 active = 0xFFFE;
         std::memcpy(particle.data() + 0x5A, &active, 2);
-        word(particle, 0x148, owner_address);
+        set(particle, effect_particle_field::owner, owner_address);
         const u16 count = u16(read_u16(effect.bytes, 0) + 1);
         std::memcpy(effect.bytes.data(), &count, 2);
         initialize_actor_effect_particle(particle, effect, random);

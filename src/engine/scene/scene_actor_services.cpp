@@ -804,7 +804,7 @@ void SceneActorServices::update_effects(RuntimeEffectPassScratch& scratch)
         address, state.display_view->forward, scratch};
     RuntimeModelSoundRelease release{state.sounds, state.resources.registry, state.deferred,
         state.fence, state.shaders, state.heap_free};
-    RuntimeEffectTrails trails{{state.trail_pool->particles, effect_trail_pool.size}, state.trail_pool->types,
+    RuntimeEffectTrails trails{{state.trail_pool->particles, kEffectTrailCount}, state.trail_pool->types,
         state.trail_pool->free_head, state.random, state.pal, state.pal_override, resolve};
     RuntimeGlobalEffectTick context{g_actor_effect_nodes, tick, release, debris, trails, state.clock};
     tick_global_actor_effects(context);

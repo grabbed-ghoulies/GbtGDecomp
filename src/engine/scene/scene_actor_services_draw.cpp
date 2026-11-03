@@ -604,12 +604,10 @@ void SceneActorServices::State::present_view(i32 view)
             // 0x000EBCB0: live type-2 trail records queue billboards through 0x0005C1A0.
             if (trail_pool->particles != nullptr)
             {
-                const std::span<const u8> particles(trail_pool->particles, effect_trail_pool.size);
-                for (size_t index = 0; index < effect_trail_pool.count; ++index)
+                const std::span<const EffectTrailRecord> particles(trail_pool->particles, kEffectTrailCount);
+                for (const EffectTrailRecord& particle : particles)
                 {
-                    const auto particle = record(particles, effect_trail_pool, index);
-                    if (get(particle, effect_trail_field::next_free) == -2
-                        && get(particle, effect_trail_field::phase) == 2)
+                    if (particle.next_free == -2 && particle.phase == 2)
                     {
                         unbound("trail billboard queue 0x000EBCB0 body");
                     }

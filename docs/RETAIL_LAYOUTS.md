@@ -158,15 +158,15 @@ For one object type:
 | Debris record (`EffectDebrisRecord`, 50 in DAT_005068EC): position, euler, size, growth and its rate, colour channels (a byte block the channel functions take), phase and its time, next free, type, frame | 0x74 | `src/engine/graphics/effect_debris.h` |
 | Damage record (`BodyDamage`, built on the stack by the hit messages and source contacts, handed to 0x00020DC0): kind, keys, joint, latch mask, switches, position, normal, contacts, the three actors, push, direction, timer, source class. Message 0x1A carries its bytes, so `offsetof` checks pin every member. | 0x68 | `src/engine/entities/body_damage_fields.h` |
 | Actor effect particle (`EffectParticle`, 0x150-byte slots from an effect's +0x390, 0x000EFE30; run by 0x000F18E0): position, euler, velocity, spin, collision radius, bounce factors, size (and its rate, target and scale), gravity, drag, stopped and hit bytes, motion and channel flags, next free slot, collisions, colour channels (a byte block the channel functions take), life, colour durations, oscillation (`EffectOscillation`: rate, phase, center, amplitude, value), frames and three bounded channels (`BoundedChannel`), owner effect, command. Viewed inside `ActorEffectNode::bytes` by `actor_effect_particle`. The debris and trail pools' records are different types. | 0x150 | `src/engine/graphics/effect_particles.h` |
+| Trail record (`EffectTrailRecord`, 50 in DAT_005068D8): position and rotation (the billboard's, from 0x000EBCB0), colour channels (a byte block the channel functions take), scale, size and its target and rate, frames (`BoundedChannel`), phase, type, phase time, life, next free | 0x84 | `src/engine/graphics/effect_trails.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
 named and nothing read it by offset, apart from a few writers the census had missed: the sampled matrix's scale and
 height (0x00040640), the weapon pieces, the bone debris and the background effect sync all wrote matrix records
 directly, and `body_source_contacts.cpp` built its own damage records by offset. They now use the structs too. The
-trail record stays on descriptors because its +0..+0xF is never touched (its spawner isn't translated). Its type,
-the debris type, the input tracking records and the bounded and colour channels also stay on descriptors: the types
-are resource data, and the rest live inside records that are still byte buffers.
+trail types, the debris types, the input tracking records and the colour channels stay on descriptors: the types are
+resource data, and the rest live inside records that are still byte buffers.
 
 The effect particle followed once its oscillation block was named (0x000F1AF0 and 0x00106A80 set and tick its rate,
 phase, center, amplitude and value) and its last raw readers were converted: the collision response and commands,
@@ -177,6 +177,11 @@ the draws read them. The frames and the three bounded channels are `BoundedChann
 colour channel functions still take byte spans (trail frames, the scoreboard and others use them too), so struct
 members are handed over through `retail_bytes`. The particle lives inside the effect's byte buffer, viewed in place by
 `actor_effect_particle`.
+
+The trail record followed. Its +0..+0xF had looked untouched because its spawner isn't translated, but the retail
+trail draw (0x000EBCB0, still unbound here) settles it: it hands +0 to the billboard queue (0x0005C1A0) as the
+position and +0xC as the rotation, with the size from +0x50 and the frame from the frames' value. +0x72 and +0x80 are
+not read or written by any translated code or that draw, so they are `unk_72` and `unk_80`.
 
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
@@ -234,7 +239,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Colour channels (an effect particle's +0x60, a debris record's +0x24, a trail record's +0x10; run by 0x000F1F60, 0x000F22F0, 0x000F23E0, 0x000F2430) | 0x3C | `effect_channel_field`: five values (red, green, blue, alpha and unk_10), their targets and their rates | `src/engine/graphics/effect_channels.h` |
 | Bounded channel (a value moved between limits: 0x00101980, 0x00101A40, 0x00101B00; three in a row for 0x001062E0, 0x001063D0, 0x00106590) | 0x14 | `bounded_channel_field`: lower, upper, rate, value, mode; `BoundedChannel` is the same layout as a struct, for the effect particle | `src/engine/entities/bounded_channels.h` |
 | Debris type (DAT_005068E8, ten types from aid_misc_ghoulies_fx_cheap_splat; resource data) | 0xAC | `effect_debris_type_field`: texture and its address, colour, size, growth, and the grow, hold and fade time ranges; `effect_debris_types` | `src/engine/graphics/effect_debris.h` |
-| Trail record and type (DAT_005068D8, 50 records; DAT_005068E0, four types from aid_misc_ghoulies_fx_cheap_dust) | 0x84 / 0xA0 | `effect_trail_field`: colour channels, scale, size and its target and rate, frames (a bounded channel), phase, type, phase time, life, next free; `effect_trail_type_field`: texture address and name, two colours, start and end size, frame rate; `effect_trail_pool`, `effect_trail_types` | `src/engine/graphics/effect_trails.h` |
+| Trail type (DAT_005068E0, four types from aid_misc_ghoulies_fx_cheap_dust; resource data) | 0xA0 | `effect_trail_type_field`: texture address and name, two colours, start and end size, frame rate; `effect_trail_types` | `src/engine/graphics/effect_trails.h` |
 | Model image records (read by address through `RuntimeRelocationImage::get` / `set`) | varies | The directory and its entries, the tree block and tree, the node header (`model_node_field`: type name and index, mask, instance offset, descriptor, child, next) and each node type (`vertex_buffer_node`, `blendshape_node`, `vertex_shader_node`, `push_buffer_node`, `skeleton_node`, `transform_node`, `shader_node`, `matrix_array_node`, `rigid_skin_node`), the node type registry entry, vertex buffer, joint, pixel shader, material (with its stages, constants and entries), texture and its table, and the geometry block and stream. The physics block and its posed and grid meshes, cells and triangles are named too (`physical_mesh_queries.cpp` reads them). Directory blocks 0xE, 0x11, 0x16 and 0x18 and the name and pointer lists are only relocated and stay by offset | `include/gbtg/model_nodes.h` |
 | Actor effect (an emitter, 0x000ED1C0; `ActorEffectNode::bytes`) | 0x390 plus 0x150 per particle | `actor_effect_field`: particle counts and free head, emitting, emit timer, life, ticks, flags, position and its previous and tick copies, emit point, motion, euler, spin, jitter, offset, velocity, particle size, volume euler and spin, scale, binding, the emission volume and its angles, velocity mode, speed and angle ranges, script, command, draw and depth modes, texture and its frames, model | `src/engine/graphics/actor_effect_nodes.h` |
 | Input tracking (0x00109810; the struggle states' and the boost's) and its preset, and the player mind's stick tracking (+0x94; 0x0007D460, 0x0007D5A0) | 0x18 / 0x10 / 0x20 | `input_tracking_field`: axes, activity, accumulation, hold timer, state; `input_tracking_preset_field`: threshold, rise, decay, cap; `stick_tracking_field`: pressed, state, press timer, unk_0C, direction, magnitude, gesture time, gesture | `src/engine/entities/player_mind_control.h` |

@@ -71,14 +71,14 @@ void tick_global_actor_effects(RuntimeGlobalEffectTick& context)
         size_t index = 0;
         do
         {
-            const auto particle = record(context.trails.particles, effect_trail_pool, index);
-            if (get(particle, effect_trail_field::next_free) == -2)
+            EffectTrailRecord& particle = context.trails.particles[index];
+            if (particle.next_free == -2)
             {
                 tick_effect_trail(particle, context.trails, context.clock);
             }
             ++index;
         }
-        while (index < effect_trail_pool.count);
+        while (index < kEffectTrailCount);
     }
 }
 }

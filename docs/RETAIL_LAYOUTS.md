@@ -222,6 +222,13 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Cinema mind (its own part after the base mind; 0x0007C7D0) | 0xD0, parameters 0x128 | `cinema_mind_field`: roam and target radii, sound resource, count and timer, notices, avoidance time, unk_9C..unk_CC; `cinema_mind_parameter`: the radii and the sound resource name | `src/engine/entities/mind_fields.h` |
 | Actor base raw fields (the type-2 actor's bytes the native `Actor` doesn't keep) | 0x934 | `actor_field`: bone, eased and its target, age, ticks | `src/engine/entities/actor_fields.h` |
 | Scene light record (0x00051BC0; DAT_00509B7C) | 0x98 | `light_record_field`: position, direction, kind, flags and swing flags, the two ranges, colour, the colour and range limits and periods; `light_record(u8*)` gives a record's span | `include/gbtg/model_runtime.h` |
+| Effect script command (0x000F0390) | varies by opcode | `effect_command_field` (opcode) and argument layouts by shape: value, range, timed (colour and duration), colour, colour range, face, channels (oscillation and bounded channels), spin range, bounce | `src/engine/graphics/effect_commands.h` |
+| Player mind's own part (after the base mind) | | `player_mind_field`: target, target timer and count, the stick tracking record (+0x94), attachment noticed, control lock | `src/engine/entities/player_mind_control.h` |
+| Parent mind requests (0x000295E0) and the navigation request (0x2E, 0x00136620) | varies by kind | `named_request`, `value_request`, `reach_request`, `body_range_request`, `slot_action_request`, `flag_action_request`, `wait_request`, `flag_test_request`, `navigation_request`; the header's `started` byte | `src/engine/entities/mind_request_fields.h` |
+| Mind event (0x0002A190) | | `mind_event_field`: kind, time left, duration, cooldown, age, subject, other, count, payload | `src/engine/entities/player_mind_events.h` |
+| Body messages (0x00074080, 0x00075C60, 0x00075DD0) | varies by id | `body_message_field` (id), `control_message`, `point_message`, `collision_hit_message`, `impact_message`, `movement_message`; and the body's actor, action key, alert level, control tokens and saved energy | `src/engine/entities/player_body_messages.h` |
+| Walkabout music control (0x00080570) | | `walkabout_control_field`: playlist position and count, track, start countdown, timer switch | `src/engine/scene/scene_control_fields.h` |
+| Base strategy (factory type 8), the goal states | | `strategy_field` gains the goals' next states (unk_0C, unk_10, after wait, resume, flagged resume) and the wait timer | `src/engine/entities/strategy_fields.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
 The camera mind was checked with `--player-opening` and headless captures of `chapter1_scene1_2playcam` at 300 and
@@ -405,6 +412,12 @@ writes into one Vec3 field (position, velocity, euler, the saved position) becam
 same bytes since nothing reads the field between them. The hit and walk-target states and the hit messages were
 done the same way, adding the body's hit timer (+0x754, +0x760) and a few `unk_` fields. All 602 captures of the ten
 regular modes are byte-identical to the previous build.
+
+The batch after the light record named the effect commands, the player mind's own part, the parent and navigation
+requests, the mind events, the body messages, the walkabout control and the base strategy's goal states across 37
+files. One name was first declared too large: a 0x40-byte name at +0x10 in a 0x44-byte request threw the range
+check, where the old code had only taken a pointer. The names are now 0x30 bytes, and the range error now prints
+the offset, size and span length. All ten regular modes are byte-identical to the previous build.
 
 ## Next
 

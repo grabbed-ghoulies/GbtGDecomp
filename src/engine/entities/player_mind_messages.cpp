@@ -1,4 +1,5 @@
 #include "player_mind_messages.h"
+#include "player_mind_control.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "../scripts/script_conditions.h"
@@ -187,7 +188,7 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
         }
         break;
     case 0x75:
-        if (read_u32(mind, 0x88) != 0 && read_u32(*context.event_source, 0x10) == message[1])
+        if (get(mind, player_mind_field::target) != 0 && read_u32(*context.event_source, 0x10) == message[1])
         {
             clear_runtime_player_mind_body_event(feedback.body);
         }
@@ -224,7 +225,7 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
         }
         break;
     case 0x8D:
-        if (read_u32(mind, 0x88) == message[1])
+        if (get(mind, player_mind_field::target) == message[1])
         {
             put(mind, 0x88, 0);
             clear_runtime_player_mind_body_event(feedback.body);

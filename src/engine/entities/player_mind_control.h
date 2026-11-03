@@ -126,6 +126,17 @@ constexpr RetailField<u32, 0x1C> gesture{}; // 0 idle, 1 pushing, 2 easing off, 
 constexpr u32 kSize = 0x20;
 } // namespace stick_tracking_field
 
+// The player mind's own part after the base mind (0x7C bytes): the target its requests went to, and the stick.
+namespace player_mind_field
+{
+constexpr RetailField<u32, 0x88> target{}; // the actor the last target request reached, by address
+constexpr RetailField<float, 0x8C> target_timer{}; // clears target_count when it runs out
+constexpr RetailField<u8, 0x90> target_count{}; // the requests that reached the target
+constexpr RetailRecord<0x94, stick_tracking_field::kSize> stick{}; // stick_tracking_field
+constexpr RetailField<u32, 0xB4> attachment_noticed{}; // the attachment notice was raised for this target
+constexpr RetailField<float, 0x15C> control_lock{}; // positive: the player can't act on targets
+} // namespace player_mind_field
+
 void update_runtime_player_input_tracking(std::span<u8> tracking,
     const std::array<float, 2>& axes, std::span<const u8> preset,
     u32 accumulate, const RuntimeActorClock& clock); // Xbox 0x00109810

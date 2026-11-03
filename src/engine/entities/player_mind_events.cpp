@@ -1,5 +1,8 @@
 #include "player_mind_events.h"
 #include "mind_fields.h"
+#include "body_fields.h"
+#include "player_mind_targets.h"
+#include "mind_request_fields.h"
 #include "entity_heap.h"
 #include <bit>
 #include <cmath>
@@ -10,10 +13,6 @@ namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 void prepend(LiveScript& anchor, LiveScript& event)
 {
     LiveScript* root = &anchor;
@@ -55,10 +54,10 @@ RuntimeMindEvent* allocate_runtime_mind_event(RuntimeMindEvents& context, u16 ki
     event->bytes = {block + sizeof(RuntimeMindEvent), size};
     std::memset(event->bytes.data(), 0, size);
     event->type = kind;
-    std::memcpy(event->bytes.data() + 8, &kind, 2);
-    put(event->bytes, 0xC, std::bit_cast<u32>(duration));
-    put(event->bytes, 0x10, std::bit_cast<u32>(duration));
-    put(event->bytes, 0x14, std::bit_cast<u32>(get(context.mind, mind_field::unk_2C)));
+    set(event->bytes, mind_event_field::kind, kind);
+    set(event->bytes, mind_event_field::time_left, duration);
+    set(event->bytes, mind_event_field::duration, duration);
+    set(event->bytes, mind_event_field::cooldown, get(context.mind, mind_field::unk_2C));
     prepend(context.anchor, *event);
     return event;
 }
@@ -66,10 +65,10 @@ RuntimeMindEvent* allocate_runtime_mind_event(RuntimeMindEvents& context, u16 ki
 // Xbox 0x0002A280
 RuntimeMindEvent* refresh_runtime_mind_event(RuntimeMindEvents& context, RuntimeMindEvent& event)
 {
-    put(event.bytes, 0xC, read_u32(event.bytes, 0x10));
-    put(event.bytes, 0x14, std::bit_cast<u32>(get(context.mind, mind_field::unk_2C)));
-    put(event.bytes, 0x1C, 0);
-    event.bytes[0xA] = 0;
+    set(event.bytes, mind_event_field::time_left, get(event.bytes, mind_event_field::duration));
+    set(event.bytes, mind_event_field::cooldown, get(context.mind, mind_field::unk_2C));
+    set(event.bytes, mind_event_field::unk_1C, 0);
+    set(event.bytes, mind_event_field::unk_0A, 0);
     if (event.prev != nullptr)
     {
         event.prev->next = event.next;
@@ -95,7 +94,7 @@ u32 runtime_mind_engaged_actor(const RuntimeMindEvents* context)
     {
         if (u16(event->type) == 3)
         {
-            return read_u32(static_cast<const RuntimeMindEvent*>(event)->bytes, 0x20);
+            return get(static_cast<const RuntimeMindEvent*>(event)->bytes, mind_event_field::subject);
         }
     }
     return 0;
@@ -109,7 +108,7 @@ void refresh_runtime_mind_target_event(RuntimeMindEvents& context)
         if (u16(event->type) == 4)
         {
             auto& target_event = *static_cast<RuntimeMindEvent*>(event);
-            if (read_u32(target_event.bytes, 0x20) == get(context.mind, mind_field::target_record))
+            if (get(target_event.bytes, mind_event_field::subject) == get(context.mind, mind_field::target_record))
             {
                 refresh_runtime_mind_event(context, target_event);
                 return;
@@ -117,7 +116,7 @@ void refresh_runtime_mind_target_event(RuntimeMindEvents& context)
         }
     }
     auto* event = allocate_runtime_mind_event(context, 4, 20.f);
-    put(event->bytes, 0x20, get(context.mind, mind_field::target_record));
+    set(event->bytes, mind_event_field::subject, get(context.mind, mind_field::target_record));
 }
 
 // Xbox 0x0002A030
@@ -143,21 +142,21 @@ void record_runtime_mind_contact(RuntimeMindEvents& context, u32 first, u32 seco
         if (u16(node->type) == 1)
         {
             auto& event = *static_cast<RuntimeMindEvent*>(node);
-            if (read_u32(event.bytes, 0x20) == first && read_u32(event.bytes, 0x24) == second)
+            if (get(event.bytes, mind_event_field::subject) == first && get(event.bytes, mind_event_field::other) == second)
             {
-                put(event.bytes, 0x2C, payload);
-                put(event.bytes, 0x24, second);
-                put(event.bytes, 0x28, read_u32(event.bytes, 0x28) + 1);
+                set(event.bytes, mind_event_field::payload, payload);
+                set(event.bytes, mind_event_field::other, second);
+                set(event.bytes, mind_event_field::count, get(event.bytes, mind_event_field::count) + 1);
                 refresh_runtime_mind_event(context, event);
                 return;
             }
         }
     }
     auto* event = allocate_runtime_mind_event(context, 1, 2.f);
-    put(event->bytes, 0x28, 1);
-    put(event->bytes, 0x20, first);
-    put(event->bytes, 0x24, second);
-    put(event->bytes, 0x2C, payload);
+    set(event->bytes, mind_event_field::count, 1);
+    set(event->bytes, mind_event_field::subject, first);
+    set(event->bytes, mind_event_field::other, second);
+    set(event->bytes, mind_event_field::payload, payload);
 }
 
 // Xbox 0x0002A460
@@ -184,7 +183,7 @@ void clear_runtime_mind_actor_events(RuntimeMindEvents& context, u32 actor)
             next = next->next;
         }
         auto& event = *static_cast<RuntimeMindEvent*>(node);
-        if (read_u32(event.bytes, 0x20) == actor || read_u32(event.bytes, 0x24) == actor)
+        if (get(event.bytes, mind_event_field::subject) == actor || get(event.bytes, mind_event_field::other) == actor)
         {
             script_release_event(node);
         }
@@ -203,7 +202,7 @@ void clear_runtime_mind_actor_events(RuntimeMindEvents& context, u32 actor)
             next = next->next;
         }
         auto& event = *static_cast<RuntimeMindEvent*>(node);
-        if (read_u32(event.bytes, 0x20) == actor)
+        if (get(event.bytes, mind_event_field::subject) == actor)
         {
             if (node->prev != nullptr)
             {
@@ -234,7 +233,7 @@ void end_runtime_mind_target(RuntimeMindEvents& context, std::span<const u32> me
         }
         set(context.mind, mind_field::target_record, 0);
         if (message[2] != 0 && get(context.mind, mind_field::target) != 0 &&
-            get(context.mind, mind_field::target) == read_u32(target, 0x10))
+            get(context.mind, mind_field::target) == get(target, mind_target_field::actor))
         {
             set(context.mind, mind_field::target, 0);
         }
@@ -249,7 +248,7 @@ void end_runtime_mind_target(RuntimeMindEvents& context, std::span<const u32> me
     {
         event = event->next;
     }
-    const u32 actor = event == nullptr ? 0 : read_u32(static_cast<RuntimeMindEvent*>(event)->bytes, 0x20);
+    const u32 actor = event == nullptr ? 0 : get(static_cast<RuntimeMindEvent*>(event)->bytes, mind_event_field::subject);
     if (actor == message[1] && head != nullptr)
     {
         event = head;
@@ -312,11 +311,11 @@ void update_runtime_mind_requests(RuntimeMindTick& context)
     while (request != nullptr)
     {
         RuntimePlayerMindRequest* current = request;
-        if (request->bytes[0xA] == 0)
+        if (get(request->bytes, mind_request_field::started) == 0)
         {
             const i32 initialized = context.initialize_request(*request);
-            request->bytes[0xA] = u8(request->bytes[0xA] + 1);
-            request->active = request->bytes[0xA];
+            set(request->bytes, mind_request_field::started, u8(get(request->bytes, mind_request_field::started) + 1));
+            request->active = get(request->bytes, mind_request_field::started);
             if (initialized == 0)
             {
                 request = request->next;
@@ -331,7 +330,7 @@ void update_runtime_mind_requests(RuntimeMindTick& context)
             clear_runtime_player_mind_requests(context.requests);
             return;
         }
-        put(request->bytes, 0xC, std::bit_cast<u32>(read_f32(request->bytes, 0xC) + elapsed));
+        set(request->bytes, mind_request_field::elapsed, get(request->bytes, mind_request_field::elapsed) + elapsed);
         if (result == 0)
         {
             return;
@@ -355,32 +354,32 @@ void update_runtime_mind_events(RuntimeMindTick& context)
     {
         LiveScript* next = node->next;
         auto& event = *static_cast<RuntimeMindEvent*>(node);
-        float timer = read_f32(event.bytes, 0x14);
+        float timer = get(event.bytes, mind_event_field::cooldown);
         if (timer > 0.f)
         {
             timer -= elapsed;
-            put(event.bytes, 0x14, std::bit_cast<u32>(timer));
+            set(event.bytes, mind_event_field::cooldown, timer);
             if (0.f > timer)
             {
-                put(event.bytes, 0x14, 0);
+                set(event.bytes, mind_event_field::cooldown, 0.f);
             }
         }
-        timer = read_f32(event.bytes, 0xC);
+        timer = get(event.bytes, mind_event_field::time_left);
         if (timer > 0.f)
         {
             timer -= elapsed;
-            put(event.bytes, 0xC, std::bit_cast<u32>(timer));
+            set(event.bytes, mind_event_field::time_left, timer);
             // COMISS zero,timer; JC retains unordered values too.
             if (!(0.f < timer) && !std::isnan(timer))
             {
-                put(event.bytes, 0xC, 0);
+                set(event.bytes, mind_event_field::time_left, 0.f);
                 script_release_event(node);
                 node = next;
                 continue;
             }
         }
-        put(event.bytes, 0x18, std::bit_cast<u32>(read_f32(event.bytes, 0x18) + elapsed));
-        put(event.bytes, 0x1C, std::bit_cast<u32>(read_f32(event.bytes, 0x1C) + elapsed));
+        set(event.bytes, mind_event_field::age, get(event.bytes, mind_event_field::age) + elapsed);
+        set(event.bytes, mind_event_field::unk_1C, get(event.bytes, mind_event_field::unk_1C) + elapsed);
         node = next;
     }
 }
@@ -417,25 +416,25 @@ void update_runtime_mind_alert(RuntimeMindTick& context)
     switch (get(context.events.mind, mind_field::alert_mode))
     {
     case 0x40:
-        put(context.body, 0x158, 0);
+        set(context.body, body_field::alert_level, 0);
         return;
     case 0x41:
-        put(context.body, 0x158, runtime_mind_alert_level(get(context.events.mind, mind_field::alert_timer)));
+        set(context.body, body_field::alert_level, runtime_mind_alert_level(get(context.events.mind, mind_field::alert_timer)));
         return;
     case 0x42:
-        put(context.body, 0x158, 4);
+        set(context.body, body_field::alert_level, 4);
         return;
     case 0x43:
-        put(context.body, 0x158, 9);
+        set(context.body, body_field::alert_level, 9);
         return;
     case 0x44:
-        put(context.body, 0x158, 7);
+        set(context.body, body_field::alert_level, 7);
         return;
     case 0x45:
-        put(context.body, 0x158, 8);
+        set(context.body, body_field::alert_level, 8);
         return;
     case 0x46:
-        put(context.body, 0x158, 6);
+        set(context.body, body_field::alert_level, 6);
         return;
     default:
         return;
@@ -458,12 +457,10 @@ RuntimePlayerMindRequest* append_runtime_position_request(RuntimePlayerMindReque
     std::span<const u8> sizes, std::span<const u8, 12> position)
 {
     auto* request = allocate_runtime_mind_request(anchor, 0x2E, sizes);
-    put(request->bytes, 0x1C, 0x3F800000);
-    put(request->bytes, 0x20, 0x3F800000);
-    put(request->bytes, 0x28, 0x41F00000);
-    put(request->bytes, 0x10, read_u32(position, 0));
-    put(request->bytes, 0x14, read_u32(position, 4));
-    put(request->bytes, 0x18, read_u32(position, 8));
+    set(request->bytes, navigation_request::unk_1C, 1.f);
+    set(request->bytes, navigation_request::unk_20, 1.f);
+    set(request->bytes, navigation_request::approach, 30.f);
+    std::memcpy(field_data(request->bytes, navigation_request::point), position.data(), position.size());
     return request;
 }
 
@@ -472,10 +469,10 @@ RuntimePlayerMindRequest* append_runtime_range_request(RuntimePlayerMindRequest&
     float range)
 {
     auto* request = allocate_runtime_mind_request(anchor, 0x2F, sizes);
-    put(request->bytes, 0x10, 0x3F800000);
-    put(request->bytes, 0x14, 0x3F800000);
-    put(request->bytes, 0x1C, 0x41F00000);
-    put(request->bytes, 0x18, std::bit_cast<u32>(range));
+    set(request->bytes, target_position_request::unk_10, 1.f);
+    set(request->bytes, target_position_request::unk_14, 1.f);
+    set(request->bytes, target_position_request::approach, 30.f);
+    set(request->bytes, target_position_request::radius, range);
     return request;
 }
 

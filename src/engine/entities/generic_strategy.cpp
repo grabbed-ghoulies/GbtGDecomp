@@ -1,4 +1,5 @@
 #include "generic_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_shape_bounds.h"
@@ -357,7 +358,7 @@ void update_runtime_generic_strategy(RuntimeGenericStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     update_runtime_base_strategy(goals); // 0x0002C130
     RuntimeMindTarget* target = nullptr;
     switch (state)

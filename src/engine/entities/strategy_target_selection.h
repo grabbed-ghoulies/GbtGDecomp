@@ -3,6 +3,15 @@
 
 namespace gbtg
 {
+// The move settings a strategy passes with its position requests (0x00139FA0, 0x0013A000).
+namespace strategy_move_settings_field
+{
+constexpr RetailField<float, 0x08> radius{};
+constexpr RetailField<float, 0x0C> approach{};
+constexpr RetailField<float, 0x10> unk_10{};
+constexpr RetailField<float, 0x14> unk_14{};
+} // namespace strategy_move_settings_field
+
 // DAT_00511B48 actor list; each link is actor +0x944 with its next pointer at +4.
 struct RuntimeActiveActorLink
 {

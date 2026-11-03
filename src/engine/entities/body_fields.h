@@ -11,6 +11,7 @@ namespace gbtg
 namespace body_field
 {
 // The body's world position: 0x000412A0 copies the actor's into it.
+constexpr RetailField<u32, 0x08> actor{}; // the actor the body moves, by address
 constexpr RetailField<Vec3, 0x18> position{};
 // Raised while something holds the body still (states raise it with the +0x309..+0x30C counters and drop it when they
 // end). With it clear and move_hold_time at zero nothing moves the body (0x00024C20).
@@ -32,6 +33,7 @@ constexpr RetailField<u32, 0x84> hit_record{};
 constexpr RetailField<u16, 0x94> energy{};
 constexpr RetailField<u16, 0x96> max_energy{}; // restored into energy on revival (0x000253B0)
 constexpr RetailField<float, 0xB4> unk_B4{}; // 2 after a furnace hit while +0xA6 is set (0x00096710)
+constexpr RetailField<u32, 0x158> alert_level{}; // the mind's alert, as 0x0002A650 sets it
 constexpr RetailField<u32, 0x164> unk_164{}; // cleared with the turn once unk_168 is 0 (0x001346B0)
 constexpr RetailField<float, 0x168> unk_168{};
 // The stagger meter: a hit empties it in steps (0x0001FF60); at zero the body can be finished.
@@ -68,6 +70,7 @@ constexpr RetailField<u8, 0x716> unk_716{}; // cleared while the body is held (0
 constexpr RetailField<std::array<float, 3>, 0x71C> turn_rates{};
 // The body's euler angles (pitch, yaw, roll): 0x00041820 copies the actor's into it.
 constexpr RetailField<Vec3, 0x72C> euler{};
+constexpr RetailField<u16, 0x748> action_key{}; // the action the body is running
 constexpr RetailField<u32, 0x754> hit_timer_running{};
 constexpr RetailField<float, 0x75C> unk_75C{};
 constexpr RetailField<u32, 0x760> hit_timer{}; // the hit timer's recipient, by address; message 5 stops it
@@ -81,6 +84,10 @@ constexpr RetailField<u16, 0x880> surface_override_frames{};
 // The body's height and radius scales over the actor's +0x34 and +0x38 (parameters +0x190 and +0x194, 0x00024C50).
 constexpr RetailField<float, 0x884> height_scale{};
 constexpr RetailField<float, 0x888> radius_scale{};
+// The callout tokens control message 8 records (a count and up to eight tokens, 0x24 bytes; 0x00075C60).
+constexpr RetailRecord<0x924, 0x24> control_tokens{};
+constexpr RetailField<u32, 0x948> saved_energy{}; // the energy control message 4 kept, restored when it ends
+constexpr RetailField<u32, 0x94C> energy_saved{};
 } // namespace body_field
 
 // The states' common pair of writes, pitch (+0x72C) and roll (+0x734) to zero: the body stands level, keeping its

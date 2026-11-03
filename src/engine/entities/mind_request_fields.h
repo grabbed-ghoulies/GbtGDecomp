@@ -8,6 +8,7 @@ namespace gbtg
 namespace mind_request_field
 {
 constexpr RetailField<u16, 0x08> kind{};
+constexpr RetailField<u8, 0x0A> started{}; // raised once the request is initialized
 constexpr RetailField<float, 0x0C> elapsed{}; // seconds the request has run
 } // namespace mind_request_field
 
@@ -59,6 +60,8 @@ constexpr RetailField<float, 0x2C> speed{};
 namespace vertical_point_request
 {
 constexpr RetailField<Vec3, 0x10> point{};
+constexpr RetailField<float, 0x1C> unk_1C{};
+constexpr RetailField<float, 0x20> unk_20{};
 constexpr RetailField<float, 0x24> height{};
 constexpr RetailField<float, 0x28> tolerance{};
 constexpr RetailField<float, 0x2C> radius{}; // plus 2.5
@@ -122,9 +125,22 @@ constexpr RetailField<float, 0x1C> approach{};
 constexpr RetailField<float, 0x20> speed{};
 } // namespace position_request
 
+// Kind 0x2E (0x00136620): go to the request's own point.
+namespace navigation_request
+{
+constexpr RetailField<Vec3, 0x10> point{};
+constexpr RetailField<float, 0x1C> unk_1C{};
+constexpr RetailField<float, 0x20> unk_20{};
+constexpr RetailField<float, 0x24> radius{}; // plus 2.5
+constexpr RetailField<float, 0x28> approach{};
+constexpr RetailField<float, 0x2C> speed{};
+} // namespace navigation_request
+
 // Kind 0x2F (0x0007BC80): go to the mind's target.
 namespace target_position_request
 {
+constexpr RetailField<float, 0x10> unk_10{};
+constexpr RetailField<float, 0x14> unk_14{};
 constexpr RetailField<float, 0x18> radius{}; // added to the reach and the target's radius, plus 1
 constexpr RetailField<float, 0x1C> approach{};
 constexpr RetailField<float, 0x20> lead{}; // from behind the target, aim this far along its facing
@@ -132,4 +148,68 @@ constexpr RetailField<u32, 0x24> waits_for_idle{};
 constexpr RetailField<u32, 0x28> needs_movable{};
 constexpr RetailField<float, 0x2C> speed{};
 } // namespace target_position_request
+
+// The parent mind's requests (0x000295E0). Kinds 5, 6, 0x1B, 0x1C, 0x1D, 0x1F, 0x21 and 0x22 name a goal,
+// callout, action or flag at +0x10.
+namespace named_request
+{
+// The shortest request holding a name is 0x44 bytes, so 0x30 is all a name can be sure of.
+constexpr RetailField<std::array<char, 0x30>, 0x10> name{};
+} // namespace named_request
+
+// Kind 9 passes with a chance; 0xA when the mind's last result differs from `value`; 0xC sets body bit 7 to it;
+// 0x1A scales the actor; 0x2B tests the body's idle mode.
+namespace value_request
+{
+constexpr RetailField<float, 0x10> chance{};
+constexpr RetailField<u32, 0x10> value{};
+constexpr RetailField<float, 0x10> scale{};
+} // namespace value_request
+
+// Kind 0xB: wait until the target is within `radius` (plus the body's radius, or with `uses_target_radius` the
+// pair's).
+namespace reach_request
+{
+constexpr RetailField<float, 0x10> radius{};
+constexpr RetailField<u32, 0x14> uses_target_radius{};
+} // namespace reach_request
+
+// Kind 0x1E: the body's unk_70 drawn between low and high.
+namespace body_range_request
+{
+constexpr RetailField<float, 0x10> low{};
+constexpr RetailField<float, 0x14> high{};
+} // namespace body_range_request
+
+// Kind 0x20: an action once an animation slot completes.
+namespace slot_action_request
+{
+constexpr RetailField<u32, 0x10> slot{};
+constexpr RetailField<std::array<char, 0x30>, 0x14> action{};
+} // namespace slot_action_request
+
+// Kinds 0x21 and 0x22: an action while a body flag matches `expected` (0x22 with a chance too); otherwise the
+// request waits when `waits` is set.
+namespace flag_action_request
+{
+constexpr RetailField<std::array<char, 0x40>, 0x10> action{};
+constexpr RetailField<std::array<char, 0x30>, 0x50> flag{};
+constexpr RetailField<u32, 0x80> expected{};
+constexpr RetailField<u32, 0x84> waits{}; // kind 0x21
+constexpr RetailField<float, 0x84> chance{}; // kind 0x22
+constexpr RetailField<u32, 0x88> chance_waits{}; // kind 0x22
+} // namespace flag_action_request
+
+// Kind 0x29: wait out a duration (against the header's elapsed).
+namespace wait_request
+{
+constexpr RetailField<float, 0x18> duration{};
+} // namespace wait_request
+
+// Kind 0x2A: test a named body flag against `expected`.
+namespace flag_test_request
+{
+constexpr RetailField<std::array<char, 0x30>, 0x10> flag{};
+constexpr RetailField<u32, 0x40> expected{};
+} // namespace flag_test_request
 } // namespace gbtg

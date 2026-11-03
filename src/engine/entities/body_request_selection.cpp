@@ -1,4 +1,5 @@
 #include "body_request_selection.h"
+#include "player_mind_control.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -40,21 +41,22 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
     auto body = context.body.body;
     std::array<float, 2> axes;
     runtime_input_secondary_axes(context.input, axes, context.input_state);
-    const bool active = get(body, body_field::energy) != 0 && !(read_f32(mind, 0x15C) > 0.f);
+    const bool active = get(body, body_field::energy) != 0 && !(get(mind, player_mind_field::control_lock) > 0.f);
     auto* attached = context.body.actions.attached;
-    update_runtime_player_input_direction(mind.subspan(0x94), axes,
+    update_runtime_player_input_direction(record(mind, player_mind_field::stick), axes,
         runtime_frame_step(control.clock), attached != nullptr && attached->bytes[0x93D] == 4);
     if (active)
     {
-        u32 enabled = ((read_f32(mind, 0x9C) > 0.f || read_u32(mind, 0x94) != 0)
-            && read_f32(mind, 0xA0) == 0.f) ? 1 : 0;
+        const auto stick = record(mind, player_mind_field::stick);
+        u32 enabled = ((get(stick, stick_tracking_field::press_timer) > 0.f || get(stick, stick_tracking_field::pressed) != 0)
+            && get(stick, stick_tracking_field::unk_0C) == 0.f) ? 1 : 0;
         attached = context.body.actions.attached;
         if (attached != nullptr && attached->bytes[0x93D] == 4)
         {
-            const i32 mode = std::bit_cast<i32>(read_u32(mind, 0xB0));
+            const i32 mode = std::bit_cast<i32>(get(stick, stick_tracking_field::gesture));
             enabled = mode >= 2 && mode <= 3 ? 1 : 0;
         }
-        update_runtime_player_target_control(control, enabled, read_f32(mind, 0xA4));
+        update_runtime_player_target_control(control, enabled, get(stick, stick_tracking_field::direction));
         u32 target = 0;
         auto& events = control.proposal.events;
         for (LiveScript* event = events.anchor.next; event != nullptr; event = event->next)
@@ -68,7 +70,7 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
         const Actor* focus = control.focus.target;
         if (target == 0 || enabled == 0)
         {
-            write_u32(mind, 0xB4, 0);
+            set(mind, player_mind_field::attachment_noticed, 0);
         }
         else
         {
@@ -89,19 +91,19 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
     }
     else
     {
-        write_u32(mind, 0xB4, 0);
+        set(mind, player_mind_field::attachment_noticed, 0);
     }
     const float step = runtime_frame_step(control.clock);
-    const float timer = read_f32(mind, 0x8C);
+    const float timer = get(mind, player_mind_field::target_timer);
     if (timer > 0.f)
     {
         const float remaining = timer - step;
-        write_u32(mind, 0x8C, std::bit_cast<u32>(remaining));
+        set(mind, player_mind_field::target_timer, remaining);
         if (0.f >= remaining)
         {
-            write_u32(mind, 0x8C, 0);
-            write_u32(mind, 0x8C, 0);
-            mind[0x90] = 0;
+            set(mind, player_mind_field::target_timer, 0.f);
+            set(mind, player_mind_field::target_timer, 0.f);
+            set(mind, player_mind_field::target_count, 0);
         }
     }
     if (body[0x6A] == 0)
@@ -126,7 +128,7 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
             selection.actor, selection.target, target_body, focus);
     }
     const u32 target = selection.target.address;
-    const bool changed = target != read_u32(mind, 0x88);
+    const bool changed = target != get(mind, player_mind_field::target);
     u32 previous;
     if (changed)
     {
@@ -153,13 +155,13 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
     u32 flags = 0x1E;
     if (attached != nullptr && attached->bytes[0x93D] == 4)
     {
-        flags = read_u32(mind, 0xB0) == 3 ? 0x36 : 0x1E;
+        flags = get(record(mind, player_mind_field::stick), stick_tracking_field::gesture) == 3 ? 0x36 : 0x1E;
     }
     if (dispatch_runtime_mind_target_request(context, direction, flags) == 2)
     {
-        write_u32(mind, 0x9C, 0);
-        write_u32(mind, 0x88, target);
-        ++mind[0x90];
+        set(record(mind, player_mind_field::stick), stick_tracking_field::press_timer, 0.f);
+        set(mind, player_mind_field::target, target);
+        field_byte(mind, player_mind_field::target_count, 0) += 1;
         return;
     }
     if (changed)
@@ -168,11 +170,11 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
     }
     attached = selection.requests.actions.attached;
     if (attached != nullptr && attached->bytes[0x93D] == 4
-        && i32(read_u32(mind, 0xB0)) >= 2 && read_u32(mind, 0xB0) == 3
-        && attached->bytes[0x93C] == 0 && read_u32(mind, 0xB4) == 0)
+        && i32(get(record(mind, player_mind_field::stick), stick_tracking_field::gesture)) >= 2 && get(record(mind, player_mind_field::stick), stick_tracking_field::gesture) == 3
+        && attached->bytes[0x93C] == 0 && get(mind, player_mind_field::attachment_noticed) == 0)
     {
         attachment_notice = 1;
-        write_u32(mind, 0xB4, 1);
+        set(mind, player_mind_field::attachment_noticed, 1);
     }
 }
 

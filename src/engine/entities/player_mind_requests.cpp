@@ -1,6 +1,7 @@
 #include "player_mind_requests.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
+#include "mind_request_fields.h"
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
 #include "../scripts/script_vm.h"
@@ -13,18 +14,6 @@
 
 namespace gbtg
 {
-namespace
-{
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-const char* name(std::span<const u8> bytes, size_t offset)
-{
-    return reinterpret_cast<const char*>(bytes.data() + offset);
-}
-}
-
 // Xbox 0x0007F8C0
 bool notify_runtime_player_boost(RuntimeMindBoost& context, RuntimePlayerMindFeedback& feedback)
 {
@@ -174,21 +163,21 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
     auto mind = context.events.mind;
     auto body = context.attachment.body;
     auto& actions = context.attachment.actions;
-    const u16 kind = read_u16(request, 8);
+    const u16 kind = get(request, mind_request_field::kind);
     switch (kind)
     {
     case 5:
-        load_runtime_mind_goal(name(request, 0x10), context.goals);
+        load_runtime_mind_goal(field_data(request, named_request::name), context.goals);
         return 2;
     case 6:
         dispatch_actor_resource_callout(context.resource,
-            i32(runtime_player_callout_name_id(name(request, 0x10), context.callout_names)),
+            i32(runtime_player_callout_name_id(field_data(request, named_request::name), context.callout_names)),
             nullptr, context.callout);
         return 1;
     case 9:
-        return actor_event_chance(context.random, read_f32(request, 0x10)) ? 3 : 1;
+        return actor_event_chance(context.random, get(request, value_request::chance)) ? 3 : 1;
     case 0xA:
-        return get(mind, mind_field::last_request_result) != read_u32(request, 0x10) ? 1 : 3;
+        return get(mind, mind_field::last_request_result) != get(request, value_request::value) ? 1 : 3;
     case 0xB:
         if (get(mind, mind_field::target_record) != 0)
         {
@@ -197,7 +186,7 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
             const float x = position.x - get(context.target_bytes, mind_target_field::shape_position).x;
             const float squared = z * z + x * x;
             float radius;
-            if (read_u32(request, 0x14) == 0)
+            if (get(request, reach_request::uses_target_radius) == 0)
             {
                 radius = context.body_actor.radius_xz * get(body, body_field::radius_scale) +
                     get(context.target_bytes, mind_target_field::shape_radius);
@@ -207,7 +196,7 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
                 radius = runtime_player_target_radius(body, context.body_actor, actions.attached,
                     *context.target_actor);
             }
-            radius = read_f32(request, 0x10) + radius;
+            radius = get(request, reach_request::radius) + radius;
             if (!(squared > radius * radius))
             {
                 return 1;
@@ -215,11 +204,11 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
         }
         return 3;
     case 0xC:
-        assign_runtime_body_bit(context.flags, 7, read_u32(request, 0x10));
+        assign_runtime_body_bit(context.flags, 7, get(request, value_request::value));
         return 1;
     case 0x1A:
     {
-        actor_set_uniform_scale(context.actor, context.actor.radius_xz * read_f32(request, 0x10));
+        actor_set_uniform_scale(context.actor, context.actor.radius_xz * get(request, value_request::scale));
         actor_refresh_transform(context.actor);
         u32 notice[]{0x4A};
         context.actor_message(notice);
@@ -227,7 +216,7 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
     }
     case 0x1B:
     {
-        const u16 key = runtime_body_action_name_id(name(request, 0x10), context.action_names);
+        const u16 key = runtime_body_action_name_id(field_data(request, named_request::name), context.action_names);
         set(mind, mind_field::action_record, get(mind, mind_field::target_record));
         if (!select_runtime_attachment_request(context.attachment, key))
         {
@@ -236,53 +225,53 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
         return 1;
     }
     case 0x1C:
-        set_runtime_body_bit(context.flags, runtime_body_flag_name_index(name(request, 0x10), context.flag_names));
+        set_runtime_body_bit(context.flags, runtime_body_flag_name_index(field_data(request, named_request::name), context.flag_names));
         return 1;
     case 0x1D:
     {
-        u32 notice[]{0x3B, 0, runtime_player_goal_flag_name_id(name(request, 0x10), context.goal_flag_names)};
+        u32 notice[]{0x3B, 0, runtime_player_goal_flag_name_id(field_data(request, named_request::name), context.goal_flag_names)};
         context.actor_message(notice);
         return notice[1] != 0 ? 3 : 1;
     }
     case 0x1E:
-        put(body, 0x70, std::bit_cast<u32>(runtime_body_random_range(context.random,
-            read_f32(request, 0x10), read_f32(request, 0x14))));
+        set(body, body_field::unk_70, runtime_body_random_range(context.random,
+            get(request, body_range_request::low), get(request, body_range_request::high)));
         return 1;
     case 0x1F:
-        select_runtime_body_action(body, runtime_body_action_name_id(name(request, 0x10),
+        select_runtime_body_action(body, runtime_body_action_name_id(field_data(request, named_request::name),
             context.action_names), actions);
         return 1;
     case 0x20:
-        if (!runtime_actor_animation_slot_complete(context.animation, read_u32(request, 0x10)))
+        if (!runtime_actor_animation_slot_complete(context.animation, get(request, slot_action_request::slot)))
         {
             return 0;
         }
-        select_runtime_body_action(body, runtime_body_action_name_id(name(request, 0x14),
+        select_runtime_body_action(body, runtime_body_action_name_id(field_data(request, slot_action_request::action),
             context.action_names), actions);
         return 1;
     case 0x21:
     {
-        const u32 index = runtime_body_flag_name_index(name(request, 0x50), context.flag_names);
-        if (!runtime_body_bit_matches(context.flags, index, read_u32(request, 0x80)))
+        const u32 index = runtime_body_flag_name_index(field_data(request, flag_action_request::flag), context.flag_names);
+        if (!runtime_body_bit_matches(context.flags, index, get(request, flag_action_request::expected)))
         {
-            return read_u32(request, 0x84) != 0 ? 0 : 1;
+            return get(request, flag_action_request::waits) != 0 ? 0 : 1;
         }
-        select_runtime_body_action(body, runtime_body_action_name_id(name(request, 0x10),
+        select_runtime_body_action(body, runtime_body_action_name_id(field_data(request, named_request::name),
             context.action_names), actions);
         return 1;
     }
     case 0x22:
     {
-        const u32 index = runtime_body_flag_name_index(name(request, 0x50), context.flag_names);
-        if (!runtime_body_bit_matches(context.flags, index, read_u32(request, 0x80)))
+        const u32 index = runtime_body_flag_name_index(field_data(request, flag_action_request::flag), context.flag_names);
+        if (!runtime_body_bit_matches(context.flags, index, get(request, flag_action_request::expected)))
         {
-            return read_u32(request, 0x88) != 0 ? 0 : 1;
+            return get(request, flag_action_request::chance_waits) != 0 ? 0 : 1;
         }
-        if (!actor_event_chance(context.random, read_f32(request, 0x84)))
+        if (!actor_event_chance(context.random, get(request, flag_action_request::chance)))
         {
             return 1;
         }
-        select_runtime_body_action(body, runtime_body_action_name_id(name(request, 0x10),
+        select_runtime_body_action(body, runtime_body_action_name_id(field_data(request, named_request::name),
             context.action_names), actions);
         return 1;
     }
@@ -300,12 +289,13 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
         set(mind, mind_field::action_actor, context.actor_address(find_runtime_player_nearest_spawn(context.actor, nullptr, 0x1F)));
         return 1;
     case 0x29:
-        return read_f32(request, 0xC) >= read_f32(request, 0x18) ? 1 : 0;
+        return get(request, mind_request_field::elapsed) >= get(request, wait_request::duration) ? 1 : 0;
     case 0x2A:
         return runtime_body_bit_matches(context.flags,
-            runtime_body_flag_name_index(name(request, 0x10), context.flag_names), read_u32(request, 0x40)) ? 1 : 0;
+            runtime_body_flag_name_index(field_data(request, flag_test_request::flag), context.flag_names),
+            get(request, flag_test_request::expected)) ? 1 : 0;
     case 0x2B:
-        return script_mind_is_idle(context.body_query, i32(read_u32(request, 0x10))) ? 1 : 0;
+        return script_mind_is_idle(context.body_query, i32(get(request, value_request::value))) ? 1 : 0;
     case 0x2C:
         return runtime_body_timer_is_idle(body) ? 1 : 0;
     default:

@@ -1,4 +1,5 @@
 #include "player_mind_feedback.h"
+#include "player_mind_control.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -137,7 +138,7 @@ void update_runtime_player_mind_health_display(std::span<const u8> mind,
         display.intensity = 2.f;
         acquire_runtime_player_health_textures(display);
     }
-    set_runtime_player_health_display(display, get(body, body_field::energy), read_f32(mind, 0x15C) > 0.f ? 1 : 0);
+    set_runtime_player_health_display(display, get(body, body_field::energy), get(mind, player_mind_field::control_lock) > 0.f ? 1 : 0);
 }
 
 // Xbox 0x0007FB10
@@ -310,7 +311,7 @@ void reset_runtime_player_mind_body_event(RuntimePlayerMindFeedback& context,
         }
     }
     const u8 state = actor_mind == nullptr ? 0 : (*actor_mind)[0x20];
-    if (read_f32(context.mind, 0x9C) == 0.f && state == 0)
+    if (get(record(context.mind, player_mind_field::stick), stick_tracking_field::press_timer) == 0.f && state == 0)
     {
         put(context.mind, 0xA0, 0x3F666666u);
     }
@@ -329,7 +330,7 @@ void track_runtime_player_mind_source(std::span<u8> mind,
             (read_u32(mind, 0x84) != 0 && source != read_u32(mind, 0x84)))
         {
             put(mind, 0x8C, 0);
-            mind[0x90] = 0;
+            set(mind, player_mind_field::target_count, 0);
         }
         put(mind, 0x84, source);
         put(mind, 0x8C, 0x3FC00000u);

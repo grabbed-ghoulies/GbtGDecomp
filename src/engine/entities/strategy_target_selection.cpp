@@ -1,5 +1,7 @@
 #include "strategy_target_selection.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
+#include "mind_request_fields.h"
 #include "mind_target_policy.h"
 #include "actor_spawn_eligibility.h"
 #include "actor_transform.h"
@@ -21,16 +23,6 @@ namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 std::span<u8> mind_of(RuntimePlayerStrategyGoals& context)
 {
     return context.entry.events.mind;
@@ -128,8 +120,8 @@ bool keep_selected_target(RuntimeMindTarget* target, RuntimeMindTarget*& output,
     RuntimePlayerStrategyGoals& context)
 {
     RuntimeMindEvent* event = allocate_runtime_mind_event(context.entry.events, 3, 0.5f);
-    put(event->bytes, 0x20, target->address);
-    if (target->bytes[0x14] == 0)
+    set(event->bytes, mind_event_field::subject, target->address);
+    if (get(target->bytes, mind_target_field::kind) == 0)
     {
         set(mind_of(context), mind_field::target, get(target->bytes, mind_target_field::actor));
     }
@@ -427,7 +419,7 @@ bool runtime_message_names_mind_target(std::span<const u32> message, std::span<c
         return false;
     }
     const RuntimeMindTarget* target = target_at(get(mind, mind_field::target_record));
-    if (target->bytes[0x14] != 0)
+    if (get(target->bytes, mind_target_field::kind) != 0)
     {
         return false;
     }
@@ -555,11 +547,11 @@ u32 resume_runtime_strategy_for_target(std::span<const u32> message, RuntimeStra
     }
     const RuntimeMindTarget* target = context.goals.target_at(get(mind, mind_field::target_record));
     std::span<const u8> strategy = strategy_of(context.goals);
-    if (get(target->bytes, mind_target_field::actor) != message[1] || read_u16(strategy, 0xE) != 0x3F4)
+    if (get(target->bytes, mind_target_field::actor) != message[1] || get(strategy, strategy_field::state) != 0x3F4)
     {
         return 0;
     }
-    change_state(read_u16(strategy, 0x18), context.goals);
+    change_state(get(strategy, strategy_field::unk_18), context.goals);
     return 1;
 }
 
@@ -593,13 +585,13 @@ u32 review_runtime_strategy_target(RuntimeStrategyTargetChecks& context)
     const RuntimeMindTarget* target = context.goals.target_at(get(mind, mind_field::target_record));
     const u32 abandon = runtime_strategy_abandons_target(*target, context);
     std::span<const u8> strategy = strategy_of(context.goals);
-    if (read_u16(strategy, 0xE) == 0x3F4)
+    if (get(strategy, strategy_field::state) == 0x3F4)
     {
         if (abandon != 0)
         {
             return 0;
         }
-        change_state(read_u16(strategy, 0x18), context.goals);
+        change_state(get(strategy, strategy_field::unk_18), context.goals);
         return 1;
     }
     if (abandon == 0)
@@ -745,16 +737,14 @@ RuntimePlayerMindRequest* request_runtime_strategy_position(const Vec3& position
     RuntimeMindGoalContext& goals = context.entry.goals;
     RuntimePlayerMindRequest* request = allocate_runtime_mind_request(goals.anchor, 0x2E, goals.sizes);
     std::span<u8> bytes = request->bytes;
-    put_float(bytes, 0x1C, 1.f); // DAT_0032B0F8.
-    put_float(bytes, 0x20, 1.f);
-    put_float(bytes, 0x28, 30.f); // DAT_0032B108.
-    put_float(bytes, 0x10, position.x);
-    put_float(bytes, 0x14, position.y);
-    put_float(bytes, 0x18, position.z);
-    put(bytes, 0x24, read_u32(settings, 8));
-    put(bytes, 0x28, read_u32(settings, 0xC));
-    put(bytes, 0x1C, read_u32(settings, 0x10));
-    put(bytes, 0x20, read_u32(settings, 0x14));
+    set(bytes, navigation_request::unk_1C, 1.f); // DAT_0032B0F8.
+    set(bytes, navigation_request::unk_20, 1.f);
+    set(bytes, navigation_request::approach, 30.f); // DAT_0032B108.
+    set(bytes, navigation_request::point, position);
+    set(bytes, navigation_request::radius, get(settings, strategy_move_settings_field::radius));
+    set(bytes, navigation_request::approach, get(settings, strategy_move_settings_field::approach));
+    set(bytes, navigation_request::unk_1C, get(settings, strategy_move_settings_field::unk_10));
+    set(bytes, navigation_request::unk_20, get(settings, strategy_move_settings_field::unk_14));
     return request;
 }
 
@@ -765,23 +755,21 @@ RuntimePlayerMindRequest* request_runtime_strategy_sway(const Vec3& position, st
     RuntimeMindGoalContext& goals = context.entry.goals;
     RuntimePlayerMindRequest* request = allocate_runtime_mind_request(goals.anchor, 0x10, goals.sizes); // EBX 0x10
     std::span<u8> bytes = request->bytes;
-    put_float(bytes, 0x1C, 1.f); // DAT_0032B0F8.
-    put_float(bytes, 0x20, 1.f);
-    put_float(bytes, 0x28, 1.f);
-    put_float(bytes, 0x24, 10.f); // DAT_0032B10C.
-    put_float(bytes, 0x30, 30.f); // DAT_0032B108.
-    put_float(bytes, 0x34, .25f); // DAT_0032B104.
-    put_float(bytes, 0x10, position.x);
-    put_float(bytes, 0x14, position.y);
-    put_float(bytes, 0x18, position.z);
-    put_float(bytes, 0x30, 30.f);
-    put(bytes, 0x2C, read_u32(settings, 8));
-    put(bytes, 0x30, read_u32(settings, 0xC));
-    put(bytes, 0x1C, read_u32(settings, 0x10));
-    put(bytes, 0x20, read_u32(settings, 0x14));
-    put_float(bytes, 0x24, sway);
-    put_float(bytes, 0x28, amplitude);
-    put_float(bytes, 0x34, .25f);
+    set(bytes, vertical_point_request::unk_1C, 1.f); // DAT_0032B0F8.
+    set(bytes, vertical_point_request::unk_20, 1.f);
+    set(bytes, vertical_point_request::tolerance, 1.f);
+    set(bytes, vertical_point_request::height, 10.f); // DAT_0032B10C.
+    set(bytes, vertical_point_request::approach, 30.f); // DAT_0032B108.
+    set(bytes, vertical_point_request::vertical_speed, .25f); // DAT_0032B104.
+    set(bytes, vertical_point_request::point, position);
+    set(bytes, vertical_point_request::approach, 30.f);
+    set(bytes, vertical_point_request::radius, get(settings, strategy_move_settings_field::radius));
+    set(bytes, vertical_point_request::approach, get(settings, strategy_move_settings_field::approach));
+    set(bytes, vertical_point_request::unk_1C, get(settings, strategy_move_settings_field::unk_10));
+    set(bytes, vertical_point_request::unk_20, get(settings, strategy_move_settings_field::unk_14));
+    set(bytes, vertical_point_request::height, sway);
+    set(bytes, vertical_point_request::tolerance, amplitude);
+    set(bytes, vertical_point_request::vertical_speed, .25f);
     return request;
 }
 
@@ -823,9 +811,9 @@ i32 runtime_mind_contact_count(const RuntimeMindEvents& events, u32 attacker)
             continue;
         }
         const auto& event = *static_cast<RuntimeMindEvent*>(node);
-        if (read_u32(event.bytes, 0x20) == owner && read_u32(event.bytes, 0x24) == attacker)
+        if (get(event.bytes, mind_event_field::subject) == owner && get(event.bytes, mind_event_field::other) == attacker)
         {
-            return std::bit_cast<i32>(read_u32(event.bytes, 0x28));
+            return std::bit_cast<i32>(get(event.bytes, mind_event_field::count));
         }
     }
     return 0;
@@ -836,7 +824,7 @@ bool runtime_mind_watches_actor(const RuntimeMindEvents& events, u32 actor)
 {
     for (LiveScript* node = events.anchor.next; node != nullptr; node = node->next)
     {
-        if (u16(node->type) == 4 && read_u32(static_cast<RuntimeMindEvent*>(node)->bytes, 0x20) == actor)
+        if (u16(node->type) == 4 && get(static_cast<RuntimeMindEvent*>(node)->bytes, mind_event_field::subject) == actor)
         {
             return true;
         }
@@ -858,7 +846,7 @@ bool runtime_message_names_mind_target_actor(std::span<const u32> message, std::
     {
         return false;
     }
-    return read_u32(target_at(get(mind, mind_field::target_record))->bytes, 0x10) == message[1];
+    return get(target_at(get(mind, mind_field::target_record))->bytes, mind_target_field::actor) == message[1];
 }
 
 // Xbox 0x001408E0, ECX message, EDX actor
@@ -983,7 +971,7 @@ u32 adopt_runtime_strategy_message_attacker(std::span<const u32> message, u32 fo
     }
     RuntimeMindTarget* target = goals.target_at(record);
     std::span<const u8> actor_bytes = goals.entry.actor_bytes;
-    if (target->bytes[0x18] != 0
+    if (get(target->bytes, mind_target_field::unk_18) != 0
         || !runtime_mind_target_is_eligible(events.mind, actor_bytes, goals.entry.actor,
             goals.address_of(actor_bytes.data()), *target, true)) // 0x00029C80, EDX 1
     {
@@ -1094,7 +1082,7 @@ u32 retaliate_runtime_strategy_contact(std::span<const u32> message, i32 minimum
         return 0;
     }
     RuntimeMindTarget* target = goals.target_at(record);
-    if (target->bytes[0x18] != 0 || runtime_strategy_abandons_target(*target, context) != 0)
+    if (get(target->bytes, mind_target_field::unk_18) != 0 || runtime_strategy_abandons_target(*target, context) != 0)
     {
         return 0;
     }
@@ -1178,7 +1166,7 @@ u32 take_runtime_strategy_hit_sender(std::span<const u32> message, RuntimeStrate
     {
         throw Error("0x001394D0 reads a live attachment record with no target view");
     }
-    if (target->bytes[0x18] != 0 || runtime_strategy_abandons_target(*target, context) != 0) // 0x00138410, EDX record
+    if (get(target->bytes, mind_target_field::unk_18) != 0 || runtime_strategy_abandons_target(*target, context) != 0) // 0x00138410, EDX record
     {
         return 0;
     }

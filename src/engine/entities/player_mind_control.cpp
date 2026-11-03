@@ -169,7 +169,7 @@ void update_runtime_player_pending_attachment(RuntimePlayerMindPendingAttachment
     context.pending = nullptr;
     const u32 zero = 0;
     std::memcpy(context.mind.data() + 0x134, &zero, 4);
-    if (!(read_f32(context.mind, 0x15C) > 0.f) && pending != nullptr)
+    if (!(get(context.mind, player_mind_field::control_lock) > 0.f) && pending != nullptr)
     {
         if (runtime_player_can_attach(context.eligibility, *pending)
             && runtime_input_button_edge(context.input, 0x100, context.input_state) != 0)
@@ -214,7 +214,7 @@ void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
     {
         return;
     }
-    if (read_u16(body.body, 0x748) == 0x2C
+    if (get(body.body, body_field::action_key) == 0x2C
         && runtime_actor_animation_crossed_position(animation, 0, read_f32(mind, 0x14C))
         && get(mind, mind_field::target_mode) != 0 && request_runtime_player_idle_action(mind, body, random_state))
     {

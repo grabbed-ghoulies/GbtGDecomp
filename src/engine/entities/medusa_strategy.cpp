@@ -1,4 +1,5 @@
 #include "medusa_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -784,7 +785,7 @@ bool initialize_runtime_medusa_strategy(std::span<u8> strategy, std::span<const 
 void update_runtime_medusa_strategy(RuntimeMedusaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     if (attributes_always_special(context))
     {
         set(strategy, field::always_special, 1u);
@@ -820,7 +821,7 @@ void dispatch_runtime_medusa_message(std::span<const u32> message, RuntimeMedusa
     RuntimeSpiderStrategy& shared = context.shared;
     const std::span<u8> strategy = strategy_of(context);
     const u32 actor = read_u32(strategy, 8);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     const bool attacking = state >= 0x3ED && state <= 0x3EF; // 0x000B7120
     switch (message[0])
     {

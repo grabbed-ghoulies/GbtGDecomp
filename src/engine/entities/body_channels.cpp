@@ -1,4 +1,5 @@
 #include "body_channels.h"
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -35,7 +36,7 @@ void ease_runtime_body_channel_targets(std::span<const u8> body,
     {
         store_channel_float(context.rows, size_t(i) * 12 + 8, 0.f);
     }
-    const auto bank = context.banks[read_u32(body, 0x158)];
+    const auto bank = context.banks[get(body, body_field::alert_level)];
     for (size_t offset = 0; offset < bank.size(); offset += 8)
     {
         u8* selected = nullptr;

@@ -1,4 +1,5 @@
 #include "vampire_chicken_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "body_message_helpers.h"
 #include "player_messages.h"
@@ -266,7 +267,7 @@ void update_runtime_vampire_chicken_strategy(RuntimeVampireChickenStrategy& cont
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     const RuntimeMindTarget* target = mind_target(context);
     u32 provoked = 0;
     if (target != nullptr)

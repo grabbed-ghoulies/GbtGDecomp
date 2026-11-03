@@ -1,4 +1,5 @@
 #include "haunted_chair_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -312,7 +313,7 @@ void update_runtime_haunted_chair_strategy(RuntimeHauntedChairStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     update_runtime_base_strategy(goals); // 0x0002C130
     switch (state)
     {
@@ -330,21 +331,21 @@ void update_runtime_haunted_chair_strategy(RuntimeHauntedChairStrategy& context)
         return;
     case 0x401:
         selected(context);
-        if (state == read_u16(strategy, 0xE))
+        if (state == get(strategy, strategy_field::state))
         {
             update_holding(context); // 0x000AE230
         }
         return;
     case 0x413:
         selected(context);
-        if (state == read_u16(strategy, 0xE))
+        if (state == get(strategy, strategy_field::state))
         {
             update_asleep(context); // 0x000AE5C0
         }
         return;
     case 0x417:
         selected(context);
-        if (state == read_u16(strategy, 0xE))
+        if (state == get(strategy, strategy_field::state))
         {
             update_settled_attack(context); // 0x000AE6E0
         }
@@ -363,7 +364,7 @@ void dispatch_runtime_haunted_chair_message(std::span<const u32> message, Runtim
     {
     case 0x26:
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x413)
+        if (get(strategy, strategy_field::state) == 0x413)
         {
             return;
         }
@@ -383,7 +384,7 @@ void dispatch_runtime_haunted_chair_message(std::span<const u32> message, Runtim
             react_runtime_strategy_contact(message, -1.f, context.checks); // 0x001395C0, DAT_0032B120
             break;
         }
-        const u16 state = read_u16(strategy, 0xE);
+        const u16 state = get(strategy, strategy_field::state);
         const bool landed = runtime_message_lands_on_actor(message, read_u32(strategy, 8)); // 0x001408A0
         clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
         if (landed)

@@ -1,4 +1,5 @@
 #include "imp_fire_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "body_animation_setup.h"
@@ -505,7 +506,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
         return;
     case 0x26:
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x3EF && read_u32(strategy, 0x48) != 0)
+        if (get(strategy, strategy_field::state) == 0x3EF && read_u32(strategy, 0x48) != 0)
         {
             return;
         }
@@ -543,7 +544,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
         }
         return;
     case 0x52:
-        if (read_u16(strategy, 0xE) == 0x3EF)
+        if (get(strategy, strategy_field::state) == 0x3EF)
         {
             set_runtime_imp_fire_effect(1, context);
         }
@@ -551,7 +552,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
     case 0x6E:
     {
         const bool own = message[1] == actor;
-        const u16 state = read_u16(strategy, 0xE);
+        const u16 state = get(strategy, strategy_field::state);
         dispatch_runtime_base_strategy_message(message, context.base);
         if (check_runtime_player_knockout(goals) != 0)
         {

@@ -1,4 +1,5 @@
 #include "grim_reaper_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_shape_push.h"
@@ -484,7 +485,7 @@ void tick_pace(RuntimeGrimReaperStrategy& context)
     }
     if (target_valid(context)) // 0x000AE0A0
     {
-        const u16 state = read_u16(strategy, 0xE);
+        const u16 state = get(strategy, strategy_field::state);
         if (state == 0x401 || state == 0x40C)
         {
             clear_requests(context); // 0x00029E80
@@ -698,7 +699,7 @@ void destroy_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
 void update_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     const i32 slot = get(strategy, field::shadow);
     if (slot >= 0)
     {
@@ -756,7 +757,7 @@ void dispatch_runtime_grim_reaper_message(std::span<const u32> message, RuntimeG
     switch (message[0])
     {
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x3F2)
+        if (get(strategy, strategy_field::state) == 0x3F2)
         {
             return;
         }

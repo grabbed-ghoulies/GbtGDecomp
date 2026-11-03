@@ -1,4 +1,5 @@
 #include "chicken_strategy.h"
+#include "strategy_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
 #include "player_messages.h"
@@ -49,7 +50,7 @@ void update_runtime_chicken_strategy(RuntimeChickenStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     update_runtime_base_strategy(goals); // 0x0002C130
     if (state != 0x401)
     {

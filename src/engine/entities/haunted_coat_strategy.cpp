@@ -1,4 +1,5 @@
 #include "haunted_coat_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "actor_clock.h"
 #include "actor_live_attachments.h"
@@ -325,8 +326,8 @@ void wake_runtime_haunted_coat(u32 release, RuntimeHauntedCoatStrategy& context)
         return;
     }
     set(strategy, field::awake, 1u);
-    put_u16(strategy, 0x18, 0x416);
-    put_u16(strategy, 0x12, 0x416);
+    set(strategy, strategy_field::unk_18, 0x416);
+    set(strategy, strategy_field::after_wait_state, 0x416);
     strategy[0x1B] = 1;
     const u32 tag = read_u16(goals.entry.actor_bytes, 6);
     const std::array<u32, 2> event{0xB4, tag};
@@ -384,7 +385,7 @@ void update_runtime_haunted_coat_strategy(RuntimeHauntedCoatStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     update_runtime_base_strategy(goals); // 0x0002C130
     bool found = false;
     switch (state)
@@ -467,7 +468,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
     switch (message[0])
     {
     case 1:
-        if (read_u16(strategy, 0xE) == 0x3E9)
+        if (get(strategy, strategy_field::state) == 0x3E9)
         {
             if (get(strategy, field::awake) != 0)
             {
@@ -476,7 +477,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
             wake_on_hostile();
             return;
         }
-        if (read_u16(strategy, 0xE) == 0x413)
+        if (get(strategy, strategy_field::state) == 0x413)
         {
             wake_on_hostile();
             return;
@@ -484,7 +485,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
         return;
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x417)
+        if (get(strategy, strategy_field::state) == 0x417)
         {
             return;
         }
@@ -511,7 +512,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
         {
             return;
         }
-        if (read_u16(strategy, 0xE) == 0x413)
+        if (get(strategy, strategy_field::state) == 0x413)
         {
             change_state(0x416, context);
         }
@@ -523,7 +524,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
         return;
     case 0x70:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
-        if (read_u16(strategy, 0xE) == 0x413
+        if (get(strategy, strategy_field::state) == 0x413
             && adopt_runtime_strategy_message_attacker(message, 1, context.checks, context.views) != 0) // 0x00139550
         {
             goals.room = nullptr; // Actor +0xCA0.

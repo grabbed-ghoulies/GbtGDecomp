@@ -1,4 +1,5 @@
 #include "player_strategy.h"
+#include "strategy_fields.h"
 #include "body_action_ids.h"
 #include "../scripts/script_chapter.h"
 #include "body_fields.h"
@@ -135,13 +136,13 @@ u32 check_runtime_player_knockout(RuntimePlayerStrategyGoals& context)
     if (get(body, body_field::energy) == 0 && get(body, body_field::max_energy) != 0)
     {
         std::span<u8> strategy = context.entry.strategy;
-        const u16 state = read_u16(strategy, 0xE);
+        const u16 state = get(strategy, strategy_field::state);
         if (state != 1000 && state != 0x3FC)
         {
             drain_runtime_player_goals(context.cleanup);
-            put_u16(strategy, 0x18, 0x3FC);
-            put_u16(strategy, 0x14, 0x3FC);
-            put_u16(strategy, 0x16, 0x3FC);
+            set(strategy, strategy_field::unk_18, 0x3FC);
+            set(strategy, strategy_field::resume_state, 0x3FC);
+            set(strategy, strategy_field::flagged_resume_state, 0x3FC);
             move_state(0x3FC, context);
         }
         return 1;
@@ -223,7 +224,7 @@ void dispatch_runtime_player_strategy_message(std::span<const u32> message, Runt
     switch (message[0])
     {
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x3F1)
+        if (get(strategy, strategy_field::state) == 0x3F1)
         {
             return;
         }
@@ -295,7 +296,7 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = goals.entry.strategy;
     std::span<u8> body = goals.entry.body;
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     if (read_u32(strategy, 0x38) != 0)
     {
         if ((goals.body_bits->bytes[6] & 1) != 0)
@@ -393,8 +394,8 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
         if (read_u32(strategy, 0x40) != 0)
         {
             put(strategy, 0x40, 0);
-            put_u16(strategy, 0x12, 0x3F1);
-            put_u16(strategy, 0x18, 0x3F1);
+            set(strategy, strategy_field::after_wait_state, 0x3F1);
+            set(strategy, strategy_field::unk_18, 0x3F1);
             move_state(0x3F1, context);
             return;
         }

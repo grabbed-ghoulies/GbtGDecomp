@@ -1,4 +1,5 @@
 #include "haunted_picture_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -319,7 +320,7 @@ void wake_runtime_haunted_picture(RuntimeHauntedPictureStrategy& context)
         adjust_live_holds(-1, context); // The inlined 0x000420B0.
         set(strategy, field::latched, 0u);
     }
-    put_u16(strategy, 0x18, 0x401);
+    set(strategy, strategy_field::unk_18, 0x401);
     strategy[0x1B] = 1;
     const std::array<u32, 2> event{0xB4, read_u16(goals.entry.actor_bytes, 6)};
     script_queue_event(goals.game, {reinterpret_cast<const u8*>(event.data()), sizeof(event)}); // 0x00116810, EDI
@@ -339,7 +340,7 @@ void update_runtime_haunted_picture_strategy(RuntimeHauntedPictureStrategy& cont
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     update_runtime_base_strategy(goals); // 0x0002C130
     const float wait = get(strategy, field::attack_wait);
     if (wait > 0.f)
@@ -458,7 +459,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
     {
     case 1:
     {
-        const u16 state = read_u16(strategy, 0xE);
+        const u16 state = get(strategy, strategy_field::state);
         if (state == 0x3E9)
         {
             if (get(strategy, field::awake) != 0)
@@ -477,7 +478,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
     }
     case 0x26:
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x413 || read_u16(strategy, 0xE) == 0x417)
+        if (get(strategy, strategy_field::state) == 0x413 || get(strategy, strategy_field::state) == 0x417)
         {
             return;
         }
@@ -501,7 +502,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         {
             return;
         }
-        if (message[1] == actor && get(strategy, field::awake) == 0 && read_u16(strategy, 0xE) == 0x413)
+        if (message[1] == actor && get(strategy, field::awake) == 0 && get(strategy, strategy_field::state) == 0x413)
         {
             const std::span<const u8> mind = goals.entry.events.mind; // Actor +0x958.
             if (get(mind, mind_field::target_record) != 0)
@@ -522,7 +523,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         return;
     case 0x70:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
-        if (read_u16(strategy, 0xE) != 0x413)
+        if (get(strategy, strategy_field::state) != 0x413)
         {
             return;
         }

@@ -1,4 +1,5 @@
 #include "jessie_clyde_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -545,7 +546,7 @@ void step_special(u32 step, RuntimeJessieClydeStrategy& context)
 void special_struck(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::special_step) != 2 || read_u16(strategy, 0xE) != 0x3EF)
+    if (get(strategy, field::special_step) != 2 || get(strategy, strategy_field::state) != 0x3EF)
     {
         return;
     }
@@ -574,7 +575,7 @@ void special_struck(RuntimeJessieClydeStrategy& context)
 bool special_retarget(u32 actor, RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::special_step) != 2 || read_u16(strategy, 0xE) != 0x3EF)
+    if (get(strategy, field::special_step) != 2 || get(strategy, strategy_field::state) != 0x3EF)
     {
         return false;
     }
@@ -609,7 +610,7 @@ void target_called(u32 actor, RuntimeJessieClydeStrategy& context)
     {
         return;
     }
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     if (state == 0x3ED || state == 0x3EF)
     {
         if (requests_pending(context))
@@ -679,7 +680,7 @@ void update_runtime_jessie_clyde_strategy(RuntimeJessieClydeStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     const RuntimeMindTarget* target = mind_target(context);
     u32 open = 0;
     if (target == nullptr)
@@ -721,7 +722,7 @@ void dispatch_runtime_jessie_clyde_message(std::span<const u32> message, Runtime
     const u32 actor = read_u32(strategy, 8);
     react_runtime_strategy_message(message, shared.checks); // 0x001384F0; its result is not read.
     dispatch_runtime_base_strategy_message(message, shared.base); // 0x0002BC10
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     const bool calm = get(strategy, field::calm) != 0;
     switch (message[0])
     {

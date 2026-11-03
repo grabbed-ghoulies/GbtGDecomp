@@ -1,4 +1,5 @@
 #include "worm_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
@@ -391,7 +392,7 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
                         != 0;
                 if (!queued && read_u16(body_of_actor(context), 0x94) != 0)
                 {
-                    if (read_u16(strategy, 0xE) != 0x3EF)
+                    if (get(strategy, strategy_field::state) != 0x3EF)
                     {
                         set_runtime_worm_effect_mode(2, context); // 0x000C4C70
                         change_state(0x3EF, context);
@@ -418,7 +419,7 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
             return;
         }
         set_runtime_worm_effect_mode(2, context); // 0x000C4C70
-        set(strategy, strategy_field::unk_12, u16(0x3EF));
+        set(strategy, strategy_field::after_wait_state, u16(0x3EF));
         set(strategy, strategy_field::unk_18, u16(0x3EF));
         return;
     }

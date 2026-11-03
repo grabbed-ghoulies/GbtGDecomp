@@ -2,6 +2,8 @@
 
 #include "gbtg/types.h"
 
+#include <cstdio>
+#include <string>
 #include <type_traits>
 
 namespace gbtg
@@ -38,11 +40,19 @@ constexpr bool retail_fits(u32 object_size, F)
 
 namespace detail
 {
+inline std::string to_hex(size_t value)
+{
+    char text[24];
+    std::snprintf(text, sizeof(text), "%zX", value);
+    return text;
+}
+
 inline void check_retail_range(size_t available, size_t offset, size_t size)
 {
     if (offset + size > available)
     {
-        throw Error("retail field out of range");
+        throw Error("retail field out of range: +0x" + to_hex(offset) + ", 0x" + to_hex(size) + " bytes of 0x"
+            + to_hex(available));
     }
 }
 

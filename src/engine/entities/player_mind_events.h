@@ -5,6 +5,23 @@
 
 namespace gbtg
 {
+// A mind event (0x0002A190): what the mind is engaged with, watching or was hit by, timed. Kind 1 is a contact
+// (subject and other, counted), 3 the engaged actor, 4 the watched target record.
+namespace mind_event_field
+{
+constexpr RetailField<u16, 0x08> kind{};
+constexpr RetailField<u8, 0x0A> unk_0A{}; // cleared when the event is refreshed
+constexpr RetailField<float, 0x0C> time_left{};
+constexpr RetailField<float, 0x10> duration{};
+constexpr RetailField<float, 0x14> cooldown{}; // from the mind's unk_2C, counting down
+constexpr RetailField<float, 0x18> age{};
+constexpr RetailField<float, 0x1C> unk_1C{}; // counts up; cleared when the event is refreshed
+constexpr RetailField<u32, 0x20> subject{};
+constexpr RetailField<u32, 0x24> other{};
+constexpr RetailField<u32, 0x28> count{};
+constexpr RetailField<u32, 0x2C> payload{};
+} // namespace mind_event_field
+
 struct RuntimeMindEvent : LiveScript
 {
     std::span<u8> bytes;

@@ -14,10 +14,10 @@ u32 select_runtime_player_target_action_direction(std::span<u8> mind,
     const RuntimePlayerAttachmentEligibility& body, const Actor& actor,
     const RuntimeMindTarget& target, std::span<const u8> target_body, const Actor* focus)
 {
-    const bool same_target = read_u32(mind, 0x88) == target.address;
+    const bool same_target = get(mind, player_mind_field::target) == target.address;
     if (!same_target)
     {
-        mind[0x90] = 0;
+        set(mind, player_mind_field::target_count, 0);
     }
     if (get(target.bytes, mind_target_field::kind) == 3)
     {
@@ -45,7 +45,7 @@ u32 select_runtime_player_target_action_direction(std::span<u8> mind,
     {
         direction = runtime_body_target_direction(body.body_actor, target.bytes, body.body_actor.euler.y);
     }
-    if (focus == &target.actor && same_target && mind[0x90] != 0)
+    if (focus == &target.actor && same_target && get(mind, player_mind_field::target_count) != 0)
     {
         if (direction == 0 || direction == 2)
         {
@@ -90,7 +90,7 @@ RuntimePlayerTargetView* update_runtime_player_target_proposal(RuntimePlayerMind
             proposal = context.targets.at(selected->address);
             const auto* attached = context.search.body.attached;
             if (attached == nullptr || attached->bytes[0x93D] <= 1
-                || (attached->bytes[0x93D] == 4 && read_u32(context.events.mind, 0xB0) != 3))
+                || (attached->bytes[0x93D] == 4 && get(record(context.events.mind, player_mind_field::stick), stick_tracking_field::gesture) != 3))
             {
                 const auto redirected = redirect_runtime_player_shape_target(context.shape,
                     context.search.body, proposal->bytes, heading);

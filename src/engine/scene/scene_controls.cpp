@@ -1,4 +1,5 @@
 #include "scene_controls.h"
+#include "scene_control_fields.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../runtime/rare_replay.h"
 #endif
@@ -15,16 +16,6 @@ SceneControlLists g_scene_controls;
 namespace
 {
 NativeSceneControlOwner* installing = nullptr;
-
-u32 word(std::span<const u8> bytes, size_t offset)
-{
-    return read_u32(bytes, offset);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 std::span<u8> state_of(FactoryObject& object)
 {
@@ -793,8 +784,7 @@ void message_runtime_scene_control(SceneControlInstance& control, std::span<cons
 // Xbox 0x00115E30
 void tick_runtime_scene_control(std::span<u8> state, const RuntimeActorClock& clock)
 {
-    const float time = read_f32(state, 0x20) + runtime_frame_step(clock);
-    std::memcpy(state.data() + 0x20, &time, 4);
+    set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + runtime_frame_step(clock));
 }
 
 // Xbox 0x00080670
@@ -802,8 +792,8 @@ void build_runtime_scene_playlist(std::span<u8> state, std::vector<u16>& playlis
 {
     // +0x24 holds the playlist (0x000F72D0); the pool of remaining indices is a temporary allocation.
     playlist.assign(count, 0);
-    put_word(state, 0x2C, count);
-    put_word(state, 0x28, 0);
+    set(state, walkabout_control_field::count, count);
+    set(state, walkabout_control_field::position, 0);
     std::vector<u16> pool;
     for (u32 index = 0; i32(index) < i32(count); ++index)
     {
@@ -827,21 +817,21 @@ bool construct_runtime_walkabout_control(std::span<u8> state, SceneControlInstan
     SceneControlContext& context)
 {
     build_runtime_scene_playlist(state, control.playlist, 0x2A, context.random);
-    put_word(state, 0x30, 0xFFFFFFFFu);
-    put_word(state, 0x34, 2);
-    put_word(state, 0x38, context.chapter() == 9 ? 1 : 0);
+    set(state, walkabout_control_field::track, 0xFFFFFFFFu);
+    set(state, walkabout_control_field::start_countdown, 2);
+    set(state, walkabout_control_field::plays_timer, context.chapter() == 9 ? 1 : 0);
     return true;
 }
 
 // Xbox 0x00080810
 void stop_runtime_walkabout_track(std::span<u8> state, SceneControlContext& context)
 {
-    const u32 track = word(state, 0x30);
+    const u32 track = get(state, walkabout_control_field::track);
     if (track == 0xFFFFFFFFu)
     {
         return;
     }
-    const char* name = word(state, 0x38) == 0 ? walkabout_name(track, context) : context.timer;
+    const char* name = get(state, walkabout_control_field::plays_timer) == 0 ? walkabout_name(track, context) : context.timer;
     AudioTrackedBank* bank = find_tracked_audio_bank(name, context.streams());
     if (bank == nullptr)
     {
@@ -861,7 +851,7 @@ void stop_runtime_walkabout_track(std::span<u8> state, SceneControlContext& cont
         detach_tracked_audio_bank(*bank, context.streams());
         bank->id = 0;
     }
-    put_word(state, 0x30, 0xFFFFFFFFu);
+    set(state, walkabout_control_field::track, 0xFFFFFFFFu);
 }
 
 // Xbox 0x000808B0
@@ -869,15 +859,15 @@ void play_runtime_walkabout_track(std::span<u8> state, SceneControlInstance& con
     SceneControlContext& context)
 {
     stop_runtime_walkabout_track(state, context);
-    const u32 position = word(state, 0x28);
+    const u32 position = get(state, walkabout_control_field::position);
     const u16 track = control.playlist.at(position);
-    put_word(state, 0x28, position + 1);
-    if (position + 1 == word(state, 0x2C))
+    set(state, walkabout_control_field::position, position + 1);
+    if (position + 1 == get(state, walkabout_control_field::count))
     {
-        put_word(state, 0x28, 0);
+        set(state, walkabout_control_field::position, 0);
     }
-    put_word(state, 0x30, track);
-    if (word(state, 0x38) != 0)
+    set(state, walkabout_control_field::track, track);
+    if (get(state, walkabout_control_field::plays_timer) != 0)
     {
         acquire_tracked_audio_bank(context.timer, 2, context.streams());
         return;
@@ -897,9 +887,8 @@ void destroy_runtime_walkabout_control(std::span<u8> state, SceneControlInstance
 void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
     SceneControlContext& context)
 {
-    const float time = read_f32(state, 0x20) + runtime_frame_step(context.frame_clock());
-    std::memcpy(state.data() + 0x20, &time, 4);
-    const u32 countdown = word(state, 0x34);
+    set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + runtime_frame_step(context.frame_clock()));
+    const u32 countdown = get(state, walkabout_control_field::start_countdown);
 #if !defined(GBTG_RETAIL_GAME_ONLY)
     // Rare Replay: +0x34 counts retail ticks.
     if (countdown != 0 && rare_replay_retail_tick())
@@ -907,13 +896,13 @@ void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& c
     if (countdown != 0)
 #endif
     {
-        put_word(state, 0x34, countdown - 1);
+        set(state, walkabout_control_field::start_countdown, countdown - 1);
         if (countdown - 1 == 0)
         {
             play_runtime_walkabout_track(state, control, context);
         }
     }
-    const u32 track = word(state, 0x30);
+    const u32 track = get(state, walkabout_control_field::track);
     if (track != 0xFFFFFFFFu && runtime_audio_bank_state(walkabout_name(track, context), context.streams()) == 2)
     {
         play_runtime_walkabout_track(state, control, context);

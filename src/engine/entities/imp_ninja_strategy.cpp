@@ -1,4 +1,5 @@
 #include "imp_ninja_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -424,7 +425,7 @@ void update_runtime_imp_ninja_strategy(RuntimeImpNinjaStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     const bool provoked =
         get(actor, player_field::countdown_56) > 0.f || get(actor, player_field::provoked) != 0; // DAT_0032B100.
     const RuntimeMindTarget* target = mind_target(context);
@@ -468,7 +469,7 @@ void dispatch_runtime_imp_ninja_message(std::span<const u32> message, RuntimeImp
     RuntimeSpiderStrategy& shared = context.shared;
     const std::span<u8> strategy = strategy_of(context);
     const u32 actor = read_u32(strategy, 8);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     const bool attacking = state >= 0x3ED && state <= 0x3EF; // 0x000B8080 for 0x6E.
     react_runtime_strategy_message(message, shared.checks); // 0x001384F0; its result is not read.
     switch (message[0])

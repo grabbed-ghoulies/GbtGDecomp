@@ -12,4 +12,15 @@ namespace scene_control_field
 // them) each add the frame step to it first.
 constexpr RetailField<float, 0x20> elapsed{};
 } // namespace scene_control_field
+
+// The walkabout music control (0x00080570): tracks played in a shuffled order, or the timer bank in chapter 9.
+namespace walkabout_control_field
+{
+constexpr u32 playlist_offset = 0x24; // the shuffled track order (SceneControlInstance::playlist)
+constexpr RetailField<u32, 0x28> position{}; // the next track's place in the playlist
+constexpr RetailField<u32, 0x2C> count{};
+constexpr RetailField<u32, 0x30> track{}; // the playing track, 0xFFFFFFFF for none
+constexpr RetailField<u32, 0x34> start_countdown{}; // ticks before the first track
+constexpr RetailField<u32, 0x38> plays_timer{}; // plays the timer bank instead (chapter 9)
+} // namespace walkabout_control_field
 } // namespace gbtg

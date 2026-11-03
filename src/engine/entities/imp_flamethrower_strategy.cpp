@@ -1,4 +1,5 @@
 #include "imp_flamethrower_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -221,7 +222,7 @@ void update_runtime_imp_flamethrower_strategy(RuntimeImpFlamethrowerStrategy& co
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     update_runtime_base_strategy(goals); // 0x0002C130
     bool found = false;
     // LAB 0x000B5644: off the target's queue, the imp waits on it (0x40D).

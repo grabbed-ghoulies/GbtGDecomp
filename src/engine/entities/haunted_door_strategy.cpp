@@ -1,4 +1,5 @@
 #include "haunted_door_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_live_attachments.h"
@@ -382,7 +383,7 @@ void update_runtime_haunted_door_strategy(RuntimeHauntedDoorStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = get(strategy, strategy_field::state);
     update_runtime_base_strategy(goals); // 0x0002C130
     drive_runtime_haunted_door_overlay(context); // 0x000AF9D0, EAX strategy
     bool found = false;
@@ -540,7 +541,7 @@ void dispatch_runtime_haunted_door_message(std::span<const u32> message, Runtime
     {
     case 0x26:
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x413 || read_u16(strategy, 0xE) == 0x417)
+        if (get(strategy, strategy_field::state) == 0x413 || get(strategy, strategy_field::state) == 0x417)
         {
             return;
         }
@@ -584,7 +585,7 @@ void dispatch_runtime_haunted_door_message(std::span<const u32> message, Runtime
         return;
     case 0x70:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
-        if (read_u16(strategy, 0xE) == 0x413
+        if (get(strategy, strategy_field::state) == 0x413
             && adopt_runtime_strategy_message_attacker(message, 1, context.checks, context.views) != 0) // 0x00139550
         {
             goals.room = nullptr; // Actor +0xCA0.
@@ -651,7 +652,7 @@ void enter_runtime_haunted_door_state(u16 state, u16 previous, RuntimeHauntedDoo
     case 0x417:
     {
         set(strategy, field::awake, 1u);
-        put_u16(strategy, 0x18, 0x416);
+        set(strategy, strategy_field::unk_18, 0x416);
         load_goal(context.goal_wakeup, context);
         step_byte(strategy, 0x1C, 1);
         strategy[0x1B] = 1;

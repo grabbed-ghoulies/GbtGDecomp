@@ -359,16 +359,17 @@ void put_word(std::span<u8> bytes, size_t offset, u32 value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
 }
-void decay_tracking_float(std::span<u8> bytes, size_t offset, float step)
+template <u32 Offset>
+void decay_tracking_float(std::span<u8> bytes, RetailField<float, Offset> field, float step)
 {
-    const float previous = read_f32(bytes, offset);
+    const float previous = get(bytes, field);
     if (previous > 0.f)
     {
         const float value = previous - step;
-        put_float(bytes, offset, value);
+        set(bytes, field, value);
         if (!(0.f < value) && !std::isnan(value))
         {
-            put_float(bytes, offset, 0.f);
+            set(bytes, field, 0.f);
         }
     }
 }
@@ -377,22 +378,22 @@ void decay_tracking_float(std::span<u8> bytes, size_t offset, float step)
 // Xbox 0x0007D5A0
 void update_runtime_player_input_gesture(std::span<u8> tracking, float magnitude, float step)
 {
-    switch (read_u32(tracking, 0x1C))
+    switch (get(tracking, stick_tracking_field::gesture))
     {
     case 0:
         if (magnitude > std::bit_cast<float>(0x3DE147AEu))
         {
-            put_word(tracking, 0x1C, 1);
-            put_float(tracking, 0x18, read_f32(tracking, 0x18) + step);
-            put_float(tracking, 0x14, magnitude);
+            set(tracking, stick_tracking_field::gesture, 1);
+            set(tracking, stick_tracking_field::gesture_time, get(tracking, stick_tracking_field::gesture_time) + step);
+            set(tracking, stick_tracking_field::magnitude, magnitude);
             return;
         }
         break;
     case 1:
-        if (!(magnitude >= read_f32(tracking, 0x14) - 0.05f))
+        if (!(magnitude >= get(tracking, stick_tracking_field::magnitude) - 0.05f))
         {
-            put_word(tracking, 0x1C, 2);
-            put_float(tracking, 0x14, magnitude);
+            set(tracking, stick_tracking_field::gesture, 2);
+            set(tracking, stick_tracking_field::magnitude, magnitude);
             return;
         }
         goto accumulate;
@@ -403,12 +404,12 @@ void update_runtime_player_input_gesture(std::span<u8> tracking, float magnitude
         }
 accumulate:
         {
-            const float value = read_f32(tracking, 0x18) + step;
-            put_float(tracking, 0x18, value);
+            const float value = get(tracking, stick_tracking_field::gesture_time) + step;
+            set(tracking, stick_tracking_field::gesture_time, value);
             if (!(value < 0.2f) && !std::isnan(value))
             {
-                put_word(tracking, 0x1C, 3);
-                put_float(tracking, 0x14, magnitude);
+                set(tracking, stick_tracking_field::gesture, 3);
+                set(tracking, stick_tracking_field::magnitude, magnitude);
                 return;
             }
         }
@@ -419,31 +420,31 @@ accumulate:
             break;
         }
 finish:
-        if (0.1f > read_f32(tracking, 0x14))
+        if (0.1f > get(tracking, stick_tracking_field::magnitude))
         {
-            put_float(tracking, 0x14, 0.f);
-            put_word(tracking, 0x1C, 0);
-            put_float(tracking, 0x18, 0.f);
-            put_float(tracking, 0x14, magnitude);
+            set(tracking, stick_tracking_field::magnitude, 0.f);
+            set(tracking, stick_tracking_field::gesture, 0);
+            set(tracking, stick_tracking_field::gesture_time, 0.f);
+            set(tracking, stick_tracking_field::magnitude, magnitude);
             return;
         }
         {
-            const u32 previous = read_u32(tracking, 4);
-            put_word(tracking, 4, 2);
+            const u32 previous = get(tracking, stick_tracking_field::state);
+            set(tracking, stick_tracking_field::state, 2);
             if (previous == 0)
             {
-                put_float(tracking, 8, 0.f);
-                put_word(tracking, 0, 0);
+                set(tracking, stick_tracking_field::press_timer, 0.f);
+                set(tracking, stick_tracking_field::pressed, 0);
             }
-            put_word(tracking, 0, 1);
-            put_float(tracking, 8, 0.2f);
-            put_float(tracking, 0xC, 0.f);
+            set(tracking, stick_tracking_field::pressed, 1);
+            set(tracking, stick_tracking_field::press_timer, 0.2f);
+            set(tracking, stick_tracking_field::unk_0C, 0.f);
         }
         break;
     default:
         break;
     }
-    put_float(tracking, 0x14, magnitude);
+    set(tracking, stick_tracking_field::magnitude, magnitude);
 }
 
 // Xbox 0x0007D460
@@ -451,20 +452,20 @@ void update_runtime_player_input_direction(std::span<u8> tracking,
     const std::array<float, 2>& axes, float step, u32 special)
 {
     const float magnitude = float(retail_square_root(axes[0] * axes[0] + axes[1] * axes[1]));
-    if (read_u32(tracking, 4) == 1)
+    if (get(tracking, stick_tracking_field::state) == 1)
     {
         if (!(magnitude < std::bit_cast<float>(0x3DE147AEu)) && !std::isnan(magnitude))
         {
-            put_word(tracking, 4, 2);
-            put_word(tracking, 0, 1);
-            put_float(tracking, 8, 0.2f);
-            put_float(tracking, 0xC, 0.f);
+            set(tracking, stick_tracking_field::state, 2);
+            set(tracking, stick_tracking_field::pressed, 1);
+            set(tracking, stick_tracking_field::press_timer, 0.2f);
+            set(tracking, stick_tracking_field::unk_0C, 0.f);
         }
     }
-    else if (read_u32(tracking, 4) == 2 && 0.1f > magnitude)
+    else if (get(tracking, stick_tracking_field::state) == 2 && 0.1f > magnitude)
     {
-        put_word(tracking, 4, 1);
-        put_word(tracking, 0, 0);
+        set(tracking, stick_tracking_field::state, 1);
+        set(tracking, stick_tracking_field::pressed, 0);
     }
     update_runtime_player_input_gesture(tracking, special != 0 ? magnitude : 0.f, step);
     if (magnitude != 0.f)
@@ -474,10 +475,10 @@ void update_runtime_player_input_direction(std::span<u8> tracking,
         {
             direction = float(retail_atan2(axes[1], axes[0]));
         }
-        put_float(tracking, 0x10, direction);
+        set(tracking, stick_tracking_field::direction, direction);
     }
-    decay_tracking_float(tracking, 0xC, step);
-    decay_tracking_float(tracking, 8, step);
+    decay_tracking_float(tracking, stick_tracking_field::unk_0C, step);
+    decay_tracking_float(tracking, stick_tracking_field::press_timer, step);
 }
 
 // Xbox 0x00109810
@@ -485,51 +486,56 @@ void update_runtime_player_input_tracking(std::span<u8> tracking,
     const std::array<float, 2>& axes, std::span<const u8> preset,
     u32 accumulate, const RuntimeActorClock& clock)
 {
-    const float dx = read_f32(tracking, 0) - axes[0];
-    const float dy = read_f32(tracking, 4) - axes[1];
-    std::memcpy(tracking.data(), axes.data(), sizeof(axes));
+    const auto previous = get(tracking, input_tracking_field::axes);
+    const float dx = previous[0] - axes[0];
+    const float dy = previous[1] - axes[1];
+    set(tracking, input_tracking_field::axes, axes);
     const long double distance = retail_square_root(dy * dy + dx * dx);
-    if (!(distance > static_cast<long double>(read_f32(preset, 0))))
+    if (!(distance > static_cast<long double>(get(preset, input_tracking_preset_field::threshold))))
     {
-        decay_tracking_float(tracking, 8, read_f32(preset, 8));
-        decay_tracking_float(tracking, 0xC, read_f32(preset, 8));
+        decay_tracking_float(tracking, input_tracking_field::activity, get(preset, input_tracking_preset_field::decay));
+        decay_tracking_float(tracking, input_tracking_field::accumulation,
+            get(preset, input_tracking_preset_field::decay));
     }
     else
     {
-        if (1.f > read_f32(tracking, 8))
+        if (1.f > get(tracking, input_tracking_field::activity))
         {
-            const float value = read_f32(preset, 4) + read_f32(tracking, 8);
-            put_float(tracking, 8, value);
+            const float value =
+                get(preset, input_tracking_preset_field::rise) + get(tracking, input_tracking_field::activity);
+            set(tracking, input_tracking_field::activity, value);
             if (!(value < 1.f) && !std::isnan(value))
             {
-                put_float(tracking, 8, 1.f);
+                set(tracking, input_tracking_field::activity, 1.f);
             }
         }
-        if (accumulate != 0 && read_f32(preset, 0xC) > read_f32(tracking, 0xC))
+        if (accumulate != 0 &&
+            get(preset, input_tracking_preset_field::cap) > get(tracking, input_tracking_field::accumulation))
         {
-            const float value = read_f32(preset, 4) + read_f32(tracking, 0xC);
-            put_float(tracking, 0xC, value);
-            if (!(value < read_f32(preset, 0xC)) && !std::isnan(value)
-                && !std::isnan(read_f32(preset, 0xC)))
+            const float value =
+                get(preset, input_tracking_preset_field::rise) + get(tracking, input_tracking_field::accumulation);
+            set(tracking, input_tracking_field::accumulation, value);
+            if (!(value < get(preset, input_tracking_preset_field::cap)) && !std::isnan(value)
+                && !std::isnan(get(preset, input_tracking_preset_field::cap)))
             {
-                put_float(tracking, 0xC, read_f32(preset, 0xC));
+                set(tracking, input_tracking_field::accumulation, get(preset, input_tracking_preset_field::cap));
             }
         }
     }
-    const u32 state = read_u32(tracking, 0x14);
-    if ((state == 1 && read_f32(tracking, 8) == 1.f)
-        || (state == 2 && read_f32(tracking, 8) == 0.f))
+    const u32 state = get(tracking, input_tracking_field::state);
+    if ((state == 1 && get(tracking, input_tracking_field::activity) == 1.f)
+        || (state == 2 && get(tracking, input_tracking_field::activity) == 0.f))
     {
-        decay_tracking_float(tracking, 0x10, runtime_frame_step(clock));
-        if (read_f32(tracking, 0x10) != 0.f)
+        decay_tracking_float(tracking, input_tracking_field::hold_timer, runtime_frame_step(clock));
+        if (get(tracking, input_tracking_field::hold_timer) != 0.f)
         {
             return;
         }
-        const u32 next = u32(read_u32(tracking, 0x14) != 2) + 1;
-        std::memcpy(tracking.data() + 0x14, &next, 4);
+        const u32 next = u32(get(tracking, input_tracking_field::state) != 2) + 1;
+        set(tracking, input_tracking_field::state, next);
         return;
     }
-    put_float(tracking, 0x10, std::bit_cast<float>(0x3D89374Cu));
+    set(tracking, input_tracking_field::hold_timer, std::bit_cast<float>(0x3D89374Cu));
 }
 
 // Xbox 0x00137840

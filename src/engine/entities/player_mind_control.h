@@ -91,6 +91,41 @@ void transform_runtime_player_mind_input(std::span<const u8> body, u32 invert,
     const RuntimeDialogueInputDevice& input, const RuntimeDialogueInputState& state,
     RuntimeInputAxisWriteDevice& writable, std::span<u8> keyboard,
     const Vec3& camera_direction); // Xbox 0x0007EE40
+// The struggle states' and the boost's input tracking (0x18 bytes, 0x00109810): how hard the stick is being worked.
+namespace input_tracking_field
+{
+constexpr RetailField<std::array<float, 2>, 0x00> axes{}; // the last tick's
+constexpr RetailField<float, 0x08> activity{}; // rises while the stick moves, up to 1
+constexpr RetailField<float, 0x0C> accumulation{}; // rises up to the preset's cap
+constexpr RetailField<float, 0x10> hold_timer{}; // the state flips once it runs out
+constexpr RetailField<u32, 0x14> state{}; // 1 waits for full activity, 2 for none
+constexpr u32 kSize = 0x18;
+} // namespace input_tracking_field
+
+// The tracking's preset (0x10 bytes).
+namespace input_tracking_preset_field
+{
+constexpr RetailField<float, 0x0> threshold{}; // the movement that counts as working the stick
+constexpr RetailField<float, 0x4> rise{};
+constexpr RetailField<float, 0x8> decay{};
+constexpr RetailField<float, 0xC> cap{}; // the accumulation's
+} // namespace input_tracking_preset_field
+
+// The player mind's stick tracking (+0x94, 0x20 bytes; 0x0007D460, 0x0007D5A0): presses, the direction and a
+// push-and-release gesture.
+namespace stick_tracking_field
+{
+constexpr RetailField<u32, 0x00> pressed{};
+constexpr RetailField<u32, 0x04> state{}; // 1 released, 2 held
+constexpr RetailField<float, 0x08> press_timer{}; // 0.2 at a press
+constexpr RetailField<float, 0x0C> unk_0C{}; // cleared at a press, decays
+constexpr RetailField<float, 0x10> direction{};
+constexpr RetailField<float, 0x14> magnitude{}; // the last tick's
+constexpr RetailField<float, 0x18> gesture_time{};
+constexpr RetailField<u32, 0x1C> gesture{}; // 0 idle, 1 pushing, 2 easing off, 3 held
+constexpr u32 kSize = 0x20;
+} // namespace stick_tracking_field
+
 void update_runtime_player_input_tracking(std::span<u8> tracking,
     const std::array<float, 2>& axes, std::span<const u8> preset,
     u32 accumulate, const RuntimeActorClock& clock); // Xbox 0x00109810

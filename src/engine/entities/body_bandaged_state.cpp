@@ -226,8 +226,8 @@ void tick_runtime_bandaged_state(std::span<u8> state, RuntimeBandagedStateContex
     }
     std::array<float, 2> axes{};
     runtime_input_axes(*context.input, axes, context.input_state); // 0x001085F0, EAX the tick's input
-    update_runtime_player_input_tracking(state.subspan(field::kTracking, 0x18), axes, context.struggle_preset, 1,
-        context.clock); // 0x00109810, ESI state +0x2A4, EDI 0x0030260C
+    update_runtime_player_input_tracking(state.subspan(field::kTracking, input_tracking_field::kSize), axes,
+        context.struggle_preset, 1, context.clock); // 0x00109810, ESI state +0x2A4, EDI 0x0030260C
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
     const Vec3 euler = actor_world_euler(context.actor); // 0x00041820
     if (const u32 mummified = get(state, field::mummified); mummified != 0)

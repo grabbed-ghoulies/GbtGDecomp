@@ -13,20 +13,16 @@ namespace gbtg
 void sample_actor_model_matrix(Actor& actor, i32 index, Vec3& position, Vec3& euler,
     i32 clamp_height, RuntimeActorMatrixSampling& context)
 {
-    auto record = context.records.subspan(u32(index) * 0x48u, 0x48);
-    if (read_u32(record, 0x44) != 0)
+    auto record = context.records.subspan(u32(index) * actor_matrix_field::kSize, actor_matrix_field::kSize);
+    if (get(record, actor_matrix_field::active) != 0)
     {
-        position.x = read_f32(record, 4);
-        position.y = read_f32(record, 8);
-        position.z = read_f32(record, 0xC);
-        euler.x = read_f32(record, 0x10);
-        euler.y = read_f32(record, 0x14);
-        euler.z = read_f32(record, 0x18);
+        position = get(record, actor_matrix_field::translation);
+        euler = get(record, actor_matrix_field::euler);
         return;
     }
     context.active = context.scratch.data();
     std::memcpy(context.active, actor.xform, 48);
-    const i32 joint = std::bit_cast<i32>(read_u32(record, 0));
+    const i32 joint = std::bit_cast<i32>(get(record, actor_matrix_field::binding));
     if (joint != -1)
     {
         const ModelPoseBuffer* pose = nullptr;

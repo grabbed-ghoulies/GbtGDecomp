@@ -663,8 +663,8 @@ void track_runtime_blood_suck_struggle(std::span<u8> state, RuntimeBloodSuckStat
     }
     std::array<float, 2> axes{};
     runtime_input_axes(*target.peer.input, axes, context.input_state); // 0x001085F0, EAX target +0x960
-    update_runtime_player_input_tracking(state.subspan(field::kTracking, 0x18), axes, context.struggle_preset, 1,
-        context.clock); // 0x00109810, EDI 0x00302728
+    update_runtime_player_input_tracking(state.subspan(field::kTracking, input_tracking_field::kSize), axes,
+        context.struggle_preset, 1, context.clock); // 0x00109810, EDI 0x00302728
 }
 
 // Xbox 0x0008BF90, EAX actor

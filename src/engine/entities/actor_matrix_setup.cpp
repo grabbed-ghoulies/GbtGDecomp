@@ -88,37 +88,28 @@ bool initialize_actor_model_matrices(const Actor& actor, ActorMatrixSetup& state
             if (node != nullptr)
             {
                 state.matrices.count = runtime_matrix_array_count(node->bytes);
-                state.allocation = static_cast<u8*>(engine_heap_allocate(u32(state.matrices.count) * 0x48u));
-                state.matrices.records = {state.allocation, u32(state.matrices.count) * 0x48u};
+                state.allocation =
+                    static_cast<u8*>(engine_heap_allocate(u32(state.matrices.count) * actor_matrix_field::kSize));
+                state.matrices.records = {state.allocation, u32(state.matrices.count) * actor_matrix_field::kSize};
                 i32 index = 0;
                 if (0 < state.matrices.count)
                 {
                     do
                     {
-                        auto* record = state.allocation + index * 0x48;
-                        auto store = [&](size_t offset, u32 value)
-                        {
-                            std::memcpy(record + offset, &value, sizeof(value));
-                        };
-                        store(0xC, 0);
-                        store(8, 0);
-                        store(4, 0);
-                        store(0x18, 0);
-                        store(0x14, 0);
-                        store(0x10, 0);
-                        store(0x1C, 0x3F800000u);
-                        store(0x20, 0x3F800000u);
-                        store(0x24, 0x3F800000u);
-                        store(0x30, 0);
-                        store(0x2C, 0);
-                        store(0x28, 0);
+                        const std::span<u8> record{state.allocation + index * actor_matrix_field::kSize,
+                                                   actor_matrix_field::kSize};
+                        set(record, actor_matrix_field::translation, Vec3{0.f, 0.f, 0.f});
+                        set(record, actor_matrix_field::euler, Vec3{0.f, 0.f, 0.f});
+                        set(record, actor_matrix_field::scale, Vec3{1.f, 1.f, 1.f});
+                        set(record, actor_matrix_field::center, Vec3{0.f, 0.f, 0.f});
                         state.progress = 0.f;
                         state.flags = 0;
-                        store(0x44, 0);
+                        set(record, actor_matrix_field::active, 0);
                         const auto view = i32(read_u32(node->bytes, 0x24)) > 0 ?
                             bindings.at(node->bytes.data()) : std::span<const u8>{};
-                        store(0, runtime_matrix_array_binding(node->bytes, view, u32(index)));
-                        store(0x34, 0);
+                        set(record, actor_matrix_field::binding,
+                            runtime_matrix_array_binding(node->bytes, view, u32(index)));
+                        set(record, actor_matrix_field::has_second_euler, 0);
                         ++index;
                     }
                     while (index < state.matrices.count);

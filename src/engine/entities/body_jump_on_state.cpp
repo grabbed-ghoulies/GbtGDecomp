@@ -1191,7 +1191,7 @@ void track_runtime_ride_input(std::span<u8> ride_bytes, RuntimeJumpOnStateContex
     }
     const u32 accumulate = get(ride_bytes, ride::hold_time) == 0.f && !busy && get(ride_bytes, ride::phase) == 2
         ? 1u : 0u;
-    update_runtime_player_input_tracking(ride_bytes.subspan(ride::kTracking, 0x18), axes,
+    update_runtime_player_input_tracking(ride_bytes.subspan(ride::kTracking, input_tracking_field::kSize), axes,
         context.globals.subspan(0x004286D0 - 0x00428680, 0x10), accumulate, context.clock); // 0x00109810
 }
 

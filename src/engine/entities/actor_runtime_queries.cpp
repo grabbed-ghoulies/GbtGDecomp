@@ -110,16 +110,16 @@ float runtime_actor_matrix_reach(const Actor& actor, ActorMatrixSetup& matrices)
         matrices.progress = 0.f;
         for (i32 index = 0; index < matrices.matrices.count; ++index)
         {
-            const u8* record = matrices.matrices.records.data() + size_t(index) * 0x48;
-            u32 active;
-            std::memcpy(&active, record + 0x44, 4);
-            if (active == 0)
+            const auto record =
+                matrices.matrices.records.subspan(size_t(index) * actor_matrix_field::kSize, actor_matrix_field::kSize);
+            if (get(record, actor_matrix_field::active) == 0)
             {
                 continue;
             }
-            const float dx = position.x - float_at(record, 4);
-            const float dy = position.y - float_at(record, 8);
-            const float dz = position.z - float_at(record, 0xC);
+            const Vec3 translation = get(record, actor_matrix_field::translation);
+            const float dx = position.x - translation.x;
+            const float dy = position.y - translation.y;
+            const float dz = position.z - translation.z;
             const float distance = (dz * dz + dx * dx) + dy * dy;
             if (distance > matrices.progress)
             {

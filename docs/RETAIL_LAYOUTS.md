@@ -159,6 +159,8 @@ For one object type:
 | Damage record (`BodyDamage`, built on the stack by the hit messages and source contacts, handed to 0x00020DC0): kind, keys, joint, latch mask, switches, position, normal, contacts, the three actors, push, direction, timer, source class. Message 0x1A carries its bytes, so `offsetof` checks pin every member. | 0x68 | `src/engine/entities/body_damage_fields.h` |
 | Actor effect particle (`EffectParticle`, 0x150-byte slots from an effect's +0x390, 0x000EFE30; run by 0x000F18E0): position, euler, velocity, spin, collision radius, bounce factors, size (and its rate, target and scale), gravity, drag, stopped and hit bytes, motion and channel flags, next free slot, collisions, colour channels (a byte block the channel functions take), life, colour durations, oscillation (`EffectOscillation`: rate, phase, center, amplitude, value), frames and three bounded channels (`BoundedChannel`), owner effect, command. Viewed inside `ActorEffectNode::bytes` by `actor_effect_particle`. The debris and trail pools' records are different types. | 0x150 | `src/engine/graphics/effect_particles.h` |
 | Trail record (`EffectTrailRecord`, 50 in DAT_005068D8): position and rotation (the billboard's, from 0x000EBCB0), colour channels (a byte block the channel functions take), scale, size and its target and rate, frames (`BoundedChannel`), phase, type, phase time, life, next free | 0x84 | `src/engine/graphics/effect_trails.h` |
+| Body-state base (`BodyStateBase`, the factory header and type 9's instance): vtable address, type, unk_6 (the parameters' +2), body (the parameters' +8), next key, unk_E, elapsed, unk_14. `body_state_view<T>` views a factory state's bytes as its struct. | 0x18 | `src/engine/entities/body_state_fields.h` |
+| Hold state (`HoldState`, factory type 0x8A, 0x000A34A0): the base, timer, settle turn, body bit | 0x24 | `src/engine/entities/body_hold_state.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -183,6 +185,15 @@ trail draw (0x000EBCB0, still unbound here) settles it: it hands +0 to the billb
 position and +0xC as the rotation, with the size from +0x50 and the frame from the frames' value. +0x72 and +0x80 are
 not read or written by any translated code or that draw, so they are `unk_72` and `unk_80`.
 
+The body states start with the hold state. The base was settled from the factory: 0x00107520 writes the vtable
+address at +0 and the type at +4, the base object's constructor (0x00107700) copies the parameters' +2 to +6, and
+type 9's (0x0002B600) copies the parameters' +8, the body, to +8. Type 9's instance is 0x18 bytes (0x00095530), and
+every +0x14 the states name is a parameter field, so the base ends with an unnamed `unk_14`. The hold state's own
+three words match its dumps (0x000A3520, 0x000A35E0, 0x000A3670, exported as ranges because the project has no
+functions there). Its parameters are never copied in, so `settle_turn` and `body_bit` stay 0 unless something writes
+them later; that is the dump's behaviour, kept as it is. The shared goal-action selector (0x00134060) still takes
+the state's bytes.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -199,8 +210,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Scene-control base (factory type 3) | — | `scene_control_field::elapsed` (+0x20) only; the list links at +8, +0x10 and +0x18 are SceneControlInstance members | `src/engine/scene/scene_control_fields.h` |
 | Trophy heads (factory type 0x92, 0x000816A0) | 0x188, parameters 0x108 | `trophy_heads_field`: player, attacks, health, seek time, phase, chosen heads, per-head attacked and roaring flags, attacking head, pause hold, head events name, challenge won; `trophy_heads_parameter`: the clip and events names; `cutscene_event_field`: the two event-record words 0x00082440 reads | `src/engine/scene/trophy_heads_control.h` |
 | Factory parameter header | — | `object_parameter_field`: size, unk_2, type | `include/gbtg/object_factory.h` |
-| Body-state base | — | `body_state_field`: next key (+0xC), unk_E, elapsed (+0x10); +8 is the state's native body view | `src/engine/entities/body_state_fields.h` |
-| Hold state (factory type 0x8A, 0x000A34A0) | 0x24 | `hold_state_field`: timer, settle turn, body bit | `src/engine/entities/body_hold_state.h` |
+| Body-state base (type 9, 0x00095530) | 0x18 | `body_state_field`: next key (+0xC), unk_E, elapsed (+0x10), for the states still on their bytes; `BodyStateBase` is the whole base as a struct (below) | `src/engine/entities/body_state_fields.h` |
 | Walk-target state (factory type 0x8F, 0x00091A90) | 0x7C, parameters 0x60 | `walk_target_field`, `walk_target_parameter`; the rows block (`walk_target_rows_field`, 0x4C bytes: four `walk_target_row_field` rows and the band limits) | `src/engine/entities/body_walk_target_state.h` |
 | Pick-up and lift states (factory types 0x7C and 0x7D) | 0x2C / 0x30, parameters 0x10 / 0x1C | `pickup_state_field`, `pickup_state_parameter`, `lift_state_field`, `lift_state_parameter` | `src/engine/entities/body_pickup_state.h` |
 | Throw state (factory type 0x8B, 0x000A37D0) | 0x68, parameters 0x2C | `throw_state_field`, `throw_state_parameter` | `src/engine/entities/body_throw_state.h` |

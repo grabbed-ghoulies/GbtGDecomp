@@ -411,15 +411,17 @@ const ObjectFactoryVtable* throw_state_lifecycle()
 bool construct_hold_state_view(FactoryObject& object, std::span<const u8>)
 {
     const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
-    return initialize_runtime_hold_state(state, context);
+    HoldState& hold = body_state_view<HoldState>(state);
+    auto context = body_context_of(hold.base.body);
+    return initialize_runtime_hold_state(hold, context);
 }
 
 void destroy_hold_state_view(FactoryObject& object)
 {
     const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
-    destroy_runtime_hold_state(state, context);
+    HoldState& hold = body_state_view<HoldState>(state);
+    auto context = body_context_of(hold.base.body);
+    destroy_runtime_hold_state(hold, context);
 }
 
 const ObjectFactoryVtable* hold_state_lifecycle()

@@ -1136,7 +1136,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     {
         RuntimeHoldStateTick tick{player_.body, player_.actor, player_.actor_address,
             services_.clock, recovery_action()};
-        tick_runtime_hold_state({action.bytes.get(), action.size}, tick);
+        tick_runtime_hold_state(body_state_view<HoldState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x8F:

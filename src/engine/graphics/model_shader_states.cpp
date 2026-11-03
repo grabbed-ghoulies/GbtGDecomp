@@ -95,7 +95,7 @@ void bind_runtime_model_shader(u32 shader, RuntimeModelShaderDraw& context)
         set_runtime_model_additive_states(context.states);
         break;
     }
-    context.pixel_shader(context.tree.image.word(shader, 0xC));
+    context.pixel_shader(context.tree.image.get(shader, model_pixel_shader_field::handle));
     if (context.post_shader)
     {
         context.post_shader(shader);
@@ -105,13 +105,13 @@ void bind_runtime_model_shader(u32 shader, RuntimeModelShaderDraw& context)
 // Xbox 0x0015B670
 u32 runtime_model_shader_texture_stage(u32 shader, const RuntimeRelocationImage& image)
 {
-    return image.word(image.word(shader, 4), 0xD4) & 0xF;
+    return image.word(image.get(shader, model_pixel_shader_field::program), 0xD4) & 0xF;
 }
 
 // Xbox 0x00157CE0
 void dispatch_runtime_model_shader(u32 node, RuntimeModelShaderDraw& context)
 {
-    bind_runtime_model_shader(context.tree.image.word(node, 0x20), context);
+    bind_runtime_model_shader(context.tree.image.get(node, shader_node::primary), context);
     queue_runtime_model_group(node, context.tree);
 }
 
@@ -334,7 +334,8 @@ void apply_runtime_model_shader_overrides(RuntimeModelInstance& model, u32 shade
         if (stage < 7)
         {
             const auto& image = context.draw.tree.image;
-            configure_runtime_model_texture_combiner(image.word(image.word(shader, 4), 0xD4) >> 8, stage, context);
+            configure_runtime_model_texture_combiner(
+                image.word(image.get(shader, model_pixel_shader_field::program), 0xD4) >> 8, stage, context);
             return;
         }
         context.texture_stage = 0;

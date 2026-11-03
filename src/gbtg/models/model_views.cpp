@@ -52,23 +52,25 @@ public:
     const RuntimeShaderCpu* shader(u32 address)
     {
         auto& output = storage.shaders.emplace_back();
-        output.cpu.zero_word_count = image.word(address, 0xC);
-        output.cpu.instance_size = image.word(address, 0x44);
-        output.parameters.resize(image.word(address, 0x10));
+        output.cpu.zero_word_count = image.get(address, model_material_field::stage_count);
+        output.cpu.instance_size = image.get(address, model_material_field::instance_size);
+        output.parameters.resize(image.get(address, model_material_field::constant_count));
         if (!output.parameters.empty())
         {
-            std::memcpy(output.parameters.data(), image.pointer(image.word(address, 4)),
-                output.parameters.size() * 0x48);
+            std::memcpy(output.parameters.data(), image.pointer(image.get(address, model_material_field::constants)),
+                output.parameters.size() * model_material_constant_field::kSize);
         }
         output.cpu.initial_parameters = output.parameters;
-        output.cpu.records = image.word(address, 8) == 0 ? nullptr : image.pointer(image.word(address, 8));
-        output.entries.resize(image.word(address, 0x28));
+        output.cpu.records = image.get(address, model_material_field::stages) == 0 ? nullptr
+            : image.pointer(image.get(address, model_material_field::stages));
+        output.entries.resize(image.get(address, model_material_field::entry_count));
         for (u32 index = 0; index < output.entries.size(); ++index)
         {
-            const u32 entry = image.word(address, 0x24) + index * 0x10;
+            const u32 entry =
+                image.get(address, model_material_field::entries) + index * model_material_entry_field::kSize;
             output.entries[index] = RuntimeShaderCpuEntry{
-                reinterpret_cast<const char*>(image.pointer(image.word(entry))),
-                std::bit_cast<i32>(image.word(entry, 8))};
+                reinterpret_cast<const char*>(image.pointer(image.get(entry, model_material_entry_field::name))),
+                image.get(entry, model_material_entry_field::value)};
         }
         output.cpu.entries = output.entries;
         return &output.cpu;
@@ -87,55 +89,53 @@ public:
         }
         auto& output = storage.nodes.emplace_back();
         storage.node_addresses.emplace(address, &output);
-        output.instance_offset = image.word(address);
-        output.type_name = reinterpret_cast<const char*>(image.pointer(image.word(address)));
-        output.type = image.half(address, 4);
-        output.copy_offset = image.word(address, 0xC);
-        output.descriptor = &copy_types[(image.word(address, 0x10) - descriptor_base) / 0x54];
+        output.instance_offset = image.get(address, model_node_field::type_name);
+        output.type_name =
+            reinterpret_cast<const char*>(image.pointer(image.get(address, model_node_field::type_name)));
+        output.type = image.get(address, model_node_field::type_index);
+        output.copy_offset = image.get(address, model_node_field::instance_offset);
+        output.descriptor = &copy_types[(image.get(address, model_node_field::descriptor) - descriptor_base) /
+            model_node_type_field::kSize];
         output.bytes = image.bytes.subspan(u32(address - image.address));
-        output.child = node(image.word(address, 0x14));
-        output.sibling = node(image.word(address, 0x18));
-        if (std::strcmp(output.type_name, "ndMtxArray") == 0 && image.word(address, 0x20) != 0)
+        output.child = node(image.get(address, model_node_field::child));
+        output.sibling = node(image.get(address, model_node_field::next));
+        if (std::strcmp(output.type_name, "ndMtxArray") == 0 && image.get(address, matrix_array_node::rows) != 0)
         {
-            output.matrix_records = {image.pointer(image.word(address, 0x20)), size_t(image.word(address, 0x30)) * 8};
+            output.matrix_records = {image.pointer(image.get(address, matrix_array_node::rows)),
+                size_t(image.get(address, matrix_array_node::matrix_count)) * 8};
         }
         if (output.type == 7)
         {
-            auto& joints = storage.skeletons.emplace_back(image.word(address, 0x20));
-            const u32 records = image.word(address, 0x24);
+            auto& joints = storage.skeletons.emplace_back(image.get(address, skeleton_node::joint_count));
+            const u32 records = image.get(address, skeleton_node::joints);
             for (u32 index = 0; index < joints.size(); ++index)
             {
-                const u32 record = records + index * 0x20;
-                const u16 parent = image.half(record);
+                const u32 record = records + index * skeleton_joint_field::kSize;
+                const u16 parent = image.get(record, skeleton_joint_field::parent);
                 joints[index].parent = parent == 0xFFFF ? -1 : parent;
-                joints[index].local = Vec3{
-                    std::bit_cast<float>(image.word(record, 4)),
-                    std::bit_cast<float>(image.word(record, 8)),
-                    std::bit_cast<float>(image.word(record, 0xC))};
-                joints[index].world = Vec3{
-                    std::bit_cast<float>(image.word(record, 0x10)),
-                    std::bit_cast<float>(image.word(record, 0x14)),
-                    std::bit_cast<float>(image.word(record, 0x18))};
+                joints[index].local = image.get(record, skeleton_joint_field::local);
+                joints[index].world = image.get(record, skeleton_joint_field::world);
             }
             output.joints = joints;
         }
         else if (output.type == 11)
         {
-            output.shader_cpu = shader(image.word(address, 0x20));
-            if (image.word(address, 0x24) != 0)
+            output.shader_cpu = shader(image.get(address, shader_node::primary));
+            if (image.get(address, shader_node::secondary) != 0)
             {
-                output.secondary_shader_cpu = shader(image.word(address, 0x24));
+                output.secondary_shader_cpu = shader(image.get(address, shader_node::secondary));
             }
         }
         else if (output.type == 16)
         {
             auto& blendshape = storage.blendshapes.emplace_back();
-            const u32 table = image.word(image.word(address, 0x20));
-            blendshape.buffers.resize(image.word(table, 0x24));
+            const u32 table = image.word(image.get(address, blendshape_node::targets));
+            blendshape.buffers.resize(image.get(table, vertex_buffer_node::buffer_count));
             for (u32 index = 0; index < blendshape.buffers.size(); ++index)
             {
                 auto& buffer = blendshape.buffers[index];
-                const u32 record = image.word(table, 0x20) + index * 0x18;
+                const u32 record =
+                    image.get(table, vertex_buffer_node::buffers) + index * model_vertex_buffer_field::kSize;
                 for (u32 word = 0; word < 6; ++word)
                 {
                     buffer.words[word] = image.word(record, word * 4);

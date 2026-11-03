@@ -1,6 +1,8 @@
 #pragma once
 
 #include "gbtg/types.h"
+#include "gbtg/model_nodes.h"
+#include "gbtg/retail_field.h"
 #include <cstddef>
 #include <functional>
 
@@ -51,6 +53,18 @@ struct RuntimeRelocationImage
     void set_byte(u32 value, u32 offset, u8 data) const
     {
         *pointer(value + offset) = data;
+    }    // A named field of the record at `value`.
+    template <typename T, u32 Offset>
+    T get(u32 value, RetailField<T, Offset>) const
+    {
+        T result;
+        std::memcpy(&result, pointer(value + Offset), sizeof(T));
+        return result;
+    }
+    template <typename T, u32 Offset>
+    void set(u32 value, RetailField<T, Offset>, const std::type_identity_t<T>& data) const
+    {
+        std::memcpy(pointer(value + Offset), &data, sizeof(T));
     }
 };
 struct RuntimeGpuSegment

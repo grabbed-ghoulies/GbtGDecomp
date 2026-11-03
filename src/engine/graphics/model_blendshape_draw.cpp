@@ -15,7 +15,7 @@ void select_runtime_model_blend_targets(u32 node, const RuntimeBlendshapeNodeIns
     std::array<i32, 8> targets{};
     i32 slot = 0;
     i32 index = 0;
-    if (i32(image.half(node, 0x24)) - 1 > 0)
+    if (i32(image.get(node, blendshape_node::target_count)) - 1 > 0)
     {
         do
         {
@@ -39,9 +39,9 @@ void select_runtime_model_blend_targets(u32 node, const RuntimeBlendshapeNodeIns
                 }
             }
             ++index;
-        } while (index < i32(image.half(node, 0x24)) - 1);
+        } while (index < i32(image.get(node, blendshape_node::target_count)) - 1);
     }
-    u32 list = image.word(node, 0x20);
+    u32 list = image.get(node, blendshape_node::targets);
     i32 attribute = 0;
     if (0 < i32(image.word(image.word(list), 0x24)))
     {
@@ -52,7 +52,7 @@ void select_runtime_model_blend_targets(u32 node, const RuntimeBlendshapeNodeIns
                 throw Error("blend shape attribute lies outside the render state streams");
             }
             const u32 record = image.word(image.word(list), 0x20) + u32(attribute) * 0x18;
-            const u8 kind = image.byte(record, 1);
+            const u8 kind = image.get(record, model_vertex_buffer_field::kind);
             if (kind < 0x1B || 0x22 < kind)
             {
                 context.streams[size_t(attribute)] = record;
@@ -67,7 +67,7 @@ void select_runtime_model_blend_targets(u32 node, const RuntimeBlendshapeNodeIns
                 }
                 context.streams[size_t(attribute)] = records + found * 0x18;
             }
-            list = image.word(node, 0x20);
+            list = image.get(node, blendshape_node::targets);
             ++attribute;
         } while (attribute < i32(image.word(image.word(list), 0x24)));
     }
@@ -81,7 +81,7 @@ void blend_runtime_model_blendshape(u32 node, RuntimeBlendshapeNodeInstance& ins
     runtime_render_state(context.tree.renderer); // 0x00156DD0
     const auto targets = [&](u32 target)
     {
-        return image.word(image.word(node, 0x20), target * 4); // Node +0x20's target list.
+        return image.word(image.get(node, blendshape_node::targets), target * 4); // Node +0x20's target list.
     };
     const u32 attributes = image.word(targets(0), 0x24);
     for (u32 attribute = 0; attribute < attributes; ++attribute)
@@ -92,16 +92,16 @@ void blend_runtime_model_blendshape(u32 node, RuntimeBlendshapeNodeInstance& ins
         }
         RuntimeBlendshapeVertexBuffer& buffer = instance.buffers[attribute]; // Instance +4, stride 0x18.
         const u32 record = image.word(targets(0), 0x20) + attribute * 0x18;
-        const u8 kind = image.byte(record, 1);
+        const u8 kind = image.get(record, model_vertex_buffer_field::kind);
         if ((context.tree.mask & 1) != 0 && (kind == 9 || kind == 10))
         {
-            const u16 count = image.half(node, 0x24);
+            const u16 count = image.get(node, blendshape_node::target_count);
             float sum = 0.f;
             for (u32 index = 0; index + 1 < count; ++index)
             {
                 sum = sum + instance.weights[index];
             }
-            const u8* source = image.pointer(image.word(record, 0x10));
+            const u8* source = image.pointer(image.get(record, model_vertex_buffer_field::data));
             const u32 size = buffer.words[5]; // +0x14.
             u8* output;
             if (sum == 0.f)
@@ -152,12 +152,12 @@ void dispatch_runtime_model_blendshape(u32 node, RuntimeModelInstanceStorage& st
     RuntimeModelBlendshapeDraw& context)
 {
     const auto& image = context.tree.image;
-    const auto found = storage.blendshape_nodes.find(image.word(node, 0xC));
+    const auto found = storage.blendshape_nodes.find(image.get(node, model_node_field::instance_offset));
     if (found == storage.blendshape_nodes.end())
     {
         throw Error("blend shape draw has no instance copy");
     }
-    if (image.byte(node, 0x26) != 0)
+    if (image.get(node, blendshape_node::blends) != 0)
     {
         blend_runtime_model_blendshape(node, found->second, context); // 0x00157650
     }

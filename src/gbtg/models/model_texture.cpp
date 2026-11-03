@@ -7,23 +7,25 @@ namespace gbtg
 void postload_runtime_texture(const RuntimeRelocationImage& image, u32 texture,
     const RuntimeNodeRelocationBoundaries& d3d)
 {
-    u32 data = image.word(texture, 0x14);
-    image.set_byte(texture, 0x12, 0);
-    image.set_byte(texture, 0x13, u8(-int(image.byte(texture, 0x11) > 1)));
-    if (data != 0 && image.byte(texture, 0x11) != 0)
+    u32 data = image.get(texture, model_texture_field::data);
+    image.set(texture, model_texture_field::frame, 0);
+    image.set(texture, model_texture_field::animated,
+        u8(-int(image.get(texture, model_texture_field::frame_count) > 1)));
+    if (data != 0 && image.get(texture, model_texture_field::frame_count) != 0)
     {
         i32 index = 0;
         u32 offset = 0;
         do
         {
-            const u32 resource = image.word(texture, 4) + offset + texture;
-            d3d.set_texture_header(image.half(texture, 8), image.half(texture, 10),
-                image.byte(texture, 0xF), 0, image.word(texture), 0, resource, 0, 0);
+            const u32 resource = image.get(texture, model_texture_field::frames) + offset + texture;
+            d3d.set_texture_header(
+                image.get(texture, model_texture_field::width), image.get(texture, model_texture_field::height),
+                image.get(texture, model_texture_field::levels), 0, image.word(texture), 0, resource, 0, 0);
             d3d.register_resource(resource, data);
-            data += image.word(texture, 0x18);
+            data += image.get(texture, model_texture_field::frame_size);
             ++index;
-            offset += 0x14;
-        } while (index < i32(image.byte(texture, 0x11)));
+            offset += model_texture_field::kFrameHeaderSize;
+        } while (index < i32(image.get(texture, model_texture_field::frame_count)));
     }
 }
 
@@ -32,7 +34,7 @@ u32 lookup_runtime_model_texture(const RuntimeRelocationImage& image, u32 direct
 {
     u32 position = 0;
     u32 table = 0;
-    if (image.word(directory, 4) != 0)
+    if (image.get(directory, model_directory_field::count) != 0)
     {
         u32 entry = image.word(directory);
         do
@@ -44,10 +46,11 @@ u32 lookup_runtime_model_texture(const RuntimeRelocationImage& image, u32 direct
             }
             ++position;
             entry += 8;
-        } while (position < image.word(directory, 4));
+        } while (position < image.get(directory, model_directory_field::count));
     }
-    const u32 texture = image.word(image.word(table, 4) + index * 4);
-    return image.word(texture, 4) + u32(image.byte(texture, 0x12)) * 0x14 + texture;
+    const u32 texture = image.word(image.get(table, model_texture_table_field::textures) + index * 4);
+    return image.get(texture, model_texture_field::frames) +
+           u32(image.get(texture, model_texture_field::frame)) * model_texture_field::kFrameHeaderSize + texture;
 }
 
 // Xbox 0x001417D0. The code arrives in AL; the locked texture remains locked.
@@ -83,9 +86,9 @@ void postload_runtime_texture_table(const RuntimeRelocationImage& image, u32 tab
     {
         do
         {
-            const u32 texture = image.word(image.word(table, 4) + index * 4);
+            const u32 texture = image.word(image.get(table, model_texture_table_field::textures) + index * 4);
             postload_runtime_texture(image, texture, d3d);
-            const u8 code = image.byte(texture, 0xE);
+            const u8 code = image.get(texture, model_texture_field::code);
             if (code != 0 && code < 0x28)
             {
                 auto& entry = textures[code];
@@ -95,8 +98,8 @@ void postload_runtime_texture_table(const RuntimeRelocationImage& image, u32 tab
                 };
                 entry.model = directory;
                 entry.index = index;
-                entry.width = image.half(texture, 8);
-                entry.height = image.half(texture, 10);
+                entry.width = image.get(texture, model_texture_field::width);
+                entry.height = image.get(texture, model_texture_field::height);
                 entry.format = image.word(texture);
             }
             ++index;
@@ -113,7 +116,8 @@ void unload_runtime_texture_table(const RuntimeRelocationImage& image, u32 table
     {
         do
         {
-            const u8 code = image.byte(image.word(image.word(table, 4) + index * 4), 0xE);
+            const u8 code =
+                image.byte(image.word(image.get(table, model_texture_table_field::textures) + index * 4), 0xE);
             if (code != 0 && code < 0x28)
             {
                 if (code == 0x1E || code == 0x1F)

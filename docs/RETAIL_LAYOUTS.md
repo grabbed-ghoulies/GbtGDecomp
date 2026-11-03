@@ -215,6 +215,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Bounded channel (a value moved between limits: 0x00101980, 0x00101A40, 0x00101B00; three in a row for 0x001062E0, 0x001063D0, 0x00106590) | 0x14 | `bounded_channel_field`: lower, upper, rate, value, mode | `src/engine/entities/bounded_channels.h` |
 | Trail record and type (DAT_005068D8, 50 records; DAT_005068E0, four types from aid_misc_ghoulies_fx_cheap_dust) | 0x84 / 0xA0 | `effect_trail_field`: colour channels, scale, size and its target and rate, frames (a bounded channel), phase, type, phase time, life, next free; `effect_trail_type_field`: texture address and name, two colours, start and end size, frame rate; `effect_trail_pool`, `effect_trail_types` | `src/engine/graphics/effect_trails.h` |
 | Model image records (read by address through `RuntimeRelocationImage::get` / `set`) | varies | The directory and its entries, the tree block and tree, the node header (`model_node_field`: type name and index, mask, instance offset, descriptor, child, next) and each node type (`vertex_buffer_node`, `blendshape_node`, `vertex_shader_node`, `push_buffer_node`, `skeleton_node`, `transform_node`, `shader_node`, `matrix_array_node`, `rigid_skin_node`), the node type registry entry, vertex buffer, joint, pixel shader, material (with its stages, constants and entries), texture and its table, and the geometry block and stream. Directory blocks 0xE, 0x11, 0x16 and 0x18, the physics records and the name and pointer lists are only relocated and stay by offset | `include/gbtg/model_nodes.h` |
+| Actor effect (an emitter, 0x000ED1C0; `ActorEffectNode::bytes`) | 0x390 plus 0x150 per particle | `actor_effect_field`: particle counts and free head, emitting, emit timer, life, ticks, flags, position and its previous and tick copies, emit point, motion, euler, spin, jitter, offset, velocity, particle size, volume euler and spin, scale, binding, the emission volume and its angles, velocity mode, speed and angle ranges, script, command, draw and depth modes, texture and its frames, model | `src/engine/graphics/actor_effect_nodes.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
 The camera mind was checked with `--player-opening` and headless captures of `chapter1_scene1_2playcam` at 300 and
@@ -380,6 +381,12 @@ variable, in the relocation, the views, the texture post-load and the node draws
 with different meanings, so each function's variables map to one node type. Reads of a 32-bit count's low half
 (`image.half` of a target's buffer count, the vertex shader's registers) are written as `u16(get(...))`. All 602
 captures of the ten regular modes are byte-identical to the previous build; every mode loads and draws models.
+
+The actor effect was named in its placement, tick, binding, particle, draw, texture, node and stream code. The
+stream and setup copy words between integer and float fields, so their writes go through `store_effect_field`, which
+stores the value's bits unchanged into a named field (or one element of it). The particle draws' oscillation and
+bounded-channel reads (particle +0xE8.., +0x118..) stay by offset until the particle's oscillation block is named.
+All ten regular modes are byte-identical to the previous build apart from `scene6_title.bmp`'s known variant.
 
 ## Next
 

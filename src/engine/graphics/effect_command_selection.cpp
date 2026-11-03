@@ -64,15 +64,15 @@ u32 find_actor_effect_fallback_command(std::span<const u8> particle, ActorEffect
         {
             if (read_u32(command, 4) == 0x1B5E)
             {
-                std::memcpy(effect.bytes.data() + 0x138, &previous, 4);
+                set(effect.bytes, actor_effect_field::command, previous);
                 previous = read_u32(command, 0) + address;
             }
             address += read_u32(command, 0);
             command = resolve(address);
         }
         while (read_u32(command, 4) != 2);
-        return read_u32(effect.bytes, 0x138);
+        return get(effect.bytes, actor_effect_field::command);
     }
-    return read_u32(effect.bytes, 0x138);
+    return get(effect.bytes, actor_effect_field::command);
 }
 }

@@ -1,4 +1,5 @@
 #include "actor_effect_draw.h"
+#include "effect_particles.h"
 #include "world_sprite_passes.h"
 #include "../camera/runtime_display_setup.h"
 #include "../frontend/dialogue_draw_context.h"
@@ -236,20 +237,23 @@ void draw_actor_effect_model(ActorEffectNode& effect, size_t particle, u32 model
 i32 draw_actor_effect_particles(ActorEffectNode& effect, BillboardQueue& queue, RuntimeDisplaySetupContext& display,
     SceneModelDrawContext& models, u32 model_cpu)
 {
-    const u32 type = read_u32(effect.bytes, 0x13C);
+    const u32 type = get(effect.bytes, actor_effect_field::draw_mode);
     if (type == 2)
     {
         begin_world_sprite_draw(display);
-        set_world_sprite_depth_mode(read_u32(effect.bytes, 0x140), display);
+        set_world_sprite_depth_mode(get(effect.bytes, actor_effect_field::depth_mode), display);
     }
     i32 drawn = 0;
-    const i32 count = static_cast<i16>(read_u16(effect.bytes, 2));
+    const i32 count = static_cast<i16>(get(effect.bytes, actor_effect_field::capacity));
     u32 index = 0;
     if (0 < count)
     {
         do
         {
-            if (static_cast<i16>(read_u16(effect.bytes, 0x390 + size_t(index & 0xFFFF) * 0x150 + 0x5A)) == -2)
+            const auto particle = effect.bytes.subspan(
+                actor_effect_field::particles_offset + size_t(index & 0xFFFF) * effect_particle_field::kSize,
+                effect_particle_field::kSize);
+            if (static_cast<i16>(get(particle, effect_particle_field::next_free)) == -2)
             {
                 switch (type)
                 {

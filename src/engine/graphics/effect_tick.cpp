@@ -13,33 +13,32 @@ namespace gbtg
 {
 namespace
 {
-void set_number(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 void recycle_particle(ActorEffectNode& effect, std::span<u8> particle)
 {
-    const u16 head = read_u16(effect.bytes, 6);
-    std::memcpy(particle.data() + 0x5A, &head, 2);
-    const i32 displacement = i32(particle.data() - effect.bytes.data()) - 0x390;
-    const u16 index = u16(displacement / 0x150);
-    const u16 active = u16(read_u16(effect.bytes, 0) - 1);
-    std::memcpy(effect.bytes.data(), &active, 2);
-    std::memcpy(effect.bytes.data() + 6, &index, 2);
+    const u16 head = get(effect.bytes, actor_effect_field::free_head);
+    set(particle, effect_particle_field::next_free, head);
+    const i32 displacement = i32(particle.data() - effect.bytes.data()) - i32(actor_effect_field::particles_offset);
+    const u16 index = u16(displacement / i32(effect_particle_field::kSize));
+    const u16 active = u16(get(effect.bytes, actor_effect_field::used_count) - 1);
+    set(effect.bytes, actor_effect_field::used_count, active);
+    set(effect.bytes, actor_effect_field::free_head, index);
 }
 void advance_emitter_channels(ActorEffectNode& effect, float step, bool divided)
 {
+    float* const spin = &field_data(effect.bytes, actor_effect_field::spin)->x;
+    const Vec3 spin_rate = get(effect.bytes, actor_effect_field::spin_rate);
+    const float* const rates = &spin_rate.x;
     for (size_t axis = 0; axis < 3; ++axis)
     {
-        const size_t offset = axis * 4;
-        set_number(effect.bytes, 0x5C + offset,
-            read_f32(effect.bytes, 0x68 + offset) * step + read_f32(effect.bytes, 0x5C + offset));
+        spin[axis] = rates[axis] * step + spin[axis];
     }
-    set_number(effect.bytes, 0xA0, read_f32(effect.bytes, 0xAC) * step + read_f32(effect.bytes, 0xA0));
+    Vec3* const euler = field_data(effect.bytes, actor_effect_field::volume_euler);
+    const Vec3 rate = get(effect.bytes, actor_effect_field::volume_spin_rate);
+    euler->x = rate.x * step + euler->x;
     // The divided path reverses MULSS operands for the middle channel.
-    const float middle = divided ? step * read_f32(effect.bytes, 0xB0) : read_f32(effect.bytes, 0xB0) * step;
-    set_number(effect.bytes, 0xA4, middle + read_f32(effect.bytes, 0xA4));
-    set_number(effect.bytes, 0xA8, read_f32(effect.bytes, 0xB4) * step + read_f32(effect.bytes, 0xA8));
+    const float middle = divided ? step * rate.y : rate.y * step;
+    euler->y = middle + euler->y;
+    euler->z = rate.z * step + euler->z;
 }
 }
 
@@ -50,7 +49,7 @@ void spawn_and_simulate_actor_effect_particle(ActorEffectNode& effect, float ste
     auto& simulation = context.simulation;
     u32& random = simulation.commands.effects.random_state;
     u8* allocated = allocate_actor_effect_particle(effect, context.address(effect.bytes.data()),
-        read_u32(effect.bytes, 0x134), random, simulation.pal, simulation.override_pal);
+        get(effect.bytes, actor_effect_field::script), random, simulation.pal, simulation.override_pal);
     if (allocated != nullptr)
     {
         const std::span<u8> particle{allocated, 0x150};
@@ -69,7 +68,7 @@ void tick_active_actor_effect_particles(ActorEffectNode& effect, float step,
     RuntimeEffectTickContext& context)
 {
     u32 iteration = 0;
-    if (i16(read_u16(effect.bytes, 2)) > 0)
+    if (i16(get(effect.bytes, actor_effect_field::capacity)) > 0)
     {
         u32 index = 0;
         do
@@ -96,7 +95,7 @@ void tick_active_actor_effect_particles(ActorEffectNode& effect, float step,
             ++iteration;
             index = iteration & 0xFFFFu;
         }
-        while (i32(index) < i16(read_u16(effect.bytes, 2)));
+        while (i32(index) < i16(get(effect.bytes, actor_effect_field::capacity)));
     }
 }
 
@@ -104,35 +103,30 @@ void tick_active_actor_effect_particles(ActorEffectNode& effect, float step,
 bool tick_actor_effect(ActorEffectNode& effect, float step,
     RuntimeEffectTickContext& context)
 {
-    const float duration = read_f32(effect.bytes, 0x10);
+    const float duration = get(effect.bytes, actor_effect_field::life);
     if (duration != -1.f)
     {
         if (duration > 0.f)
         {
-            set_number(effect.bytes, 0x10, duration - step);
+            set(effect.bytes, actor_effect_field::life, duration - step);
         }
         else
         {
-            set_number(effect.bytes, 8, -1.f);
+            set(effect.bytes, actor_effect_field::emitting, -1.f);
         }
     }
-    if ((effect.bytes[0x18] & 0x80) != 0)
+    if ((get(effect.bytes, actor_effect_field::flags) & 0x80) != 0)
     {
         float yaw, pitch;
         const Vec3& direction = context.camera_direction;
         direction_to_yaw_pitch(direction.x, direction.y, direction.z, yaw, pitch);
-        set_number(effect.bytes, 0x50, pitch);
-        set_number(effect.bytes, 0x54, yaw);
-        set_number(effect.bytes, 0x58, 0.f);
-        set_number(effect.bytes, 0xA0, pitch);
-        set_number(effect.bytes, 0xA4, yaw);
-        set_number(effect.bytes, 0xA8, 0.f);
+        set(effect.bytes, actor_effect_field::euler, Vec3{pitch, yaw, 0.f});
+        set(effect.bytes, actor_effect_field::volume_euler, Vec3{pitch, yaw, 0.f});
     }
-    std::memcpy(effect.bytes.data() + 0x370, effect.bytes.data() + 0x1C, 12);
-    if (read_u32(effect.bytes, 0x14) == 0)
+    set(effect.bytes, actor_effect_field::tick_position, get(effect.bytes, actor_effect_field::position));
+    if (get(effect.bytes, actor_effect_field::ticks) == 0)
     {
-        const u32 first = 1;
-        std::memcpy(effect.bytes.data() + 0x14, &first, 4);
+        set(effect.bytes, actor_effect_field::ticks, 1);
     }
     else
     {
@@ -144,9 +138,9 @@ bool tick_actor_effect(ActorEffectNode& effect, float step,
         else
         {
             const float substep = step / count;
-            const bool stationary = read_f32(effect.bytes, 0x28) == read_f32(effect.bytes, 0x1C)
-                && read_f32(effect.bytes, 0x2C) == read_f32(effect.bytes, 0x20)
-                && read_f32(effect.bytes, 0x30) == read_f32(effect.bytes, 0x24);
+            const Vec3 previous = get(effect.bytes, actor_effect_field::previous_position);
+            const Vec3 current = get(effect.bytes, actor_effect_field::position);
+            const bool stationary = previous.x == current.x && previous.y == current.y && previous.z == current.z;
             if (stationary)
             {
                 i32 iteration = 0;
@@ -160,7 +154,7 @@ bool tick_actor_effect(ActorEffectNode& effect, float step,
             }
             else
             {
-                const Vec3 position{read_f32(effect.bytes, 0x1C), read_f32(effect.bytes, 0x20), read_f32(effect.bytes, 0x24)};
+                const Vec3 position = get(effect.bytes, actor_effect_field::position);
                 i32 iteration = 0;
                 if (count > 0.f)
                 {
@@ -177,9 +171,15 @@ bool tick_actor_effect(ActorEffectNode& effect, float step,
                             fraction = 0.f;
                         }
                         const float complement = 1.f - fraction;
-                        set_number(effect.bytes, 0x1C, read_f32(effect.bytes, 0x28) * complement + position.x * fraction);
-                        set_number(effect.bytes, 0x20, position.y * fraction + complement * read_f32(effect.bytes, 0x2C));
-                        set_number(effect.bytes, 0x24, position.z * fraction + complement * read_f32(effect.bytes, 0x30));
+                        field_data(effect.bytes, actor_effect_field::position)->x =
+                            get(effect.bytes, actor_effect_field::previous_position).x * complement +
+                            position.x * fraction;
+                        field_data(effect.bytes, actor_effect_field::position)->y =
+                            position.y * fraction +
+                            complement * get(effect.bytes, actor_effect_field::previous_position).y;
+                        field_data(effect.bytes, actor_effect_field::position)->z =
+                            position.z * fraction +
+                            complement * get(effect.bytes, actor_effect_field::previous_position).z;
                         prepare_actor_effect_binding(effect, step, context.address);
                         advance_emitter_channels(effect, substep, true);
                         spawn_and_simulate_actor_effect_particle(effect, substep, context);
@@ -187,18 +187,20 @@ bool tick_actor_effect(ActorEffectNode& effect, float step,
                     }
                     while (count > float(iteration));
                 }
-                std::memcpy(effect.bytes.data() + 0x1C, &position, 12);
+                set(effect.bytes, actor_effect_field::position, position);
             }
         }
     }
     tick_active_actor_effect_particles(effect, step, context);
-    if ((effect.bytes[0x18] & 8) != 0
-        && (read_u16(effect.bytes, 4) == read_u16(effect.bytes, 2)
-            || (read_f32(effect.bytes, 8) == -1.f && i16(read_u16(effect.bytes, 0)) == i16(read_u16(effect.bytes, 4)))))
+    if ((get(effect.bytes, actor_effect_field::flags) & 8) != 0 &&
+        (get(effect.bytes, actor_effect_field::free_count) == get(effect.bytes, actor_effect_field::capacity) ||
+         (get(effect.bytes, actor_effect_field::emitting) == -1.f &&
+          i16(get(effect.bytes, actor_effect_field::used_count)) ==
+              i16(get(effect.bytes, actor_effect_field::free_count)))))
     {
         return false;
     }
-    std::memcpy(effect.bytes.data() + 0x28, effect.bytes.data() + 0x1C, 12);
+    set(effect.bytes, actor_effect_field::previous_position, get(effect.bytes, actor_effect_field::position));
     return true;
 }
 }

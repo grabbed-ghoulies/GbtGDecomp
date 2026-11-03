@@ -110,13 +110,12 @@ float runtime_actor_matrix_reach(const Actor& actor, ActorMatrixSetup& matrices)
         matrices.progress = 0.f;
         for (i32 index = 0; index < matrices.matrices.count; ++index)
         {
-            const auto record =
-                matrices.matrices.records.subspan(size_t(index) * actor_matrix_field::kSize, actor_matrix_field::kSize);
-            if (get(record, actor_matrix_field::active) == 0)
+            const ActorMatrixRecord& record = matrices.matrices.records[size_t(index)];
+            if (record.active == 0)
             {
                 continue;
             }
-            const Vec3 translation = get(record, actor_matrix_field::translation);
+            const Vec3 translation = record.translation;
             const float dx = position.x - translation.x;
             const float dy = position.y - translation.y;
             const float dz = position.z - translation.z;

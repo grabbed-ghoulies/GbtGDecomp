@@ -187,17 +187,17 @@ void turn_runtime_body_toward_damage(Actor& actor, const Actor& source, std::spa
 
 // Xbox 0x00022400
 void push_runtime_body_from_damage(Actor& actor, u32 actor_address,
-    std::span<const u8> damage, std::span<const u8> attributes, u32 key,
+    const BodyDamage& damage, std::span<const u8> attributes, u32 key,
     RuntimeBodyAttachedActor* first_source, RuntimeBodyAttachedActor* second_source,
     const RuntimeBodyDamageTables& tables, std::span<const u8> keys)
 {
     const float value =
-        runtime_body_damage_push_amount(actor, get(damage, body_damage_field::source_class), key, tables, keys);
+        runtime_body_damage_push_amount(actor, damage.source_class, key, tables, keys);
     const float factor = attributes.data() == nullptr ? 1.f : read_f32(attributes, 0x19C);
     const float amount = factor * value;
     if (amount != 0.f)
     {
-        const Vec3 direction = get(damage, body_damage_field::direction);
+        const Vec3 direction = damage.direction;
         float angle;
         runtime_direction_angle(direction, angle);
         const float x = float(retail_sin(angle) * static_cast<long double>(amount));

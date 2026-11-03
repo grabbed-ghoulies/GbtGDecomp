@@ -69,18 +69,18 @@ u32 nearest_contact_flags(const entity_detail::SegmentPool& contacts, const Acto
 
 // Xbox 0x000226C0
 bool runtime_body_damage_classified(std::span<const u8> body, const Actor& actor,
-    std::span<const u8> damage, const entity_detail::SegmentPool* contacts,
+    const BodyDamage& damage, const entity_detail::SegmentPool* contacts,
     const Actor* contact_actor, const Actor* source, u32 source_live,
     u32 player_damage, const RuntimeBodyDamageTables& tables,
     std::span<const u8> keys)
 {
-    if (contacts == nullptr || get(damage, body_damage_field::kind) == 0x12)
+    if (contacts == nullptr || damage.kind == 0x12)
     {
         return false;
     }
     if ((runtime_actor_physical_shape_flags(actor) & 0x20000) != 0 &&
         runtime_body_damage_amount(body, actor, source, source_live, player_damage,
-            get(damage, body_damage_field::key), get(damage, body_damage_field::source_class), tables, keys) == 0)
+            damage.key, damage.source_class, tables, keys) == 0)
     {
         return true;
     }
@@ -97,7 +97,7 @@ bool runtime_body_damage_classified(std::span<const u8> body, const Actor& actor
     {
         return true;
     }
-    return ((nearest_contact_flags(*contacts, *contact_actor, get(damage, body_damage_field::position).y) >> 0x11) &
+    return ((nearest_contact_flags(*contacts, *contact_actor, damage.position.y) >> 0x11) &
             1) != 0;
 }
 

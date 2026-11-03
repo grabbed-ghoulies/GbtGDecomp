@@ -756,7 +756,7 @@ void SceneActorServices::update_effects(RuntimeEffectPassScratch& scratch)
     auto& state = *state_;
     state.frame_delta = state.game.clock.dt;
     state.pal = state.game.clock.pal ? 1 : 0;
-    RuntimeEffectDebris debris{{state.debris_pool->particles, effect_debris_pool.size}, state.debris_pool->types,
+    RuntimeEffectDebris debris{{state.debris_pool->particles, kEffectDebrisCount}, state.debris_pool->types,
         state.debris_pool->free_head, state.game.clock.frame, state.random};
     const Vec3 plane{read_f32(state.data(0x00433FFC, 12), 0),
         read_f32(state.data(0x00433FFC, 12), 4), read_f32(state.data(0x00433FFC, 12), 8)};

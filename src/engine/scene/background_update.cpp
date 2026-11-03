@@ -1,4 +1,5 @@
 #include "background_update.h"
+#include "../graphics/effect_particles.h"
 #include "../graphics/point_graph_solver.h"
 #include "../graphics/d3dx_matrix.h"
 #include "../entities/euler_wrapping.h"
@@ -61,23 +62,24 @@ void update_background_animation(RuntimeBackgroundConstruction& background,
                     {
                         const i32 signed_index = i16(particle_index);
                         const auto particle = background.lifetime.effect->bytes.subspan(
-                            size_t(0x390 + signed_index * 0x150), 0x150);
+                            size_t(i32(actor_effect_field::particles_offset)
+                                + signed_index * i32(effect_particle_field::kSize)),
+                            effect_particle_field::kSize);
                         const u8 node = header[table + item];
-                        std::span<u8> matrix{background.matrices.allocation + size_t(node) * 0x48, 0x48};
-                        std::memcpy(matrix.data() + 4, particle.data(), 12);
+                        ActorMatrixRecord& matrix = actor_matrix_records(background.matrices)[node];
+                        matrix.translation = get(particle, effect_particle_field::position);
                         background.matrices.progress = 0.f;
                         background.matrices.flags = 0;
                         store_word(background.fields, 0x29C, 0);
                         store_word(background.fields, 0x2A0, 0);
-                        store_word(matrix, 0x44, 1);
-                        std::memcpy(matrix.data() + 0x10, particle.data() + 0xC, 12);
-                        Vec3 euler;
-                        std::memcpy(&euler, matrix.data() + 0x10, 12);
+                        matrix.active = 1;
+                        matrix.euler = get(particle, effect_particle_field::euler);
+                        Vec3 euler = matrix.euler;
                         wrap_runtime_euler_angles(euler);
-                        std::memcpy(matrix.data() + 0x10, &euler, 12);
+                        matrix.euler = euler;
                         ++item;
                         ++particle_index;
-                        store_word(matrix, 0x44, 1);
+                        matrix.active = 1;
                     }
                     while (item < header[descriptor + 0x16]);
                 }

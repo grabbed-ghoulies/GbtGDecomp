@@ -160,7 +160,8 @@ void draw_world_sprite_quad(i32 frame, u8* texture, const Vec3* position, const 
 }
 
 // Xbox 0x000EC470
-void draw_effect_debris(std::span<const u8> particles, std::span<const std::span<const u8>, 10> textures,
+void draw_effect_debris(std::span<const EffectDebrisRecord> particles,
+    std::span<const std::span<const u8>, 10> textures,
     RuntimeDisplaySetupContext& c)
 {
     if (particles.data() == nullptr)
@@ -177,30 +178,30 @@ void draw_effect_debris(std::span<const u8> particles, std::span<const std::span
     size_t index = 0;
     do
     {
-        const auto particle = record(particles, effect_debris_pool, index);
-        const float scale = get(particle, effect_debris_field::growth) * get(particle, effect_debris_field::size);
+        const EffectDebrisRecord& particle = particles[index];
+        const float scale = particle.growth * particle.size;
         const std::array<float, 2> size{scale, scale};
-        if (get(particle, effect_debris_field::next_free) == -2)
+        if (particle.next_free == -2)
         {
             // Four 0x001673D8 truncations, each keeping its low byte: red .. alpha.
-            const auto channels = record(particle, effect_debris_field::channels);
+            const auto channels = std::span<const u8>(particle.channels);
             const u32 color = u32(u8(truncate_runtime_float(get(channels, effect_channel_field::red))))
                 | u32(u8(truncate_runtime_float(get(channels, effect_channel_field::green)))) << 8
                 | u32(u8(truncate_runtime_float(get(channels, effect_channel_field::blue)))) << 16
                 | u32(u8(truncate_runtime_float(get(channels, effect_channel_field::alpha)))) << 24;
             // ECX the record's type row's +0x80 texture in DAT_005068E8, EDI the record, EBX its +0xC.
-            const u32 type = get(particle, effect_debris_field::type);
+            const u32 type = particle.type;
             if (type >= textures.size() || textures[type].data() == nullptr)
             {
                 throw Error("debris record type " + std::to_string(type) + " has no +0x80 texture view");
             }
-            const Vec3 position = get(particle, effect_debris_field::position);
-            const Vec3 euler = get(particle, effect_debris_field::euler);
+            const Vec3 position = particle.position;
+            const Vec3 euler = particle.euler;
             draw_world_sprite_quad(0, const_cast<u8*>(textures[type].data()), &position, &euler, size.data(), color,
                 c); // 0x0005CF90, EAX 0
         }
         ++index;
-    } while (index < effect_debris_pool.count);
+    } while (index < kEffectDebrisCount);
     bind_display_projection(c);
     if (--draw.override_count == 0)
     {

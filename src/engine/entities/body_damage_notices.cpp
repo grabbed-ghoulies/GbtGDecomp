@@ -98,19 +98,19 @@ u8 runtime_player_damage_enabled(const Actor& actor,
 }
 
 // Xbox 0x000211D0
-void adjust_runtime_body_damage_kind(std::span<u8> damage,
+void adjust_runtime_body_damage_kind(BodyDamage& damage,
     std::span<const u8> attributes, const EntityBitBlock& flags)
 {
     if (attributes.data() != nullptr && attributes[0x1A3] != 0 && (flags.bytes[3] & 2) == 0)
     {
-        const u8 kind = get(damage, body_damage_field::kind);
+        const u8 kind = damage.kind;
         if (kind != 3)
         {
             if (kind == 4)
             {
-                set(damage, body_damage_field::kind, 2);
-                set(damage, body_damage_field::key, 0x34);
-                set(damage, body_damage_field::push_key, 0x65);
+                damage.kind = 2;
+                damage.key = 0x34;
+                damage.push_key = 0x65;
                 return;
             }
             if (kind != 7)
@@ -118,9 +118,9 @@ void adjust_runtime_body_damage_kind(std::span<u8> damage,
                 return;
             }
         }
-        set(damage, body_damage_field::kind, 1);
-        set(damage, body_damage_field::key, 0x33);
-        set(damage, body_damage_field::push_key, 0x65);
+        damage.kind = 1;
+        damage.key = 0x33;
+        damage.push_key = 0x65;
     }
 }
 

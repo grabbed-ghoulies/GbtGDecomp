@@ -1,4 +1,5 @@
 #pragma once
+#include "body_damage_fields.h"
 #include "gbtg/entity.h"
 #include <span>
 
@@ -10,7 +11,7 @@ u8 runtime_player_damage_enabled(const Actor& actor,
 u32 subtract_runtime_body_damage_health(std::span<u8> body, const Actor& actor,
     const EntityBitBlock& flags, u32 amount, u32 double_damage,
     std::span<const u32, 2> blocked, std::span<const u8> modes, u32 mode); // Xbox 0x00021120
-void adjust_runtime_body_damage_kind(std::span<u8> damage,
+void adjust_runtime_body_damage_kind(BodyDamage& damage,
     std::span<const u8> attributes, const EntityBitBlock& flags); // Xbox 0x000211D0
 void set_runtime_body_damage_sources(std::span<u8> body, u32 kind,
     u32 amount, u32 first, u32 second, u32 third, u32 increment); // Xbox 0x00024370

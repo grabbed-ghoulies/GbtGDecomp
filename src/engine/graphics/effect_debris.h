@@ -11,23 +11,23 @@
 namespace gbtg
 {
 // A debris record (0x74 bytes, 50 in DAT_005068EC): a splat that grows, holds and fades (phases 1..3).
-namespace effect_debris_field
+struct EffectDebrisRecord
 {
-constexpr RetailField<Vec3, 0x00> position{};
-constexpr RetailField<Vec3, 0x0C> euler{};
-constexpr RetailField<float, 0x18> size{}; // drawn from the type's size range
-constexpr RetailField<float, 0x1C> growth_rate{};
-constexpr RetailField<float, 0x20> growth{}; // the size's scale, from 1 towards the type's growth
-constexpr RetailRecord<0x24, 0x3C> channels{}; // effect_channel_field
-constexpr RetailField<u8, 0x60> phase{};
-constexpr RetailField<float, 0x64> phase_time{}; // the phase's time left
-constexpr RetailField<i32, 0x68> next_free{}; // the next free record; -2 while live, -1 at the end
-constexpr RetailField<u32, 0x6C> type{};
-constexpr RetailField<u32, 0x70> frame{}; // the frame it was allocated (the oldest is taken when none is free)
-constexpr u32 kSize = 0x74;
-static_assert(retail_fits(kSize, frame));
-} // namespace effect_debris_field
-constexpr RetailRecord<0, effect_debris_field::kSize, 50> effect_debris_pool{};
+    Vec3 position{}; // +0
+    Vec3 euler{}; // +0xC
+    float size = 0.f; // +0x18, drawn from the type's size range
+    float growth_rate = 0.f; // +0x1C
+    float growth = 0.f; // +0x20, the size's scale, from 1 towards the type's growth
+    std::array<u8, 0x3C> channels{}; // +0x24, effect_channel_field (the channel functions take its bytes)
+    u8 phase = 0; // +0x60
+    std::array<u8, 3> unk_61{}; // +0x61, never read or written
+    float phase_time = 0.f; // +0x64, the phase's time left
+    i32 next_free = 0; // +0x68, the next free record; -2 while live, -1 at the end
+    u32 type = 0; // +0x6C
+    u32 frame = 0; // +0x70, the frame it was allocated (the oldest is taken when none is free)
+};
+static_assert(sizeof(EffectDebrisRecord) == 0x74);
+constexpr size_t kEffectDebrisCount = 50;
 
 // A debris type (0xAC bytes, ten in aid_misc_ghoulies_fx_cheap_splat). The ranges are low and high.
 namespace effect_debris_type_field
@@ -47,7 +47,7 @@ constexpr RetailRecord<0, effect_debris_type_field::kSize, 10> effect_debris_typ
 
 struct RuntimeEffectDebrisStorage
 {
-    u8* particles = nullptr; // DAT_005068EC.
+    EffectDebrisRecord* particles = nullptr; // DAT_005068EC.
     std::span<const u8> types; // DAT_005068E8.
     std::array<std::span<const u8>, 10> textures; // Native views of type +0x80.
     i32 free_head = 0; // DAT_005068F0.
@@ -59,17 +59,17 @@ void release_effect_debris(RuntimeEffectDebrisStorage& storage,
     AnimationResourceRegistry& registry); // Xbox 0x000EC3A0
 struct RuntimeEffectDebris
 {
-    std::span<u8> particles; // DAT_005068EC, 50 records of 0x74 bytes.
+    std::span<EffectDebrisRecord> particles; // DAT_005068EC.
     std::span<const u8> types; // DAT_005068E8, stride 0xAC.
     i32& free_head; // DAT_005068F0.
     const u32& frame; // DAT_004DEA58.
     u32& random; // DAT_0054DD7C.
 };
 i32 oldest_effect_debris(const RuntimeEffectDebris& context); // Xbox 0x000EBD80
-std::span<u8> allocate_effect_debris(RuntimeEffectDebris& context); // Xbox 0x000EBDB0
-void set_effect_debris_phase(std::span<u8> particle, i32 phase,
+EffectDebrisRecord* allocate_effect_debris(RuntimeEffectDebris& context); // Xbox 0x000EBDB0
+void set_effect_debris_phase(EffectDebrisRecord& particle, i32 phase,
     RuntimeEffectDebris& context); // Xbox 0x000EBE50
-void tick_effect_debris(std::span<u8> particle, RuntimeEffectDebris& context,
+void tick_effect_debris(EffectDebrisRecord& particle, RuntimeEffectDebris& context,
     const RuntimeActorClock& clock); // Xbox 0x000EC0B0
 void spawn_effect_debris(i32 type, const Vec3& position, const Vec3& euler,
     RuntimeEffectDebris& context); // Xbox 0x000EC580

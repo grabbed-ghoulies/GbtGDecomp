@@ -1,4 +1,5 @@
 #pragma once
+#include "body_damage_fields.h"
 #include "body_damage_notices.h"
 #include "entity_types.h"
 
@@ -13,7 +14,7 @@ bool runtime_body_contact_damage_blocked(const EntityBitBlock& flags,
     const entity_detail::SegmentPool* contacts, const Actor* contact_actor,
     float contact_y); // Xbox 0x00022870
 bool runtime_body_damage_classified(std::span<const u8> body, const Actor& actor,
-    std::span<const u8> damage, const entity_detail::SegmentPool* contacts,
+    const BodyDamage& damage, const entity_detail::SegmentPool* contacts,
     const Actor* contact_actor, const Actor* source, u32 source_live,
     u32 player_damage, const RuntimeBodyDamageTables& tables,
     std::span<const u8> keys); // Xbox 0x000226C0

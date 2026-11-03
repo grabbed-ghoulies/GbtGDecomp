@@ -328,21 +328,21 @@ void refresh_actor_model_matrices(const Actor& actor, RuntimeActorMatrixState& s
         std::memcpy(inverse.data(), actor.xform_inv, sizeof(actor.xform_inv));
         for (i32 index = 0; index < state.count; ++index)
         {
-            const auto record = state.records.subspan(index * actor_matrix_field::kSize, actor_matrix_field::kSize);
+            const ActorMatrixRecord& record = state.records[size_t(index)];
             RuntimeShaderMatrix result;
-            if (get(record, actor_matrix_field::has_second_euler) == 0)
+            if (record.has_second_euler == 0)
             {
-                if (get(record, actor_matrix_field::active) != 0 || force != 0)
+                if (record.active != 0 || force != 0)
                 {
                     RuntimeShaderMatrix center, translation, x, y, z;
-                    const Vec3 origin = get(record, actor_matrix_field::center);
+                    const Vec3 origin = record.center;
                     boundaries.translation(center, origin.x, origin.y, origin.z);
-                    const Vec3 offset = get(record, actor_matrix_field::translation);
+                    const Vec3 offset = record.translation;
                     boundaries.translation(translation, offset.x, offset.y, offset.z);
-                    runtime_shader_rotation(x, 'x', get(record, actor_matrix_field::euler).x, boundaries);
-                    runtime_shader_rotation(y, 'y', get(record, actor_matrix_field::euler).y, boundaries);
-                    runtime_shader_rotation(z, 'z', get(record, actor_matrix_field::euler).z, boundaries);
-                    const Vec3 scale = get(record, actor_matrix_field::scale);
+                    runtime_shader_rotation(x, 'x', record.euler.x, boundaries);
+                    runtime_shader_rotation(y, 'y', record.euler.y, boundaries);
+                    runtime_shader_rotation(z, 'z', record.euler.z, boundaries);
+                    const Vec3 scale = record.scale;
                     boundaries.scaling(result, scale.x, scale.y, scale.z);
                     multiply_runtime_matrix(y, y, translation);
                     multiply_runtime_matrix(x, x, y);
@@ -352,20 +352,20 @@ void refresh_actor_model_matrices(const Actor& actor, RuntimeActorMatrixState& s
                     write_runtime_model_matrix(state.node, state.instance, index, result);
                 }
             }
-            else if (get(record, actor_matrix_field::active) != 0 || force != 0)
+            else if (record.active != 0 || force != 0)
             {
                 RuntimeShaderMatrix center, translation, x, y, z, second_x, second_y, second_z;
-                const Vec3 origin = get(record, actor_matrix_field::center);
+                const Vec3 origin = record.center;
                 boundaries.translation(center, origin.x, origin.y, origin.z);
-                const Vec3 offset = get(record, actor_matrix_field::translation);
+                const Vec3 offset = record.translation;
                 boundaries.translation(translation, offset.x, offset.y, offset.z);
-                runtime_shader_rotation(x, 'x', get(record, actor_matrix_field::euler).x, boundaries);
-                runtime_shader_rotation(y, 'y', get(record, actor_matrix_field::euler).y, boundaries);
-                runtime_shader_rotation(z, 'z', get(record, actor_matrix_field::euler).z, boundaries);
-                runtime_shader_rotation(second_x, 'x', get(record, actor_matrix_field::second_euler).x, boundaries);
-                runtime_shader_rotation(second_y, 'y', get(record, actor_matrix_field::second_euler).y, boundaries);
-                runtime_shader_rotation(second_z, 'z', get(record, actor_matrix_field::second_euler).z, boundaries);
-                const Vec3 scale = get(record, actor_matrix_field::scale);
+                runtime_shader_rotation(x, 'x', record.euler.x, boundaries);
+                runtime_shader_rotation(y, 'y', record.euler.y, boundaries);
+                runtime_shader_rotation(z, 'z', record.euler.z, boundaries);
+                runtime_shader_rotation(second_x, 'x', record.second_euler.x, boundaries);
+                runtime_shader_rotation(second_y, 'y', record.second_euler.y, boundaries);
+                runtime_shader_rotation(second_z, 'z', record.second_euler.z, boundaries);
+                const Vec3 scale = record.scale;
                 boundaries.scaling(result, scale.x, scale.y, scale.z);
                 multiply_runtime_matrix(y, y, translation);
                 multiply_runtime_matrix(x, x, y);

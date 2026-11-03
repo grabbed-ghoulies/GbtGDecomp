@@ -22,42 +22,41 @@ float sample_range(const std::array<float, 2>& range, u32& random)
     return (upper - lower) * fraction + lower;
 }
 
-std::span<const u8> debris_type(std::span<const u8> particle, const RuntimeEffectDebris& context)
+std::span<const u8> debris_type(const EffectDebrisRecord& particle, const RuntimeEffectDebris& context)
 {
-    return record(context.types, effect_debris_types, get(particle, effect_debris_field::type));
+    return record(context.types, effect_debris_types, particle.type);
 }
 }
 
 // Xbox 0x000EC0B0
-void tick_effect_debris(std::span<u8> particle, RuntimeEffectDebris& context,
+void tick_effect_debris(EffectDebrisRecord& particle, RuntimeEffectDebris& context,
     const RuntimeActorClock& clock)
 {
     const float step = runtime_frame_step(clock);
-    const auto channels = record(particle, effect_debris_field::channels);
+    const auto channels = std::span<u8>(particle.channels);
     approach_actor_effect_channels(channels, clock);
-    switch (get(particle, effect_debris_field::phase))
+    switch (particle.phase)
     {
     case 1:
     {
         const auto type = debris_type(particle, context);
-        set(particle, effect_debris_field::growth, approach_runtime_scalar(get(particle, effect_debris_field::growth),
-            get(type, effect_debris_type_field::growth), get(particle, effect_debris_field::growth_rate) * step));
-        if (!(get(particle, effect_debris_field::phase_time) > 0.0f))
+        particle.growth = approach_runtime_scalar(particle.growth,
+            get(type, effect_debris_type_field::growth), particle.growth_rate * step);
+        if (!(particle.phase_time > 0.0f))
         {
-            set(particle, effect_debris_field::phase, 2);
-            set(particle, effect_debris_field::phase_time,
-                sample_range(get(type, effect_debris_type_field::hold_time), context.random));
+            particle.phase = 2;
+            particle.phase_time = sample_range(get(type, effect_debris_type_field::hold_time), context.random);
             return;
         }
         break;
     }
     case 2:
-        if (!(get(particle, effect_debris_field::phase_time) > 0.0f))
+        if (!(particle.phase_time > 0.0f))
         {
             const auto type = debris_type(particle, context);
-            set(particle, effect_debris_field::phase, 3);
+            particle.phase = 3;
             const float duration = sample_range(get(type, effect_debris_type_field::fade_time), context.random);
-            set(particle, effect_debris_field::phase_time, duration);
+            particle.phase_time = duration;
             set(channels, effect_channel_field::target_alpha, 0.0f);
             if (duration > std::bit_cast<float>(0x3456BF95u))
             {
@@ -74,11 +73,10 @@ void tick_effect_debris(std::span<u8> particle, RuntimeEffectDebris& context,
         }
         break;
     case 3:
-        if (!(get(particle, effect_debris_field::phase_time) > 0.0f))
+        if (!(particle.phase_time > 0.0f))
         {
-            const i32 index = i32((particle.data() - context.particles.data()) / effect_debris_field::kSize);
-            set(record(context.particles, effect_debris_pool, size_t(index)), effect_debris_field::next_free,
-                context.free_head);
+            const i32 index = i32(&particle - context.particles.data());
+            context.particles[size_t(index)].next_free = context.free_head;
             context.free_head = index;
             return;
         }
@@ -86,7 +84,7 @@ void tick_effect_debris(std::span<u8> particle, RuntimeEffectDebris& context,
     default:
         return;
     }
-    set(particle, effect_debris_field::phase_time, get(particle, effect_debris_field::phase_time) - step);
+    particle.phase_time = particle.phase_time - step;
 }
 
 // Xbox 0x000EC2D0
@@ -94,17 +92,18 @@ void initialize_effect_debris(RuntimeEffectDebrisStorage& storage,
     AnimationResourceRegistry& registry, ResourceErrorState& error,
     const std::function<u32(const u8*)>& address)
 {
-    storage.particles = static_cast<u8*>(engine_heap_allocate(effect_debris_pool.size));
+    storage.particles =
+        static_cast<EffectDebrisRecord*>(engine_heap_allocate(sizeof(EffectDebrisRecord) * kEffectDebrisCount));
     storage.free_head = 0;
-    const std::span<u8> particles{storage.particles, effect_debris_pool.size};
+    const std::span<EffectDebrisRecord> particles{storage.particles, kEffectDebrisCount};
     i32 index = 0;
     do
     {
         ++index;
-        set(record(particles, effect_debris_pool, size_t(index - 1)), effect_debris_field::next_free, index);
+        particles[size_t(index - 1)].next_free = index;
     }
     while (index < 49);
-    set(record(particles, effect_debris_pool, 49), effect_debris_field::next_free, -1);
+    particles[49].next_free = -1;
     const auto types = acquire_animation_resource(registry, "aid_misc_ghoulies_fx_cheap_splat");
     if (types.data() == nullptr)
     {
@@ -139,14 +138,14 @@ void release_effect_debris(RuntimeEffectDebrisStorage& storage,
 {
     if (storage.particles != nullptr)
     {
-        const std::span<u8> particles{storage.particles, effect_debris_pool.size};
+        const std::span<EffectDebrisRecord> particles{storage.particles, kEffectDebrisCount};
         i32 index = 0;
         do
         {
-            const auto particle = record(particles, effect_debris_pool, size_t(index));
-            if (get(particle, effect_debris_field::next_free) == -2)
+            EffectDebrisRecord& particle = particles[size_t(index)];
+            if (particle.next_free == -2)
             {
-                set(particle, effect_debris_field::next_free, storage.free_head);
+                particle.next_free = storage.free_head;
                 storage.free_head = index;
             }
             ++index;
@@ -178,11 +177,11 @@ void release_effect_debris(RuntimeEffectDebrisStorage& storage,
 // Xbox 0x000EBD80
 i32 oldest_effect_debris(const RuntimeEffectDebris& context)
 {
-    u32 oldest = get(record(context.particles, effect_debris_pool, 0), effect_debris_field::frame);
+    u32 oldest = context.particles[0].frame;
     i32 selected = 0;
     for (i32 index = 1; index < 50; ++index)
     {
-        const u32 frame = get(record(context.particles, effect_debris_pool, size_t(index)), effect_debris_field::frame);
+        const u32 frame = context.particles[size_t(index)].frame;
         if (frame <= oldest)
         {
             oldest = frame;
@@ -193,17 +192,17 @@ i32 oldest_effect_debris(const RuntimeEffectDebris& context)
 }
 
 // Xbox 0x000EBDB0
-std::span<u8> allocate_effect_debris(RuntimeEffectDebris& context)
+EffectDebrisRecord* allocate_effect_debris(RuntimeEffectDebris& context)
 {
     if (context.free_head >= 0)
     {
-        std::span<u8> particle = record(context.particles, effect_debris_pool, size_t(context.free_head));
-        const i32 next = get(particle, effect_debris_field::next_free);
-        set(particle, effect_debris_field::next_free, -2);
-        set(particle, effect_debris_field::phase, 0);
-        set(particle, effect_debris_field::phase_time, 0.f);
-        set(particle, effect_debris_field::frame, context.frame);
-        const auto channels = record(particle, effect_debris_field::channels);
+        EffectDebrisRecord& particle = context.particles[size_t(context.free_head)];
+        const i32 next = particle.next_free;
+        particle.next_free = -2;
+        particle.phase = 0;
+        particle.phase_time = 0.f;
+        particle.frame = context.frame;
+        const auto channels = std::span<u8>(particle.channels);
         constexpr float full = 255.f; // DAT_0032B158.
         set(channels, effect_channel_field::red, full);
         set(channels, effect_channel_field::green, full);
@@ -217,26 +216,26 @@ std::span<u8> allocate_effect_debris(RuntimeEffectDebris& context)
         set(channels, effect_channel_field::target_unk_10, 0.f);
         context.free_head = next;
         set(channels, effect_channel_field::rates, std::array<float, 5>{});
-        return particle;
+        return &particle;
     }
-    return {};
+    return nullptr;
 }
 
 // Xbox 0x000EBE50
-void set_effect_debris_phase(std::span<u8> particle, i32 phase,
+void set_effect_debris_phase(EffectDebrisRecord& particle, i32 phase,
     RuntimeEffectDebris& context)
 {
     const auto type = debris_type(particle, context);
-    const auto channels = record(particle, effect_debris_field::channels);
-    set(particle, effect_debris_field::phase, u8(phase));
+    const auto channels = std::span<u8>(particle.channels);
+    particle.phase = u8(phase);
     constexpr float epsilon = std::bit_cast<float>(0x3456BF95u); // DAT_0032B27C.
     if (phase == 1)
     {
         const float duration = sample_range(get(type, effect_debris_type_field::grow_time), context.random);
-        set(particle, effect_debris_field::phase_time, duration);
+        particle.phase_time = duration;
         const float rate = (get(type, effect_debris_type_field::growth) - 1.f) / duration;
-        set(particle, effect_debris_field::growth_rate, engine_absolute(rate));
-        set(particle, effect_debris_field::growth, 1.f);
+        particle.growth_rate = engine_absolute(rate);
+        particle.growth = 1.f;
         const auto colour = get(type, effect_debris_type_field::colour);
         set(channels, effect_channel_field::red, float(colour[0]));
         set(channels, effect_channel_field::green, float(colour[1]));
@@ -258,14 +257,13 @@ void set_effect_debris_phase(std::span<u8> particle, i32 phase,
     }
     else if (phase == 2)
     {
-        set(particle, effect_debris_field::phase_time,
-            sample_range(get(type, effect_debris_type_field::hold_time), context.random));
+        particle.phase_time = sample_range(get(type, effect_debris_type_field::hold_time), context.random);
         return;
     }
     else if (phase == 3)
     {
         const float duration = sample_range(get(type, effect_debris_type_field::fade_time), context.random);
-        set(particle, effect_debris_field::phase_time, duration);
+        particle.phase_time = duration;
         set(channels, effect_channel_field::target_alpha, 0.f);
         if (duration > epsilon)
         {
@@ -284,20 +282,20 @@ void set_effect_debris_phase(std::span<u8> particle, i32 phase,
 void spawn_effect_debris(i32 type, const Vec3& position, const Vec3& euler,
     RuntimeEffectDebris& context)
 {
-    std::span<u8> particle = allocate_effect_debris(context);
-    if (particle.empty())
+    EffectDebrisRecord* allocated = allocate_effect_debris(context);
+    if (allocated == nullptr)
     {
         const i32 index = oldest_effect_debris(context);
-        set(record(context.particles, effect_debris_pool, size_t(index)), effect_debris_field::next_free,
-            context.free_head);
+        context.particles[size_t(index)].next_free = context.free_head;
         context.free_head = index;
-        particle = allocate_effect_debris(context);
+        allocated = allocate_effect_debris(context);
     }
-    set(particle, effect_debris_field::position, position);
-    set(particle, effect_debris_field::euler, euler);
-    set(particle, effect_debris_field::type, u32(type));
-    set(particle, effect_debris_field::size, sample_range(
-        get(record(context.types, effect_debris_types, size_t(type)), effect_debris_type_field::size), context.random));
+    EffectDebrisRecord& particle = *allocated;
+    particle.position = position;
+    particle.euler = euler;
+    particle.type = u32(type);
+    particle.size = sample_range(
+        get(record(context.types, effect_debris_types, size_t(type)), effect_debris_type_field::size), context.random);
     set_effect_debris_phase(particle, 1, context);
 }
 

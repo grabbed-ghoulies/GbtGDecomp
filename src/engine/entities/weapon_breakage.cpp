@@ -165,8 +165,8 @@ bool break_runtime_weapon(RuntimeWeaponActor& weapon)
             do
             {
                 const u32 group = get(bytes, weapon_field::broken_groups);
-                RuntimeActorMatrixSampling sampling{{weapon.matrices.allocation,
-                    size_t(weapon.matrices.matrices.count) * 0x48}, weapon.matrices.matrices.node,
+                RuntimeActorMatrixSampling sampling{actor_matrix_records(weapon.matrices),
+                    weapon.matrices.matrices.node,
                     weapon.services.sampling_scratch, weapon.services.sampling_active, actor_transform_origin,
                     weapon.model_source};
                 launch_actor_model_piece_group(actor, i32(group), weapon.pieces, weapon.matrices, sampling,

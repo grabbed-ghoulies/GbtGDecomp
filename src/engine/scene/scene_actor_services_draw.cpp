@@ -595,8 +595,9 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
-            draw_effect_debris(debris_pool->particles == nullptr ? std::span<const u8>{}
-                : std::span<const u8>(debris_pool->particles, effect_debris_pool.size), debris_pool->textures, *display_setup);
+            draw_effect_debris(debris_pool->particles == nullptr ? std::span<const EffectDebrisRecord>{}
+                : std::span<const EffectDebrisRecord>(debris_pool->particles, kEffectDebrisCount),
+            debris_pool->textures, *display_setup);
         },
         [this]()
         {

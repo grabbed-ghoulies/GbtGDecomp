@@ -52,14 +52,14 @@ Vec3 read_vector(std::span<const u8> bytes, size_t offset)
     return Vec3{read_f32(bytes, offset), read_f32(bytes, offset + 4), read_f32(bytes, offset + 8)};
 }
 
-// Actor +0x288 row `index` (stride 0x48).
-std::span<u8> matrix_row(RuntimeBoneDebris& context, u32 index)
+// Actor +0x288 record `index`.
+ActorMatrixRecord& matrix_row(RuntimeBoneDebris& context, u32 index)
 {
     if (context.matrices.allocation == nullptr || i32(index) >= context.matrices.matrices.count)
     {
         throw Error("bone debris joint row lies outside actor +0x288");
     }
-    return {context.matrices.allocation + size_t(index) * 0x48, 0x48};
+    return actor_matrix_records(context.matrices)[index];
 }
 
 ActorEffectNode& debris_effect(RuntimeBoneDebris& context)
@@ -85,7 +85,7 @@ std::span<u8> debris_particle(RuntimeBoneDebris& context, i32 index)
 
 RuntimeActorMatrixSampling matrix_sampling(RuntimeBoneDebris& context)
 {
-    return RuntimeActorMatrixSampling{{context.matrices.allocation, size_t(context.matrices.matrices.count) * 0x48},
+    return RuntimeActorMatrixSampling{actor_matrix_records(context.matrices),
         context.matrices.matrices.node, context.sampling_scratch, context.sampling_active, context.origin,
         context.model_source};
 }
@@ -186,11 +186,11 @@ void spawn_runtime_bone_debris_group(std::span<const u8> header, i32 group, i32&
             Vec3 position{};
             Vec3 euler{};
             sample_actor_model_matrix(actor, joints[index], position, euler, 0, sampling); // 0x00040640
-            const auto row = matrix_row(context, joints[index]);
-            put_vector(row, 0x28, context.origin); // DAT_0050DD80.
-            put_vector(row, 0x28, Vec3{position.x - center.x, position.y - center.y, position.z - center.z});
-            put_vector(row, 0x38, euler);
-            put_word(row, 0x34, 1);
+            ActorMatrixRecord& row = matrix_row(context, joints[index]);
+            row.center = context.origin; // DAT_0050DD80.
+            row.center = Vec3{position.x - center.x, position.y - center.y, position.z - center.z};
+            row.second_euler = euler;
+            row.has_second_euler = 1;
             if (index == 0)
             {
                 allocate_debris_particle(context);
@@ -211,9 +211,9 @@ void spawn_runtime_bone_debris_group(std::span<const u8> header, i32 group, i32&
         Vec3 position{};
         Vec3 euler{};
         sample_actor_model_matrix(actor, joints[index], position, euler, 1, sampling); // 0x00040640
-        const auto row = matrix_row(context, joints[index]);
-        put_vector(row, 0x28, context.origin); // DAT_0050DD80.
-        put_word(row, 0x34, 0);
+        ActorMatrixRecord& row = matrix_row(context, joints[index]);
+        row.center = context.origin; // DAT_0050DD80.
+        row.has_second_euler = 0;
         allocate_debris_particle(context);
         const auto particle = debris_particle(context, particles);
         put_vector(particle, 0, position);
@@ -501,7 +501,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
             set(bytes, field::resting, get(bytes, field::resting) != 0 && resting != 0 ? 1 : 0);
             const Vec3 position = read_vector(piece, 0);
             const Vec3 euler = read_vector(piece, 0xC);
-            const auto row = matrix_row(context, joints[index]);
+            ActorMatrixRecord& row = matrix_row(context, joints[index]);
             if (together)
             {
                 if (index == 0)
@@ -509,24 +509,24 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
                     group_position = position;
                     group_euler = euler;
                 }
-                put_vector(row, 4, group_position);
+                row.translation = group_position;
                 context.matrices.progress = 0.f; // +0x29C.
                 context.matrices.flags = 0; // +0x2A0.
-                put_word(row, 0x44, 1);
-                put_vector(row, 0x10, group_euler);
+                row.active = 1;
+                row.euler = group_euler;
             }
             else
             {
-                put_vector(row, 4, position);
+                row.translation = position;
                 context.matrices.flags = 0; // +0x2A0.
                 context.matrices.progress = 0.f; // +0x29C.
-                put_word(row, 0x44, 1);
-                put_vector(row, 0x10, euler);
+                row.active = 1;
+                row.euler = euler;
             }
-            Vec3 wrapped = read_vector(row, 0x10);
-            wrap_runtime_euler_angles(wrapped); // 0x001059B0, ESI row +0x10
-            put_vector(row, 0x10, wrapped);
-            put_word(row, 0x44, 1);
+            Vec3 wrapped = row.euler;
+            wrap_runtime_euler_angles(wrapped); // 0x001059B0, ESI the row's euler
+            row.euler = wrapped;
+            row.active = 1;
             if (get(bytes, field::landed) == 0 && read_u32(piece, 0x5C) != 0 && piece[0x55] == 0
                 && context.collision_normal.y > 0.75f) // DAT_00506928, DAT_0032B2AC.
             {

@@ -6269,10 +6269,10 @@ void check_actor_loading()
         state.flags = 77;
         if (!initialize_actor_model_matrices(actor, state, types, views) ||
             state.matrices.count != 2 || state.matrices.node.data() != bytes.data() ||
-            read_u32(state.matrices.records, 0) != 0xFFFFFFFFu ||
-            read_u32(state.matrices.records, 0x48) != 7 ||
-            read_f32(state.matrices.records, 0x1C) != 1.f ||
-            read_u32(state.matrices.records, 0x48 + 0x44) != 0 ||
+            state.matrices.records[0].binding != 0xFFFFFFFFu ||
+            state.matrices.records[1].binding != 7 ||
+            state.matrices.records[0].scale.x != 1.f ||
+            state.matrices.records[1].active != 0 ||
             state.progress != 0.f || state.flags != 0)
         {
             throw Error("actor matrix setup lost first-match binding rejection or matrix defaults");

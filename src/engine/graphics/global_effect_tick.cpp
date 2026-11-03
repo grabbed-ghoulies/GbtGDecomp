@@ -57,14 +57,14 @@ void tick_global_actor_effects(RuntimeGlobalEffectTick& context)
         size_t index = 0;
         do
         {
-            const auto particle = record(context.debris.particles, effect_debris_pool, index);
-            if (get(particle, effect_debris_field::next_free) == -2)
+            EffectDebrisRecord& particle = context.debris.particles[index];
+            if (particle.next_free == -2)
             {
                 tick_effect_debris(particle, context.debris, context.clock);
             }
             ++index;
         }
-        while (index < effect_debris_pool.count);
+        while (index < kEffectDebrisCount);
     }
     if (context.trails.particles.data() != nullptr)
     {

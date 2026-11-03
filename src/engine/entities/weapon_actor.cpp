@@ -1533,8 +1533,7 @@ void chip_runtime_weapon(RuntimeWeaponActor& weapon, const Vec3& direction, cons
             const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
             const u32 group = get(bytes, weapon_field::broken_groups);
             bytes[0x298] = 0;
-            RuntimeActorMatrixSampling sampling{{weapon.matrices.allocation,
-                size_t(weapon.matrices.matrices.count) * 0x48}, weapon.matrices.matrices.node,
+            RuntimeActorMatrixSampling sampling{actor_matrix_records(weapon.matrices), weapon.matrices.matrices.node,
                 weapon.services.sampling_scratch, weapon.services.sampling_active, actor_transform_origin,
                 weapon.model_source};
             launch_actor_model_piece_group(actor, i32(group), weapon.pieces, weapon.matrices, sampling,
@@ -2019,22 +2018,20 @@ void tick_actor_model_pieces(const Actor& actor, std::span<u8> actor_bytes, std:
             put(offset + 0x44, get(offset + 0x20) + get(offset + 0x14));
             // The piece's matrix record (+0x288 by its node) takes the position, lowered by the radius past the
             // extent, and the wrapped euler; it redraws.
-            u8* matrix = matrices.allocation + size_t(cpu[list + piece]) * 0x48;
+            ActorMatrixRecord& matrix = actor_matrix_records(matrices)[size_t(cpu[list + piece])];
             const float x = get(offset + 0x30);
             const float z = get(offset + 0x38);
             const float y = get(offset + 0x34) - (get(offset + 0x48) - get(offset + 0xAC));
-            std::memcpy(matrix + 4, &x, 4);
-            std::memcpy(matrix + 0xC, &z, 4);
-            std::memcpy(matrix + 8, &y, 4);
-            std::memcpy(matrix + 0x10, pieces.data() + offset + 0x3C, 12);
-            Vec3 euler;
-            std::memcpy(&euler, matrix + 0x10, 12);
+            matrix.translation.x = x;
+            matrix.translation.z = z;
+            matrix.translation.y = y;
+            std::memcpy(&matrix.euler, pieces.data() + offset + 0x3C, 12);
+            Vec3 euler = matrix.euler;
             wrap_runtime_euler_angles(euler); // 0x001059B0
-            std::memcpy(matrix + 0x10, &euler, 12);
+            matrix.euler = euler;
             matrices.progress = 0.f; // +0x29C.
             matrices.flags = 0; // +0x2A0.
-            const u32 one = 1;
-            std::memcpy(matrix + 0x44, &one, 4);
+            matrix.active = 1;
             ++row;
         }
     }

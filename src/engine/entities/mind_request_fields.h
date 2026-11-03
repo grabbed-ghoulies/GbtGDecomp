@@ -1,0 +1,135 @@
+#pragma once
+#include "gbtg/retail_field.h"
+
+namespace gbtg
+{
+// A mind request (a mind's queued step: its kind at +8 picks how the rest is read). The cinema mind runs them in
+// 0x0007C0E0; each kind's own fields follow the header. See docs/RETAIL_LAYOUTS.md.
+namespace mind_request_field
+{
+constexpr RetailField<u16, 0x08> kind{};
+constexpr RetailField<float, 0x0C> elapsed{}; // seconds the request has run
+} // namespace mind_request_field
+
+// Kind 2 (0x0007B090): dispatch the action as a target request when forced or the target isn't held.
+namespace target_action_request
+{
+constexpr RetailField<u32, 0x10> action{};
+constexpr RetailField<u32, 0x14> forced{};
+} // namespace target_action_request
+
+// Kind 0xD (0x0007B170): walk away from the escape target until it is beyond safe_distance, picking a new point
+// between the two distances every two seconds (0x00135B60).
+namespace escape_request
+{
+constexpr RetailField<float, 0x10> min_distance{};
+constexpr RetailField<float, 0x14> max_distance{};
+constexpr RetailField<float, 0x20> speed{};
+constexpr RetailField<float, 0x28> safe_distance{};
+constexpr RetailField<float, 0x2C> heading{}; // written: the heading the last point was picked on
+constexpr RetailField<float, 0x30> retry_timer{};
+} // namespace escape_request
+
+// Kind 0xE (0x0007B2F0): the escape for a body that moves in height too (0x00136D60's height and tolerance).
+namespace vertical_escape_request
+{
+constexpr RetailField<float, 0x10> height{};
+constexpr RetailField<float, 0x14> tolerance{};
+constexpr RetailField<float, 0x18> min_distance{};
+constexpr RetailField<float, 0x1C> max_distance{};
+constexpr RetailField<float, 0x28> speed{};
+constexpr RetailField<float, 0x2C> vertical_speed{};
+constexpr RetailField<float, 0x34> safe_distance{};
+constexpr RetailField<float, 0x38> heading{};
+constexpr RetailField<float, 0x3C> retry_timer{};
+} // namespace vertical_escape_request
+
+// Kind 0xF (0x0007B5A0): go to the mind's goal point in height too.
+namespace vertical_position_request
+{
+constexpr RetailField<float, 0x18> height{};
+constexpr RetailField<float, 0x1C> tolerance{};
+constexpr RetailField<float, 0x20> radius{}; // plus 1
+constexpr RetailField<float, 0x24> approach{};
+constexpr RetailField<float, 0x28> vertical_speed{};
+constexpr RetailField<float, 0x2C> speed{};
+} // namespace vertical_position_request
+
+// Kind 0x10 (0x00136680): go to the request's own point in height too.
+namespace vertical_point_request
+{
+constexpr RetailField<Vec3, 0x10> point{};
+constexpr RetailField<float, 0x24> height{};
+constexpr RetailField<float, 0x28> tolerance{};
+constexpr RetailField<float, 0x2C> radius{}; // plus 2.5
+constexpr RetailField<float, 0x30> approach{};
+constexpr RetailField<float, 0x34> vertical_speed{};
+constexpr RetailField<float, 0x38> speed{};
+} // namespace vertical_point_request
+
+// Kind 0x11 (0x0007B620): go to the mind's target in height too.
+namespace vertical_target_request
+{
+constexpr RetailField<float, 0x18> height{};
+constexpr RetailField<float, 0x1C> tolerance{};
+constexpr RetailField<float, 0x20> radius{}; // added to the target's radius, plus 1
+constexpr RetailField<float, 0x24> approach{};
+constexpr RetailField<float, 0x28> vertical_speed{};
+constexpr RetailField<float, 0x2C> lead{}; // from behind the target, aim this far along its facing
+constexpr RetailField<u32, 0x30> waits_for_idle{}; // arrival counts once the body is idle
+constexpr RetailField<u32, 0x34> needs_movable{}; // fails while the target can't be moved
+constexpr RetailField<float, 0x38> speed{};
+} // namespace vertical_target_request
+
+// Kind 0x14 (0x0007B8A0): pick a goal point between two distances (0x00111420).
+namespace random_position_request
+{
+constexpr RetailField<float, 0x10> min_distance{};
+constexpr RetailField<float, 0x14> max_distance{};
+} // namespace random_position_request
+
+// Kind 0x15 (0x0007B940): pick a goal point on a heading near the actor's, trying headings `step` apart.
+namespace heading_position_request
+{
+constexpr RetailField<float, 0x10> spread{}; // the heading's random width (0x00100C70)
+constexpr RetailField<float, 0x14> min_distance{};
+constexpr RetailField<float, 0x18> max_distance{}; // plus 0.5
+constexpr RetailField<float, 0x1C> step{};
+} // namespace heading_position_request
+
+// Kind 0x24 (0x0007BA20): move on a heading for a time, steered or pushed straight.
+namespace timed_motion_request
+{
+constexpr RetailField<float, 0x18> duration{}; // against the header's elapsed
+constexpr RetailField<float, 0x1C> speed{}; // of the body's step speed
+constexpr RetailField<u32, 0x24> direct{}; // set: the stick is pushed on the heading, no navigation
+constexpr RetailField<float, 0x28> heading{};
+} // namespace timed_motion_request
+
+// Kinds 0x25..0x27 (0x0007C0E0): face the goal point (0x25), a point (0x26) or the target (0x27) within an angle.
+namespace facing_request
+{
+constexpr RetailField<float, 0x10> degrees{}; // kinds 0x25 and 0x27
+constexpr RetailField<Vec3, 0x10> point{}; // kind 0x26
+constexpr RetailField<float, 0x1C> point_degrees{}; // kind 0x26
+} // namespace facing_request
+
+// Kind 0x2D (0x0007BC20): go to the mind's goal point.
+namespace position_request
+{
+constexpr RetailField<float, 0x18> radius{}; // plus 1
+constexpr RetailField<float, 0x1C> approach{};
+constexpr RetailField<float, 0x20> speed{};
+} // namespace position_request
+
+// Kind 0x2F (0x0007BC80): go to the mind's target.
+namespace target_position_request
+{
+constexpr RetailField<float, 0x18> radius{}; // added to the reach and the target's radius, plus 1
+constexpr RetailField<float, 0x1C> approach{};
+constexpr RetailField<float, 0x20> lead{}; // from behind the target, aim this far along its facing
+constexpr RetailField<u32, 0x24> waits_for_idle{};
+constexpr RetailField<u32, 0x28> needs_movable{};
+constexpr RetailField<float, 0x2C> speed{};
+} // namespace target_position_request
+} // namespace gbtg

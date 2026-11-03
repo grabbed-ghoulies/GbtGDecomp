@@ -1,5 +1,6 @@
 #include "cinema_mind_request_update.h"
 #include "mind_fields.h"
+#include "mind_request_fields.h"
 #include "cinema_mind_requests.h"
 #include "body_orientation.h"
 #include "body_message_helpers.h"
@@ -27,7 +28,7 @@ void sound(RuntimeCinemaMindRequestUpdate& context)
 i32 update_runtime_cinema_mind_facing_request(std::span<const u8> mind, std::span<u8> body,
     const Actor& actor, std::span<const u8> target, std::span<const u8> request)
 {
-    const u16 kind = read_u16(request, 8);
+    const u16 kind = get(request, mind_request_field::kind);
     Vec3 destination;
     float degrees;
     if (kind == 0x27)
@@ -38,13 +39,13 @@ i32 update_runtime_cinema_mind_facing_request(std::span<const u8> mind, std::spa
         }
         face_runtime_body_target(body, actor, target);
         destination = point(target, 0x20);
-        degrees = read_f32(request, 0x10);
+        degrees = get(request, facing_request::degrees);
     }
     else
     {
-        destination = kind == 0x25 ? point(mind, 0x70) : point(request, 0x10);
+        destination = kind == 0x25 ? get(mind, mind_field::goal_point) : get(request, facing_request::point);
         face_runtime_body_point(body, actor, destination);
-        degrees = read_f32(request, kind == 0x26 ? 0x1C : 0x10);
+        degrees = kind == 0x26 ? get(request, facing_request::point_degrees) : get(request, facing_request::degrees);
     }
     const float angle = runtime_actor_relative_point_angle(actor, destination);
     const float limit = float(static_cast<long double>(degrees) * std::bit_cast<float>(0x3C8EFA35u));
@@ -55,7 +56,7 @@ i32 update_runtime_cinema_mind_facing_request(std::span<const u8> mind, std::spa
 i32 update_runtime_cinema_mind_request(RuntimeCinemaMindRequestUpdate& context, std::span<u8> request)
 {
     auto& movement = context.movement;
-    switch (read_u16(request, 8))
+    switch (get(request, mind_request_field::kind))
     {
     case 2:
         return update_runtime_cinema_mind_target_action(movement, request, context.chains,

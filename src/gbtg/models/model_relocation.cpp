@@ -406,9 +406,9 @@ void relocate_runtime_pixel_shader_node(const RuntimeRelocationImage& image,
 // Xbox 0x00054490.
 void relocate_runtime_physics_simple(const RuntimeRelocationImage& image, u32 record, u32 base)
 {
-    if (image.word(record, 0x14) != 0)
+    if (image.get(record, model_posed_mesh_field::triangles) != 0)
     {
-        image.set_word(record, 0x14, image.word(record, 0x14) + base);
+        image.set(record, model_posed_mesh_field::triangles, image.get(record, model_posed_mesh_field::triangles) + base);
     }
 }
 
@@ -416,9 +416,9 @@ void relocate_runtime_physics_simple(const RuntimeRelocationImage& image, u32 re
 void relocate_runtime_physics_pairs(const RuntimeRelocationImage& image, u32 record, u32 base)
 {
     i32 index = 0;
-    if (image.half(record, 0x20) != 0)
+    if (image.get(record, model_grid_mesh_field::cell_count) != 0)
     {
-        u32 pointer = record + 0x30;
+        u32 pointer = record + model_grid_mesh_field::cells.offset + model_grid_cell_field::triangles.offset;
         do
         {
             if (image.word(pointer) != 0)
@@ -426,8 +426,8 @@ void relocate_runtime_physics_pairs(const RuntimeRelocationImage& image, u32 rec
                 image.set_word(pointer, 0, image.word(pointer) + base);
             }
             ++index;
-            pointer += 8;
-        } while (index < i32(image.half(record, 0x20)));
+            pointer += model_grid_mesh_field::cells.stride;
+        } while (index < i32(image.get(record, model_grid_mesh_field::cell_count)));
     }
 }
 
@@ -437,21 +437,21 @@ void relocate_runtime_physics_block(const RuntimeRelocationImage& image, u32 blo
     using Relocator = void (*)(const RuntimeRelocationImage&, u32, u32);
     static constexpr std::array<Relocator, 3> callbacks{
         relocate_runtime_physics_simple, relocate_runtime_physics_pairs, relocate_runtime_physics_simple};
-    image.set_word(block, 0xC, image.word(block, 0xC) + base);
-    u32 record = block + 0x10;
-    if (std::bit_cast<i32>(image.word(block)) > 0)
+    image.set(block, model_physics_block_field::unk_0C, image.get(block, model_physics_block_field::unk_0C) + base);
+    u32 record = block + model_physics_block_field::records_offset;
+    if (image.get(block, model_physics_block_field::count) > 0)
     {
         i32 index = 0;
         do
         {
-            const auto callback = callbacks[image.byte(record)];
+            const auto callback = callbacks[image.get(record, model_physics_record_field::kind)];
             if (callback != nullptr)
             {
                 callback(image, record, base);
             }
             ++index;
-            record += image.word(record, 8);
-        } while (index < std::bit_cast<i32>(image.word(block)));
+            record += image.get(record, model_physics_record_field::size);
+        } while (index < image.get(block, model_physics_block_field::count));
     }
 }
 

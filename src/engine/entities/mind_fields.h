@@ -55,4 +55,42 @@ constexpr RetailField<Vec3, 0x70> goal_point{};
 constexpr u32 kSize = 0x7C;
 static_assert(retail_fits(kSize, goal_point));
 } // namespace mind_field
+
+// The cinema mind's own part (0x7C..0xD0, factory parameters 0x128) after the base mind.
+namespace cinema_mind_field
+{
+constexpr RetailField<float, 0x7C> roam_radius{}; // the arrival radius with no target (target mode 0)
+constexpr RetailField<float, 0x80> target_radius{};
+constexpr RetailField<u32, 0x84> sound_resource{}; // by address, 0 for none
+constexpr RetailField<u32, 0x88> sound_count{}; // the resource's named sounds, up to three
+constexpr RetailField<float, 0x8C> sound_timer{};
+constexpr RetailField<i32, 0x90> notices{};
+constexpr RetailField<float, 0x98> avoidance_time{}; // set: the mind is avoiding
+// Cleared when the mind starts: three pairs, the second of each 0, 1 and 1.
+constexpr RetailField<u32, 0x9C> unk_9C{};
+constexpr RetailField<u32, 0xA0> unk_A0{};
+constexpr RetailField<u32, 0xA4> unk_A4{};
+constexpr RetailField<u32, 0xA8> unk_A8{};
+constexpr RetailField<u32, 0xAC> unk_AC{};
+constexpr RetailField<u32, 0xB0> unk_B0{};
+constexpr RetailField<u32, 0xB4> unk_B4{};
+constexpr RetailField<u32, 0xB8> unk_B8{};
+constexpr RetailField<u32, 0xBC> unk_BC{};
+constexpr RetailField<u32, 0xC0> unk_C0{};
+constexpr RetailField<u32, 0xC4> unk_C4{};
+constexpr RetailField<u32, 0xC8> unk_C8{};
+constexpr RetailField<float, 0xCC> unk_CC{}; // counts down each tick
+constexpr u32 kSize = 0xD0;
+static_assert(retail_fits(kSize, unk_CC));
+} // namespace cinema_mind_field
+
+// The cinema mind's factory parameters after the base mind's.
+namespace cinema_mind_parameter
+{
+constexpr RetailField<float, 0xA0> roam_radius{};
+constexpr RetailField<float, 0xA4> target_radius{};
+constexpr RetailField<std::array<char, 0x80>, 0xA8> sound_resource{}; // an AID, or empty for none
+constexpr u32 kSize = 0x128;
+static_assert(retail_fits(kSize, sound_resource));
+} // namespace cinema_mind_parameter
 } // namespace gbtg

@@ -37,8 +37,8 @@ void update_runtime_cinema_mind_avoidance(RuntimeCinemaMindAvoidance& context)
     }
     const float step = runtime_frame_step(base.clock);
     const float rate = runtime_actor_rate(base.actor);
-    const float timer = read_f32(mind, 0xCC) - rate * step;
-    value(mind, 0xCC, timer);
+    const float timer = get(mind, cinema_mind_field::unk_CC) - rate * step;
+    set(mind, cinema_mind_field::unk_CC, timer);
     if (timer <= 0.f)
     {
         value(mind, 0xCC, timer + 1.f);
@@ -73,7 +73,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
     auto& parent = messages.parent;
     auto mind = base.events.mind;
     auto body = base.body;
-    if (read_f32(mind, 0x98) > 0.f)
+    if (get(mind, cinema_mind_field::avoidance_time) > 0.f)
     {
         update_runtime_cinema_mind_avoidance(context.avoidance);
     }
@@ -103,7 +103,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         const float distance = (z * z + y * y) + x * x;
         if (get(mind, mind_field::target_mode) == 0)
         {
-            const float radius = read_f32(mind, 0x7C);
+            const float radius = get(mind, cinema_mind_field::roam_radius);
             if (!(radius > 0.f))
             {
                 if (get(mind, mind_field::unk_38) > get(mind, mind_field::unk_34))
@@ -124,7 +124,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         }
         else
         {
-            const float radius = read_f32(mind, 0x80);
+            const float radius = get(mind, cinema_mind_field::target_radius);
             if (radius > 0.f)
             {
                 const u8 active = u8(radius * radius > distance);
@@ -157,7 +157,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         body[0xAA] = 1;
     }
     update_runtime_player_boost_timer(messages.boost, context.control, nullptr, 1.f);
-    const i32 notices = i32(read_u32(mind, 0x90));
+    const i32 notices = get(mind, cinema_mind_field::notices);
     if (notices > 0)
     {
         word(mind, 0x90, u32(notices - 1));

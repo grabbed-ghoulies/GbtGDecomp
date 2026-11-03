@@ -42,18 +42,18 @@ void update_runtime_cinema_mind_sound(std::span<u8> mind,
     std::span<const u8> body, std::span<const u8> resource, Actor& actor,
     const RuntimeActorClock& clock, u32& random, RuntimeActorSoundQueues& sounds)
 {
-    const i32 count = i32(read_u32(mind, 0x88));
+    const i32 count = i32(get(mind, cinema_mind_field::sound_count));
     if (count != 0)
     {
         if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
         {
             const float step = runtime_frame_step(clock);
             const float rate = runtime_actor_rate(actor);
-            const float timer = read_f32(mind, 0x8C);
+            const float timer = get(mind, cinema_mind_field::sound_timer);
             if (timer > 0.f)
             {
                 const float remaining = timer - rate * step;
-                value(mind, 0x8C, remaining);
+                set(mind, cinema_mind_field::sound_timer, remaining);
                 // COMISS zero,remaining / JC: unordered also exits.
                 if (remaining <= 0.f)
                 {

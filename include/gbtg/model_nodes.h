@@ -1,6 +1,8 @@
 #pragma once
 #include "gbtg/retail_field.h"
 
+#include <array>
+
 namespace gbtg
 {
 // A loaded model image's records, read by address through RuntimeRelocationImage. See docs/RETAIL_LAYOUTS.md.
@@ -257,6 +259,55 @@ namespace model_texture_table_field
 constexpr RetailField<u32, 0x0> count{};
 constexpr RetailField<u32, 0x4> textures{};
 } // namespace model_texture_table_field
+
+// Directory kind 6, the physics block (0x00055620): a count, then records each starting with its kind and size.
+namespace model_physics_block_field
+{
+constexpr RetailField<i32, 0x00> count{};
+constexpr RetailField<u32, 0x0C> unk_0C{}; // relocated
+constexpr u32 records_offset = 0x10;
+} // namespace model_physics_block_field
+
+namespace model_physics_record_field
+{
+constexpr RetailField<u8, 0x00> kind{}; // 1 a grid mesh, 0 and 2 a posed mesh
+constexpr RetailField<u32, 0x08> size{}; // the next record is this far on
+} // namespace model_physics_record_field
+
+// Physics kinds 0 and 2: triangles posed by a joint (0x00054520).
+namespace model_posed_mesh_field
+{
+constexpr RetailField<u32, 0x10> triangle_count{};
+constexpr RetailField<u32, 0x14> triangles{}; // model_mesh_triangle_field records
+constexpr RetailField<i32, 0x18> joint{};
+} // namespace model_posed_mesh_field
+
+// Physics kind 1: triangles bucketed in a grid of cells (0x00053720, 0x00054340). Coordinates are signed.
+namespace model_grid_mesh_field
+{
+constexpr RetailField<std::array<u16, 3>, 0x10> cell_min{};
+constexpr RetailField<std::array<u16, 3>, 0x16> cell_max{};
+constexpr RetailField<u16, 0x1C> row_stride{};
+constexpr RetailField<u16, 0x1E> plane_stride{};
+constexpr RetailField<u16, 0x20> cell_count{};
+constexpr RetailField<u16, 0x22> cell_size{};
+constexpr RetailField<std::array<u16, 3>, 0x24> origin{};
+constexpr RetailRecord<0x2C, 8> cells{}; // one per cell: model_grid_cell_field
+} // namespace model_grid_mesh_field
+
+namespace model_grid_cell_field
+{
+constexpr RetailField<u32, 0x0> triangle_count{};
+constexpr RetailField<u32, 0x4> triangles{};
+} // namespace model_grid_cell_field
+
+// A mesh triangle (0x14 bytes).
+namespace model_mesh_triangle_field
+{
+constexpr RetailField<std::array<u32, 3>, 0x00> vertices{}; // indices into the mesh's vertices
+constexpr RetailField<u32, 0x0C> flags{};
+constexpr u32 kSize = 0x14;
+} // namespace model_mesh_triangle_field
 
 // Directory kind 0x12, the geometry block (0x0004F500): its vertex streams.
 namespace model_geometry_block_field

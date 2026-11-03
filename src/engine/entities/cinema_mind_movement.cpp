@@ -68,7 +68,7 @@ u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& co
         drive_runtime_player_navigation(movement.navigation, destination,
             i32(read_u32(target->bytes, 0xD00)), 0.f, 30.f, 1.f, 0, failed);
         if (runtime_player_can_attach(movement.eligibility, *target)
-            && read_u32(movement.mind, 0x90) != 0)
+            && get(movement.mind, cinema_mind_field::notices) != 0)
         {
             return 1;
         }
@@ -153,7 +153,8 @@ u32 request_runtime_cinema_mind_spawn_attachment(RuntimeCinemaMindMovement& cont
     const std::function<u16(RuntimeBodyAttachedActor&)>& attach,
     std::span<u8> body, RuntimeBodyActionSelection& actions)
 {
-    if (get(context.mind, mind_field::action_actor) != 0 && !(read_f32(context.mind, 0x98) > 0.f))
+    if (get(context.mind, mind_field::action_actor) != 0
+        && !(get(context.mind, cinema_mind_field::avoidance_time) > 0.f))
     {
         if (actor_can_supply_ghoulybox(*target->actor) && target->bytes[0x93C] != 0)
         {

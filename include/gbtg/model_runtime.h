@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gbtg/types.h"
+#include "gbtg/retail_field.h"
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -182,6 +183,38 @@ struct RuntimeModelResourceBlock
     const u8* data; // +4
     u32 word = 0; // +4 as stored after relocation; type 1 is not relocated and holds the node mask 0x000320F0 reads.
 };
+// A scene light record (0x98 bytes, 0x00051BC0; registered in DAT_00509B7C). 0x000FDDA0 animates the colour and
+// the range from the flags.
+namespace light_record_field
+{
+constexpr RetailField<Vec3, 0x40> position{};
+constexpr RetailField<Vec3, 0x4C> direction{}; // kind 2: from the position toward the origin
+constexpr RetailField<u8, 0x64> kind{};
+// 1 changed this frame; 0x40 flickers the colour, 0x80 the range; 0x10 is tested before an fx drops its light.
+constexpr RetailField<u8, 0x66> flags{};
+constexpr RetailField<u8, 0x67> swing_flags{}; // 2 swings the colour, 4 the range, on sine periods
+constexpr RetailField<u16, 0x66> flag_bits{}; // both flag bytes, as an fx's parameters set them
+constexpr RetailField<u8, 0x68> unk_68{}; // 0xFF when initialized
+constexpr RetailField<float, 0x6C> inner_range{};
+constexpr RetailField<float, 0x70> range{};
+constexpr RetailField<u32, 0x74> unk_74{};
+constexpr RetailField<u32, 0x78> colour{};
+constexpr RetailField<u32, 0x7C> unk_7C{}; // 0xFF000000 when initialized
+constexpr RetailField<u32, 0x80> colour_low{};
+constexpr RetailField<u32, 0x84> colour_high{};
+constexpr RetailField<float, 0x88> colour_period{}; // a frame mask for the flicker, seconds for the swing
+constexpr RetailField<float, 0x8C> range_low{};
+constexpr RetailField<float, 0x90> range_high{};
+constexpr RetailField<float, 0x94> range_period{};
+constexpr u32 kSize = 0x98;
+static_assert(retail_fits(kSize, range_period));
+} // namespace light_record_field
+
+inline std::span<u8> light_record(u8* record)
+{
+    return {record, light_record_field::kSize};
+}
+
 struct RuntimeShaderRegistrationState
 {
     std::array<u8*, 40> records{}; // 0x00509B7C

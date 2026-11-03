@@ -206,20 +206,6 @@ void lighting_initialize_volume()
 
 namespace
 {
-float light_float(const u8* record, size_t offset)
-{
-    float value;
-    std::memcpy(&value, record + offset, 4);
-    return value;
-}
-
-u32 light_word(const u8* record, size_t offset)
-{
-    u32 value;
-    std::memcpy(&value, record + offset, 4);
-    return value;
-}
-
 // The next unit fraction of DAT_0054DD7C.
 float next_light_unit(u32& random)
 {
@@ -238,33 +224,39 @@ float light_swing(float time, float period)
 // Xbox 0x000FDB20, AL slot
 void flicker_runtime_light_color(u8* record, u32 frame, u32& random)
 {
-    if ((u32(truncate_runtime_float(light_float(record, 0x88))) & frame) != 0) // 0x001673D8, DAT_004DEA58
+    const std::span<u8> light = light_record(record);
+    // 0x001673D8, DAT_004DEA58
+    if ((u32(truncate_runtime_float(get(light, light_record_field::colour_period))) & frame) != 0)
     {
         return;
     }
     const float fraction = next_light_unit(random);
-    const u32 color = menu_color(light_word(record, 0x80), light_word(record, 0x84), fraction); // 0x00101730
-    std::memcpy(record + 0x78, &color, 4);
-    record[0x66] |= 1;
+    const u32 color = menu_color(get(light, light_record_field::colour_low),
+        get(light, light_record_field::colour_high), fraction); // 0x00101730
+    set(light, light_record_field::colour, color);
+    field_byte(light, light_record_field::flags, 0) |= 1;
 }
 
 // Xbox 0x000FDBA0
 void swing_runtime_light_color(u8* record, float time)
 {
-    const float fraction = light_swing(time, light_float(record, 0x88));
-    const u32 color = menu_color(light_word(record, 0x80), light_word(record, 0x84), fraction); // 0x00101730
-    std::memcpy(record + 0x78, &color, 4);
-    record[0x66] |= 1;
+    const std::span<u8> light = light_record(record);
+    const float fraction = light_swing(time, get(light, light_record_field::colour_period));
+    const u32 color = menu_color(get(light, light_record_field::colour_low),
+        get(light, light_record_field::colour_high), fraction); // 0x00101730
+    set(light, light_record_field::colour, color);
+    field_byte(light, light_record_field::flags, 0) |= 1;
 }
 
 // Xbox 0x000FDC20
 void swing_runtime_light_range(u8* record, float time)
 {
-    const float fraction = light_swing(time, light_float(record, 0x94));
-    const float low = light_float(record, 0x8C);
-    const float range = (light_float(record, 0x90) - low) * fraction + low;
-    std::memcpy(record + 0x70, &range, 4);
-    record[0x66] |= 1;
+    const std::span<u8> light = light_record(record);
+    const float fraction = light_swing(time, get(light, light_record_field::range_period));
+    const float low = get(light, light_record_field::range_low);
+    const float range = (get(light, light_record_field::range_high) - low) * fraction + low;
+    set(light, light_record_field::range, range);
+    field_byte(light, light_record_field::flags, 0) |= 1;
 }
 }
 
@@ -278,24 +270,26 @@ void animate_runtime_light_records(RuntimeShaderRegistrationState& lights, u32 f
         {
             continue;
         }
-        if ((record[0x66] & 0x40) != 0)
+        const std::span<u8> light = light_record(record);
+        if ((get(light, light_record_field::flags) & 0x40) != 0)
         {
             flicker_runtime_light_color(record, frame, random); // 0x000FDB20, AL the slot
         }
-        if (std::int8_t(record[0x66]) < 0
-            && (u32(truncate_runtime_float(light_float(record, 0x94))) & frame) == 0) // 0x001673D8, DAT_004DEA58
+        if (std::int8_t(get(light, light_record_field::flags)) < 0
+            && (u32(truncate_runtime_float(get(light, light_record_field::range_period))) & frame)
+                == 0) // 0x001673D8, DAT_004DEA58
         {
             const float fraction = next_light_unit(random);
-            const float low = light_float(record, 0x8C);
-            const float range = (light_float(record, 0x90) - low) * fraction + low;
-            std::memcpy(record + 0x70, &range, 4);
-            record[0x66] |= 1;
+            const float low = get(light, light_record_field::range_low);
+            const float range = (get(light, light_record_field::range_high) - low) * fraction + low;
+            set(light, light_record_field::range, range);
+            field_byte(light, light_record_field::flags, 0) |= 1;
         }
-        if ((record[0x67] & 2) != 0)
+        if ((get(light, light_record_field::swing_flags) & 2) != 0)
         {
             swing_runtime_light_color(record, time); // 0x000FDBA0
         }
-        if ((lights.records[slot][0x67] & 4) != 0)
+        if ((get(light_record(lights.records[slot]), light_record_field::swing_flags) & 4) != 0)
         {
             swing_runtime_light_range(lights.records[slot], time); // 0x000FDC20
         }

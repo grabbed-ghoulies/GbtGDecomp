@@ -209,6 +209,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Motion-blur avatar (entityAvatarFxMotionBlur, type 15, 0x00066E20): a dying actor's fading copy | 0xA50, parameters 0x4B8 | `avatar_motion_blur_field`: height scale, timer, fade, light, phase, pixel shader, resource, effect, ignite effect; `avatar_motion_blur_parameter`: source, resource, effect, ignite effect | `src/engine/entities/avatar_fields.h` |
 | After-image avatar (type 16, 0x000690F0): the swing trail's fading copy | 0x968, parameters 0x354 | `avatar_afterimage_field`: time left, life, alpha, start alpha, start and end scale, texture parameter, texture, glow; `avatar_afterimage_parameter`: source, life, alpha, end scale, glow, texture record (built by 0x0013B030) | `src/engine/entities/avatar_fields.h` |
 | Event step (a DAT_005064E0 pool row, built by script nodes 0x19..0x88, run by 0x000D0B40) | 0x88 | `event_step_field` (type, delay and its block, icon, icon shown), `event_step_delay_field` (the +4 block: left, started, waits for cutscene) and one namespace per type with fields after +0x18: tag (2), kill count (3), timed (4, 5), done (6), spare tag (7), next different (8), unhit since (10), one type (0xD), number (0xE), key carrier (0xF), attack limit (0x10), tag kill count (0x12) | `src/engine/scripts/script_event_step_fields.h` |
+| Anim emitter (entityAvatarFxAnimEmitter, type 0xD, 0x00109FC0): a powerup pickup that flies out, waits and fades once collected | 0x9E4, parameters 0x3C4 | `anim_emitter_field`: state, kind, amount, extra, id, callout tokens (count, ids), origin, landing, flight timer, bounces, sprite size, two pulse phases, sprite alpha, fade timer; `anim_emitter_parameter`: kind, amount, extra, sprite, id | `src/engine/entities/fx_anim_emitter.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
 The camera mind was checked with `--player-opening` and headless captures of `chapter1_scene1_2playcam` at 300 and
@@ -347,6 +348,13 @@ word as the seconds' bits, now through `std::bit_cast<float>`; signed fields rep
 read on. The ten regular modes are byte-identical to the previous build apart from `scene6_title.bmp`'s known
 variant. `--scene2a2-reaper` plays the "Kill All/Time Limit" event (steps 0 and 4, their icons and delay blocks)
 five times; the other step types weren't run.
+
+The anim emitter was named by hand in `fx_anim_emitter.cpp`. Its burst builder (0x00069590) builds after-image
+parameters and now writes them through `avatar_afterimage_parameter`. The landing point arrives as three words and is
+stored with `std::bit_cast<float>`; the sprite's "aid_" test compares the name's first four bytes as before. The
+callout ids are read with `.at()`, so a count past eight throws where retail would read on. The ten regular modes
+are byte-identical to the previous build apart from `scene6_title.bmp`'s known variant; which of them drop a pickup
+wasn't checked.
 
 ## Next
 

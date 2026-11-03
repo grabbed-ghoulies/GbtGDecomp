@@ -23,11 +23,44 @@ struct RuntimeFxEmitterPlayer
     const RuntimeActorResourceReference& resource; // Actor +0x8C.
     ActorAttachmentEventContext& callouts;
 };
+// entityAvatarFxAnimEmitter's parameters (0x3C4 bytes) after the actor's 0x334: a powerup pickup.
+namespace anim_emitter_parameter
+{
+constexpr RetailField<u32, 0x334> kind{}; // the powerup kind; 0x10 draws one of DAT_0030E220
+constexpr RetailField<float, 0x338> amount{};
+constexpr RetailField<u32, 0x33C> extra{};
+constexpr RetailField<std::array<char, 0x80>, 0x340> sprite{}; // an AID, or empty for none
+constexpr RetailField<u32, 0x3C0> id{}; // kind 1: the challenge bit that, once set, keeps it from appearing
+constexpr u32 kSize = 0x3C4;
+static_assert(retail_fits(kSize, id));
+} // namespace anim_emitter_parameter
+
+// entityAvatarFxAnimEmitter's own part (0x934..0x9E4). The list link (+0x934) and sprite (+0x994) are native views.
+namespace anim_emitter_field
+{
+constexpr RetailField<u32, 0x93C> state{}; // 0 in flight, 1 waiting to be collected, 2 collected and fading
+constexpr RetailField<u32, 0x940> kind{};
+constexpr RetailField<float, 0x944> amount{};
+constexpr RetailField<u32, 0x948> extra{};
+constexpr RetailField<u32, 0x94C> id{};
+// The callout tokens 0x0013B7C0 records for callouts 0x4A (a count and up to eight tokens, 0x24 bytes).
+constexpr RetailRecord<0x950, 0x24> callout_tokens{};
+constexpr RetailField<i32, 0x950> callout_count{};
+constexpr RetailField<std::array<u32, 8>, 0x954> callout_ids{};
+constexpr RetailField<Vec3, 0x974> origin{}; // where the flight started
+constexpr RetailField<Vec3, 0x980> landing{}; // its y is the floor it bounces on
+constexpr RetailField<float, 0x98C> flight_timer{};
+constexpr RetailField<u32, 0x990> bounces{};
+constexpr RetailField<float, 0x998> sprite_width{};
+constexpr RetailField<float, 0x99C> sprite_height{};
+constexpr RetailField<float, 0x9A0> pulse_phase{}; // wraps at 1
+constexpr RetailField<float, 0x9A4> second_pulse_phase{}; // wraps at 1.5
+constexpr RetailField<u32, 0x9A8> sprite_alpha{}; // its low byte is the sprite's alpha
+constexpr RetailField<float, 0x9AC> fade_timer{};
+constexpr u32 kSize = 0x9E4;
+} // namespace anim_emitter_field
+
 // entityAvatarFxAnimEmitter (type 0xD, vtable 0x0050E108) over the avatar actor (type 2).
-// Emitter bytes: +0x93C state, +0x940 powerup kind, +0x944 amount, +0x948 extra, +0x94C id,
-// +0x950 attachment tokens, +0x974 launch origin, +0x980 landing point, +0x98C flight timer,
-// +0x990 bounces, +0x998/+0x99C sprite size, +0x9A0/+0x9A4 pulse phases, +0x9A8 sprite alpha,
-// +0x9AC fade timer. The list link (+0x934) and sprite (+0x994) are native views.
 struct RuntimeFxAnimEmitter
 {
     std::span<u8> bytes;

@@ -1,4 +1,5 @@
 #include "actor_trail_requests.h"
+#include "avatar_fields.h"
 #include "gbtg/object_factory.h"
 
 #include <cstring>
@@ -58,18 +59,17 @@ bool request_actor_trail(Actor& actor, float scale, float& timer, i32 frequency,
                 initialize_actor_effect_parameters(parameters.data(), context.default_name);
                 // The stores after the PUSH of the record address at 0x0013B123 are 4 bytes further up the
                 // stack: +0x334 the source actor, +0x338 the life, +0x33C the alpha, +0x340..+0x348 actor +0x30.
-                store<float>(parameters.data(), 0x24, actor.scale_200);
-                store<float>(parameters.data(), 0x340, actor.scale_x);
-                store<float>(parameters.data(), 0x344, actor.radius_y);
+                set(parameters, actor_parameter_field::model_scale, actor.scale_200);
                 store<u16>(parameters.data(), 0, 0x354);
                 store<u16>(parameters.data(), 2, 0x43);
                 store<u16>(parameters.data(), 4, 0x10);
-                store<u32>(parameters.data(), 0x334, context.actor_address);
-                store<float>(parameters.data(), 0x338, scale);
-                store<u8>(parameters.data(), 0x33C, 0x80);
-                store<u32>(parameters.data(), 0x350, 0);
-                store<u32>(parameters.data(), 0x34C, 0);
-                store<float>(parameters.data(), 0x348, actor.radius_xz);
+                set(parameters, avatar_afterimage_parameter::source, context.actor_address);
+                set(parameters, avatar_afterimage_parameter::life, scale);
+                set(parameters, avatar_afterimage_parameter::alpha, 0x80);
+                set(parameters, avatar_afterimage_parameter::texture_record, 0);
+                set(parameters, avatar_afterimage_parameter::glow, 0);
+                set(parameters, avatar_afterimage_parameter::end_scale,
+                    Vec3{actor.scale_x, actor.radius_y, actor.radius_xz}); // +0x30
                 auto object = create_factory_object(context.factory, parameters);
                 created = object.bytes != nullptr;
                 if (created)

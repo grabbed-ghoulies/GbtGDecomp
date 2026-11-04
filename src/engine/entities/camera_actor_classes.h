@@ -1,4 +1,5 @@
 #pragma once
+#include "strategy_fields.h"
 #include "gbtg/object_factory.h"
 #include "gbtg/entity.h"
 #include "body_animation_setup.h"
@@ -27,6 +28,15 @@ bool initialize_runtime_camera_body(RuntimeCameraBodyContext& context); // Xbox 
 void destroy_runtime_camera_body(RuntimeCameraBodyContext& context); // Xbox 0x00073300
 void camera_mind_object_sizes(ObjectSizes& output); // Xbox 0x0007AFC0
 void director_strategy_object_sizes(ObjectSizes& output); // Xbox 0x000AAE40
+// The director strategy (factory type 0x39, 0x44 bytes).
+struct DirectorStrategyState
+{
+    StrategyBase base;
+    u32 unk_38 = 0; // +0x38, 0 at first; state 0x3F6's request takes it, and 0x000AA250 stops with no target and 0
+    u32 first_update = 0; // +0x3C, 1 at first; 0x000AA250 clears it each update, and it holds `starting` off
+    u32 starting = 0; // +0x40, 1 at first; the last request's +0x2A0
+};
+static_assert(sizeof(DirectorStrategyState) == 0x44);
 bool initialize_runtime_director_strategy(std::span<u8> strategy); // Xbox 0x000AAEB0
 struct RuntimeDirectorStrategy
 {

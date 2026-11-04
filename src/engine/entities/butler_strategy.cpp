@@ -68,7 +68,7 @@ bool initialize_runtime_butler_strategy(std::span<u8> strategy, std::span<u8> ac
 {
     if (name != nullptr)
     {
-        std::memcpy(strategy.data() + 0x38, name, std::strlen(name) + 1);
+        std::memcpy(strategy_view<ButlerStrategyState>(strategy).scared_name.data(), name, std::strlen(name) + 1);
     }
     put(actor, 0xCF0, 1);
     return true;
@@ -193,7 +193,7 @@ void enter_runtime_butler_state(u16 state, u16 previous, RuntimeButlerStrategy& 
     case 0x411:
     {
         load_runtime_mind_goal(context.goal_scared, goals.entry.goals);
-        const char* name = reinterpret_cast<const char*>(strategy_of(context).data() + 0x38);
+        const char* name = strategy_view<ButlerStrategyState>(strategy_of(context)).scared_name.data();
         if (*name != '\0')
         {
             std::memcpy(goals.entry.body.data() + 0x288, name, std::strlen(name) + 1);

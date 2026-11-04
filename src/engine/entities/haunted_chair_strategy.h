@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -10,16 +11,15 @@ namespace gbtg
 // ("slide", phase 2), and when a target is in reach either slides at it ("slideattarget", up to the block's +0x34
 // times) or swing-kicks (state 0x3EF), picked by the actor's aggression (+0x964 -> +8). Asleep (0x413, "mimic") it
 // waits for a target within the block's reach before waking (0x417, "wakeup").
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace haunted_chair_strategy_field
+struct HauntedChairStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_00428734, the block the chair's tunables come from
-constexpr RetailField<u32, 0x3C> phase{}; // 1 hold, 2 slide (0x000AE360)
-constexpr RetailField<float, 0x40> hold{}; // seconds left to hold still, drawn from the block's +0x24..+0x28
-constexpr RetailField<i32, 0x44> slides{}; // slides at the target since state 0x3EE began
-constexpr u32 kSize = 0x48;
-static_assert(retail_fits(kSize, slides));
-} // namespace haunted_chair_strategy_field
+    StrategyBase base{}; // +0
+    u32 parameters = 0; // +0x38, DAT_00428734, the block the chair's tunables come from
+    u32 phase = 0; // +0x3C, 1 hold, 2 slide (0x000AE360)
+    float hold = 0.f; // +0x40, seconds left to hold still, drawn from the block's +0x24..+0x28
+    i32 slides = 0; // +0x44, slides at the target since state 0x3EE began
+};
+static_assert(sizeof(HauntedChairStrategyState) == 0x48);
 struct RuntimeHauntedChairStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

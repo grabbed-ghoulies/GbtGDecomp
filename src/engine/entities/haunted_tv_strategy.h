@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -14,7 +15,6 @@ namespace gbtg
 // (state 0x3EF, "generateghouly") or, near a target, plays its attack timeline: a list of {on, seconds} rows that
 // switch its attack (latches, contact shapes, the body's 0x65 attack row and the effect object the parameters name)
 // on and off. Its screen is the model's shader_blinn22 colour0 parameter, given one of six textures per mode.
-// Strategy bytes: +0x1A attacking, +0x1B generating, +0x1C pause count.
 namespace haunted_tv_parameter
 {
 constexpr RetailField<std::array<char, 0x80>, 0x18> timeline{}; // the attack timeline's AID
@@ -24,31 +24,32 @@ constexpr u32 kScreenStride = 0x80;
 constexpr u32 kSize = 0x498;
 static_assert(retail_fits(kSize, screen_0));
 } // namespace haunted_tv_parameter
-namespace haunted_tv_strategy_field
+struct HauntedTvStrategyState
 {
-constexpr RetailField<float, 0x38> repeat{}; // counts down from 0.5 s (0x00042450) in states 0x3FE and 0x416
-constexpr RetailField<u32, 0x3C> announced{}; // set by message 0x3B
-constexpr RetailField<u32, 0x44> generated{}; // ghoulies let out (state 0x3EF entered with none yet)
-constexpr RetailField<u32, 0x48> generating{}; // raised with generated, dropped as 0x3EF ends
-constexpr RetailField<float, 0x4C> near_time{}; // seconds near the target in state 0x3EE
-constexpr RetailField<float, 0x50> recovery{}; // 1 s after a knock-down (state 0x409); no attack while it runs
-constexpr RetailField<u32, 0x54> screen{}; // 1 click, 2 / 3 static, 4 the ghouly, 5 off, 0 the first texture
-constexpr RetailField<u32, 0x58> screen_parameter{}; // the shader parameter (0x000F8540), or 0
-constexpr RetailField<u32, 0x5C> screen_texture_0{}; // six textures, 4 apart, by screen mode
-constexpr RetailField<u32, 0x74> ghouly_texture{}; // the box's ghouly's face (0x000B1D30)
-constexpr RetailField<u32, 0x78> playing{}; // the attack timeline runs
-constexpr RetailField<u32, 0x7C> attacking{}; // the attack is on (0x000B17B0 .. 0x000B1940)
-constexpr RetailField<u32, 0x80> pending{}; // the timeline waits for the attack gate (0x000B1A90)
-constexpr RetailField<std::array<char, 0x80>, 0x84> effect{};
-constexpr RetailField<u32, 0x104> effect_object{}; // the attack's object, or 0
-constexpr RetailField<u32, 0x108> timeline{}; // the timeline's rows, or 0
-constexpr RetailField<u32, 0x10C> timeline_end{};
-constexpr RetailField<u32, 0x110> timeline_row{};
-constexpr RetailField<float, 0x114> row_time{};
-constexpr RetailField<u32, 0x118> held{}; // set: the timeline does not advance
-constexpr u32 kSize = 0x11C;
-static_assert(retail_fits(kSize, held));
-} // namespace haunted_tv_strategy_field
+    StrategyBase base{}; // +0
+    float repeat = 0.f; // +0x38, counts down from 0.5 s (0x00042450) in states 0x3FE and 0x416
+    u32 announced = 0; // +0x3C, set by message 0x3B
+    std::array<u8, 4> unk_40{}; // +0x40, never read or written by translated code
+    u32 generated = 0; // +0x44, ghoulies let out (state 0x3EF entered with none yet)
+    u32 generating = 0; // +0x48, raised with generated, dropped as 0x3EF ends
+    float near_time = 0.f; // +0x4C, seconds near the target in state 0x3EE
+    float recovery = 0.f; // +0x50, 1 s after a knock-down (state 0x409); no attack while it runs
+    u32 screen = 0; // +0x54, 1 click, 2 / 3 static, 4 the ghouly, 5 off, 0 the first texture
+    u32 screen_parameter = 0; // +0x58, the shader parameter (0x000F8540), or 0
+    std::array<u32, 6> screen_textures{}; // +0x5C, by screen mode
+    u32 ghouly_texture = 0; // +0x74, the box's ghouly's face (0x000B1D30)
+    u32 playing = 0; // +0x78, the attack timeline runs
+    u32 attacking = 0; // +0x7C, the attack is on (0x000B17B0 .. 0x000B1940)
+    u32 pending = 0; // +0x80, the timeline waits for the attack gate (0x000B1A90)
+    std::array<char, 0x80> effect{}; // +0x84
+    u32 effect_object = 0; // +0x104, the attack's object, or 0
+    u32 timeline = 0; // +0x108, the timeline's rows, or 0
+    u32 timeline_end = 0; // +0x10C
+    u32 timeline_row = 0; // +0x110
+    float row_time = 0.f; // +0x114
+    u32 held = 0; // +0x118, set: the timeline does not advance
+};
+static_assert(sizeof(HauntedTvStrategyState) == 0x11C);
 struct RuntimeHauntedTvStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

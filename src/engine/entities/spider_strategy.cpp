@@ -22,6 +22,16 @@ namespace gbtg
 {
 namespace
 {
+SpiderStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<SpiderStrategyState>(strategy);
+}
+
+const SpiderStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<SpiderStrategyState>(strategy);
+}
+
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -274,7 +284,7 @@ bool runtime_spider_holds_target(const RuntimeMindTarget& target, RuntimeSpiderS
 // Xbox 0x000C1190, EAX strategy, ESI target
 bool runtime_spider_bites(const RuntimeMindTarget* target, RuntimeSpiderStrategy& context)
 {
-    if (target == nullptr || get(strategy_of(context), spider_strategy_field::web_delay) != 0.f)
+    if (target == nullptr || fields_of(strategy_of(context)).web_delay != 0.f)
     {
         return false;
     }
@@ -315,14 +325,14 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     const u16 state = strategy_base(strategy).state;
-    const float delay = get(strategy, spider_strategy_field::web_delay);
+    const float delay = fields_of(strategy).web_delay;
     if (0.f < delay)
     {
         const float left = delay - runtime_actor_rate(goals.entry.actor) * runtime_frame_step(goals.clock);
-        set(strategy, spider_strategy_field::web_delay, left);
+        fields_of(strategy).web_delay = left;
         if (left <= 0.f)
         {
-            set(strategy, spider_strategy_field::web_delay, 0.f);
+            fields_of(strategy).web_delay = 0.f;
         }
     }
     update_runtime_base_strategy(goals); // 0x0002C130
@@ -356,7 +366,7 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
         {
             return;
         }
-        if (get(strategy, spider_strategy_field::reached) == 0)
+        if (fields_of(strategy).reached == 0)
         {
             check_runtime_spider_goal_cell(context); // 0x000C0AF0
             if (requests_pending(context))
@@ -368,7 +378,7 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
                 return;
             }
             const bool reached = approach_runtime_spider_target(*target, context);
-            set(strategy, spider_strategy_field::reached, reached ? 1u : 0u);
+            fields_of(strategy).reached = reached ? 1u : 0u;
             if (reached)
             {
                 const bool climbing = target != nullptr && runtime_mind_target_climbing(*target, context);
@@ -391,13 +401,13 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
         {
             return;
         }
-        if (get(strategy, spider_strategy_field::reached) == 0)
+        if (fields_of(strategy).reached == 0)
         {
             check_runtime_spider_goal_cell(context); // 0x000C0AF0
             if (!requests_pending(context))
             {
                 const bool reached = approach_runtime_spider_target(*target, context);
-                set(strategy, spider_strategy_field::reached, reached ? 1u : 0u);
+                fields_of(strategy).reached = reached ? 1u : 0u;
                 if (reached)
                 {
                     clear_runtime_player_mind_requests(*goals.setup.mind);
@@ -494,7 +504,7 @@ void dispatch_runtime_spider_message(std::span<const u32> message, RuntimeSpider
         {
             return;
         }
-        set(strategy_of(context), spider_strategy_field::web_delay, 5.f); // DAT_0032B184.
+        fields_of(strategy_of(context)).web_delay = 5.f; // DAT_0032B184.
         change_state(0x3F2, context);
         return;
     case 0x82:
@@ -528,12 +538,12 @@ void enter_runtime_spider_state(u16 state, u16 previous, RuntimeSpiderStrategy& 
         return;
     case 0x3ED:
         body[0x328] = 4;
-        set(strategy, spider_strategy_field::reached, 0u);
+        fields_of(strategy).reached = 0u;
         strategy_base(strategy).attacking = 1;
         return;
     case 0x3EF:
         body[0x328] = 6;
-        set(strategy, spider_strategy_field::reached, 0u);
+        fields_of(strategy).reached = 0u;
         strategy_base(strategy).unk_1B = 1;
         return;
     case 0x40D:

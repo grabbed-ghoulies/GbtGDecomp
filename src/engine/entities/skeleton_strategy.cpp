@@ -18,6 +18,16 @@ namespace gbtg
 {
 namespace
 {
+SkeletonStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<SkeletonStrategyState>(strategy);
+}
+
+const SkeletonStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<SkeletonStrategyState>(strategy);
+}
+
 void put(std::span<u8> bytes, size_t offset, u32 value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -185,16 +195,16 @@ u16 choose_runtime_skeleton_attack(const RuntimeMindTarget& target, RuntimeSkele
     {
         return 0x3EF;
     }
-    if (get(strategy, skeleton_strategy_field::fetch_delay) == 0.f
+    if (fields_of(strategy).fetch_delay == 0.f
         && roll_runtime_actor_attack(context.checks.attributes, goals.random)
-        && get(strategy, skeleton_strategy_field::no_spawn_in_reach) == 0)
+        && fields_of(strategy).no_spawn_in_reach == 0)
     {
         float distance;
         if (find_runtime_player_nearest_spawn(goals.entry.actor, &distance, 0x17) == nullptr)
         {
-            set(strategy, skeleton_strategy_field::no_spawn_in_reach, 1);
+            fields_of(strategy).no_spawn_in_reach = 1;
         }
-        set(strategy, skeleton_strategy_field::fetch_delay, context.fetch_delay);
+        fields_of(strategy).fetch_delay = context.fetch_delay;
         return 0x405;
     }
     if (runtime_mind_target_requires_action(target, context.views.body_of(target.actor).bytes))
@@ -284,14 +294,14 @@ void update_runtime_skeleton_strategy(RuntimeSkeletonStrategy& context)
     if (runtime_skeleton_delay_runs(context))
     {
         const float step = runtime_frame_step(goals.clock);
-        const float delay = get(strategy, skeleton_strategy_field::fetch_delay);
+        const float delay = fields_of(strategy).fetch_delay;
         if (0.f < delay)
         {
             const float remaining = delay - step;
-            set(strategy, skeleton_strategy_field::fetch_delay, remaining);
+            fields_of(strategy).fetch_delay = remaining;
             if (remaining <= 0.f)
             {
-                set(strategy, skeleton_strategy_field::fetch_delay, 0.f);
+                fields_of(strategy).fetch_delay = 0.f;
             }
         }
     }

@@ -13,19 +13,14 @@ bool actor_tick_timer(const Actor& actor, float& timer, float freeze, float dt,
 
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
+PlayerStrategyState& fields_of(std::span<u8> strategy)
 {
-    std::memcpy(bytes.data() + offset, &value, 4);
+    return strategy_view<PlayerStrategyState>(strategy);
 }
 
 void put_u16(std::span<u8> bytes, size_t offset, u16 value)
 {
     std::memcpy(bytes.data() + offset, &value, 2);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
 }
 
 RuntimePlayerStrategyGoals& goals_of(RuntimePlayerStrategyFlow& context)
@@ -163,13 +158,13 @@ u32 runtime_player_idle_elapsed(RuntimePlayerStrategyFlow& context)
     std::span<u8> strategy = goals.entry.strategy;
     if ((goals.body_bits->bytes[6] & 1) == 0 || nearest_threat(context) != nullptr)
     {
-        put_float(strategy, 0x4C, 0.0f);
+        fields_of(strategy).idle_time = 0.0f;
         return 0;
     }
     const float step = runtime_frame_step(goals.clock);
     const float rate = runtime_actor_rate(goals.entry.actor);
-    const float elapsed = step * rate + read_f32(strategy, 0x4C);
-    put_float(strategy, 0x4C, elapsed);
+    const float elapsed = step * rate + fields_of(strategy).idle_time;
+    fields_of(strategy).idle_time = elapsed;
     return elapsed >= 30.0f ? 1 : 0; // DAT_0032B108.
 }
 
@@ -231,7 +226,7 @@ void dispatch_runtime_player_strategy_message(std::span<const u32> message, Runt
         break;
     case 0x2C:
     case 0x82:
-        put(strategy, 0x3C, 1);
+        fields_of(strategy).unk_3C = 1;
         break;
     case 0x6E:
         check_runtime_player_knockout(goals);
@@ -239,7 +234,7 @@ void dispatch_runtime_player_strategy_message(std::span<const u32> message, Runt
     case 0x7D:
         if (runtime_brew_prompt_available(context) != 0)
         {
-            put(strategy, 0x40, 1);
+            fields_of(strategy).brew_wanted = 1;
         }
         break;
     case 0xB1:
@@ -260,7 +255,7 @@ void enter_runtime_player_strategy_state(u16 state, RuntimePlayerStrategyFlow& c
     switch (state)
     {
     case 0x3F1:
-        put_float(strategy, 0x50, 5.0f); // DAT_0032B184.
+        fields_of(strategy).brew_timer = 5.0f; // DAT_0032B184.
         ++strategy_base(strategy).pause_count;
         change_runtime_actor_pause(u8(0xFFFF), 0, context.pause);
         ++context.pause_count;
@@ -269,19 +264,19 @@ void enter_runtime_player_strategy_state(u16 state, RuntimePlayerStrategyFlow& c
         change_runtime_actor_pause(1, 0, context.pause);
         break;
     case 0x3FC:
-        put_float(strategy, 0x4C, 0.0f);
+        fields_of(strategy).idle_time = 0.0f;
         allocate_runtime_mind_request(mind_goals.anchor, 0x16, mind_goals.sizes);
-        if (read_u32(strategy, 0x48) == 0)
+        if (fields_of(strategy).pause_held == 0)
         {
             ++context.pause_count;
-            put(strategy, 0x48, 1);
+            fields_of(strategy).pause_held = 1;
         }
         break;
     case 0x407:
         load_runtime_mind_goal(context.goal_idle, mind_goals);
         break;
     case 0x408:
-        put_float(strategy, 0x4C, 0.0f);
+        fields_of(strategy).idle_time = 0.0f;
         allocate_runtime_mind_request(mind_goals.anchor, 0x16, mind_goals.sizes);
         break;
     default:
@@ -297,14 +292,14 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
     std::span<u8> strategy = goals.entry.strategy;
     std::span<u8> body = goals.entry.body;
     const u16 state = strategy_base(strategy).state;
-    if (read_u32(strategy, 0x38) != 0)
+    if (fields_of(strategy).move_held != 0)
     {
         if ((goals.body_bits->bytes[6] & 1) != 0)
         {
             put_u16(body, 0x30, u16(get(body, body_field::move_holds) - 1));
-            put(strategy, 0x38, 0);
+            fields_of(strategy).move_held = 0;
         }
-        if (read_u32(strategy, 0x38) != 0)
+        if (fields_of(strategy).move_held != 0)
         {
             reset_runtime_input_device(goals.input, goals.input_release);
         }
@@ -322,7 +317,7 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
         {
             return;
         }
-        i32 count = _mm_cvttss_si32(_mm_set_ss(read_f32(strategy, 0x50) + 1.0f));
+        i32 count = _mm_cvttss_si32(_mm_set_ss(fields_of(strategy).brew_timer + 1.0f));
         if (count > 5)
         {
             count = 5;
@@ -344,10 +339,8 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
             unlock_runtime_brew_intro(context);
             return;
         }
-        float timer = read_f32(strategy, 0x50);
-        const bool expired = actor_tick_timer(goals.entry.actor, timer, goals.clock.freeze, goals.clock.dt,
-            goals.clock.scale);
-        put_float(strategy, 0x50, timer);
+        const bool expired = actor_tick_timer(goals.entry.actor, fields_of(strategy).brew_timer, goals.clock.freeze,
+            goals.clock.dt, goals.clock.scale);
         if (!expired && runtime_input_button_edge(context.input_device, 0x200, context.input_state) == 0)
         {
             return;
@@ -388,18 +381,18 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
     case 0x408:
         if (check_runtime_player_knockout(goals) != 0)
         {
-            put(strategy, 0x40, 0);
+            fields_of(strategy).brew_wanted = 0;
             return;
         }
-        if (read_u32(strategy, 0x40) != 0)
+        if (fields_of(strategy).brew_wanted != 0)
         {
-            put(strategy, 0x40, 0);
+            fields_of(strategy).brew_wanted = 0;
             strategy_base(strategy).after_wait_state = 0x3F1;
             strategy_base(strategy).unk_18 = 0x3F1;
             move_state(0x3F1, context);
             return;
         }
-        if (read_u32(strategy, 0x3C) != 0)
+        if (fields_of(strategy).unk_3C != 0)
         {
             if (!runtime_body_timer_is_idle(body))
             {
@@ -409,7 +402,7 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
             {
                 move_state(0x3F2, context);
             }
-            put(strategy, 0x3C, 0);
+            fields_of(strategy).unk_3C = 0;
             return;
         }
         if (runtime_player_idle_elapsed(context) != 0)

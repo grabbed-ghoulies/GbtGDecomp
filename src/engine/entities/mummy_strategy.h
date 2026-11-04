@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -11,17 +12,16 @@ namespace gbtg
 // once provoked (+0x38) and queued on the target it attacks ("attack", 0x3ED), whacks with its ankh ("ankh_whack",
 // 0x3EE, while the body holds something at +0x48) or binds the target ("bondage_bandage", 0x3EF), picked by the
 // target's action table and the actor's aggression (0x000BC580). Too far off (80) it falls back to the ring.
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace mummy_strategy_field
+struct MummyStrategyState
 {
-constexpr RetailField<u32, 0x38> provoked{}; // Hostile at construction, message 1, or a hit (0x6E)
-constexpr RetailField<u32, 0x3C> unk_3C{}; // Message 0x68's ankh attack; a landed hit then staggers (0x3F2)
-constexpr RetailField<i32, 0x40> side{}; // 1 or -1, drawn by 0x000BB9F0
-constexpr RetailField<float, 0x44> ring_delay{}; // Seconds to the next ring point, 1.5 + 2.5 * random
-constexpr RetailField<u32, 0x48> held{}; // Message 0x5F's actor; 0x7C clears it (0x00140A40)
-constexpr u32 kSize = 0x4C;
-static_assert(retail_fits(kSize, held));
-} // namespace mummy_strategy_field
+    StrategyBase base{}; // +0
+    u32 provoked = 0; // +0x38, hostile at construction, message 1, or a hit (0x6E)
+    u32 unk_3C = 0; // +0x3C, message 0x68's ankh attack; a landed hit then staggers (0x3F2)
+    i32 side = 0; // +0x40, 1 or -1, drawn by 0x000BB9F0
+    float ring_delay = 0.f; // +0x44, seconds to the next ring point, 1.5 + 2.5 * random
+    u32 held = 0; // +0x48, message 0x5F's actor; 0x7C clears it (0x00140A40)
+};
+static_assert(sizeof(MummyStrategyState) == 0x4C);
 struct RuntimeMummyStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

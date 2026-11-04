@@ -20,7 +20,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = haunted_chair_strategy_field;
+HauntedChairStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<HauntedChairStrategyState>(strategy);
+}
+
+const HauntedChairStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<HauntedChairStrategyState>(strategy);
+}
+
 
 constexpr float kAttackRange = std::bit_cast<float>(0x47C35000u); // 100000, the target queue's reach.
 constexpr float kAhead = 10.f; // 0x41200000.
@@ -132,8 +141,8 @@ void choose_attack(RuntimeHauntedChairStrategy& context)
 void set_phase(u32 phase, RuntimeHauntedChairStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 previous = get(strategy, field::phase);
-    set(strategy, field::phase, phase);
+    const u32 previous = fields_of(strategy).phase;
+    fields_of(strategy).phase = phase;
     Actor& actor = goals_of(context).entry.actor;
     const std::span<const u8> parameters = context.parameters;
     if (phase == 1)
@@ -145,7 +154,7 @@ void set_phase(u32 phase, RuntimeHauntedChairStrategy& context)
             u32& random = goals_of(context).random;
             random = random * 0x19660Du + 0x3C6EF35Fu;
             const float roll = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
-            set(strategy, field::hold, (high - low) * roll + low);
+            fields_of(strategy).hold = (high - low) * roll + low;
         }
         request_runtime_strategy_roam(parameters.subspan(4), context.checks); // 0x0013A0A0, EAX block +4, EBX actor
         return;
@@ -170,14 +179,14 @@ void update_hold(RuntimeHauntedChairStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = goals_of(context).entry.actor;
-    const float hold = get(strategy, field::hold);
+    const float hold = fields_of(strategy).hold;
     if (0.f < hold)
     {
         const float left = hold - runtime_actor_rate(actor) * runtime_frame_step(goals_of(context).clock);
-        set(strategy, field::hold, left);
+        fields_of(strategy).hold = left;
         if (!(0.f < left)) // COMISS; JC keeps a positive time.
         {
-            set(strategy, field::hold, 0.f);
+            fields_of(strategy).hold = 0.f;
         }
     }
     if (requests_pending(context))
@@ -189,14 +198,14 @@ void update_hold(RuntimeHauntedChairStrategy& context)
         change_state(pick_attack_state(context), context); // 0x000AE140
         return;
     }
-    set_phase(get(strategy, field::hold) > 0.f ? 1u : 2u, context); // DAT_0032B100, the tail jump to 0x000AE360
+    set_phase(fields_of(strategy).hold > 0.f ? 1u : 2u, context); // DAT_0032B100, the tail jump to 0x000AE360
 }
 
 // Xbox 0x000AE520, EAX actor, ECX strategy: one more slide at the target.
 void slide_at_target(RuntimeHauntedChairStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    set(strategy, field::slides, get(strategy, field::slides) + 1);
+    fields_of(strategy).slides = fields_of(strategy).slides + 1;
     set_goal_point(goal_point(context), context);
     load_goal(context.goal_slide_at_target, context);
 }
@@ -211,7 +220,7 @@ void update_slide(RuntimeHauntedChairStrategy& context)
         return;
     }
     if (mind_target(context) != nullptr
-        && get(strategy_of(context), field::slides) < std::bit_cast<i32>(read_u32(context.parameters, 0x34)))
+        && fields_of(strategy_of(context)).slides < std::bit_cast<i32>(read_u32(context.parameters, 0x34)))
     {
         slide_at_target(context); // 0x000AE520
         return;
@@ -235,7 +244,7 @@ void update_holding(RuntimeHauntedChairStrategy& context)
     {
         return;
     }
-    const u32 phase = get(strategy_of(context), field::phase);
+    const u32 phase = fields_of(strategy_of(context)).phase;
     if (phase == 1)
     {
         update_hold(context); // 0x000AE280
@@ -284,15 +293,15 @@ void update_asleep(RuntimeHauntedChairStrategy& context)
 // Xbox 0x000ABB60
 void haunted_chair_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(HauntedChairStrategyState);
     output.parameters = 0x18;
 }
 
 // Xbox 0x000AE770
 bool initialize_runtime_haunted_chair_strategy(std::span<u8> strategy)
 {
-    set(strategy, field::parameters, 0x00428734u);
-    set(strategy, field::hold, 0.f);
+    fields_of(strategy).parameters = 0x00428734u;
+    fields_of(strategy).hold = 0.f;
     return true;
 }
 
@@ -414,7 +423,7 @@ void enter_runtime_haunted_chair_state(u16 state, u16 previous, RuntimeHauntedCh
     case 0x3EE:
         goals.entry.body[0x328] = 5;
         strategy_base(strategy).attacking = 1;
-        set(strategy, field::slides, 0);
+        fields_of(strategy).slides = 0;
         slide_at_target(context); // The tail jump to 0x000AE520.
         return;
     case 0x3EF:
@@ -423,7 +432,7 @@ void enter_runtime_haunted_chair_state(u16 state, u16 previous, RuntimeHauntedCh
         load_goal(context.goal_swing_kick, context);
         return;
     case 0x401:
-        set(strategy, field::phase, 0u);
+        fields_of(strategy).phase = 0u;
         set_phase(1, context); // The tail jump to 0x000AE360, ECX 1.
         return;
     case 0x413:
@@ -460,7 +469,7 @@ void leave_runtime_haunted_chair_state(u16 state, u16 next, RuntimeHauntedChairS
         strategy_base(strategy).attacking = 0;
         return;
     case 0x401:
-        set(strategy, field::phase, 0u);
+        fields_of(strategy).phase = 0u;
         return;
     case 0x417:
         return;

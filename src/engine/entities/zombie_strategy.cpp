@@ -18,6 +18,16 @@ namespace gbtg
 {
 namespace
 {
+ZombieStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<ZombieStrategyState>(strategy);
+}
+
+const ZombieStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<ZombieStrategyState>(strategy);
+}
+
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -104,7 +114,7 @@ RuntimePlayerMindRequest* request_position(float heading, RuntimeZombieStrategy&
 // Xbox 0x000C57F0
 bool initialize_runtime_zombie_strategy(std::span<u8> strategy)
 {
-    set(strategy, zombie_strategy_field::parameters, 0x004288B0u);
+    fields_of(strategy).parameters = 0x004288B0u;
     return true;
 }
 
@@ -174,13 +184,13 @@ void approach_runtime_zombie_target(RuntimeZombieStrategy& context)
     {
         return;
     }
-    const u32 approach = get(strategy, zombie_strategy_field::approach);
+    const u32 approach = fields_of(strategy).approach;
     if (approach == 1)
     {
         if (actor_event_chance(goals.random, read_f32(context.parameters, 0x18))
             && get(mind_of(context), mind_field::target_record) == 0)
         {
-            set(strategy, zombie_strategy_field::approach, 2u);
+            fields_of(strategy).approach = 2u;
             load_runtime_mind_goal(context.goal_swipe_aimless, goals.entry.goals);
             return;
         }
@@ -240,7 +250,7 @@ RuntimePlayerMindRequest* request_runtime_zombie_roam(RuntimeZombieStrategy& con
 void set_runtime_zombie_approach(u32 mode, RuntimeZombieStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    set(strategy_of(context), zombie_strategy_field::approach, mode);
+    fields_of(strategy_of(context)).approach = mode;
     if (mode == 2)
     {
         load_runtime_mind_goal(context.goal_swipe_aimless, goals.entry.goals);
@@ -281,7 +291,7 @@ void set_runtime_zombie_approach(u32 mode, RuntimeZombieStrategy& context)
 void begin_runtime_zombie_special(RuntimeZombieStrategy& context)
 {
     std::span<u8> strategy = strategy_of(context);
-    set(strategy, zombie_strategy_field::special_hit, 0u);
+    fields_of(strategy).special_hit = 0u;
     load_runtime_mind_goal(context.goal_special, goals_of(context).entry.goals);
     strategy_base(strategy).attacking = 1;
 }
@@ -292,7 +302,7 @@ void end_runtime_zombie_special(RuntimeZombieStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     strategy_base(strategy).attacking = 0;
-    if (get(strategy, zombie_strategy_field::special_hit) != 0 || !body_settled(context))
+    if (fields_of(strategy).special_hit != 0 || !body_settled(context))
     {
         return;
     }
@@ -303,7 +313,7 @@ void end_runtime_zombie_special(RuntimeZombieStrategy& context)
 // Xbox 0x000C5300
 void update_runtime_zombie_special(RuntimeZombieStrategy& context)
 {
-    if (get(strategy_of(context), zombie_strategy_field::special_hit) != 0)
+    if (fields_of(strategy_of(context)).special_hit != 0)
     {
         strategy_base(strategy_of(context)).attacking = 0;
     }
@@ -507,7 +517,7 @@ void dispatch_runtime_zombie_message(std::span<const u32> message, RuntimeZombie
     }
     if (strategy_base(strategy_of(context)).state == 0x3EF && message[0] == 0x3B)
     {
-        set(strategy_of(context), zombie_strategy_field::special_hit, 1u);
+        fields_of(strategy_of(context)).special_hit = 1u;
         return;
     }
     react_runtime_zombie_message(message, context);
@@ -542,7 +552,7 @@ void enter_runtime_zombie_state(u16 state, u16 previous, RuntimeZombieStrategy& 
         load_runtime_mind_goal(context.goal_get_weapon, mind);
         return;
     case 0x40C:
-        set(strategy_of(context), zombie_strategy_field::approach, 0u);
+        fields_of(strategy_of(context)).approach = 0u;
         set_runtime_zombie_approach(1, context);
         return;
     case 0x416:
@@ -571,7 +581,7 @@ void leave_runtime_zombie_state(u16 state, u16 next, RuntimeZombieStrategy& cont
         end_runtime_zombie_special(context);
         return;
     case 0x40C:
-        set(strategy_of(context), zombie_strategy_field::approach, 0u);
+        fields_of(strategy_of(context)).approach = 0u;
         return;
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)

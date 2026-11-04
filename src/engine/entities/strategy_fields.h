@@ -2,6 +2,7 @@
 #include "gbtg/retail_field.h"
 #include <array>
 #include <span>
+#include <type_traits>
 
 namespace gbtg
 {
@@ -34,6 +35,23 @@ struct StrategyBase
 };
 static_assert(sizeof(StrategyBase) == 0x38);
 
+// A strategy's bytes viewed as its struct.
+template <typename State>
+State& strategy_view(std::span<u8> bytes)
+{
+    static_assert(std::is_trivially_copyable_v<State>);
+    detail::check_retail_range(bytes.size(), 0, sizeof(State));
+    return *reinterpret_cast<State*>(bytes.data());
+}
+
+template <typename State>
+const State& strategy_view(std::span<const u8> bytes)
+{
+    static_assert(std::is_trivially_copyable_v<State>);
+    detail::check_retail_range(bytes.size(), 0, sizeof(State));
+    return *reinterpret_cast<const State*>(bytes.data());
+}
+
 // A strategy's bytes viewed as its base.
 inline StrategyBase& strategy_base(std::span<u8> bytes)
 {
@@ -46,4 +64,20 @@ inline const StrategyBase& strategy_base(std::span<const u8> bytes)
     detail::check_retail_range(bytes.size(), 0, sizeof(StrategyBase));
     return *reinterpret_cast<const StrategyBase*>(bytes.data());
 }
+
+// The player strategy (factory type 0x4F, 0x54 bytes).
+struct PlayerStrategyState
+{
+    StrategyBase base;
+    // +0x38: set on leaving state 0x3FB with a move hold added; cleared, with the hold, once body bit 6.0 is set. The
+    // input device is reset while it stays set.
+    u32 move_held = 0;
+    u32 unk_3C = 0; // +0x3C, set by messages 0x2C and 0x82; state 0x408 clears it once the body's timer is idle
+    u32 brew_wanted = 0; // +0x40, message 0x7D with the brew prompt available; state 0x408 moves to 0x3F1
+    u32 unk_44 = 0; // +0x44, nothing here reads it
+    u32 pause_held = 0; // +0x48, state 0x3FC holds DAT_00510CEC up, and leaving it or the destructor gives it back
+    float idle_time = 0.f; // +0x4C, seconds idle; 0x000BF600 counts up, and 30 is enough
+    float brew_timer = 0.f; // +0x50, state 0x3F1's prompt, 5 s
+};
+static_assert(sizeof(PlayerStrategyState) == 0x54);
 } // namespace gbtg

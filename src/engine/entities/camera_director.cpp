@@ -1,5 +1,6 @@
 #include "camera_director.h"
 #include "strategy_fields.h"
+#include "camera_actor_classes.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_messages.h"
@@ -489,10 +490,11 @@ void release_runtime_body_hold(std::span<u8> body, const std::function<void(std:
 void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
 {
     std::span<u8> strategy{context.strategy.bytes.get(), context.strategy.size};
-    const u16 state = strategy_base(strategy).state;
+    DirectorStrategyState& director = strategy_view<DirectorStrategyState>(strategy);
+    const u16 state = director.base.state;
     const u32 target = get(context.mind, mind_field::target);
     RuntimeDirectorTargets& targets = context.targets;
-    if (target == 0 && read_u32(strategy, 0x38) == 0)
+    if (target == 0 && director.unk_38 == 0)
     {
         activate_actor_bind_tree(context.actor);
         return;
@@ -512,7 +514,7 @@ void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
             && camera_target_watched_elsewhere(context.actor_address, target, targets) == 0)
         {
             change_runtime_player_strategy_state(context.strategy, 0x401, context.setup);
-            std::memset(strategy.data() + 0x3C, 0, 4);
+            director.first_update = 0;
             return;
         }
         RuntimePlayerMindRequest* request = allocate_runtime_mind_request(context.requests, 1,
@@ -529,9 +531,9 @@ void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
         const u32 steered = read_camera_director_input_heading(targets.actor_at(target), heading, targets);
         std::memcpy(bytes.data() + 0x29C, &heading, 4);
         std::memcpy(bytes.data() + 0x298, &steered, 4);
-        const u32 starting = camera_director_scene_start_pending() && read_u32(strategy, 0x3C) == 0 ? 1 : 0;
+        const u32 starting = camera_director_scene_start_pending() && director.first_update == 0 ? 1 : 0;
         std::memcpy(bytes.data() + 0x2A0, &starting, 4);
-        if (read_u32(strategy, 0x40) != starting)
+        if (director.starting != starting)
         {
             if (starting != 0)
             {
@@ -542,11 +544,11 @@ void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
                 const u32 holds = get(context.body, body_field::holds) + 1;
                 std::memcpy(context.body.data() + 0x258, &holds, 4);
             }
-            std::memcpy(strategy.data() + 0x40, bytes.data() + 0x2A0, 4);
-            std::memset(strategy.data() + 0x3C, 0, 4);
+            director.starting = read_u32(bytes, 0x2A0);
+            director.first_update = 0;
             return;
         }
     }
-    std::memset(strategy.data() + 0x3C, 0, 4);
+    director.first_update = 0;
 }
 }

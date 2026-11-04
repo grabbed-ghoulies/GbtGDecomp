@@ -114,18 +114,16 @@ void leave_runtime_player_strategy(std::span<u8> strategy, u16 old_state, u16 ne
     case 0x3FB:
         if (next_state != 0x3FB)
         {
-            const u32 one = 1;
-            std::memcpy(strategy.data() + 0x38, &one, 4);
+            strategy_view<PlayerStrategyState>(strategy).move_held = 1;
             const u16 value = u16(get(body, body_field::move_holds) + 1);
             std::memcpy(body.data() + 0x30, &value, 2);
         }
         break;
     case 0x3FC:
-        if (read_u32(strategy, 0x48) != 0)
+        if (strategy_view<PlayerStrategyState>(strategy).pause_held != 0)
         {
             --active_count;
-            const u32 zero = 0;
-            std::memcpy(strategy.data() + 0x48, &zero, 4);
+            strategy_view<PlayerStrategyState>(strategy).pause_held = 0;
         }
         break;
     }

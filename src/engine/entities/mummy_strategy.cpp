@@ -23,7 +23,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = mummy_strategy_field;
+MummyStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<MummyStrategyState>(strategy);
+}
+
+const MummyStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<MummyStrategyState>(strategy);
+}
+
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -109,7 +118,7 @@ float ring_delay(RuntimeMummyStrategy& context)
 // Xbox 0x000BBC00
 void mummy_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(MummyStrategyState);
     output.parameters = 0x18;
 }
 
@@ -118,7 +127,7 @@ bool initialize_runtime_mummy_strategy(std::span<u8> strategy, std::span<const u
 {
     if (get(actor, player_field::countdown_56) > 0.f || get(actor, player_field::provoked) != 0) // DAT_0032B100.
     {
-        set(strategy, field::provoked, 1u);
+        fields_of(strategy).provoked = 1u;
     }
     return true;
 }
@@ -163,16 +172,16 @@ void update_runtime_mummy_ring(const RuntimeMindTarget* target, RuntimeMummyStra
         return;
     }
     const std::span<u8> strategy = strategy_of(context);
-    const float delay = get(strategy, field::ring_delay);
+    const float delay = fields_of(strategy).ring_delay;
     bool expired = false;
     if (delay > 0.f)
     {
         const float left = delay - runtime_actor_rate(goals_of(context).entry.actor)
             * runtime_frame_step(goals_of(context).clock);
-        set(strategy, field::ring_delay, left);
+        fields_of(strategy).ring_delay = left;
         if (!(0.f < left)) // COMISS; JC keeps a positive delay.
         {
-            set(strategy, field::ring_delay, 0.f);
+            fields_of(strategy).ring_delay = 0.f;
             expired = true;
         }
     }
@@ -180,7 +189,7 @@ void update_runtime_mummy_ring(const RuntimeMindTarget* target, RuntimeMummyStra
     {
         return;
     }
-    set(strategy, field::ring_delay, ring_delay(context));
+    fields_of(strategy).ring_delay = ring_delay(context);
     approach_runtime_mummy_ring(target, context); // 0x000BBAB0
 }
 
@@ -188,15 +197,15 @@ void update_runtime_mummy_ring(const RuntimeMindTarget* target, RuntimeMummyStra
 void start_runtime_mummy_ring(const RuntimeMindTarget* target, RuntimeMummyStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    set(strategy, field::ring_delay, ring_delay(context));
-    set(strategy, field::side, roll(context) <= 0.5f ? 1 : -1); // DAT_0032B0F4; COMISS; JC.
+    fields_of(strategy).ring_delay = ring_delay(context);
+    fields_of(strategy).side = roll(context) <= 0.5f ? 1 : -1; // DAT_0032B0F4; COMISS; JC.
     approach_runtime_mummy_ring(target, context); // 0x000BBAB0
 }
 
 // Xbox 0x000BC560, EAX strategy, EDI target
 bool runtime_mummy_engages(const RuntimeMindTarget* target, RuntimeMummyStrategy& context)
 {
-    if (get(strategy_of(context), field::provoked) == 0)
+    if (fields_of(strategy_of(context)).provoked == 0)
     {
         return false;
     }
@@ -308,7 +317,7 @@ void update_runtime_mummy_strategy(RuntimeMummyStrategy& context)
     }
     case 0x3EF:
         selected_target(context, found);
-        if (found && !requests_pending(context) && get(strategy, field::held) == 0)
+        if (found && !requests_pending(context) && fields_of(strategy).held == 0)
         {
             change_state(0x40D, context);
         }
@@ -336,7 +345,7 @@ void update_runtime_mummy_strategy(RuntimeMummyStrategy& context)
                     context.checks) == 0) // 0x00138410
             {
                 goals.room = nullptr; // Actor +0xCA0.
-                if (get(strategy, field::provoked) == 0)
+                if (fields_of(strategy).provoked == 0)
                 {
                     change_state(0x3F5, context);
                     return;
@@ -365,7 +374,7 @@ void update_runtime_mummy_strategy(RuntimeMummyStrategy& context)
         const RuntimeMindTarget& chased = require_target(target, "0x000BBCB0 state 0x40D");
         if (runtime_squared_target_distance(goals.entry.actor, chased.bytes) > 6400.f) // 0x000415A0, DAT_0032B6C8
         {
-            change_state(get(strategy, field::provoked) != 0 ? 0x3EC : 0x3F5, context);
+            change_state(fields_of(strategy).provoked != 0 ? 0x3EC : 0x3F5, context);
         }
         if (runtime_mummy_engages(target, context)) // 0x000BC560
         {
@@ -398,7 +407,7 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
     switch (message[0])
     {
     case 1:
-        set(strategy, field::provoked, 1u);
+        fields_of(strategy).provoked = 1u;
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
         return;
     case 0x31:
@@ -408,7 +417,7 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
         notice_runtime_strategy_hostile_target(0x16, context.checks); // 0x0013A4F0
         return;
     case 0x5F:
-        set(strategy, field::held, message[1]);
+        fields_of(strategy).held = message[1];
         return;
     case 0x68:
     {
@@ -416,7 +425,7 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
         if (target != nullptr && message[1] == get(target->bytes, mind_target_field::actor))
         {
             change_state(0x3EE, context);
-            set(strategy, field::unk_3C, 1u);
+            fields_of(strategy).unk_3C = 1u;
             body_of_actor(context)[0x328] = 6;
         }
         return;
@@ -446,7 +455,7 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
             if (retaliated != 0
                 || runtime_message_source_targets_mind_target(message, actor, mind, context.views)) // 0x00140A00
             {
-                set(strategy, field::provoked, 1u);
+                fields_of(strategy).provoked = 1u;
             }
             if (retaliated == 0)
             {
@@ -463,7 +472,7 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
                     clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80
                 }
             }
-            else if (get(strategy, field::unk_3C) != 0
+            else if (fields_of(strategy).unk_3C != 0
                 && runtime_player_strategy_decay_enabled(goals.entry.actor_bytes, goals.resume) != 0) // 0x0002B7F0
             {
                 change_state(0x3F2, context);
@@ -472,12 +481,13 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
         if (runtime_message_names_mind_target_actor(message, mind, goals.target_at) // 0x001408C0
             && !runtime_message_from_mind_target(message, actor, mind, goals.target_at)) // 0x001408E0
         {
-            set(strategy, field::unk_3C, 0u);
+            fields_of(strategy).unk_3C = 0u;
         }
         return;
     }
     case 0x7C:
-        clear_runtime_player_mind_reference(strategy, 0x48, message[1]); // The tail jump to 0x00140A40.
+        // The tail jump to 0x00140A40.
+        clear_runtime_player_mind_reference(strategy, offsetof(MummyStrategyState, held), message[1]);
         return;
     case 0x82:
         react_runtime_strategy_cower(context.checks); // The tail jump to 0x001398A0.
@@ -512,7 +522,7 @@ void enter_runtime_mummy_state(u16 state, u16 previous, RuntimeMummyStrategy& co
         load_goal(context.goal_attack, context);
         return;
     case 0x3EE:
-        set(strategy, field::unk_3C, 0u);
+        fields_of(strategy).unk_3C = 0u;
         body[0x328] = 5;
         strategy_base(strategy).attacking = 1;
         if (get(body, body_field::attached) == 0)

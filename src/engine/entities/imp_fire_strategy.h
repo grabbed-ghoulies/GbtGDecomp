@@ -1,4 +1,5 @@
 #pragma once
+#include "strategy_fields.h"
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "player_state.h"
@@ -6,8 +7,17 @@
 namespace gbtg
 {
 // entityStrategyImpFire (type 0x46, vtable 0x00505EA4) over the base strategy (type 8).
-// Strategy bytes: +0x38 attack delay, +0x3C held body address, +0x40 effect state, +0x44 effect
-// object address, +0x48 bite request, +0x4C parameter block address.
+struct ImpFireStrategyState
+{
+    StrategyBase base;
+    float attack_delay = 0.f; // +0x38
+    u32 held_body = 0; // +0x3C, the held body's address
+    u32 effect_state = 0; // +0x40
+    u32 effect = 0; // +0x44, the effect object's address
+    u32 bite_request = 0; // +0x48
+    u32 parameters = 0; // +0x4C, the parameter block's address
+};
+static_assert(sizeof(ImpFireStrategyState) == 0x50);
 struct RuntimeImpFireStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

@@ -66,11 +66,10 @@ void director_strategy_object_sizes(ObjectSizes& output)
 // Xbox 0x000AAEB0
 bool initialize_runtime_director_strategy(std::span<u8> strategy)
 {
-    const u32 zero = 0;
-    const u32 one = 1;
-    std::memcpy(strategy.data() + 0x38, &zero, 4);
-    std::memcpy(strategy.data() + 0x3C, &one, 4);
-    std::memcpy(strategy.data() + 0x40, &one, 4);
+    DirectorStrategyState& state = strategy_view<DirectorStrategyState>(strategy);
+    state.unk_38 = 0;
+    state.first_update = 1;
+    state.starting = 1;
     return true;
 }
 
@@ -82,7 +81,7 @@ void enter_runtime_director_state(u16 state, RuntimeDirectorStrategy& context)
     case 0x3F6:
     {
         auto* request = allocate_runtime_mind_request(context.requests, 3, context.request_sizes);
-        std::memcpy(request->bytes.data() + 0x10, context.strategy.data() + 0x38, 4);
+        std::memcpy(request->bytes.data() + 0x10, &strategy_view<DirectorStrategyState>(context.strategy).unk_38, 4);
         return;
     }
     case 0x3F7:

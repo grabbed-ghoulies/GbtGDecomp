@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -9,12 +10,14 @@ namespace gbtg
 // It keeps the director's sizes (0x000AAE40, 0x44 bytes) and the empty destructor 0x001628B0.
 // Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link, +0x38 the parameter block
 // (DAT_004288B0), +0x3C the approach mode, +0x40 the special attack's hit.
-namespace zombie_strategy_field
+struct ZombieStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_004288B0, set by 0x000C57F0
-constexpr RetailField<u32, 0x3C> approach{}; // 0x000C51E0's mode: 1 walks at the target, 2 swipes aimlessly
-constexpr RetailField<u32, 0x40> special_hit{}; // message 0x3B in state 0x3EF
-} // namespace zombie_strategy_field
+    StrategyBase base{}; // +0
+    u32 parameters = 0; // +0x38, DAT_004288B0, set by 0x000C57F0
+    u32 approach = 0; // +0x3C, 0x000C51E0's mode: 1 walks at the target, 2 swipes aimlessly
+    u32 special_hit = 0; // +0x40, message 0x3B in state 0x3EF
+};
+static_assert(sizeof(ZombieStrategyState) == 0x44);
 struct RuntimeZombieStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

@@ -18,6 +18,11 @@ namespace gbtg
 {
 namespace
 {
+ImpFireStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<ImpFireStrategyState>(strategy);
+}
+
 void put(std::span<u8> bytes, size_t offset, u32 value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -92,17 +97,17 @@ void imp_fire_strategy_object_sizes(ObjectSizes& output)
 void set_runtime_imp_fire_effect(u32 state, RuntimeImpFireStrategy& context)
 {
     std::span<u8> strategy = strategy_of(context);
-    const u32 previous = read_u32(strategy, 0x40);
+    const u32 previous = fields_of(strategy).effect_state;
     if (state == previous)
     {
         return;
     }
     if (previous == 2)
     {
-        if (read_u32(strategy, 0x44) != 0)
+        if (fields_of(strategy).effect != 0)
         {
             const std::array<u32, 2> message{5, 0};
-            context.object_message(read_u32(strategy, 0x44), message);
+            context.object_message(fields_of(strategy).effect, message);
         }
         AnimationController* controller = context.animation.controller.get();
         if (named_slot_animation(controller))
@@ -114,17 +119,17 @@ void set_runtime_imp_fire_effect(u32 state, RuntimeImpFireStrategy& context)
             controller->dirty = true;
         }
     }
-    put(strategy, 0x40, state);
+    fields_of(strategy).effect_state = state;
     if (state == 2 && previous != 2)
     {
-        put(strategy, 0x44, context.create_effect(context.effect_name, strategy_base(strategy).actor));
+        fields_of(strategy).effect = context.create_effect(context.effect_name, strategy_base(strategy).actor);
     }
 }
 
 // Xbox 0x000B4380
 void end_runtime_imp_fire_effect(RuntimeImpFireStrategy& context)
 {
-    const u32 object = read_u32(strategy_of(context), 0x44);
+    const u32 object = fields_of(strategy_of(context)).effect;
     if (object != 0)
     {
         const std::array<u32, 2> message{5, 0};
@@ -136,17 +141,17 @@ void end_runtime_imp_fire_effect(RuntimeImpFireStrategy& context)
 bool runtime_imp_fire_effect_playing(RuntimeImpFireStrategy& context)
 {
     const bool playing = named_slot_animation(context.animation.controller.get());
-    return read_u32(strategy_of(context), 0x40) == 2 && playing;
+    return fields_of(strategy_of(context)).effect_state == 2 && playing;
 }
 
 // Xbox 0x000B4570
 bool initialize_runtime_imp_fire_strategy(RuntimeImpFireStrategy& context)
 {
     std::span<u8> strategy = strategy_of(context);
-    put(strategy, 0x48, 0);
-    put(strategy, 0x40, 0);
+    fields_of(strategy).bite_request = 0;
+    fields_of(strategy).effect_state = 0;
     set_runtime_imp_fire_effect(1, context);
-    put(strategy, 0x4C, fire_parameters_address);
+    fields_of(strategy).parameters = fire_parameters_address;
     return true;
 }
 
@@ -160,7 +165,7 @@ void destroy_runtime_imp_fire_strategy(RuntimeImpFireStrategy& context)
 void release_runtime_imp_fire_hold(RuntimeImpFireStrategy& context)
 {
     std::span<u8> strategy = strategy_of(context);
-    const u32 held = read_u32(strategy, 0x3C);
+    const u32 held = fields_of(strategy).held_body;
     if (held == 0)
     {
         return;
@@ -169,7 +174,7 @@ void release_runtime_imp_fire_hold(RuntimeImpFireStrategy& context)
     if (read_u32(body.bytes, 0x50) == strategy_base(strategy).actor)
     {
         put(body.bytes, 0x50, 0);
-        put(strategy, 0x3C, 0);
+        fields_of(strategy).held_body = 0;
     }
 }
 
@@ -229,7 +234,7 @@ float select_runtime_imp_fire_heading(const RuntimeMindTarget& target, RuntimeIm
     const Vec3 direction{get(target.bytes, mind_target_field::shape_position).x - position.x, get(target.bytes, mind_target_field::shape_position).y - position.y,
         get(target.bytes, mind_target_field::shape_position).z - position.z};
     // The output reuses the caller's argument slot, which holds the parameter block address.
-    float angle = std::bit_cast<float>(read_u32(strategy_of(context), 0x4C));
+    float angle = std::bit_cast<float>(fields_of(strategy_of(context)).parameters);
     runtime_direction_angle(direction, angle);
     const float heading = blend_runtime_imp_fire_heading(fraction, angle);
     const float reflected = reflect_runtime_angle(angle, heading);
@@ -313,7 +318,7 @@ void grab_runtime_imp_fire_target(const Actor* target, RuntimeImpFireStrategy& c
         && (body.bits->bytes[3] & 8) == 0 && read_u32(body.bytes, 0x58) != 0)
     {
         put(body.bytes, 0x50, strategy_base(strategy).actor);
-        put(strategy, 0x3C, body.address);
+        fields_of(strategy).held_body = body.address;
         change_state(0x40B, context);
         return;
     }
@@ -372,17 +377,17 @@ void update_runtime_imp_fire_attack(RuntimeImpFireStrategy& context)
     std::span<u8> strategy = strategy_of(context);
     const float step = runtime_frame_step(goals.clock);
     const float rate = runtime_actor_rate(goals.entry.actor);
-    const float delay = read_f32(strategy, 0x38);
+    const float delay = fields_of(strategy).attack_delay;
     if (delay > 0.f)
     {
         const float remaining = delay - rate * step;
-        put_float(strategy, 0x38, remaining);
+        fields_of(strategy).attack_delay = remaining;
         if (0.f >= remaining)
         {
-            put_float(strategy, 0x38, 0.f);
+            fields_of(strategy).attack_delay = 0.f;
         }
     }
-    if (read_f32(strategy, 0x38) != 0.f && requests_pending(context)
+    if (fields_of(strategy).attack_delay != 0.f && requests_pending(context)
         && runtime_strategy_link_target(context.base.link, context.queue) != nullptr)
     {
         return;
@@ -473,7 +478,7 @@ void update_runtime_imp_fire_bite(RuntimeImpFireStrategy& context)
     if (mind.data() != nullptr && get(mind, mind_field::target_record) != 0 && runtime_imp_fire_effect_playing(context))
     {
         std::span<u8> strategy = strategy_of(context);
-        if (read_u32(strategy, 0x48) != 0)
+        if (fields_of(strategy).bite_request != 0)
         {
             load_runtime_mind_goal(context.goal_bite, goals.entry.goals);
             return;
@@ -499,14 +504,14 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
     switch (message[0])
     {
     case 0x14:
-        if (read_u32(strategy, 0x44) == message[1])
+        if (fields_of(strategy).effect == message[1])
         {
-            put(strategy, 0x44, 0);
+            fields_of(strategy).effect = 0;
         }
         return;
     case 0x26:
     case 0x27:
-        if (strategy_base(strategy).state == 0x3EF && read_u32(strategy, 0x48) != 0)
+        if (strategy_base(strategy).state == 0x3EF && fields_of(strategy).bite_request != 0)
         {
             return;
         }
@@ -514,7 +519,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
         return;
     case 0x31:
     {
-        const u32 held = read_u32(strategy, 0x3C);
+        const u32 held = fields_of(strategy).held_body;
         if (held == 0)
         {
             return;
@@ -529,7 +534,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
         notice_runtime_strategy_hostile_target(0x10, context.checks);
         return;
     case 0x3B:
-        put(strategy, 0x48, 1);
+        fields_of(strategy).bite_request = 1;
         return;
     case 0x43:
         if (message[1] == actor)
@@ -647,7 +652,7 @@ void enter_runtime_imp_fire_state(u16 state, u16 previous, RuntimeImpFireStrateg
     case 0x3EE:
         body[0x328] = 4;
         load_runtime_mind_goal(context.goal_attack, goals.entry.goals);
-        put(strategy, 0x38, read_u32(context.parameters, 0x28));
+        fields_of(strategy).attack_delay = read_f32(context.parameters, 0x28);
         return;
     case 0x3EF:
         body[0x328] = 6;
@@ -662,7 +667,7 @@ void enter_runtime_imp_fire_state(u16 state, u16 previous, RuntimeImpFireStrateg
         return;
     case 0x40C:
         body[0x328] = 3;
-        put_float(strategy, 0x38, 0.f);
+        fields_of(strategy).attack_delay = 0.f;
         return;
     default:
         enter_runtime_base_strategy_state(goals.entry, state);
@@ -680,7 +685,7 @@ void leave_runtime_imp_fire_state(u16 state, u16 next, RuntimeImpFireStrategy& c
     }
     if (state == 0x3EF || state == 0x40B)
     {
-        put(strategy, 0x48, 0);
+        fields_of(strategy).bite_request = 0;
         strategy_base(strategy).attacking = 0;
         if (next != 0x3EF)
         {

@@ -28,7 +28,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = imp_flying_strategy_field;
+ImpFlyingStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<ImpFlyingStrategyState>(strategy);
+}
+
+const ImpFlyingStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<ImpFlyingStrategyState>(strategy);
+}
+
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeImpFlyingStrategy& context)
 {
@@ -178,14 +187,14 @@ bool clear_point(i32 floor, const Vec3& origin, const Vec3& center, Vec3& output
 void end_dive_effect(RuntimeImpFlyingStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 effect = get(strategy, field::effect);
+    const u32 effect = fields_of(strategy).effect;
     if (effect == 0)
     {
         return;
     }
     const std::array<u32, 2> message{5, 0};
     context.object_message(effect, message); // Effect vtable +0xC.
-    set(strategy, field::effect, 0u);
+    fields_of(strategy).effect = 0u;
 }
 
 // Xbox 0x000B6950: mind request 0xF to the imp's own point, at `height`.
@@ -193,7 +202,7 @@ void hover_at(float height, RuntimeImpFlyingStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     put_vec3(mind_of(context), 0x70, actor_world_position(goals.entry.actor)); // 0x000412A0
-    set(strategy_of(context), field::high, 0u);
+    fields_of(strategy_of(context)).high = 0u;
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest* move = allocate_runtime_mind_request(mind.anchor, 0xF, mind.sizes); // 0x00029D90, EBX 0xF
     put_float(move->bytes, 0x10, 0.4f); // DAT_0032B11C, after DAT_0032B0F8.
@@ -208,7 +217,7 @@ void hover_at(float height, RuntimeImpFlyingStrategy& context)
 // Xbox 0x000B6A30, ECX strategy, EAX low: a hover height above the floor.
 float hover_height(bool low, RuntimeImpFlyingStrategy& context)
 {
-    if (get(strategy_of(context), field::high) != 0)
+    if (fields_of(strategy_of(context)).high != 0)
     {
         return low ? roll(context) * 5.f + 12.5f // DAT_0032B184, DAT_0032B16C.
                    : roll(context) * 2.5f + 10.f; // DAT_0032B20C, DAT_0032B10C.
@@ -223,7 +232,7 @@ void hover_around(bool low, RuntimeImpFlyingStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> mind = mind_of(context);
-    set(strategy_of(context), field::high, !(0.5f < roll(context)) ? 1u : 0u); // DAT_0032B0F4.
+    fields_of(strategy_of(context)).high = !(0.5f < roll(context)) ? 1u : 0u; // DAT_0032B0F4.
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
     const i32 floor = i32(get(goals.entry.actor_bytes, player_field::floor));
     struct Candidate
@@ -314,11 +323,11 @@ void hover_around(bool low, RuntimeImpFlyingStrategy& context)
 void set_whack_step(u32 step, RuntimeImpFlyingStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (step == get(strategy, field::whack_step))
+    if (step == fields_of(strategy).whack_step)
     {
         return;
     }
-    set(strategy, field::whack_step, step);
+    fields_of(strategy).whack_step = step;
     std::span<u8> body = goals_of(context).entry.body; // Actor +0x95C.
     if (step == 1)
     {
@@ -336,22 +345,22 @@ void set_whack_step(u32 step, RuntimeImpFlyingStrategy& context)
 void set_dive_phase(u32 phase, RuntimeImpFlyingStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::dive_phase) == phase)
+    if (fields_of(strategy).dive_phase == phase)
     {
         return;
     }
-    set(strategy, field::dive_phase, phase);
+    fields_of(strategy).dive_phase = phase;
     std::span<u8> body = goals_of(context).entry.body; // Actor +0x95C.
     switch (phase)
     {
     case 1:
         load_goal(context.goal_arrow_dive, context);
         body[0x328] = 6;
-        set(strategy, field::lunging, 0u);
+        fields_of(strategy).lunging = 0u;
         return;
     case 2:
         end_dive_effect(context); // 0x000B6360
-        set(strategy, field::hold, parameter(context, 0x10));
+        fields_of(strategy).hold = parameter(context, 0x10);
         return;
     case 3:
     {
@@ -472,7 +481,7 @@ void tick_wing_whack(RuntimeImpFlyingStrategy& context)
     {
         change_state(0x401, context);
     }
-    switch (get(strategy, field::whack_step))
+    switch (fields_of(strategy).whack_step)
     {
     case 1:
         if (!requests_pending(context))
@@ -497,7 +506,7 @@ void tick_arrow_dive(RuntimeImpFlyingStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = goals.entry.actor;
-    switch (get(strategy, field::dive_phase))
+    switch (fields_of(strategy).dive_phase)
     {
     case 1:
     {
@@ -506,18 +515,18 @@ void tick_arrow_dive(RuntimeImpFlyingStrategy& context)
         {
             set_dive_phase(2, context); // 0x000B63A0, AL 2
         }
-        if (get(strategy, field::effect) == 0 && (bits.bytes[6] & 0x10) != 0)
+        if (fields_of(strategy).effect == 0 && (bits.bytes[6] & 0x10) != 0)
         {
-            const char* name = reinterpret_cast<const char*>(strategy.data() + field::effect_name.offset);
-            set(strategy, field::effect, context.create_effect(name, goals.address_of(goals.entry.actor_bytes.data())));
+            const char* name = fields_of(strategy).effect_name.data();
+            fields_of(strategy).effect = context.create_effect(name, goals.address_of(goals.entry.actor_bytes.data()));
         }
         break;
     }
     case 2:
     {
-        float hold = get(strategy, field::hold);
+        float hold = fields_of(strategy).hold;
         count_down(hold, context);
-        set(strategy, field::hold, hold);
+        fields_of(strategy).hold = hold;
         if (0.001f > hold) // DAT_0032B1A4.
         {
             set_dive_phase(3, context); // 0x000B63A0, AL 3
@@ -531,26 +540,26 @@ void tick_arrow_dive(RuntimeImpFlyingStrategy& context)
         {
             break;
         }
-        if (get(strategy, field::lunging) == 0)
+        if (fields_of(strategy).lunging == 0)
         {
             // 0x0003AE60, EDX 0, writes strategy +0xCC only when the model has the marker.
-            Vec3 end = get(strategy, field::lunge_end);
+            Vec3 end = fields_of(strategy).lunge_end;
             actor_marker_world_position(actor, 0, end);
-            set(strategy, field::lunge_end, end);
-            set(strategy, field::lunge_start, actor_world_position(actor)); // 0x000412A0, EDI strategy +0xD8
-            set(strategy, field::lunge, parameter(context, 0x24));
-            set(strategy, field::lunging, 1u);
+            fields_of(strategy).lunge_end = end;
+            fields_of(strategy).lunge_start = actor_world_position(actor); // 0x000412A0, EDI strategy +0xD8
+            fields_of(strategy).lunge = parameter(context, 0x24);
+            fields_of(strategy).lunging = 1u;
             break;
         }
-        float lunge = get(strategy, field::lunge);
+        float lunge = fields_of(strategy).lunge;
         count_down_runtime_strategy_timer(lunge, goals); // 0x0002B9F0, ECX strategy +0xE4
-        set(strategy, field::lunge, lunge);
+        fields_of(strategy).lunge = lunge;
         if (0.001f > lunge) // DAT_0032B1A4.
         {
             clear_runtime_body_bit(bits, 4); // 0x0001F030, EAX body, ECX 4
         }
-        const Vec3 start = get(strategy, field::lunge_start);
-        const Vec3 end = get(strategy, field::lunge_end);
+        const Vec3 start = fields_of(strategy).lunge_start;
+        const Vec3 end = fields_of(strategy).lunge_end;
         const float total = parameter(context, 0x24);
         const Vec3 position{lunge_axis(start.x, end.x, lunge, total), lunge_axis(start.y, end.y, lunge, total),
             lunge_axis(start.z, end.z, lunge, total)};
@@ -570,12 +579,12 @@ void tick_arrow_dive(RuntimeImpFlyingStrategy& context)
 void tick_landing(RuntimeImpFlyingStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    switch (get(strategy, field::landing_step))
+    switch (fields_of(strategy).landing_step)
     {
     case 1:
         if ((body_bits(context, "0x000B5F10").bytes[6] & 1) != 0)
         {
-            set(strategy, field::landing_step, 2u);
+            fields_of(strategy).landing_step = 2u;
             hover_at(parameter(context, 8), context); // 0x000B6950
         }
         return;
@@ -594,9 +603,9 @@ void tick_landing(RuntimeImpFlyingStrategy& context)
 void tick_rise(RuntimeImpFlyingStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    float rise = get(strategy, field::rise);
+    float rise = fields_of(strategy).rise;
     count_down(rise, context);
-    set(strategy, field::rise, rise);
+    fields_of(strategy).rise = rise;
     if (0.001f > rise || !requests_pending(context)) // DAT_0032B1A4.
     {
         change_state(0x401, context);
@@ -622,7 +631,7 @@ void enter_rise(RuntimeImpFlyingStrategy& context)
         return;
     }
     hover_at(hover, context); // 0x000B6950
-    set(strategy_of(context), field::rise, 5.f); // DAT_0032B184.
+    fields_of(strategy_of(context)).rise = 5.f; // DAT_0032B184.
 }
 
 // Xbox 0x000B5F70, ESI strategy: the dive begins.
@@ -652,16 +661,16 @@ void leave_arrow_dive(RuntimeImpFlyingStrategy& context)
 // Xbox 0x000B6B50
 void imp_flying_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(ImpFlyingStrategyState);
     output.parameters = 0x98;
 }
 
 // Xbox 0x000B6BC0
 bool initialize_runtime_imp_flying_strategy(std::span<u8> strategy, std::span<const u8> parameters)
 {
-    set(strategy, field::parameters, 0x00303124u);
+    fields_of(strategy).parameters = 0x00303124u;
     const char* name = reinterpret_cast<const char*>(parameters.data() + 0x18);
-    std::memcpy(strategy.data() + field::effect_name.offset, name, std::strlen(name) + 1);
+    std::memcpy(fields_of(strategy).effect_name.data(), name, std::strlen(name) + 1);
     return true;
 }
 
@@ -786,9 +795,9 @@ void enter_runtime_imp_flying_state(u16 state, u16 previous, RuntimeImpFlyingStr
     case 0x409:
         // The tail jump to 0x000B5E90.
         body_bits(context, "0x000B5E90").bytes[7] |= 8;
-        if (get(strategy, field::landing_step) != 1)
+        if (fields_of(strategy).landing_step != 1)
         {
-            set(strategy, field::landing_step, 1u);
+            fields_of(strategy).landing_step = 1u;
         }
         return;
     case 0x417:
@@ -821,9 +830,9 @@ void leave_runtime_imp_flying_state(u16 state, RuntimeImpFlyingStrategy& context
     case 0x409:
         // The tail jump to 0x000B5ED0.
         body_bits(context, "0x000B5ED0").bytes[7] |= 8;
-        if (get(strategy, field::landing_step) != 0)
+        if (fields_of(strategy).landing_step != 0)
         {
-            set(strategy, field::landing_step, 0u);
+            fields_of(strategy).landing_step = 0u;
         }
         return;
     case 0x417:

@@ -184,6 +184,8 @@ For one object type:
 | Swing state (`SwingState`, factory type 0x78, 0x00097F90): phase, the weapon's pose when taken, timers, poses, four trail effects (`SwingEffectPair`), seven animation words, shape mode, hit sound | 0x1AC | `src/engine/entities/body_swing_state.h` |
 | Bandaged and blood suck states (`BandagedState`, `BloodSuckState`): their names, sounds, phases and switches, with the shared `InputTrackingRecord` | 0x3DC / 0x180 | `src/engine/entities/body_bandaged_state.h`, `body_blood_suck_state.h` |
 | Input tracking as a struct (`InputTrackingRecord`, the layout of `input_tracking_field`): axes, activity, accumulation, hold timer, state. 0x00109810 takes its `retail_bytes`. | 0x18 | `src/engine/entities/input_tracking_record.h` |
+| Dizzy state (`DizzyState`, factory type 0x64, 0x0008C9A0): two `InputTrackingRecord`s, player input, animation wait, settle switch, star scale, time left, star names, three stars (`DizzyStar`: orbit, bob, actor), body bit | 0x184 | `src/engine/entities/body_dizzy_state.h` |
+| Spin dizzy state (`SpinDizzyState`, factory type 0x86 over 0x64, 0x000A21D0): the whole `DizzyState`, then turn and reach rates, speed, three body words, the circle's centre, sounding | 0x1AC | `src/engine/entities/body_spin_dizzy_state.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -247,6 +249,10 @@ The arc, swing, bandaged and blood suck states' unnamed stretches were named the
 same token block, the swing's +0x64 is four trail-effect pairs, and the bandaged +0x2A4 and blood suck +0x54 are
 `InputTrackingRecord`s. Their old `struggle` and `tracking_state` fields were that record's accumulation and state.
 
+The spin dizzy state is type 0x86 over the dizzy state, so `SpinDizzyState` embeds `DizzyState`. Its old fields at
++0xC, +0x58, +0x164, +0x170 and +0x17C were the dizzy state's next key, time left and three star actors, and are now
+reached through `state.dizzy`.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -281,7 +287,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Knockdown state (factory type 0x7A, 0x0009C5D0) | 0xF4, parameters 0x50 | `knockdown_state_field`: phase and its clock, end timer, the seven animations' found flags (`KnockdownAnimation` slots), the end keys, the sweep point, callout tokens, start and landing points, saved gravity and shape mode, yaw, pitch, flight time, pose marks, rise height, bounce scale, attacker, contact pool, latch and body-bit words; `knockdown_state_parameter` | `src/engine/entities/body_knockdown_state.h` |
 | Hit and furnace-hit state parameters (factory types 0x73 and 0x74; the states are structs, above) | parameters 0x28 / 0x14 | `hit_state_parameter`, `hit_furnace_state_parameter` | `src/engine/entities/body_hit_state.h` |
 | Struggle state parameters (factory type 0x88; the state is a struct, above) | parameters 0x34 | `struggle_state_parameter` | `src/engine/entities/body_struggle_state.h` |
-| Dizzy state (factory type 0x64, 0x0008C9A0) | 0x184, parameters 0x11C | `dizzy_state_field`: the two input trackers and their states, player input, animation wait, settle switch, star scale, time left, star names, the three stars (`dizzy_star_field`: orbit, bob, actor), body bit; `dizzy_state_parameter` | `src/engine/entities/body_dizzy_state.h` |
+| Dizzy state parameters (factory type 0x64; the state is a struct, above) | parameters 0x11C | `dizzy_state_parameter` | `src/engine/entities/body_dizzy_state.h` |
 | Anim state parameters (factory type 0x5E; the state is a struct, above) | parameters 0xB0 | `anim_state_parameter` (with the inline sound name) | `src/engine/entities/body_anim_state.h` |
 | Die state parameters (factory type 0x62; the state is a struct, above) | parameters 0x20 | `die_state_parameter` | `src/engine/entities/body_die_state.h` |
 | Player death state parameters (factory type 0x69; the state is a struct, above) | parameters 0x18 | `player_death_state_parameter` | `src/engine/entities/body_player_death_state.h` |

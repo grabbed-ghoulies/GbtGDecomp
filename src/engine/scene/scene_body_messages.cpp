@@ -287,7 +287,8 @@ void SceneBodyMessages::bind_action_children()
                 dizzy = std::make_unique<RuntimeBodyMessageChild>();
                 dizzy->message = [child](std::span<u8> message)
                 {
-                    message_runtime_dizzy_state({child->bytes.get(), child->size}, message); // 0x0008CEA0
+                    message_runtime_dizzy_state(body_state_view<DizzyState>({child->bytes.get(), child->size}),
+                        message); // 0x0008CEA0
                 };
             }
             children_[child->bytes.get()] = dizzy.get();
@@ -521,7 +522,8 @@ void SceneBodyMessages::bind_action_children()
                 spin->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_spin_dizzy_state({child->bytes.get(), child->size}, words,
+                    message_runtime_spin_dizzy_state(body_state_view<SpinDizzyState>({child->bytes.get(), child->size}),
+                        words,
                         spin_dizzy_context()); // 0x000A24B0
                 };
             }
@@ -1319,7 +1321,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         auto& context = dizzy_context();
         context.input = device;
-        tick_runtime_dizzy_state({action.bytes.get(), action.size}, context);
+        tick_runtime_dizzy_state(body_state_view<DizzyState>({action.bytes.get(), action.size}), context);
         return;
     }
     case 0x86:
@@ -1336,7 +1338,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         auto& context = spin_dizzy_context();
         context.dizzy.input = device;
-        tick_runtime_spin_dizzy_state({action.bytes.get(), action.size}, context); // 0x000A23A0
+        tick_runtime_spin_dizzy_state(body_state_view<SpinDizzyState>({action.bytes.get(), action.size}),
+            context); // 0x000A23A0
         return;
     }
     case 0x7A:
@@ -3123,14 +3126,15 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 // 0x000A24B0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 2> words{reply.id, read_u32({reinterpret_cast<const u8*>(&reply.id), 8}, 4)};
-                message_runtime_spin_dizzy_state({second.bytes.get(), second.size}, words, spin_dizzy_context());
+                message_runtime_spin_dizzy_state(body_state_view<SpinDizzyState>({second.bytes.get(), second.size}),
+                    words, spin_dizzy_context());
                 return;
             }
             if (type == 0x64)
             {
                 // 0x0008CEA0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
-                message_runtime_dizzy_state({second.bytes.get(), second.size},
+                message_runtime_dizzy_state(body_state_view<DizzyState>({second.bytes.get(), second.size}),
                     {reinterpret_cast<const u8*>(&reply.id), 8});
                 return;
             }

@@ -26,25 +26,20 @@ constexpr RetailField<u32, 0x1B0> body_724{};
 constexpr u32 kSize = 0x1B4;
 static_assert(retail_fits(kSize, body_724));
 } // namespace spin_dizzy_state_parameter
-namespace spin_dizzy_state_field
+struct SpinDizzyState
 {
-constexpr RetailField<u16, 0x0C> next_key{}; // message 0x27's 0x00026950
-constexpr RetailField<float, 0x58> dizzy_left{}; // the dizzy state's time left
-constexpr RetailField<u32, 0x164> first_star{}; // the dizzy state's three star actors
-constexpr RetailField<u32, 0x170> second_star{};
-constexpr RetailField<u32, 0x17C> third_star{};
-constexpr RetailField<float, 0x184> turn_rate{};
-constexpr RetailField<float, 0x188> reach_rate{};
-constexpr RetailField<float, 0x18C> speed{};
-constexpr RetailField<u32, 0x190> body_71c{};
-constexpr RetailField<u32, 0x194> body_720{};
-constexpr RetailField<u32, 0x198> body_724{};
-// The circle's centre in the velocity; no dump writes it, so it keeps the factory's zero fill.
-constexpr RetailField<Vec3, 0x19C> unk_19c{};
-constexpr RetailField<u32, 0x1A8> sounding{};
-constexpr u32 kSize = 0x1AC;
-static_assert(retail_fits(kSize, sounding));
-} // namespace spin_dizzy_state_field
+    DizzyState dizzy{}; // +0
+    float turn_rate = 0.f; // +0x184
+    float reach_rate = 0.f; // +0x188
+    float speed = 0.f; // +0x18C
+    u32 body_71c = 0; // +0x190
+    u32 body_720 = 0; // +0x194
+    u32 body_724 = 0; // +0x198
+    // +0x19C: the circle's centre in the velocity; no dump writes it, so it keeps the factory's zero fill.
+    Vec3 unk_19c{};
+    u32 sounding = 0; // +0x1A8
+};
+static_assert(sizeof(SpinDizzyState) == 0x1AC);
 struct RuntimeSpinDizzyStateContext
 {
     RuntimeDizzyStateContext& dizzy;
@@ -53,11 +48,11 @@ struct RuntimeSpinDizzyStateContext
     std::function<u16()> primary_key; // 0x00026950 on the body.
 };
 void spin_dizzy_state_object_sizes(ObjectSizes& output); // Xbox 0x000A21D0
-bool initialize_runtime_spin_dizzy_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_spin_dizzy_state(SpinDizzyState& state, std::span<const u8> parameters,
     RuntimeSpinDizzyStateContext& context); // Xbox 0x000A2250
-void destroy_runtime_spin_dizzy_state(std::span<u8> state, RuntimeSpinDizzyStateContext& context); // Xbox 0x000A2340
-void tick_runtime_spin_dizzy_state(std::span<u8> state, RuntimeSpinDizzyStateContext& context); // Xbox 0x000A23A0
-void message_runtime_spin_dizzy_state(std::span<u8> state, std::span<const u32> message,
+void destroy_runtime_spin_dizzy_state(SpinDizzyState& state, RuntimeSpinDizzyStateContext& context); // Xbox 0x000A2340
+void tick_runtime_spin_dizzy_state(SpinDizzyState& state, RuntimeSpinDizzyStateContext& context); // Xbox 0x000A23A0
+void message_runtime_spin_dizzy_state(SpinDizzyState& state, std::span<const u32> message,
     RuntimeSpinDizzyStateContext& context); // Xbox 0x000A24B0
 // Type 0x86 (base 0x64) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_spin_dizzy_state_class(std::span<ObjectFactoryType> types,

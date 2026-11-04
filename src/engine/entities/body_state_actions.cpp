@@ -175,14 +175,14 @@ const ObjectFactoryVtable* hit_furnace_state_lifecycle()
 
 bool construct_dizzy_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_dizzy_state(state, parameters, dizzy_context_of(word(state, 8)));
+    DizzyState& state = body_state_view<DizzyState>({object.bytes.get(), object.size});
+    return initialize_runtime_dizzy_state(state, parameters, dizzy_context_of(state.base.body));
 }
 
 void destroy_dizzy_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_dizzy_state(state, dizzy_context_of(word(state, 8)));
+    DizzyState& state = body_state_view<DizzyState>({object.bytes.get(), object.size});
+    destroy_runtime_dizzy_state(state, dizzy_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* dizzy_state_lifecycle()

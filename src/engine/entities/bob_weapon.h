@@ -1,4 +1,5 @@
 #pragma once
+#include "weapon_fields.h"
 
 #include "weapon_actor.h"
 
@@ -22,19 +23,20 @@ constexpr RetailField<std::array<char, 0x80>, 0x6FC> cutscene{};
 constexpr u32 kSize = 0x7FC;
 static_assert(retail_fits(kSize, cutscene));
 } // namespace bob_weapon_parameter
-namespace bob_weapon_field
+struct BobWeaponState
 {
-// A count messages 0x86 / 0x87 (kind 0xD) move: up while the bob is in states 3 or 0x10, down in 0x10.
-constexpr RetailField<u32, 0xE54> holders{};
-constexpr RetailField<u32, 0xE58> hits{}; // contacts the bob reported (0x000C61D0); zero counts the first
-constexpr RetailField<std::array<char, 0x80>, 0xE5C> animation{}; // the animation states 7 and 14 play (0x000C62C0)
-constexpr RetailField<std::array<char, 0x80>, 0xEDC> animation_events{}; // that animation's events
-constexpr RetailField<float, 0xF5C> state_7_timer{}; // 1 s while DAT_004E1C34 > -1, then ticking down (0x00042360)
-constexpr RetailField<std::array<char, 0x80>, 0xF60> cutscene{}; // the cutscene 0x000C5C20 loads (0x0004D680)
-constexpr RetailField<u32, 0xFE4> unk_FE4{}; // message 0x87 needs it 0 and writes 0; nothing here sets it
-constexpr u32 kSize = 0xFE8;
-static_assert(retail_fits(kSize, unk_FE4));
-} // namespace bob_weapon_field
+    WeaponBase base{}; // +0
+    // +0xE54: A count messages 0x86 / 0x87 (kind 0xD) move: up while the bob is in states 3 or 0x10, down in 0x10.
+    u32 holders = 0;
+    u32 hits = 0; // +0xE58, contacts the bob reported (0x000C61D0); zero counts the first
+    std::array<char, 0x80> animation{}; // +0xE5C, the animation states 7 and 14 play (0x000C62C0)
+    std::array<char, 0x80> animation_events{}; // +0xEDC, that animation's events
+    float state_7_timer = 0.f; // +0xF5C, 1 s while DAT_004E1C34 > -1, then ticking down (0x00042360)
+    std::array<char, 0x80> cutscene{}; // +0xF60, the cutscene 0x000C5C20 loads (0x0004D680)
+    std::array<u8, 4> cutscene_word{}; // +0xFE0, the host keeps RuntimeWeaponActor::cutscene
+    u32 unk_FE4 = 0; // +0xFE4, message 0x87 needs it 0 and writes 0; nothing here sets it
+};
+static_assert(sizeof(BobWeaponState) == 0xFE8);
 void bob_weapon_object_sizes(ObjectSizes& sizes); // Xbox 0x000C5B90
 bool initialize_runtime_bob_weapon(RuntimeWeaponActor& weapon, std::span<const u8> parameters); // Xbox 0x000C5C20
 void destroy_runtime_bob_weapon(RuntimeWeaponActor& weapon); // Xbox 0x000C5D30

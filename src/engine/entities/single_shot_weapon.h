@@ -17,12 +17,12 @@ constexpr RetailField<std::array<char, 0x80>, 0x678> projectile{};
 constexpr u32 kSize = 0x6F8;
 static_assert(retail_fits(kSize, projectile));
 } // namespace single_shot_weapon_parameter
-namespace single_shot_weapon_field
+struct SingleShotWeaponState
 {
-constexpr RetailField<std::array<char, 0x80>, 0xEFC> projectile{}; // parameters +0x678
-constexpr u32 kSize = 0xF7C;
-static_assert(retail_fits(kSize, projectile));
-} // namespace single_shot_weapon_field
+    GunWeaponState base{}; // +0
+    std::array<char, 0x80> projectile{}; // +0xEFC, parameters +0x678
+};
+static_assert(sizeof(SingleShotWeaponState) == 0xF7C);
 void single_shot_weapon_object_sizes(ObjectSizes& sizes); // Xbox 0x000C8DE0
 bool initialize_runtime_single_shot_weapon(RuntimeWeaponActor& weapon,
     std::span<const u8> parameters); // Xbox 0x000C8E70

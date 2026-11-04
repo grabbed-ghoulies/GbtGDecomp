@@ -1,4 +1,5 @@
 #pragma once
+#include "weapon_fields.h"
 
 #include "weapon_actor.h"
 
@@ -22,29 +23,31 @@ constexpr RetailField<u32, 0x694> shatters{};
 constexpr RetailField<u32, 0x698> flight_quiet{};
 constexpr RetailField<u32, 0x69C> flight_mask{};
 } // namespace thrown_projectile_parameter
-namespace thrown_projectile_field
+struct ThrownProjectileState
 {
-constexpr RetailField<u32, 0xE60> hits{}; // the contact test's hits counted (0x00141A30)
-// +0xE64 the flight animation record (thrown_projectile_animation below)
-constexpr RetailField<float, 0xE68> trail_scale{}; // the flight trail (0x0013B030); zero draws none
-constexpr RetailField<float, 0xE6C> trail_timer{};
-constexpr RetailField<u32, 0xE70> launch_mode{}; // 0 a timed arc, 1 the holder's throw (0x00140D80), else straight
-constexpr RetailField<Vec3, 0xE74> throw_target{}; // message 0xA5's words
-constexpr RetailRecord<0xE80, 0x80> spawn_name{}; // the actor message 0x93 spawns where it lands, when an "aid_" name
-constexpr RetailField<Vec3, 0xF00> spin_rate{}; // radians per second added to +0xF0C in flight
-constexpr RetailField<Vec3, 0xF0C> spin{};
-constexpr RetailField<u32, 0xF18> flight_slide{}; // the flight's +0xC28: slide along slopes
-constexpr RetailField<u32, 0xF1C> flight_quiet{}; // the flight's +0xC2C: zero turns the contact shapes on
-constexpr RetailField<u32, 0xF20> flight_mask{}; // the flight's +0xC40 sweep mask
-constexpr RetailField<Vec3, 0xF24> rest_euler{}; // message 0x9D (0x000CC010)
-constexpr RetailField<Vec3, 0xF30> rest_position{};
-constexpr RetailField<float, 0xF3C> shatter_timer{}; // DAT_004288DC at the shatter's start, ticking down
-constexpr RetailField<u32, 0xF44> shatter_shown{}; // set once the shatter's callout 10 has run
-constexpr RetailField<u32, 0xF48> shatters{}; // a landing shatters (state 4) rather than breaks (state 9)
-constexpr RetailRecord<0xF4C, 36> command_attachments{}; // the attachments 0x0013B8B0 records at launch
-constexpr u32 kSize = 0xF70;
-static_assert(retail_fits(kSize, command_attachments));
-} // namespace thrown_projectile_field
+    WeaponBase base{}; // +0
+    std::array<u8, 0xC> unk_E54{}; // +0xE54, never read or written by translated code
+    u32 hits = 0; // +0xE60, the contact test's hits counted (0x00141A30)
+    std::array<u8, 4> flight_animation_word{}; // +0xE64, the host keeps RuntimeWeaponActor::flight_animation
+    float trail_scale = 0.f; // +0xE68, the flight trail (0x0013B030); zero draws none
+    float trail_timer = 0.f; // +0xE6C
+    u32 launch_mode = 0; // +0xE70, 0 a timed arc, 1 the holder's throw (0x00140D80), else straight
+    Vec3 throw_target{}; // +0xE74, message 0xA5's words
+    std::array<char, 0x80> spawn_name{}; // +0xE80, the actor message 0x93 spawns where it lands, when an "aid_" name
+    Vec3 spin_rate{}; // +0xF00, radians per second added to +0xF0C in flight
+    Vec3 spin{}; // +0xF0C
+    u32 flight_slide = 0; // +0xF18, the flight's +0xC28: slide along slopes
+    u32 flight_quiet = 0; // +0xF1C, the flight's +0xC2C: zero turns the contact shapes on
+    u32 flight_mask = 0; // +0xF20, the flight's +0xC40 sweep mask
+    Vec3 rest_euler{}; // +0xF24, message 0x9D (0x000CC010)
+    Vec3 rest_position{}; // +0xF30
+    float shatter_timer = 0.f; // +0xF3C, DAT_004288DC at the shatter's start, ticking down
+    std::array<u8, 4> collision_overrides_word{}; // +0xF40, the host keeps RuntimeWeaponActor::collision_overrides
+    u32 shatter_shown = 0; // +0xF44, set once the shatter's callout 10 has run
+    u32 shatters = 0; // +0xF48, a landing shatters (state 4) rather than breaks (state 9)
+    std::array<u8, 0x24> command_attachments{}; // +0xF4C, the attachments 0x0013B8B0 records at launch
+};
+static_assert(sizeof(ThrownProjectileState) == 0xF70);
 void thrown_projectile_object_sizes(ObjectSizes& sizes); // Xbox 0x000CB550
 bool initialize_runtime_thrown_projectile(RuntimeWeaponActor& weapon,
     std::span<const u8> parameters); // Xbox 0x000CB5E0

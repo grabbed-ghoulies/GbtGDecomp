@@ -15,13 +15,22 @@ namespace gbtg
 {
 namespace
 {
-namespace field = single_shot_weapon_field;
+SingleShotWeaponState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<SingleShotWeaponState>(bytes);
+}
+
+const SingleShotWeaponState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<SingleShotWeaponState>(bytes);
+}
+
 }
 
 // Xbox 0x000C8DE0
 void single_shot_weapon_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(SingleShotWeaponState);
     sizes.parameters = single_shot_weapon_parameter::kSize;
 }
 
@@ -29,9 +38,9 @@ void single_shot_weapon_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_single_shot_weapon(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     const char* name = reinterpret_cast<const char*>(field_data(parameters, single_shot_weapon_parameter::projectile));
-    std::memcpy(weapon.bytes.data() + field::projectile.offset, name, std::strlen(name) + 1);
-    set(weapon.bytes, gun_weapon_field::recharge, 0.075f); // DAT_0032B44C.
-    set(weapon.bytes, gun_weapon_field::drain, 0.f);
+    std::memcpy(fields_of(weapon.bytes).projectile.data(), name, std::strlen(name) + 1);
+    actor_record_view<GunWeaponState>(weapon.bytes).recharge = 0.075f; // DAT_0032B44C.
+    actor_record_view<GunWeaponState>(weapon.bytes).drain = 0.f;
     return true;
 }
 
@@ -65,7 +74,7 @@ void fire_runtime_single_shot(RuntimeWeaponActor& weapon, const Vec3& point, con
     from.y = point.y;
     entity_record_sweep_probe(start, from, 4, 0xC4000); // 0x00122480, EBX the start
     auto& objects = weapon.services.objects;
-    const char* name = reinterpret_cast<const char*>(field_data(weapon.bytes, field::projectile));
+    const char* name = reinterpret_cast<const char*>(fields_of(weapon.bytes).projectile.data());
     FactoryObject* created = weapon.services.keep(create_runtime_actor_at(name, &start, &euler, 1.f,
         objects.resources, objects.factory, actor_transform_origin, weapon.services.default_euler)); // 0x00112C50
     if (created == nullptr || created->bytes == nullptr)
@@ -88,7 +97,7 @@ void fire_runtime_single_shot(RuntimeWeaponActor& weapon, const Vec3& point, con
     }
     const u32 projectile = weapon.object_address(*created);
     const u32 holder_address = weapon.services.actor_address(*holder);
-    std::memcpy(weapon.bytes_at(projectile).data() + 0xD8C, &holder_address, 4);
+    weapon_base(weapon.bytes_at(projectile)).spawn_owner = holder_address;
     weapon.actor_at(projectile)->spawn_owner = holder; // The native view of +0xD8C.
     std::array<u32, 0x42> launch{};
     launch[0] = 0xA5;
@@ -102,8 +111,8 @@ void fire_runtime_single_shot(RuntimeWeaponActor& weapon, const Vec3& point, con
     g_actor_creation_options.flags = 5;
     dispatch_actor_attachment_records(weapon.view.startup.resource.resource.data(), 0x2B, nullptr,
         &g_actor_creation_options, weapon.base().callouts, 0); // 0x0003BE20 over actor +0x8C
-    const float charge = get(weapon.bytes, gun_weapon_field::charge) - 0.15f; // DAT_0032B168.
-    set(weapon.bytes, gun_weapon_field::charge, charge);
+    const float charge = actor_record_view<GunWeaponState>(weapon.bytes).charge - 0.15f; // DAT_0032B168.
+    actor_record_view<GunWeaponState>(weapon.bytes).charge = charge;
     if (0.f > charge)
     {
         exhaust_runtime_gun_weapon(weapon, point, direction); // 0x000CAE00

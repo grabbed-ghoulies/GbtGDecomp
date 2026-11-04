@@ -1,4 +1,5 @@
 #include "body_look_for_weapon_state.h"
+#include "weapon_fields.h"
 #include "mind_fields.h"
 #include "actor_spawn_eligibility.h"
 #include "actor_spawn_query.h"
@@ -201,7 +202,7 @@ bool find_runtime_mind_weapon(RuntimeLookForWeaponStateContext& context)
         {
             throw Error("0x0009DC70 checks a mind weapon (mind +0x18) that is not an actor");
         }
-        if (actor_can_supply_ghoulybox(*weapon) && context.bytes_at(chosen)[0x93C] != 0) // 0x00146150, ECX the weapon
+        if (actor_can_supply_ghoulybox(*weapon) && weapon_base(context.bytes_at(chosen)).mask != 0) // 0x00146150, ECX the weapon
         {
             return true;
         }

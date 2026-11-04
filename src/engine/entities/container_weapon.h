@@ -1,4 +1,5 @@
 #pragma once
+#include "weapon_fields.h"
 
 #include "weapon_actor.h"
 
@@ -17,15 +18,15 @@ constexpr RetailField<u32, 0x67C> caption{};
 constexpr u32 kSize = 0x680;
 static_assert(retail_fits(kSize, caption));
 } // namespace container_weapon_parameter
-namespace container_weapon_field
+struct ContainerWeaponState
 {
-constexpr RetailField<i32, 0xE54> uses{}; // parameters +0x678
-constexpr RetailField<i32, 0xE58> left{}; // uses left; message 0x99 takes one
-constexpr RetailField<u32, 0xE5C> caption{}; // the HUD caption 0x0012DC80 shows the uses under
-constexpr RetailField<std::array<char, 0x80>, 0xE60> contents{}; // what message 0x99 copies out
-constexpr u32 kSize = 0xEE0;
-static_assert(retail_fits(kSize, contents));
-} // namespace container_weapon_field
+    WeaponBase base{}; // +0
+    i32 uses = 0; // +0xE54, parameters +0x678
+    i32 left = 0; // +0xE58, uses left; message 0x99 takes one
+    u32 caption = 0; // +0xE5C, the HUD caption 0x0012DC80 shows the uses under
+    std::array<char, 0x80> contents{}; // +0xE60, what message 0x99 copies out
+};
+static_assert(sizeof(ContainerWeaponState) == 0xEE0);
 void container_weapon_object_sizes(ObjectSizes& sizes); // Xbox 0x000C75B0
 bool initialize_runtime_container_weapon(RuntimeWeaponActor& weapon, std::span<const u8> parameters); // Xbox 0x000C7640
 void dispatch_runtime_container_weapon_message(RuntimeWeaponActor& weapon, std::span<u32> message); // Xbox 0x000C7710

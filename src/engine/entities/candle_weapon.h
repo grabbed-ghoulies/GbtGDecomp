@@ -1,4 +1,5 @@
 #pragma once
+#include "weapon_fields.h"
 
 #include "weapon_actor.h"
 #include "../graphics/billboard_queue.h"
@@ -14,16 +15,16 @@ namespace gbtg
 // kind-2 scene light (DAT_00509B7C), a point light (DAT_00511B70), the torch sound on sound slot 4 and two billboards.
 // Its fuel (+0xE54) gives the flame's strength; a lit swing that lands costs 0.225 of it once, an empty candle
 // relights after 5 s and refills at 0.075 a second, and the scoreboard meter shows it while a live player holds it.
-namespace candle_weapon_field
+struct CandleWeaponState
 {
-constexpr RetailField<float, 0xE54> fuel{}; // 1 at construction
-constexpr RetailField<float, 0xE58> relight{}; // seconds before the fuel refills, 5 once it runs out
-constexpr u32 kFlame = 0xE5C; // The flame block (candle_flame_field), 0x18 bytes.
-constexpr RetailField<u32, 0xE74> burning{}; // messages 0x11 / 0x12: the flame may burn
-constexpr RetailField<u32, 0xE78> spent{}; // a landed swing took its fuel; message 0x92 (a new swing) clears it
-constexpr u32 kSize = 0xE7C;
-static_assert(retail_fits(kSize, spent));
-} // namespace candle_weapon_field
+    WeaponBase base{}; // +0
+    float fuel = 0.f; // +0xE54, 1 at construction
+    float relight = 0.f; // +0xE58, seconds before the fuel refills, 5 once it runs out
+    std::array<u8, 0x18> flame{}; // +0xE5C, the flame block (candle_flame_field)
+    u32 burning = 0; // +0xE74, messages 0x11 / 0x12: the flame may burn
+    u32 spent = 0; // +0xE78, a landed swing took its fuel; message 0x92 (a new swing) clears it
+};
+static_assert(sizeof(CandleWeaponState) == 0xE7C);
 // The flame block 0x000C6C80..0x000C7540 work on (EDI): the candle's +0xE5C and the scene 10 control's +0x40. +4 is
 // the model binding and +0x10 / +0x14 the flame and glow sprites (host: RuntimeCandleFlame's references).
 namespace candle_flame_field

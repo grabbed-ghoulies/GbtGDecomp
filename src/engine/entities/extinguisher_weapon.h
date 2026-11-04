@@ -17,16 +17,16 @@ constexpr RetailField<std::array<char, 0x80>, 0x678> spray{};
 constexpr u32 kSize = 0x6F8;
 static_assert(retail_fits(kSize, spray));
 } // namespace extinguisher_weapon_parameter
-namespace extinguisher_weapon_field
+struct ExtinguisherWeaponState
 {
-constexpr RetailField<u32, 0xEFC> spray{}; // set when the spray AID was loaded
-constexpr u32 kTrails = 0xF00; // Eight trailing spray blocks, 4 apart (host: their pools are kept natively).
-constexpr RetailField<u32, 0xF20> active{}; // set while the firing spray's block (0x000C7D10) exists
-constexpr RetailField<float, 0xF24> emission{}; // seconds of spray not yet emitted, a particle per 1/30 s
-constexpr RetailField<float, 0xF28> reach{}; // 0.01 (DAT_0032B124) .. 1: grows 1.98 a second while firing
-constexpr u32 kSize = 0xF2C;
-static_assert(retail_fits(kSize, reach));
-} // namespace extinguisher_weapon_field
+    GunWeaponState base{}; // +0
+    u32 spray = 0; // +0xEFC, set when the spray AID was loaded
+    std::array<u32, 8> trails{}; // +0xF00, eight trailing spray blocks (host: their pools are kept natively)
+    u32 active = 0; // +0xF20, set while the firing spray's block (0x000C7D10) exists
+    float emission = 0.f; // +0xF24, seconds of spray not yet emitted, a particle per 1/30 s
+    float reach = 0.f; // +0xF28, 0.01 (DAT_0032B124) .. 1: grows 1.98 a second while firing
+};
+static_assert(sizeof(ExtinguisherWeaponState) == 0xF2C);
 // One 0x38-byte spray particle.
 struct RuntimeSprayParticle
 {

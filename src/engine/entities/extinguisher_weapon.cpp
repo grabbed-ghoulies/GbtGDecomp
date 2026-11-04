@@ -20,9 +20,17 @@ using namespace weapon_detail;
 
 namespace
 {
-namespace field = extinguisher_weapon_field;
+ExtinguisherWeaponState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<ExtinguisherWeaponState>(bytes);
+}
+
+const ExtinguisherWeaponState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<ExtinguisherWeaponState>(bytes);
+}
+
 namespace parameter = extinguisher_weapon_parameter;
-namespace gun = gun_weapon_field;
 
 // The spray block pools (retail +0xF20 and the eight +0xF00 words), by the weapon's bytes.
 struct ExtinguisherBlocks
@@ -44,10 +52,10 @@ ExtinguisherBlocks& blocks_of(const RuntimeWeaponActor& weapon)
 void sync_blocks(RuntimeWeaponActor& weapon)
 {
     const ExtinguisherBlocks& blocks = blocks_of(weapon);
-    set(weapon.bytes, field::active, blocks.active != nullptr ? 1u : 0u);
+    fields_of(weapon.bytes).active = blocks.active != nullptr ? 1u : 0u;
     for (u32 index = 0; index < 8; ++index)
     {
-        store32(weapon.bytes, field::kTrails + index * 4, blocks.trails[index] != nullptr ? 1u : 0u);
+        fields_of(weapon.bytes).trails[index] = blocks.trails[index] != nullptr ? 1u : 0u;
     }
 }
 
@@ -58,7 +66,7 @@ float weapon_step(const RuntimeWeaponActor& weapon)
 
 float spray_word(const RuntimeWeaponActor& weapon)
 {
-    return std::bit_cast<float>(get(weapon.bytes, gun::unk_EE8));
+    return std::bit_cast<float>(actor_record_view<GunWeaponState>(weapon.bytes).unk_EE8);
 }
 
 // A value between start and end by age over life, clamped between them; the end when life is zero.
@@ -136,7 +144,7 @@ float sphere_scale(i32 index)
 // Xbox 0x000C7B50
 void extinguisher_weapon_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(ExtinguisherWeaponState);
     sizes.parameters = parameter::kSize;
 }
 
@@ -155,10 +163,10 @@ bool initialize_runtime_extinguisher_weapon(RuntimeWeaponActor& weapon, std::spa
         }
     }
     blocks_of(weapon) = ExtinguisherBlocks{spray};
-    set(bytes, gun::recharge, 0.075f); // DAT_0032B44C.
-    set(bytes, gun::drain, 0.15f); // DAT_0032B168.
-    set(bytes, field::spray, spray.data() != nullptr ? 1u : 0u);
-    set(bytes, field::reach, 0.01f); // DAT_0032B124.
+    actor_record_view<GunWeaponState>(bytes).recharge = 0.075f; // DAT_0032B44C.
+    actor_record_view<GunWeaponState>(bytes).drain = 0.15f; // DAT_0032B168.
+    fields_of(bytes).spray = spray.data() != nullptr ? 1u : 0u;
+    fields_of(bytes).reach = 0.01f; // DAT_0032B124.
     sync_blocks(weapon);
     return true;
 }
@@ -168,10 +176,10 @@ void destroy_runtime_extinguisher_weapon(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
     ExtinguisherBlocks& blocks = blocks_of(weapon);
-    if (get(bytes, field::spray) != 0)
+    if (fields_of(bytes).spray != 0)
     {
         release_animation_resource(weapon.registry, blocks.spray); // 0x00035C00
-        set(bytes, field::spray, 0u);
+        fields_of(bytes).spray = 0u;
     }
     if (blocks.active != nullptr)
     {
@@ -193,7 +201,7 @@ void destroy_runtime_extinguisher_weapon(RuntimeWeaponActor& weapon)
 void start_runtime_extinguisher_spray(RuntimeWeaponActor& weapon)
 {
     blocks_of(weapon).active = allocate_runtime_shape_pool(sizeof(RuntimeSprayParticle), 0x20); // The inlined 0x00066260.
-    set(weapon.bytes, field::emission, 0.f);
+    fields_of(weapon.bytes).emission = 0.f;
     sync_blocks(weapon);
 }
 
@@ -238,10 +246,11 @@ void retire_runtime_extinguisher_spray(RuntimeWeaponActor& weapon)
 void update_runtime_extinguisher_spray(RuntimeWeaponActor& weapon, float step)
 {
     auto bytes = weapon.bytes;
-    set(bytes, gun::drain, spray_word(weapon) * 0.135f + 0.015f); // DAT_0032B384, DAT_0032B380.
+    // DAT_0032B384, DAT_0032B380.
+    actor_record_view<GunWeaponState>(bytes).drain = spray_word(weapon) * 0.135f + 0.015f;
     ExtinguisherBlocks& blocks = blocks_of(weapon);
     if (blocks.active != nullptr && !step_runtime_spray_block(*blocks.active, step) // 0x000C7E40
-        && get(bytes, gun::firing) == 0)
+        && actor_record_view<GunWeaponState>(bytes).firing == 0)
     {
         engine_heap_free(blocks.active); // 0x000663E0
         blocks.active = nullptr;
@@ -332,30 +341,30 @@ void emit_runtime_extinguisher_spray(RuntimeWeaponActor& weapon, u32 firing, con
     const Vec3& direction)
 {
     auto bytes = weapon.bytes;
-    set(bytes, weapon_field::firing, u8(firing));
+    weapon_base(bytes).firing = u8(firing);
     if (firing == 0)
     {
-        const float reach = get(bytes, field::reach) - weapon_step(weapon) * 4.949999809265137f; // DAT_0032B464.
-        set(bytes, field::reach, reach);
+        const float reach = fields_of(bytes).reach - weapon_step(weapon) * 4.949999809265137f; // DAT_0032B464.
+        fields_of(bytes).reach = reach;
         if (0.01f > reach) // DAT_0032B124.
         {
-            set(bytes, field::reach, 0.01f);
+            fields_of(bytes).reach = 0.01f;
         }
         return;
     }
-    const float reach = weapon_step(weapon) * 1.9800000190734863f + get(bytes, field::reach); // DAT_0032B460.
-    set(bytes, field::reach, reach);
+    const float reach = weapon_step(weapon) * 1.9800000190734863f + fields_of(bytes).reach; // DAT_0032B460.
+    fields_of(bytes).reach = reach;
     if (reach > 1.f) // DAT_0032B0F8.
     {
-        set(bytes, field::reach, 1.f);
+        fields_of(bytes).reach = 1.f;
     }
-    set(bytes, field::emission, weapon_step(weapon) + get(bytes, field::emission));
+    fields_of(bytes).emission = weapon_step(weapon) + fields_of(bytes).emission;
     const float speed = spray_word(weapon) * 70.f + 30.f; // DAT_0032B2C4, DAT_0032B108.
     const float scale = (spray_word(weapon) + 1.f) * 0.5f; // DAT_0032B0F4.
     float delay = 0.f;
     Vec3 unit;
     normalize_runtime_graphics_vector(unit, direction); // D3DXVec3Normalize, 0x00184F99
-    if (!(get(bytes, field::emission) > kEmitInterval))
+    if (!(fields_of(bytes).emission > kEmitInterval))
     {
         return;
     }
@@ -386,9 +395,9 @@ void emit_runtime_extinguisher_spray(RuntimeWeaponActor& weapon, u32 firing, con
         // DAT_0032B290, DAT_0032B0FC, DAT_0032B3DC: 70 to 250 degrees a second.
         particle.spin = (next_unit(weapon.random) - 1.f) * 180.f * 0.01745329238474369f + 1.2217304706573486f;
         particle.rotation = (next_unit(weapon.random) - 1.f) * 6.2831854820251465f; // DAT_0032B298.
-        set(bytes, field::emission, get(bytes, field::emission) - kEmitInterval);
+        fields_of(bytes).emission = fields_of(bytes).emission - kEmitInterval;
         delay += kEmitInterval;
-    } while (get(bytes, field::emission) > kEmitInterval);
+    } while (fields_of(bytes).emission > kEmitInterval);
 }
 
 // Xbox 0x000C8590
@@ -423,7 +432,7 @@ void query_runtime_spray_block(RuntimeWeaponActor& weapon, GhoulySpawnPool& bloc
         length = sphere_scale(index) * spread * 2.f + length; // DAT_0032B110.
     }
     // The spray's reach from 12 behind the muzzle (DAT_0032B4F4): a wall across it turns the particles back.
-    const float reach = get(bytes, field::reach) * length;
+    const float reach = fields_of(bytes).reach * length;
     Vec3 near{direction.x * -12.f + point.x, direction.y * -12.f + point.y, direction.z * -12.f + point.z};
     Vec3 far{direction.x * reach + point.x, direction.y * reach + point.y, direction.z * reach + point.z};
     const i32 swept = entity_record_sweep_probe(far, near, 4, 0xC4000); // 0x00122480, EBX far
@@ -478,7 +487,7 @@ void query_runtime_spray_block(RuntimeWeaponActor& weapon, GhoulySpawnPool& bloc
     float previous = 0.f;
     for (i32 index = 0; index < 5; ++index)
     {
-        const float radius = get(bytes, field::reach) * sphere_scale(index) * spread;
+        const float radius = fields_of(bytes).reach * sphere_scale(index) * spread;
         const float distance = radius + previous;
         Vec3 center{direction.x * distance + start.x, direction.y * distance + start.y,
             direction.z * distance + start.z};

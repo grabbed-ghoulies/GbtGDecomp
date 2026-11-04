@@ -33,7 +33,16 @@ using namespace weapon_detail;
 
 namespace
 {
-namespace field = homing_projectile_field;
+HomingProjectileState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<HomingProjectileState>(bytes);
+}
+
+const HomingProjectileState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<HomingProjectileState>(bytes);
+}
+
 namespace parameter = homing_projectile_parameter;
 
 // 0x0003C040 / 0x0003BE20 with the actor's +0x8C resource: its callout records for an id.
@@ -55,7 +64,7 @@ void lower_model_mode(RuntimeWeaponActor& weapon)
     if (weapon.cells != nullptr)
     {
         entity_detail::release_navigation_cell_registration(weapon.cells,
-                                                            get(weapon.bytes, weapon_field::floor)); // 0x001108B0
+                                                            weapon_base(weapon.bytes).floor); // 0x001108B0
     }
     weapon.actor.model_mode &= ~4;
     register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770
@@ -77,7 +86,7 @@ void start_flight_animation(RuntimeWeaponActor& weapon)
 // The actor of the weapon's follow record (+0xE50 -> +0x10), by its retail address; zero without a record.
 u32 follow_target_address(RuntimeWeaponActor& weapon)
 {
-    const u32 record = get(weapon.bytes, weapon_field::target_record);
+    const u32 record = weapon_base(weapon.bytes).target_record;
     if (record == 0)
     {
         return 0;
@@ -94,7 +103,7 @@ u32 follow_target_address(RuntimeWeaponActor& weapon)
 void end_runtime_homing_projectile_flight(RuntimeWeaponActor& weapon)
 {
     stop_runtime_weapon_hold_sound(weapon);
-    change_runtime_weapon_state(weapon, get(weapon.bytes, field::shatters) != 0 ? 4 : 9); // The inlined 0x0014A290.
+    change_runtime_weapon_state(weapon, fields_of(weapon.bytes).shatters != 0 ? 4 : 9); // The inlined 0x0014A290.
 }
 
 // Xbox 0x000CD120, EAX actor: state 10's flight takes the projectile's follow words (+0xCDC..+0xCF8), stops, and
@@ -102,15 +111,15 @@ void end_runtime_homing_projectile_flight(RuntimeWeaponActor& weapon)
 void start_runtime_homing_projectile_flight(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    set(bytes, weapon_field::starting, 1);
+    weapon_base(bytes).starting = 1;
     weapon.actor.mask_mode = 1; // Native alias of the +0xCDC word.
-    const float slack = get(bytes, field::follow_slack);
-    const float speed = get(bytes, field::follow_speed);
-    const float rise = get(bytes, field::follow_rise);
-    std::memcpy(bytes.data() + 0xCEC, &slack, 4);
-    std::memcpy(bytes.data() + 0xCF0, &speed, 4);
-    std::memcpy(bytes.data() + 0xCF4, &rise, 4);
-    set(bytes, weapon_field::ghost, get(bytes, field::ghost));
+    const float slack = fields_of(bytes).follow_slack;
+    const float speed = fields_of(bytes).follow_speed;
+    const float rise = fields_of(bytes).follow_rise;
+    weapon_base(bytes).slack = slack;
+    weapon_base(bytes).damping = speed;
+    weapon_base(bytes).rise = rise;
+    weapon_base(bytes).ghost = fields_of(bytes).ghost;
     weapon.actor.anchor = actor_transform_origin; // DAT_0050DD80.
     start_flight_animation(weapon); // The tail jumps to 0x0003A9E0 / 0x0003AC20.
 }
@@ -118,9 +127,9 @@ void start_runtime_homing_projectile_flight(RuntimeWeaponActor& weapon)
 // Xbox 0x000CD230, EBX actor: back to the pose message 0x9D recorded.
 void restore_runtime_homing_projectile_root(RuntimeWeaponActor& weapon)
 {
-    const Vec3 position = get(weapon.bytes, field::rest_position);
+    const Vec3 position = fields_of(weapon.bytes).rest_position;
     actor_set_world_position(weapon.actor, position); // 0x00041730, EDI actor, ESI +0xE7C
-    const Vec3 euler = get(weapon.bytes, field::rest_euler);
+    const Vec3 euler = fields_of(weapon.bytes).rest_euler;
     normalize_euler_angles(weapon.actor.euler, euler); // 0x00105AA0, EDI actor +0x14, ESI +0xE70
     weapon.actor.xform_valid = 0; // +0x2A8.
 }
@@ -134,7 +143,7 @@ void start_runtime_homing_projectile_shatter(RuntimeWeaponActor& weapon)
         insert_runtime_body_contact_override(weapon.collision_overrides,
             weapon.contact_actor_at(weapon.services.actor_address(*holder)), 0, weapon.players); // 0x0013EBE0
     }
-    set(weapon.bytes, field::shatter_timer, 0.5f); // DAT_004288F4.
+    fields_of(weapon.bytes).shatter_timer = 0.5f; // DAT_004288F4.
 }
 
 // Xbox 0x000CD3A0, EAX actor: the shatter's reach (DAT_004288FC to DAT_004288F8 as the timer runs) reports every
@@ -148,7 +157,7 @@ bool update_runtime_homing_projectile_shatter(RuntimeWeaponActor& weapon)
     float reach = last;
     if (duration != 0.f)
     {
-        reach = get(bytes, field::shatter_timer) / duration * (last - first) + first;
+        reach = fields_of(bytes).shatter_timer / duration * (last - first) + first;
         if (last <= first)
         {
             if (reach < last)
@@ -169,10 +178,10 @@ bool update_runtime_homing_projectile_shatter(RuntimeWeaponActor& weapon)
             reach = first;
         }
     }
-    if (get(bytes, field::shatter_shown) == 0 && duration - get(bytes, field::shatter_timer) > 0.f) // DAT_00428900.
+    if (fields_of(bytes).shatter_shown == 0 && duration - fields_of(bytes).shatter_timer > 0.f) // DAT_00428900.
     {
         send_callout(weapon, 10); // 0x0003BE20
-        set(bytes, field::shatter_shown, 1u);
+        fields_of(bytes).shatter_shown = 1u;
     }
     Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
     if (weapon.collision_overrides != nullptr)
@@ -194,23 +203,23 @@ bool update_runtime_homing_projectile_shatter(RuntimeWeaponActor& weapon)
     for (auto& [probe, records] : found)
     {
         if (report_runtime_projectile_contact(weapon, weapon.actor.spawn_owner, weapon.contact_actor(*probe), position,
-                                              records, still, 0, get(bytes, weapon_field::hit_kind),
-                                              get(bytes, weapon_field::hit_strength),
-                                              get(bytes, weapon_field::hit_style), get(bytes, field::hits) == 0,
-                                              get(bytes, field::contact_tail)) != 0) // 0x00141A30
+                                              records, still, 0, weapon_base(bytes).hit_kind,
+                                              weapon_base(bytes).hit_strength,
+                                              weapon_base(bytes).hit_style, fields_of(bytes).hits == 0,
+                                              fields_of(bytes).contact_tail) != 0) // 0x00141A30
         {
-            set(bytes, field::hits, get(bytes, field::hits) + 1);
+            fields_of(bytes).hits = fields_of(bytes).hits + 1;
         }
         engine_heap_free(records); // 0x0014D360 on the block's heap.
     }
-    const float timer = get(bytes, field::shatter_timer);
+    const float timer = fields_of(bytes).shatter_timer;
     if (timer > 0.f)
     {
         const float left = timer - frame_rate(weapon.actor) * frame_step(weapon.frame);
-        set(bytes, field::shatter_timer, left);
+        fields_of(bytes).shatter_timer = left;
         if (left <= 0.f) // COMISS 0, left; JC keeps it.
         {
-            set(bytes, field::shatter_timer, 0.f);
+            fields_of(bytes).shatter_timer = 0.f;
             return true;
         }
     }
@@ -239,41 +248,41 @@ void finish_runtime_homing_projectile(RuntimeWeaponActor& weapon)
 void beep_runtime_homing_projectile(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    if (get(bytes, field::beeps) == 0)
+    if (fields_of(bytes).beeps == 0)
     {
         return;
     }
-    float timer = get(bytes, field::beep_timer);
+    float timer = fields_of(bytes).beep_timer;
     tick_runtime_body_frame_timer(timer, weapon.clock); // 0x0012B2A0, EAX +0xE9C
-    set(bytes, field::beep_timer, timer);
+    fields_of(bytes).beep_timer = timer;
     const RuntimeMindTarget* target = runtime_weapon_holder_target(weapon); // 0x00149C30
     if (target == nullptr)
     {
         return;
     }
     const long double distance = runtime_target_distance(weapon.actor, target->bytes); // 0x00041560, EBX target
-    if (!(static_cast<long double>(get(bytes, field::beep_range)) > distance)) // FCOMIP; JBE.
+    if (!(static_cast<long double>(fields_of(bytes).beep_range) > distance)) // FCOMIP; JBE.
     {
         return;
     }
-    if (!(0.001f > get(bytes, field::beep_timer))) // DAT_0032B1A4; JBE.
+    if (!(0.001f > fields_of(bytes).beep_timer)) // DAT_0032B1A4; JBE.
     {
         return;
     }
-    const char* cue = reinterpret_cast<const char*>(record(bytes, field::beep_sound).data());
+    const char* cue = reinterpret_cast<const char*>(retail_bytes(fields_of(bytes).beep_sound).data());
     if (cue[0] == 0 || !resolve_audio_bank_cue(cue, nullptr, nullptr)) // 0x000380B0, EAX +0xEA8
     {
         return;
     }
     request_actor_sound_at(weapon.actor, 1, cue, nullptr, nullptr, 1.f, weapon.services.sounds); // 0x00041D40, ECX 1
-    set(bytes, field::beep_timer, get(bytes, field::beep_interval));
+    fields_of(bytes).beep_timer = fields_of(bytes).beep_interval;
 }
 }
 
 // Xbox 0x000CC770
 void homing_projectile_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(HomingProjectileState);
     sizes.parameters = 0x6A4;
 }
 
@@ -281,7 +290,7 @@ void homing_projectile_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_homing_projectile(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     auto bytes = weapon.bytes;
-    set(bytes, weapon_field::contact_test, 0x000CD1B0); // The class's contact test, called through +0x99C.
+    weapon_base(bytes).contact_test = 0x000CD1B0; // The class's contact test, called through +0x99C.
     // 0x0003AAA0 with EAX 0 (no variant), ECX the name and the actor's +0x48 table.
     const u32 name = get(parameters, parameter::flight_animation);
     const char* text = nullptr;
@@ -296,27 +305,27 @@ bool initialize_runtime_homing_projectile(RuntimeWeaponActor& weapon, std::span<
     }
     weapon.flight_animation = weapon.view.animation.table == nullptr || text == nullptr ? nullptr
         : find_actor_animation(weapon.view.animation.table, text, nullptr, weapon.random); // +0xE64
-    set(bytes, field::trail_scale, get(parameters, parameter::trail_scale));
-    set(bytes, field::shatters, get(parameters, parameter::shatters));
-    set(bytes, field::follow_slack, get(parameters, parameter::follow_slack));
-    set(bytes, field::follow_speed, get(parameters, parameter::follow_speed));
-    set(bytes, field::follow_rise, get(parameters, parameter::follow_rise));
-    set(bytes, field::ghost, get(parameters, parameter::ghost));
-    set(bytes, field::contact_tail, get(parameters, parameter::contact_tail));
-    set(bytes, field::beeps, get(parameters, parameter::beeps));
-    if (get(bytes, field::beeps) != 0)
+    fields_of(bytes).trail_scale = get(parameters, parameter::trail_scale);
+    fields_of(bytes).shatters = get(parameters, parameter::shatters);
+    fields_of(bytes).follow_slack = get(parameters, parameter::follow_slack);
+    fields_of(bytes).follow_speed = get(parameters, parameter::follow_speed);
+    fields_of(bytes).follow_rise = get(parameters, parameter::follow_rise);
+    fields_of(bytes).ghost = get(parameters, parameter::ghost);
+    fields_of(bytes).contact_tail = get(parameters, parameter::contact_tail);
+    fields_of(bytes).beeps = get(parameters, parameter::beeps);
+    if (fields_of(bytes).beeps != 0)
     {
         const auto source = record(parameters, parameter::beep_sound);
-        auto target = record(bytes, field::beep_sound);
+        auto target = retail_bytes(fields_of(bytes).beep_sound);
         size_t index = 0;
         do
         {
             target[index] = source[index];
         }
         while (source[index++] != 0);
-        set(bytes, field::beep_range, get(parameters, parameter::beep_range));
-        set(bytes, field::beep_interval, get(parameters, parameter::beep_interval));
-        set(bytes, field::beep_timer, 0.f);
+        fields_of(bytes).beep_range = get(parameters, parameter::beep_range);
+        fields_of(bytes).beep_interval = get(parameters, parameter::beep_interval);
+        fields_of(bytes).beep_timer = 0.f;
     }
     return true;
 }
@@ -342,7 +351,7 @@ void update_runtime_homing_projectile_state(RuntimeWeaponActor& weapon, u16 stat
     case 4:
         if (update_runtime_homing_projectile_shatter(weapon)) // 0x000CD3A0
         {
-            set(weapon.bytes, weapon_field::next_state, 0xB);
+            weapon_base(weapon.bytes).next_state = 0xB;
         }
         return;
     case 9:
@@ -375,11 +384,11 @@ void dispatch_runtime_homing_projectile_message(RuntimeWeaponActor& weapon, std:
     case 0x18:
         message[4] = 1;
         send_callout(weapon, 0x19); // 0x0003C040
-        set(bytes, weapon_field::next_state, 9);
+        weapon_base(bytes).next_state = 9;
         break;
     case 0x31:
         // The holder or the follow target noticed in flight ends it.
-        if (get(bytes, weapon_field::state) == 10 && get(bytes, weapon_field::target_record) != 0)
+        if (weapon_base(bytes).state == 10 && weapon_base(bytes).target_record != 0)
         {
             const Actor* holder = weapon.actor.spawn_owner; // +0xD8C.
             const u32 holder_address = holder == nullptr ? 0 : weapon.services.actor_address(*holder);
@@ -390,14 +399,14 @@ void dispatch_runtime_homing_projectile_message(RuntimeWeaponActor& weapon, std:
         }
         break;
     case 0x49:
-        if (message[0xB] != 0 && get(bytes, weapon_field::target_record) != 0 &&
+        if (message[0xB] != 0 && weapon_base(bytes).target_record != 0 &&
             message[6] == follow_target_address(weapon))
         {
             end_runtime_homing_projectile_flight(weapon); // 0x000CD2A0
         }
         break;
     case 0x7D:
-        if (get(bytes, weapon_field::state) == 0)
+        if (weapon_base(bytes).state == 0)
         {
             change_runtime_weapon_state(weapon, 0x10); // 0x0014A290
         }
@@ -422,8 +431,8 @@ void dispatch_runtime_homing_projectile_message(RuntimeWeaponActor& weapon, std:
         Vec3 euler{};
         Vec3 rest{};
         record_runtime_weapon_root(weapon.actor, euler, rest); // 0x000CC010, EAX +0xE70, the stack +0xE7C
-        set(bytes, field::rest_euler, euler);
-        set(bytes, field::rest_position, rest);
+        fields_of(bytes).rest_euler = euler;
+        fields_of(bytes).rest_position = rest;
         break;
     }
     case 0xA5:
@@ -477,10 +486,10 @@ void enter_runtime_homing_projectile_state(RuntimeWeaponActor& weapon, u16 state
         start_runtime_homing_projectile_flight(weapon); // 0x000CD120
         // 0x0013B7C0: 0x0003BE20 over actor +0x8C, id 0x4A, with 0x0013B8B0 recording the attachments at +0xF34.
         ActorAttachmentEventContext events = weapon.base().callouts;
-        events.command_attachments = record(weapon.bytes, field::command_attachments);
+        events.command_attachments = retail_bytes(fields_of(weapon.bytes).command_attachments);
         dispatch_actor_attachment_records(weapon.view.startup.resource.resource.data(), 0x4A,
             record_runtime_body_attachment_event, nullptr, events,
-            weapon.self_address() + field::command_attachments.offset);
+            weapon.self_address() + offsetof(HomingProjectileState, command_attachments));
         return;
     }
     case 0x10:
@@ -488,7 +497,7 @@ void enter_runtime_homing_projectile_state(RuntimeWeaponActor& weapon, u16 state
         raise_model_mode(weapon, 4); // 0x0003C750 inlined
         weapon.actor.model_flags |= 0x100u;
         start_runtime_weapon_idle(weapon); // 0x00144D00
-        if (get(weapon.bytes, weapon_field::unk_DA8) == 0)
+        if (weapon_base(weapon.bytes).unk_DA8 == 0)
         {
             attach_runtime_weapon_volume(weapon); // 0x00146310
         }
@@ -529,7 +538,7 @@ void leave_runtime_homing_projectile_state(RuntimeWeaponActor& weapon, u16 state
         {
             throw Error("homing projectile leaving its flight has no attachment lists for 0x0013B810");
         }
-        clear_runtime_player_attachment_events(record(weapon.bytes, field::command_attachments),
+        clear_runtime_player_attachment_events(retail_bytes(fields_of(weapon.bytes).command_attachments),
             *weapon.attachment_lists); // 0x0013B810, EBX +0xF34
         leave_runtime_weapon_state(weapon, state, next); // 0x0014A180
         return;
@@ -550,20 +559,20 @@ u32 test_runtime_homing_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSe
 {
     auto bytes = weapon.bytes;
     if (report_runtime_projectile_contact(weapon, weapon.actor.spawn_owner, object, point, contacts, velocity, word,
-                                          get(bytes, weapon_field::hit_kind), get(bytes, weapon_field::hit_strength),
-                                          get(bytes, weapon_field::hit_style), get(bytes, field::hits) == 0,
-                                          get(bytes, field::contact_tail)) != 0) // 0x00141A30
+                                          weapon_base(bytes).hit_kind, weapon_base(bytes).hit_strength,
+                                          weapon_base(bytes).hit_style, fields_of(bytes).hits == 0,
+                                          fields_of(bytes).contact_tail) != 0) // 0x00141A30
     {
-        set(bytes, field::hits, get(bytes, field::hits) + 1);
+        fields_of(bytes).hits = fields_of(bytes).hits + 1;
     }
-    return get(bytes, weapon_field::mask) == 0 ? 1u : 0u;
+    return weapon_base(bytes).mask == 0 ? 1u : 0u;
 }
 
 // Xbox 0x000CD090
 u32 draw_runtime_homing_projectile(RuntimeWeaponActor& weapon, ActorDrawState& state, i32 kind,
     const ActorFrameDrawContext& attachments, SceneModelDrawContext& draw, RuntimeGlowPass& glow)
 {
-    if (get(weapon.bytes, field::ghost) == 0)
+    if (fields_of(weapon.bytes).ghost == 0)
     {
         draw_runtime_actor(state, kind, attachments, draw); // 0x0003C9E0
         return 1;

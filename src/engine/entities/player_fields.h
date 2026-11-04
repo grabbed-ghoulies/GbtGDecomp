@@ -8,7 +8,7 @@ namespace gbtg
 // The player (factory type 5 over the actor, type 2; 0x00027F40's size 0xCF8): its own part after the actor's 0x934
 // bytes. Every character's actor (a body's +8, a mind's +8) is one, so the body, mind and strategy code read it
 // through these. A weapon (type 0xB) also follows the actor but has its own fields at the same offsets
-// (`weapon_field`). See docs/RETAIL_LAYOUTS.md.
+// (`WeaponBase`). See docs/RETAIL_LAYOUTS.md.
 namespace player_field
 {
 // The actor's node on the case list (DAT_00511B3C / DAT_00511B40), nonzero for a player (native: mask_flag).

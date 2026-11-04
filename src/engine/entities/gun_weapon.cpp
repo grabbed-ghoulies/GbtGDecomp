@@ -23,7 +23,16 @@ using namespace weapon_detail;
 
 namespace
 {
-namespace field = gun_weapon_field;
+GunWeaponState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<GunWeaponState>(bytes);
+}
+
+const GunWeaponState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<GunWeaponState>(bytes);
+}
+
 namespace parameter = gun_weapon_parameter;
 
 // The two locator records (+0xEEC muzzle, +0xEF0 aim) of each gun, by the weapon's bytes.
@@ -51,16 +60,16 @@ float frame_step(const RuntimeWeaponActor& weapon)
 void stop_weapon_sound(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    if (field_data(bytes, weapon_field::voice_name)[0] == 0)
+    if (weapon_base(bytes).voice_name.data()[0] == 0)
     {
         return;
     }
-    field_data(bytes, weapon_field::voice_name)[0] = 0;
-    const u16 voice = get(bytes, weapon_field::voice);
+    weapon_base(bytes).voice_name.data()[0] = 0;
+    const u16 voice = weapon_base(bytes).voice;
     if (voice != 0xFFFF)
     {
         stop_actor_sound_voice(i16(voice), weapon.services.sounds); // 0x00039690
-        set(bytes, weapon_field::voice, 0xFFFF);
+        weapon_base(bytes).voice = 0xFFFF;
     }
 }
 
@@ -164,7 +173,7 @@ GhoulySpawnPool* hit_query_hook(RuntimeWeaponActor& weapon, const Vec3& point, c
 // Xbox 0x000CA960
 void gun_weapon_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(GunWeaponState);
     sizes.parameters = parameter::kSize;
 }
 
@@ -172,9 +181,9 @@ void gun_weapon_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_gun_weapon(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     auto bytes = weapon.bytes;
-    set(bytes, weapon_field::contact_test, 0x000CB040);
-    std::strcpy(field_data(bytes, field::name), field_data(parameters, parameter::name));
-    set(bytes, field::charge, 1.f); // DAT_0032B0F8.
+    weapon_base(bytes).contact_test = 0x000CB040;
+    std::strcpy(fields_of(bytes).name.data(), field_data(parameters, parameter::name));
+    fields_of(bytes).charge = 1.f; // DAT_0032B0F8.
     GunLocators& locators = gun_locators[bytes.data()];
     locators.muzzle = find_actor_model_binding(weapon.actor, 3); // 0x000408D0, EDI 3
     locators.aim = find_actor_model_binding(weapon.actor, 4); // 0x000408D0, EDI 4
@@ -182,8 +191,8 @@ bool initialize_runtime_gun_weapon(RuntimeWeaponActor& weapon, std::span<const u
     {
         locators = GunLocators{};
     }
-    set(bytes, field::muzzle, locators.muzzle != nullptr ? 1u : 0u);
-    set(bytes, field::aim, locators.aim != nullptr ? 1u : 0u);
+    fields_of(bytes).muzzle = locators.muzzle != nullptr ? 1u : 0u;
+    fields_of(bytes).aim = locators.aim != nullptr ? 1u : 0u;
     return true;
 }
 
@@ -196,7 +205,7 @@ void dispatch_runtime_gun_weapon_message(RuntimeWeaponActor& weapon, std::span<u
     case 0x5A:
         if (message[0xB] != 0)
         {
-            set(bytes, field::unk_EF4, 1u);
+            fields_of(bytes).unk_EF4 = 1u;
         }
         break;
     case 0x91:
@@ -205,7 +214,7 @@ void dispatch_runtime_gun_weapon_message(RuntimeWeaponActor& weapon, std::span<u
     case 0x92:
         if (message[1] != 0)
         {
-            set(bytes, field::unk_EF4, 0u);
+            fields_of(bytes).unk_EF4 = 0u;
         }
         break;
     case 0x9D:
@@ -226,32 +235,32 @@ void dispatch_runtime_gun_weapon_message(RuntimeWeaponActor& weapon, std::span<u
         break;
     }
     case 0xA1:
-        set(bytes, field::unk_EE8, message[1]);
+        fields_of(bytes).unk_EE8 = message[1];
         break;
     case 0xA2:
     {
-        request_actor_sound(weapon.actor, 4, field_data(bytes, field::name), weapon.services.sounds); // 0x00041D00
-        set(bytes, field::firing, 1u);
+        request_actor_sound(weapon.actor, 4, fields_of(bytes).name.data(), weapon.services.sounds); // 0x00041D00
+        fields_of(bytes).firing = 1u;
         Vec3 point{};
         Vec3 direction{};
         if (runtime_gun_muzzle(weapon, point, direction)) // 0x000CB330
         {
             fire_start_hook(weapon, point, direction, std::span<const u32>(message).subspan(2)); // Vtable +0x4C
-            set(bytes, field::hits, 0u);
+            fields_of(bytes).hits = 0u;
         }
         break;
     }
     case 0xA3:
     {
         release_actor_sound(weapon.actor.sound_slots[4], weapon.services.sounds); // 0x0012A3D0, ESI actor +0x614
-        set_runtime_weapon_mask(weapon, get(bytes, field::charge) > 0.f ? 1 : 0); // 0x00146230
-        set(bytes, field::firing, 0u);
+        set_runtime_weapon_mask(weapon, fields_of(bytes).charge > 0.f ? 1 : 0); // 0x00146230
+        fields_of(bytes).firing = 0u;
         Vec3 point{};
         Vec3 direction{};
         if (runtime_gun_muzzle(weapon, point, direction)) // 0x000CB330
         {
             fire_end_hook(weapon, point, direction); // Vtable +0x50
-            set(bytes, field::hits, 0u);
+            fields_of(bytes).hits = 0u;
         }
         break;
     }
@@ -271,7 +280,7 @@ void update_runtime_gun_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         RuntimeCandleServices& candle = weapon.services.candle(); // DAT_0050E764 / DAT_0030F144 / DAT_0051248C.
         if (runtime_player_damage_enabled(*holder, candle.blocked, candle.modes, candle.mode) != 0) // 0x00028D50
         {
-            show_runtime_meter_level(get(weapon.bytes, field::charge), weapon.services.scoreboard, weapon.registry,
+            show_runtime_meter_level(fields_of(weapon.bytes).charge, weapon.services.scoreboard, weapon.registry,
                 weapon.error); // 0x0012EC70
         }
     }
@@ -337,7 +346,7 @@ void leave_runtime_gun_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         switch (state)
         {
         case 0x10:
-            if (read_u32(bytes, weapon_field::animation.offset) == kAidPrefix)
+            if (read_u32(bytes, offsetof(WeaponBase, animation)) == kAidPrefix)
             {
                 auto* controller = weapon.view.animation.controller.get(); // Actor +0x50.
                 if (controller != nullptr)
@@ -393,29 +402,29 @@ void late_update_runtime_gun_weapon_state(RuntimeWeaponActor& weapon, u16 state)
     }
     if ((holder->mask_mode == 2 || holder->mask_flag != 0) && runtime_weapon_boost_active() != 0) // DAT_00512278
     {
-        set(bytes, field::charge, 1.f); // DAT_0032B0F8.
+        fields_of(bytes).charge = 1.f; // DAT_0032B0F8.
     }
-    if (get(bytes, field::firing) == 0)
+    if (fields_of(bytes).firing == 0)
     {
         recharge_runtime_gun_weapon(weapon, holder); // 0x000CB200, EAX holder
     }
     else
     {
-        const float charge = get(bytes, field::charge) - get(bytes, field::drain) * frame_step(weapon);
-        set(bytes, field::charge, charge);
+        const float charge = fields_of(bytes).charge - fields_of(bytes).drain * frame_step(weapon);
+        fields_of(bytes).charge = charge;
         if (0.f > charge)
         {
             exhaust_runtime_gun_weapon(weapon, point, direction); // 0x000CAE00
         }
     }
-    fire_tick_hook(weapon, get(bytes, field::firing), point, direction); // Vtable +0x5C
+    fire_tick_hook(weapon, fields_of(bytes).firing, point, direction); // Vtable +0x5C
     report_runtime_gun_weapon_hits(weapon, *holder, point, direction); // 0x000CB0B0, EDX point
 }
 
 // Xbox 0x000CB330, ECX actor, EAX point
 bool runtime_gun_muzzle(RuntimeWeaponActor& weapon, Vec3& point, Vec3& direction)
 {
-    if (get(weapon.bytes, field::muzzle) == 0)
+    if (fields_of(weapon.bytes).muzzle == 0)
     {
         return false;
     }
@@ -456,28 +465,28 @@ void recharge_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Actor* holder
     if (holder == nullptr || runtime_player_damage_enabled(*holder, candle.blocked, candle.modes, candle.mode) != 0)
     {
         const float step = frame_step(weapon);
-        const float delay = get(bytes, field::empty_delay);
+        const float delay = fields_of(bytes).empty_delay;
         if (0.f < delay)
         {
             const float left = delay - step;
-            set(bytes, field::empty_delay, left);
+            fields_of(bytes).empty_delay = left;
             if (left <= 0.f)
             {
-                set(bytes, field::empty_delay, 0.f);
+                fields_of(bytes).empty_delay = 0.f;
             }
         }
-        if (get(bytes, field::empty_delay) == 0.f)
+        if (fields_of(bytes).empty_delay == 0.f)
         {
-            const float charge = get(bytes, field::recharge) * frame_step(weapon) + get(bytes, field::charge);
-            set(bytes, field::charge, charge);
+            const float charge = fields_of(bytes).recharge * frame_step(weapon) + fields_of(bytes).charge;
+            fields_of(bytes).charge = charge;
             if (1.f < charge) // DAT_0032B0F8.
             {
-                set(bytes, field::charge, 1.f);
+                fields_of(bytes).charge = 1.f;
             }
         }
     }
-    const bool charged = 0.f < get(bytes, field::charge);
-    set(bytes, weapon_field::mask, charged ? 1 : 0);
+    const bool charged = 0.f < fields_of(bytes).charge;
+    weapon_base(bytes).mask = charged ? 1 : 0;
     if (!charged)
     {
         stop_weapon_sound(weapon);
@@ -488,11 +497,11 @@ void recharge_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Actor* holder
 void exhaust_runtime_gun_weapon(RuntimeWeaponActor& weapon, const Vec3& point, const Vec3& direction)
 {
     auto bytes = weapon.bytes;
-    set(bytes, weapon_field::mask, 0);
+    weapon_base(bytes).mask = 0;
     stop_weapon_sound(weapon);
-    set(bytes, field::charge, 0.f);
-    set(bytes, field::firing, 0u);
-    set(bytes, field::empty_delay, 5.f); // DAT_0032B184.
+    fields_of(bytes).charge = 0.f;
+    fields_of(bytes).firing = 0u;
+    fields_of(bytes).empty_delay = 5.f; // DAT_0032B184.
     fire_end_hook(weapon, point, direction); // Vtable +0x50
 }
 
@@ -519,11 +528,11 @@ void report_runtime_gun_weapon_hits(RuntimeWeaponActor& weapon, Actor& holder, c
         auto& hit = *reinterpret_cast<RuntimeSprayHit*>(at);
         RuntimeSegmentContactActor& object = weapon.contact_actor(*hit.object);
         if (report_runtime_weapon_spray_contact(
-                weapon, &holder, object, hit.point, hit.contacts, hit.velocity, get(bytes, weapon_field::hit_kind),
-                get(bytes, weapon_field::hit_strength), get(bytes, weapon_field::hit_style),
-                get(bytes, field::hits) == 0) != 0) // 0x00141C00
+                weapon, &holder, object, hit.point, hit.contacts, hit.velocity, weapon_base(bytes).hit_kind,
+                weapon_base(bytes).hit_strength, weapon_base(bytes).hit_style,
+                fields_of(bytes).hits == 0) != 0) // 0x00141C00
         {
-            set(bytes, field::hits, get(bytes, field::hits) + 1);
+            fields_of(bytes).hits = fields_of(bytes).hits + 1;
         }
         engine_heap_free(hit.contacts); // HeapFree on the block's heap (0x000F7100).
     }
@@ -535,7 +544,7 @@ u32 test_runtime_gun_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContactAc
     GhoulySpawnPool* contacts, const Vec3& velocity, u16 word)
 {
     report_runtime_weapon_contact(weapon, holder_of(weapon), object, point, contacts, velocity, word, 7, 0x3A, 0x68,
-        get(weapon.bytes, field::unk_EF4) == 0); // 0x00141890, EDX 0x68
-    return get(weapon.bytes, weapon_field::mask) == 0 ? 1u : 0u;
+        fields_of(weapon.bytes).unk_EF4 == 0); // 0x00141890, EDX 0x68
+    return weapon_base(weapon.bytes).mask == 0 ? 1u : 0u;
 }
 }

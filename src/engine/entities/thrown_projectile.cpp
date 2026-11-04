@@ -31,7 +31,16 @@ using namespace weapon_detail;
 
 namespace
 {
-namespace field = thrown_projectile_field;
+ThrownProjectileState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<ThrownProjectileState>(bytes);
+}
+
+const ThrownProjectileState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<ThrownProjectileState>(bytes);
+}
+
 namespace parameter = thrown_projectile_parameter;
 
 // 0x0003C040 / 0x0003BE20 with the actor's +0x8C resource: its callout records for an id.
@@ -53,7 +62,7 @@ void lower_model_mode(RuntimeWeaponActor& weapon)
     if (weapon.cells != nullptr)
     {
         entity_detail::release_navigation_cell_registration(weapon.cells,
-                                                            get(weapon.bytes, weapon_field::floor)); // 0x001108B0
+                                                            weapon_base(weapon.bytes).floor); // 0x001108B0
     }
     weapon.actor.model_mode &= ~4;
     register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770
@@ -94,7 +103,7 @@ void thrown_projectile_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_thrown_projectile(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     auto bytes = weapon.bytes;
-    set(bytes, weapon_field::contact_test, 0x000CBF80); // The class's contact test, called through +0x99C.
+    weapon_base(bytes).contact_test = 0x000CBF80; // The class's contact test, called through +0x99C.
     // 0x0003AAA0 with EAX 0 (no variant), ECX the name and the actor's +0x48 table.
     const u32 name = get(parameters, parameter::flight_animation);
     const char* text = nullptr;
@@ -109,21 +118,21 @@ bool initialize_runtime_thrown_projectile(RuntimeWeaponActor& weapon, std::span<
     }
     weapon.flight_animation = weapon.view.animation.table == nullptr || text == nullptr ? nullptr
         : find_actor_animation(weapon.view.animation.table, text, nullptr, weapon.random); // +0xE64
-    set(bytes, field::trail_scale, get(parameters, parameter::trail_scale));
-    set(bytes, field::launch_mode, get(parameters, parameter::launch_mode));
-    set(bytes, field::flight_slide, get(parameters, parameter::flight_slide));
-    set(bytes, field::flight_quiet, get(parameters, parameter::flight_quiet));
-    set(bytes, field::flight_mask, get(parameters, parameter::flight_mask));
-    set(bytes, field::spin_rate, get(parameters, parameter::spin_rate));
+    fields_of(bytes).trail_scale = get(parameters, parameter::trail_scale);
+    fields_of(bytes).launch_mode = get(parameters, parameter::launch_mode);
+    fields_of(bytes).flight_slide = get(parameters, parameter::flight_slide);
+    fields_of(bytes).flight_quiet = get(parameters, parameter::flight_quiet);
+    fields_of(bytes).flight_mask = get(parameters, parameter::flight_mask);
+    fields_of(bytes).spin_rate = get(parameters, parameter::spin_rate);
     const auto source = record(parameters, parameter::spawn_name);
-    auto target = record(bytes, field::spawn_name);
+    auto target = retail_bytes(fields_of(bytes).spawn_name);
     size_t index = 0;
     do
     {
         target[index] = source[index];
     }
     while (source[index++] != 0);
-    set(bytes, field::shatters, get(parameters, parameter::shatters));
+    fields_of(bytes).shatters = get(parameters, parameter::shatters);
     return true;
 }
 
@@ -153,7 +162,7 @@ void update_runtime_thrown_projectile_state(RuntimeWeaponActor& weapon, u16 stat
     case 4:
         if (update_runtime_thrown_projectile_shatter(weapon)) // 0x000CC530
         {
-            set(weapon.bytes, weapon_field::next_state, 0xB);
+            weapon_base(weapon.bytes).next_state = 0xB;
         }
         return;
     case 9:
@@ -181,7 +190,7 @@ void dispatch_runtime_thrown_projectile_message(RuntimeWeaponActor& weapon, std:
     case 0x18:
         message[4] = 1;
         send_callout(weapon, 0x19); // 0x0003C040
-        set(bytes, weapon_field::next_state, 9);
+        weapon_base(bytes).next_state = 9;
         break;
     case 0x49:
         if (message[0xB] != 0)
@@ -197,7 +206,7 @@ void dispatch_runtime_thrown_projectile_message(RuntimeWeaponActor& weapon, std:
         }
         break;
     case 0x7D:
-        if (get(bytes, weapon_field::state) == 0)
+        if (weapon_base(bytes).state == 0)
         {
             change_runtime_weapon_state(weapon, 0x10); // 0x0014A290
         }
@@ -211,7 +220,7 @@ void dispatch_runtime_thrown_projectile_message(RuntimeWeaponActor& weapon, std:
             activate_actor_bind_tree(weapon.actor); // 0x00112CC0, ESI this
             return;
         }
-        if (get(bytes, field::shatters) != 0)
+        if (fields_of(bytes).shatters != 0)
         {
             change_runtime_weapon_state(weapon, 4); // 0x0014A290
             return;
@@ -227,8 +236,8 @@ void dispatch_runtime_thrown_projectile_message(RuntimeWeaponActor& weapon, std:
         record_runtime_thrown_projectile_root(weapon); // 0x000CC010
         break;
     case 0xA5:
-        set(bytes, field::throw_target, Vec3{std::bit_cast<float>(message[1]), std::bit_cast<float>(message[2]),
-            std::bit_cast<float>(message[3])});
+        fields_of(bytes).throw_target = Vec3{std::bit_cast<float>(message[1]), std::bit_cast<float>(message[2]),
+            std::bit_cast<float>(message[3])};
         change_runtime_weapon_state(weapon, 2); // 0x0014A290
         send_callout(weapon, 0x4F); // 0x0003C040
         break;
@@ -250,10 +259,10 @@ void enter_runtime_thrown_projectile_state(RuntimeWeaponActor& weapon, u16 state
         launch_runtime_thrown_projectile(weapon, holder); // 0x000CBD90, EBX actor
         // 0x0013B7C0: 0x0003BE20 over actor +0x8C, id 0x4A, with 0x0013B8B0 recording the attachments at +0xF4C.
         ActorAttachmentEventContext events = weapon.base().callouts;
-        events.command_attachments = record(weapon.bytes, field::command_attachments);
+        events.command_attachments = retail_bytes(fields_of(weapon.bytes).command_attachments);
         dispatch_actor_attachment_records(weapon.view.startup.resource.resource.data(), 0x4A,
             record_runtime_body_attachment_event, nullptr, events,
-            weapon.self_address() + field::command_attachments.offset);
+            weapon.self_address() + offsetof(ThrownProjectileState, command_attachments));
         return;
     }
     case 3:
@@ -291,7 +300,7 @@ void enter_runtime_thrown_projectile_state(RuntimeWeaponActor& weapon, u16 state
         raise_model_mode(weapon, 4); // 0x0003C750 inlined
         weapon.actor.model_flags |= 0x100u;
         start_runtime_weapon_idle(weapon); // 0x00144D00
-        if (get(weapon.bytes, weapon_field::unk_DA8) == 0)
+        if (weapon_base(weapon.bytes).unk_DA8 == 0)
         {
             attach_runtime_weapon_volume(weapon); // 0x00146310
         }
@@ -316,7 +325,7 @@ void leave_runtime_thrown_projectile_state(RuntimeWeaponActor& weapon, u16 state
         {
             throw Error("projectile leaving its flight has no attachment lists for 0x0013B810");
         }
-        clear_runtime_player_attachment_events(record(weapon.bytes, field::command_attachments),
+        clear_runtime_player_attachment_events(retail_bytes(fields_of(weapon.bytes).command_attachments),
             *weapon.attachment_lists); // 0x0013B810
         leave_runtime_weapon_state(weapon, state, next); // 0x0014A180
         return;
@@ -352,8 +361,8 @@ void launch_runtime_thrown_projectile(RuntimeWeaponActor& weapon, Actor* holder)
 {
     auto bytes = weapon.bytes;
     const Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
-    const Vec3 target = get(bytes, field::throw_target);
-    const u32 mode = get(bytes, field::launch_mode);
+    const Vec3 target = fields_of(bytes).throw_target;
+    const u32 mode = fields_of(bytes).launch_mode;
     float gravity = 0.f;
     Vec3 velocity{};
     if (mode > 1)
@@ -389,8 +398,8 @@ void launch_runtime_thrown_projectile(RuntimeWeaponActor& weapon, Actor* holder)
         velocity = runtime_ballistic_velocity(target, position, read_f32(body, 0x80), 0.f); // 0x00140D80
     }
     velocity.y = step_of(weapon) * gravity + velocity.y;
-    start_runtime_weapon_flight(weapon, &velocity, &weapon.default_euler, gravity, get(bytes, field::flight_quiet),
-        get(bytes, field::flight_slide), get(bytes, field::flight_mask)); // 0x00148E60
+    start_runtime_weapon_flight(weapon, &velocity, &weapon.default_euler, gravity, fields_of(bytes).flight_quiet,
+        fields_of(bytes).flight_slide, fields_of(bytes).flight_mask); // 0x00148E60
     if (weapon.flight_animation != nullptr) // +0xE64.
     {
         start_actor_animation(weapon.view.animation, *weapon.flight_animation, weapon.registry, weapon.error,
@@ -407,17 +416,17 @@ u32 test_runtime_thrown_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSe
 {
     auto bytes = weapon.bytes;
     if (report_runtime_projectile_contact(weapon, weapon.actor.spawn_owner, object, point, contacts, velocity, word,
-                                          get(bytes, weapon_field::hit_kind), get(bytes, weapon_field::hit_strength),
-                                          get(bytes, weapon_field::hit_style), get(bytes, field::hits) == 0,
+                                          weapon_base(bytes).hit_kind, weapon_base(bytes).hit_strength,
+                                          weapon_base(bytes).hit_style, fields_of(bytes).hits == 0,
                                           0) != 0) // 0x00141A30
     {
-        set(bytes, field::hits, get(bytes, field::hits) + 1);
+        fields_of(bytes).hits = fields_of(bytes).hits + 1;
     }
-    if (get(bytes, field::shatters) != 0)
+    if (fields_of(bytes).shatters != 0)
     {
         insert_runtime_body_contact_override(weapon.collision_overrides, object, 0, weapon.players); // 0x0013EBE0
     }
-    return get(bytes, weapon_field::mask) == 0 ? 1u : 0u;
+    return weapon_base(bytes).mask == 0 ? 1u : 0u;
 }
 
 // Xbox 0x000CC010, ECX actor, EAX the euler out, the stack the position out
@@ -460,16 +469,16 @@ void record_runtime_thrown_projectile_root(RuntimeWeaponActor& weapon)
     Vec3 euler{};
     Vec3 rest{};
     record_runtime_weapon_root(weapon.actor, euler, rest);
-    set(weapon.bytes, field::rest_euler, euler);
-    set(weapon.bytes, field::rest_position, rest);
+    fields_of(weapon.bytes).rest_euler = euler;
+    fields_of(weapon.bytes).rest_position = rest;
 }
 
 // Xbox 0x000CC1E0, EBX actor
 void restore_runtime_thrown_projectile_root(RuntimeWeaponActor& weapon)
 {
-    Vec3 position = get(weapon.bytes, field::rest_position);
+    Vec3 position = fields_of(weapon.bytes).rest_position;
     actor_set_world_position(weapon.actor, position); // 0x00041730, EDI actor, ESI +0xF30
-    const Vec3 euler = get(weapon.bytes, field::rest_euler);
+    const Vec3 euler = fields_of(weapon.bytes).rest_euler;
     normalize_euler_angles(weapon.actor.euler, euler); // 0x00105AA0, EDI actor +0x14, ESI +0xF24
     weapon.actor.xform_valid = 0; // +0x2A8.
 }
@@ -484,12 +493,12 @@ void spin_runtime_thrown_projectile(RuntimeWeaponActor& weapon)
     float yaw = 0.f;
     float pitch = 0.f;
     direction_to_yaw_pitch(velocity.x, velocity.y, velocity.z, yaw, pitch); // 0x00105E20, ECX yaw, stack pitch
-    const Vec3 rate = get(bytes, field::spin_rate);
-    Vec3 spin = get(bytes, field::spin);
+    const Vec3 rate = fields_of(bytes).spin_rate;
+    Vec3 spin = fields_of(bytes).spin;
     spin.y = rate.y * step + spin.y;
     spin.z = rate.z * step + spin.z;
     spin.x = spin.x + rate.x * step;
-    set(bytes, field::spin, spin);
+    fields_of(bytes).spin = spin;
     const Vec3 euler{spin.x + pitch, spin.y + yaw, spin.z};
     normalize_euler_angles(weapon.actor.euler, euler); // 0x00105AA0, EDI actor +0x14
     weapon.actor.xform_valid = 0; // +0x2A8.
@@ -502,13 +511,13 @@ bool land_runtime_thrown_projectile(RuntimeWeaponActor& weapon, std::span<u32> m
         std::bit_cast<float>(message[3])};
     actor_set_world_position(weapon.actor, position); // 0x00041730, EDI actor
     Actor* holder = weapon.actor.spawn_owner; // +0xD8C.
-    if (read_u32(weapon.bytes, field::spawn_name.offset) != kAidPrefix)
+    if (read_u32(weapon.bytes, offsetof(ThrownProjectileState, spawn_name)) != kAidPrefix)
     {
         return false;
     }
     auto& objects = weapon.services.objects;
     const Vec3 euler{0.f, 0.f, 0.f};
-    auto created = create_runtime_actor_at(reinterpret_cast<const char*>(record(weapon.bytes, field::spawn_name).data()),
+    auto created = create_runtime_actor_at(fields_of(weapon.bytes).spawn_name.data(),
         &position, &euler, 1.f, objects.resources, objects.factory, actor_transform_origin,
         weapon.default_euler); // 0x00112C50, EAX name, ECX position, EBX euler
     if (created.bytes == nullptr || holder == nullptr)
@@ -541,18 +550,18 @@ bool land_runtime_thrown_projectile(RuntimeWeaponActor& weapon, std::span<u32> m
 void end_runtime_thrown_projectile_flight(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    set(bytes, weapon_field::mask, 0);
+    weapon_base(bytes).mask = 0;
     weapon.actor.mask_flag = i32(u32(weapon.actor.mask_flag) & ~0xFFu); // Native alias of the +0x93C byte.
-    if (field_data(bytes, weapon_field::voice_name)[0] != 0)
+    if (weapon_base(bytes).voice_name.data()[0] != 0)
     {
-        field_data(bytes, weapon_field::voice_name)[0] = 0;
-        if (get(bytes, weapon_field::voice) != 0xFFFF)
+        weapon_base(bytes).voice_name.data()[0] = 0;
+        if (weapon_base(bytes).voice != 0xFFFF)
         {
-            stop_actor_sound_voice(i16(get(bytes, weapon_field::voice)), weapon.services.sounds); // 0x00039690
-            set(bytes, weapon_field::voice, 0xFFFF);
+            stop_actor_sound_voice(i16(weapon_base(bytes).voice), weapon.services.sounds); // 0x00039690
+            weapon_base(bytes).voice = 0xFFFF;
         }
     }
-    change_runtime_weapon_state(weapon, get(bytes, field::shatters) != 0 ? 4 : 9); // Inlined as 0x0014A290.
+    change_runtime_weapon_state(weapon, fields_of(bytes).shatters != 0 ? 4 : 9); // Inlined as 0x0014A290.
 }
 
 // Xbox 0x000CC4D0, ESI actor
@@ -564,7 +573,7 @@ void start_runtime_thrown_projectile_shatter(RuntimeWeaponActor& weapon)
         insert_runtime_body_contact_override(weapon.collision_overrides,
             weapon.contact_actor_at(weapon.services.actor_address(*holder)), 0, weapon.players); // 0x0013EBE0
     }
-    set(weapon.bytes, field::shatter_timer, 0.5f); // DAT_004288DC.
+    fields_of(weapon.bytes).shatter_timer = 0.5f; // DAT_004288DC.
 }
 
 // Xbox 0x000CC530, EAX actor
@@ -578,7 +587,7 @@ bool update_runtime_thrown_projectile_shatter(RuntimeWeaponActor& weapon)
     float reach = last;
     if (duration != 0.f)
     {
-        reach = get(bytes, field::shatter_timer) / duration * (last - first) + first;
+        reach = fields_of(bytes).shatter_timer / duration * (last - first) + first;
         if (last <= first)
         {
             if (reach < last)
@@ -599,10 +608,10 @@ bool update_runtime_thrown_projectile_shatter(RuntimeWeaponActor& weapon)
             reach = first;
         }
     }
-    if (get(bytes, field::shatter_shown) == 0 && duration - get(bytes, field::shatter_timer) > 0.f) // DAT_004288E8.
+    if (fields_of(bytes).shatter_shown == 0 && duration - fields_of(bytes).shatter_timer > 0.f) // DAT_004288E8.
     {
         send_callout(weapon, 10); // 0x0003BE20
-        set(bytes, field::shatter_shown, 1u);
+        fields_of(bytes).shatter_shown = 1u;
     }
     Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
     if (weapon.collision_overrides != nullptr)
@@ -627,14 +636,14 @@ bool update_runtime_thrown_projectile_shatter(RuntimeWeaponActor& weapon)
             0); // 0x000CBF80
         engine_heap_free(records); // 0x0014D360 on the block's heap.
     }
-    const float timer = get(bytes, field::shatter_timer);
+    const float timer = fields_of(bytes).shatter_timer;
     if (timer > 0.f)
     {
         const float left = timer - step_of(weapon);
-        set(bytes, field::shatter_timer, left);
+        fields_of(bytes).shatter_timer = left;
         if (left <= 0.f) // COMISS 0, left; JC keeps it.
         {
-            set(bytes, field::shatter_timer, 0.f);
+            fields_of(bytes).shatter_timer = 0.f;
             return true;
         }
     }
@@ -644,7 +653,7 @@ bool update_runtime_thrown_projectile_shatter(RuntimeWeaponActor& weapon)
 // Xbox 0x000CC910, ECX actor
 void trail_runtime_thrown_projectile(RuntimeWeaponActor& weapon)
 {
-    const float scale = get(weapon.bytes, field::trail_scale);
+    const float scale = fields_of(weapon.bytes).trail_scale;
     if (scale == 0.f) // DAT_0032B100.
     {
         return;
@@ -655,9 +664,9 @@ void trail_runtime_thrown_projectile(RuntimeWeaponActor& weapon)
     }
     const i32 rate = *weapon.services.pal == 0 || *weapon.services.pal_override != 0 ? 0x3C : 0x32;
     auto trails = weapon.services.trail(weapon.self_address());
-    float timer = get(weapon.bytes, field::trail_timer);
+    float timer = fields_of(weapon.bytes).trail_timer;
     request_actor_trail(weapon.actor, scale, timer, rate / 2, trails); // 0x0013B030
-    set(weapon.bytes, field::trail_timer, timer);
+    fields_of(weapon.bytes).trail_timer = timer;
 }
 
 // Xbox 0x00148E60, EAX velocity, EDX euler, ECX quiet, ESI actor
@@ -671,14 +680,14 @@ void start_runtime_weapon_flight(RuntimeWeaponActor& weapon, const Vec3* velocit
     }
     if (euler != nullptr)
     {
-        std::memcpy(bytes.data() + 0xC34, euler, 12);
+        std::memcpy(&weapon_base(bytes).motion_euler, euler, 12);
     }
-    std::memcpy(bytes.data() + 0xC30, &gravity, 4);
-    set(bytes, weapon_field::probes_contacts, 1);
-    set(bytes, weapon_field::slides, slide);
-    set(bytes, weapon_field::quiet, quiet);
-    set(bytes, weapon_field::contact_mask, mask);
-    set(bytes, weapon_field::hit, 0);
+    weapon_base(bytes).gravity = gravity;
+    weapon_base(bytes).probes_contacts = 1;
+    weapon_base(bytes).slides = slide;
+    weapon_base(bytes).quiet = quiet;
+    weapon_base(bytes).contact_mask = mask;
+    weapon_base(bytes).hit = 0;
     if (quiet == 0 && weapon.markers != nullptr)
     {
         activate_all_runtime_body_contact_shapes(weapon.actor, *weapon.markers, 0xFF); // 0x0013F5B0

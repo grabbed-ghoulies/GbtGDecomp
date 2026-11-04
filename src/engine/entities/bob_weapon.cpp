@@ -19,14 +19,22 @@ using namespace weapon_detail;
 
 namespace
 {
-namespace field = bob_weapon_field;
+BobWeaponState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<BobWeaponState>(bytes);
+}
+
+const BobWeaponState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<BobWeaponState>(bytes);
+}
+
 namespace parameter = bob_weapon_parameter;
 
 // The inline strcpy of a parameter name into the instance.
-template <typename To, typename From>
-void copy_name(std::span<u8> bytes, To to, std::span<const u8> parameters, From from)
+template <typename From>
+void copy_name(char* target, std::span<const u8> parameters, From from)
 {
-    char* target = field_data(bytes, to);
     const char* source = field_data(parameters, from);
     size_t index = 0;
     do
@@ -46,7 +54,7 @@ CutsceneEventPauseContext pause_context(RuntimeWeaponActor& weapon, RuntimeCutsc
 void set_spawn_blocked(RuntimeWeaponActor& weapon, i32 value)
 {
     weapon.actor.spawn_blocked = value;
-    set(weapon.bytes, weapon_field::spawn_blocked, u32(value));
+    weapon_base(weapon.bytes).spawn_blocked = u32(value);
 }
 
 // The mix 0x000C62C0 and 0x000C63A0 build on the stack for 0x0003ADA0: no fades, mode 1, the +0xEDC events.
@@ -61,7 +69,7 @@ AnimationMix bob_mix(std::span<const u8> bytes, std::string& events)
     mix.mode = 1;
     mix.priority = 0x31;
     mix.old_pose_duration = 0.f;
-    events = field_data(bytes, field::animation_events);
+    events = fields_of(bytes).animation_events.data();
     mix.events = events;
     mix.borrowed_animation = {};
     mix.borrowed_events = {};
@@ -94,16 +102,16 @@ void bob_weapon_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_bob_weapon(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     auto bytes = weapon.bytes;
-    set(bytes, weapon_field::contact_test, 0x000C61D0); // The class's contact test, called through +0x99C.
-    set(bytes, weapon_field::unk_941, 1);
-    set(bytes, field::holders, get(parameters, parameter::holders));
-    copy_name(bytes, field::animation, parameters, parameter::animation);
-    copy_name(bytes, field::animation_events, parameters, parameter::animation_events);
-    copy_name(bytes, field::cutscene, parameters, parameter::cutscene);
+    weapon_base(bytes).contact_test = 0x000C61D0; // The class's contact test, called through +0x99C.
+    weapon_base(bytes).unk_941 = 1;
+    fields_of(bytes).holders = get(parameters, parameter::holders);
+    copy_name(fields_of(bytes).animation.data(), parameters, parameter::animation);
+    copy_name(fields_of(bytes).animation_events.data(), parameters, parameter::animation_events);
+    copy_name(fields_of(bytes).cutscene.data(), parameters, parameter::cutscene);
     if ((weapon.services.story_flags & 8) != 0) // DAT_0050EA98.
     {
         CutsceneRuntimeContext& runtime = weapon.services.cutscenes();
-        weapon.cutscene = load_runtime_cutscene(field_data(bytes, field::cutscene), 2, nullptr,
+        weapon.cutscene = load_runtime_cutscene(fields_of(bytes).cutscene.data(), 2, nullptr,
             runtime); // 0x0004D680
         if (weapon.cutscene != nullptr)
         {
@@ -155,18 +163,18 @@ void dispatch_runtime_bob_weapon_message(RuntimeWeaponActor& weapon, std::span<u
         {
             break;
         }
-        switch (get(bytes, weapon_field::state))
+        switch (weapon_base(bytes).state)
         {
         case 3:
-            set(bytes, field::holders, get(bytes, field::holders) + 1);
+            fields_of(bytes).holders = fields_of(bytes).holders + 1;
             break;
         case 7:
             change_runtime_weapon_state(weapon, 0x10); // 0x0014A290
             break;
         case 0x10:
-            if (get(bytes, weapon_field::mask) != 0)
+            if (weapon_base(bytes).mask != 0)
             {
-                set(bytes, field::holders, get(bytes, field::holders) + 1);
+                fields_of(bytes).holders = fields_of(bytes).holders + 1;
                 break;
             }
             change_runtime_weapon_state(weapon, 0xE); // 0x0014A290
@@ -176,10 +184,10 @@ void dispatch_runtime_bob_weapon_message(RuntimeWeaponActor& weapon, std::span<u
         }
         break;
     case 0x87:
-        if (message[2] == 0xD && get(bytes, weapon_field::state) == 0x10 && get(bytes, field::unk_FE4) == 0)
+        if (message[2] == 0xD && weapon_base(bytes).state == 0x10 && fields_of(bytes).unk_FE4 == 0)
         {
-            set(bytes, field::holders, get(bytes, field::holders) - 1);
-            set(bytes, field::unk_FE4, 0);
+            fields_of(bytes).holders = fields_of(bytes).holders - 1;
+            fields_of(bytes).unk_FE4 = 0;
         }
         break;
     case 0x91:
@@ -203,21 +211,21 @@ u32 test_runtime_bob_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContactAc
 {
     auto bytes = weapon.bytes;
     if (report_runtime_weapon_contact(weapon, weapon_holder(weapon.actor), object, point, contacts, velocity, word,
-                                      get(bytes, weapon_field::hit_kind), get(bytes, weapon_field::hit_strength),
-                                      get(bytes, weapon_field::hit_style),
-                                      get(bytes, field::hits) == 0) != 0) // 0x00141890
+                                      weapon_base(bytes).hit_kind, weapon_base(bytes).hit_strength,
+                                      weapon_base(bytes).hit_style,
+                                      fields_of(bytes).hits == 0) != 0) // 0x00141890
     {
-        set(bytes, field::hits, get(bytes, field::hits) + 1);
+        fields_of(bytes).hits = fields_of(bytes).hits + 1;
     }
-    return get(bytes, weapon_field::mask) == 0 ? 1u : 0u;
+    return weapon_base(bytes).mask == 0 ? 1u : 0u;
 }
 
 // Xbox 0x000C6250, EAX actor
 void release_runtime_bob_weapon_holder(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    set(bytes, field::holders, get(bytes, field::holders) - 1);
-    if (get(bytes, field::holders) == 0)
+    fields_of(bytes).holders = fields_of(bytes).holders - 1;
+    if (fields_of(bytes).holders == 0)
     {
         block_runtime_weapon_spawn(weapon); // 0x00147860, EBX actor
         set_runtime_weapon_mask(weapon, 0); // The inlined 0x00146230: +0x93C cleared, the +0xD88 voice stopped.
@@ -225,7 +233,7 @@ void release_runtime_bob_weapon_holder(RuntimeWeaponActor& weapon)
     }
     if (runtime_weapon_boost_active() != 0) // DAT_00512278.
     {
-        set(bytes, field::unk_FE4, 1);
+        fields_of(bytes).unk_FE4 = 1;
     }
 }
 
@@ -233,13 +241,13 @@ void release_runtime_bob_weapon_holder(RuntimeWeaponActor& weapon)
 void finish_runtime_bob_weapon_rest(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    if (read_u32(bytes, field::animation.offset) != 0x5F646961u) // "aid_"
+    if (read_u32(bytes, offsetof(BobWeaponState, animation)) != 0x5F646961u) // "aid_"
     {
         return;
     }
     std::string events;
     const AnimationMix mix = bob_mix(bytes, events);
-    start_actor_animation_mix(weapon.view.animation, 0, mix, field_data(bytes, field::animation), weapon.registry,
+    start_actor_animation_mix(weapon.view.animation, 0, mix, fields_of(bytes).animation.data(), weapon.registry,
         weapon.error, weapon.random); // 0x0003ADA0, EBX actor, EDI the mix
     dispatch_callouts(weapon, 0xD);
     award_runtime_weapon_points(weapon, 1); // 0x001456D0, ESI actor
@@ -249,7 +257,7 @@ void finish_runtime_bob_weapon_rest(RuntimeWeaponActor& weapon)
 void start_runtime_bob_weapon_rest(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    if (read_u32(bytes, field::animation.offset) != 0x5F646961u) // "aid_"
+    if (read_u32(bytes, offsetof(BobWeaponState, animation)) != 0x5F646961u) // "aid_"
     {
         return;
     }
@@ -260,7 +268,7 @@ void start_runtime_bob_weapon_rest(RuntimeWeaponActor& weapon)
     {
         mix.position = controller->slots[0].player->position;
     }
-    start_actor_animation_mix(weapon.view.animation, 0, mix, field_data(bytes, field::animation), weapon.registry,
+    start_actor_animation_mix(weapon.view.animation, 0, mix, fields_of(bytes).animation.data(), weapon.registry,
         weapon.error, weapon.random); // 0x0003ADA0, EBX actor, EDI the mix
     controller = weapon.view.animation.controller.get();
     if (controller != nullptr)
@@ -272,8 +280,8 @@ void start_runtime_bob_weapon_rest(RuntimeWeaponActor& weapon)
         }
         controller->dirty = true; // +0x5C.
     }
-    set(bytes, field::holders, get(bytes, field::holders) + 1);
-    set(bytes, field::unk_FE4, 1);
+    fields_of(bytes).holders = fields_of(bytes).holders + 1;
+    fields_of(bytes).unk_FE4 = 1;
     dispatch_callouts(weapon, 0x4B);
 }
 
@@ -335,31 +343,31 @@ void update_runtime_bob_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         if (tick_runtime_cutscene(*weapon.cutscene, rate * step, nullptr, weapon.services.cutscenes())) // 0x0004DA50
         {
             release_cutscene(weapon);
-            set(bytes, weapon_field::next_state, 0x10);
+            weapon_base(bytes).next_state = 0x10;
         }
         return;
     }
     case 7:
     {
-        if (get(bytes, weapon_field::mask) != 0)
+        if (weapon_base(bytes).mask != 0)
         {
-            set(bytes, weapon_field::next_state, 0x10);
+            weapon_base(bytes).next_state = 0x10;
             return;
         }
         if (weapon.blocked_players > -1) // DAT_004E1C34.
         {
-            set(bytes, field::state_7_timer, 1.f); // DAT_0032B0F8.
+            fields_of(bytes).state_7_timer = 1.f; // DAT_0032B0F8.
             return;
         }
-        float timer = get(bytes, field::state_7_timer);
+        float timer = fields_of(bytes).state_7_timer;
         runtime_frame_timer_elapsed(timer, weapon.actor, weapon.frame); // 0x00042360
-        set(bytes, field::state_7_timer, timer);
+        fields_of(bytes).state_7_timer = timer;
         if (timer != 0.f)
         {
             return;
         }
         finish_runtime_bob_weapon_rest(weapon); // 0x000C62C0, EAX actor
-        set(bytes, weapon_field::next_state, 0x10);
+        weapon_base(bytes).next_state = 0x10;
         return;
     }
     case 0xE:
@@ -370,9 +378,9 @@ void update_runtime_bob_weapon_state(RuntimeWeaponActor& weapon, u16 state)
             {
                 register_actor_model_anchors(weapon.actor, weapon.view.anchors); // 0x0003EEB0
             }
-            set(bytes, weapon_field::mask, 1);
+            weapon_base(bytes).mask = 1;
             weapon.actor.mask_flag = i32((u32(weapon.actor.mask_flag) & ~0xFFu) | 1u); // Native alias of +0x93C.
-            set(bytes, weapon_field::next_state, 0x10);
+            weapon_base(bytes).next_state = 0x10;
         }
         return;
     case 0x10:

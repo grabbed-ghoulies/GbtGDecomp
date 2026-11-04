@@ -20,7 +20,16 @@ using namespace weapon_detail;
 
 namespace
 {
-namespace field = candle_weapon_field;
+CandleWeaponState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<CandleWeaponState>(bytes);
+}
+
+const CandleWeaponState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<CandleWeaponState>(bytes);
+}
+
 namespace flame_field = candle_flame_field;
 constexpr u32 kColor = 0xC8CE93FFu; // DAT_00303588.
 constexpr u32 kSecondColor = 0xC800BFBFu; // DAT_0030358C.
@@ -164,7 +173,7 @@ void queue_flame_sprite(RuntimeCandleFlame& flame, std::span<const u8> sprite, u
 
 RuntimeCandleFlame runtime_candle_weapon_flame(RuntimeWeaponActor& weapon)
 {
-    return RuntimeCandleFlame{weapon.bytes.subspan(field::kFlame, flame_field::kSize), weapon.actor,
+    return RuntimeCandleFlame{retail_bytes(fields_of(weapon.bytes).flame), weapon.actor,
         weapon.candle_binding, weapon.candle_light, weapon.candle_flame, weapon.candle_glow, weapon.view.frame.elapsed,
         candle_of(weapon), weapon.registry, weapon.error, weapon.services.sounds};
 }
@@ -172,7 +181,7 @@ RuntimeCandleFlame runtime_candle_weapon_flame(RuntimeWeaponActor& weapon)
 // Xbox 0x000C64D0
 void candle_weapon_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(CandleWeaponState);
     sizes.parameters = 0x5F8;
 }
 
@@ -180,14 +189,14 @@ void candle_weapon_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_candle_weapon(RuntimeWeaponActor& weapon)
 {
     RuntimeCandleFlame flame = runtime_candle_weapon_flame(weapon);
-    set(weapon.bytes, weapon_field::contact_test, 0x000C6F10);
+    weapon_base(weapon.bytes).contact_test = 0x000C6F10;
     flame.binding = find_actor_model_binding(weapon.actor, 0); // 0x000408D0, EDI 0
     set(flame.block, flame_field::lit, 0u);
     flame.flame = {};
     flame.glow = {};
     set(flame.block, flame_field::light, std::int8_t(-1));
     set(flame.block, flame_field::point_light, -1);
-    set(weapon.bytes, field::fuel, 1.f); // DAT_0032B0F8.
+    fields_of(weapon.bytes).fuel = 1.f; // DAT_0032B0F8.
     if (get(flame.block, flame_field::point_light) < 0 && flame.services.point_lights_on != 0)
     {
         const Vec3 position = flame_point(weapon.actor, flame.binding, construct_transform);
@@ -398,12 +407,12 @@ u32 test_runtime_candle_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContac
     GhoulySpawnPool* contacts, const Vec3& velocity, u16 word)
 {
     auto bytes = weapon.bytes;
-    const bool lit = get(bytes.subspan(field::kFlame), flame_field::lit) != 0;
+    const bool lit = get(std::span<const u8>(fields_of(bytes).flame), flame_field::lit) != 0;
     report_runtime_weapon_contact(weapon, holder_of(weapon), object, point, contacts, velocity, word,
-                                  lit ? get(bytes, weapon_field::hit_kind) : u8(7),
-                                  lit ? get(bytes, weapon_field::hit_strength) : u8(0x3F),
-                                  get(bytes, weapon_field::hit_style), get(bytes, field::spent) == 0); // 0x00141890
-    return get(bytes, weapon_field::mask) == 0 ? 1u : 0u;
+                                  lit ? weapon_base(bytes).hit_kind : u8(7),
+                                  lit ? weapon_base(bytes).hit_strength : u8(0x3F),
+                                  weapon_base(bytes).hit_style, fields_of(bytes).spent == 0); // 0x00141890
+    return weapon_base(bytes).mask == 0 ? 1u : 0u;
 }
 
 // Xbox 0x000C6990
@@ -414,10 +423,10 @@ void dispatch_runtime_candle_weapon_message(RuntimeWeaponActor& weapon, std::spa
     switch (message[0])
     {
     case 0x11:
-        set(bytes, field::burning, 1u);
+        fields_of(bytes).burning = 1u;
         return;
     case 0x12:
-        set(bytes, field::burning, 0u);
+        fields_of(bytes).burning = 0u;
         return;
     case 0x5A:
     {
@@ -426,7 +435,7 @@ void dispatch_runtime_candle_weapon_message(RuntimeWeaponActor& weapon, std::spa
             return;
         }
         Actor* holder = holder_of(weapon); // 0x00145FD0
-        const i32 strength = runtime_candle_strength(get(bytes, field::fuel)); // 0x000C7500
+        const i32 strength = runtime_candle_strength(fields_of(bytes).fuel); // 0x000C7500
         if (strength > 0)
         {
             RuntimeActorCreationOptions& hit = candle_of(weapon).hit;
@@ -437,11 +446,11 @@ void dispatch_runtime_candle_weapon_message(RuntimeWeaponActor& weapon, std::spa
             dispatch_actor_resource_callout(weapon.view.startup.resource, 0x54, &hit,
                 weapon.base().callouts); // 0x0003C040, ECX actor, EDX 0x54
         }
-        if (get(bytes, field::spent) != 0)
+        if (fields_of(bytes).spent != 0)
         {
             return;
         }
-        set(bytes, field::spent, 1u);
+        fields_of(bytes).spent = 1u;
         if (strength == 0)
         {
             return;
@@ -454,12 +463,12 @@ void dispatch_runtime_candle_weapon_message(RuntimeWeaponActor& weapon, std::spa
         {
             return;
         }
-        const float left = get(bytes, field::fuel) - 0.225f; // DAT_0032B684.
-        set(bytes, field::fuel, left);
+        const float left = fields_of(bytes).fuel - 0.225f; // DAT_0032B684.
+        fields_of(bytes).fuel = left;
         if (0.f > left)
         {
-            set(bytes, field::fuel, 0.f);
-            set(bytes, field::relight, 5.f); // DAT_0032B184.
+            fields_of(bytes).fuel = 0.f;
+            fields_of(bytes).relight = 5.f; // DAT_0032B184.
         }
         return;
     }
@@ -475,7 +484,7 @@ void dispatch_runtime_candle_weapon_message(RuntimeWeaponActor& weapon, std::spa
     case 0x92:
         if (message[1] != 0)
         {
-            set(bytes, field::spent, 0u);
+            fields_of(bytes).spent = 0u;
         }
         return;
     case 0x9D:
@@ -493,7 +502,7 @@ void update_runtime_candle_weapon_state(RuntimeWeaponActor& weapon, u16 state)
     auto bytes = weapon.bytes;
     Actor* holder = holder_of(weapon);
     RuntimeCandleFlame flame = runtime_candle_weapon_flame(weapon);
-    update_runtime_candle_flame(get(bytes, field::fuel), get(bytes, field::burning),
+    update_runtime_candle_flame(fields_of(bytes).fuel, fields_of(bytes).burning,
         flame); // 0x000C7060, EAX +0xE74, XMM0 fuel
     const RuntimeActorClock& clock = weapon.clock;
     bool tick = true;
@@ -505,31 +514,31 @@ void update_runtime_candle_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         }
         else if ((holder->mask_mode == 2 || holder->mask_flag != 0) && runtime_weapon_boost_active() != 0) // DAT_00512278
         {
-            set(bytes, field::relight, 0.f);
-            set(bytes, field::fuel, 1.f);
+            fields_of(bytes).relight = 0.f;
+            fields_of(bytes).fuel = 1.f;
         }
     }
     if (tick)
     {
         const float step = clock.freeze > 0.f ? 0.f : clock.dt * clock.scale;
-        const float relight = get(bytes, field::relight);
+        const float relight = fields_of(bytes).relight;
         if (relight > 0.f)
         {
             const float left = relight - step;
-            set(bytes, field::relight, left);
+            fields_of(bytes).relight = left;
             if (!(0.f < left)) // COMISS; JC keeps a positive delay.
             {
-                set(bytes, field::relight, 0.f);
+                fields_of(bytes).relight = 0.f;
             }
         }
-        if (get(bytes, field::relight) == 0.f) // UCOMISS DAT_0032B100.
+        if (fields_of(bytes).relight == 0.f) // UCOMISS DAT_0032B100.
         {
             const float refill = clock.freeze > 0.f ? 0.f : clock.dt * clock.scale;
-            const float fuel = refill * 0.075f + get(bytes, field::fuel); // DAT_0032B44C.
-            set(bytes, field::fuel, fuel);
+            const float fuel = refill * 0.075f + fields_of(bytes).fuel; // DAT_0032B44C.
+            fields_of(bytes).fuel = fuel;
             if (fuel > 1.f)
             {
-                set(bytes, field::fuel, 1.f);
+                fields_of(bytes).fuel = 1.f;
             }
         }
     }
@@ -538,7 +547,7 @@ void update_runtime_candle_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         && (holder->mask_mode == 2 || holder->mask_flag != 0)
         && runtime_player_damage_enabled(*holder, candle.blocked, candle.modes, candle.mode) != 0) // 0x00028D50
     {
-        show_runtime_meter_level(get(bytes, field::fuel), weapon.services.scoreboard, weapon.registry,
+        show_runtime_meter_level(fields_of(bytes).fuel, weapon.services.scoreboard, weapon.registry,
             weapon.error); // 0x0012EC70
     }
     update_runtime_weapon_state(weapon, state); // 0x0014A220

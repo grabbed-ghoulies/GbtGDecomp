@@ -234,14 +234,14 @@ bool construct_super_scary_view(FactoryObject& object, std::span<const u8> param
     control.state = state_of(object);
     control.type = object.type;
     control.super_scary = std::make_unique<SuperScaryControlState>();
-    return construct_runtime_super_scary_control(state_of(object), parameters, *control.super_scary,
+    return construct_runtime_super_scary_control(parameters, *control.super_scary,
         installing->context.super_scary_services());
 }
 
 void destroy_super_scary_view(FactoryObject& object)
 {
     auto& control = installing->instance(object);
-    destroy_runtime_super_scary_control(state_of(object), *control.super_scary,
+    destroy_runtime_super_scary_control(*control.super_scary,
         installing->context.super_scary_services());
 }
 
@@ -637,7 +637,7 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
     }
     if (control.type == 0x98)
     {
-        message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
+        message_runtime_super_scary_control(words, *control.super_scary, control, context.lists);
         return;
     }
     // Types 3, 0x91, 0x95, 0x99, 0x9A, 0x9B, 0x9D, 0x9E and 0x9F share 0x00115EE0.
@@ -691,7 +691,8 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
             chapter5_countdown("0x00082D10")); // 0x00082D10
         return;
     case 0x98:
-        tick_runtime_super_scary_control(control.state, *control.super_scary, control, context.lists,
+        tick_runtime_super_scary_control(scene_control_view<SceneControlBase>(control.state), *control.super_scary, control,
+            context.lists,
             context.super_scary_services());
         return;
     case 0x9E:
@@ -737,7 +738,7 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
             context.relics_store_services()); // 0x00081310
         return;
     case 0x98:
-        draw_runtime_super_scary_control(control.state, *control.super_scary, context.super_scary_services());
+        draw_runtime_super_scary_control(*control.super_scary, context.super_scary_services());
         return;
     default:
         throw Error("scene control vtable +0x14 for factory type " + std::to_string(control.type));

@@ -3079,26 +3079,6 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return scene_player_character(game); // 0x00087830
         },
-        [this](u32 head, const u8* record) -> u32
-        {
-            // The record lies in the head's model view (actor +0x204); its retail address is in the model source.
-            for (const auto& [bytes, actor] : actors->actors)
-            {
-                if (scene.address_of(bytes) != head || actor == nullptr || actor->model == nullptr)
-                {
-                    continue;
-                }
-                const auto cpu = actor->model->cpu;
-                if (actor->model->runtime == nullptr || actor->model->runtime->source == nullptr
-                    || record < cpu.data() || record >= cpu.data() + cpu.size())
-                {
-                    break;
-                }
-                return resources.memory.address_of(actor->model->runtime->source->cpu.data())
-                    + u32(record - cpu.data());
-            }
-            throw Error("Super Scary keeps a head binding outside the head's model");
-        },
         [this](u32 player, u32 head, const u8* binding)
         {
             Actor* rider = nullptr;

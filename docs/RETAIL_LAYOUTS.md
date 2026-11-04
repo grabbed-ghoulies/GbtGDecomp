@@ -200,6 +200,7 @@ For one object type:
 | Relics store control (`RelicsStoreControlState`, factory type 0x94; retail 0x5C): walk cutscene, phase, pulses, marker, mummy, player, candle, flame block and its pointer words, pause held | host | `src/engine/scene/relics_store_control.h` |
 | Trophy heads control (`TrophyHeadsControlState`, factory type 0x92; retail 0x188): cutscene, player, attacks, health, seek time, phase, chosen heads, per-head attacked and roaring flags, attacking head, pause hold, head events, challenge won | host | `src/engine/scene/trophy_heads_control.h` |
 | Attract control (`AttractControlState`, factory type 0x9B; retail 0x324): clip, banner text, pool and id, camera, banner time, started, clips and cutscene, clip count, next script | host | `src/engine/scene/attract_control.h` |
+| Super Scary challenge (`SuperScaryControlState`, factory type 0x98; retail 0x2C8): actor addresses, phase, input, camera, timers, clip names and placements, shock camera, presses and button row, bound position, head binding, button textures, settle, render swap | host | `src/engine/scene/super_scary_control.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -296,6 +297,15 @@ the retail size and keep their address, which the relics store and game select u
 the host struct, so the byte copy went. At the retail offsets its `attacked[0]` overlaps `chosen` and `attacked[21]`
 overlaps `roaring[0]`; head ids are never 0, so separate members behave the same. Game select only moved its elapsed.
 
+Super Scary moved the same way. Its player, head, bat and head binding words were written beside their host copies and
+never read, so they went, and with them the service that made the binding's retail address. `bound_position_y` at
++0x280 was `bound_position.y`. The texture array became `button_textures`, as `buttons` is the press row.
+
+The tests can read these bytes too. Literal offsets in a test are not caught by the compiler, and `--scene6` read the
+trophy heads' phase that way until its probe saw zeros and failed. Its captures were still identical, so check a
+mode's failure message against the probe as well as the game. `--attract`'s clip count compares native pointers, so a
+clip allocated at the last one's address isn't counted, and that number can move by one when host allocations change.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -308,8 +318,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 
 | Type | Size | Layout | Where |
 |---|---|---|---|
-| Super Scary challenge (factory type 0x98, 0x000842D0) | 0x2C8, parameters 0x1D8 | `super_scary_field`: actor addresses, phase, timers, clip names and placements, shock camera, presses and button row, settle, render swap; `super_scary_parameter`: the construction block | `src/engine/scene/super_scary_control.h` |
-| Scene-control base (factory type 3) | — | `scene_control_field::elapsed` (+0x20) only; the list links at +8, +0x10 and +0x18 are SceneControlInstance members | `src/engine/scene/scene_control_fields.h` |
+| Super Scary parameters (factory type 0x98; the state is in the host struct, below) | parameters 0x1D8 | `super_scary_parameter`: the construction block | `src/engine/scene/super_scary_control.h` |
 | Trophy heads parameters (factory type 0x92; the state is in the host struct, above) | parameters 0x108 | `trophy_heads_parameter` | `src/engine/scene/trophy_heads_control.h` |
 | Factory parameter header | — | `object_parameter_field`: size, unk_2, type | `include/gbtg/object_factory.h` |
 | Walk-target and fly-alert parameters (factory types 0x8F and 0x6E; the states are structs, above) | parameters 0x60 | `walk_target_parameter`, `fly_alert_parameter` | `src/engine/entities/body_walk_target_state.h` |
@@ -556,13 +565,11 @@ the offset, size and span length. All ten regular modes are byte-identical to th
 
 ## Next
 
-- Super Scary can be consolidated the same way: its state is reached only through its own functions and the
-  `--scene6` test.
 - Merge the per-file `word` / `put_word` / `real` copies into `retail_field.h` as their files are converted.
 - The 0x30-byte screen texture (0x000533A0) is the engine's texture resource (width +8, height +0xA, header offset
   +4, data +0x14, size +0x18), which the widgets' `texture_width` helpers and the presenter also read. It belongs
   with the texture resource's own layout.
-- The attract control, starting with `scene_control_field::elapsed`, then the entities. The body (`body_field`),
+- The entities. The body (`body_field`),
   base mind (`mind_field`), mind target records (`mind_target_field`), weapon base (`weapon_field`) and the player's
   part (`player_field`) are named now. The actor's own 0x934 bytes are mostly read through the native `Actor`; the
   raw reads left on them (+0x18, +0xB8, +0x1FC) are few. The body's first pass leaves most offsets literal; player

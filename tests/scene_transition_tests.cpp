@@ -10305,14 +10305,13 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         }
         // With `answer_challenges`, a Super Scary challenge (factory type 0x98) waiting on Cooper (states 5 and 6)
         // gets the next button in its row, as A..Y (0x100 << button).
-        namespace challenge_field = gbtg::super_scary_field;
         if (const auto* challenge = gbtg::find_runtime_scene_control(0x98); answer_challenges && challenge != nullptr)
         {
-            const gbtg::u32 phase = gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+            const gbtg::u32 phase = gbtg::u32(challenge->super_scary->phase);
             if ((phase == 5 || phase == 6) && frame % 8 < 3)
             {
-                const gbtg::i32 presses = gbtg::get(challenge->state, challenge_field::presses);
-                const gbtg::u32 button = gbtg::field_data(challenge->state, challenge_field::buttons)[size_t(presses)];
+                const gbtg::i32 presses = challenge->super_scary->presses;
+                const gbtg::u32 button = challenge->super_scary->buttons[size_t(presses)];
                 input.pads[0].buttons = gbtg::u16(0x100u << button);
             }
         }
@@ -10332,7 +10331,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         {
             const auto* challenge = gbtg::find_runtime_scene_control(0x98);
             const gbtg::u32 now =
-                challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+                challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(challenge->super_scary->phase);
             if (now != last_challenge)
             {
                 std::cout << label << " frame " << frame << ": Super Scary state " << int(now) << "\n";
@@ -12926,15 +12925,14 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 const auto* challenge = gbtg::find_runtime_scene_control(0x98);
-                namespace challenge_field = gbtg::super_scary_field;
                 const gbtg::u32 phase =
-                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(challenge->super_scary->phase);
                 if (challenge != nullptr && (phase == 5 || phase == 6) && challenges > 1)
                 {
                     // Cooper's press: the next button in the row, as A..Y (0x100 << button).
-                    const gbtg::i32 presses = gbtg::get(challenge->state, challenge_field::presses);
+                    const gbtg::i32 presses = challenge->super_scary->presses;
                     const gbtg::u32 button =
-                        gbtg::field_data(challenge->state, challenge_field::buttons)[size_t(presses)];
+                        challenge->super_scary->buttons[size_t(presses)];
                     if (frame % 8 < 3)
                     {
                         input.pads[0].buttons = gbtg::u16(0x100u << button);
@@ -12946,7 +12944,7 @@ int main(int argc, char** argv)
                 game.tick(1.f / 60.f, input);
                 challenge = gbtg::find_runtime_scene_control(0x98);
                 const gbtg::u32 now =
-                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(challenge->super_scary->phase);
                 if (now != last_challenge)
                 {
                     std::cout << "scene6 frame " << frame << ": Super Scary state " << int(now) << "\n";

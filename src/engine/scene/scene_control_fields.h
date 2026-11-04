@@ -7,16 +7,6 @@
 
 namespace gbtg
 {
-// The fields every scene control (factory type 3 and its derived types) keeps at the start of its state, at their
-// retail offsets (see docs/RETAIL_LAYOUTS.md). The list links at +8 (pending, then active), +0x10 (updates) and
-// +0x18 (disposal) are SceneControlInstance members.
-namespace scene_control_field
-{
-// Seconds the control has ticked. The attract, game-select, trophy-heads and Super Scary ticks (0x00084960 among
-// them) each add the frame step to it first.
-constexpr RetailField<float, 0x20> elapsed{};
-} // namespace scene_control_field
-
 // The start of every scene control: type 3's 0x24-byte instance under the factory's header (0x00107520, 0x00107700).
 struct SceneControlBase
 {
@@ -28,7 +18,6 @@ struct SceneControlBase
     float elapsed = 0.f; // +0x20, seconds the control has ticked
 };
 static_assert(sizeof(SceneControlBase) == 0x24);
-static_assert(scene_control_field::elapsed.offset == 0x20);
 
 // A scene control's bytes viewed as its struct.
 template <typename State>

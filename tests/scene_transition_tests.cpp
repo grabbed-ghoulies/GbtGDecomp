@@ -9755,7 +9755,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 {
                     continue;
                 }
-                const gbtg::u32 dropped = gbtg::read_u32(mark.strategy, 0x38);
+                const gbtg::u32 dropped = gbtg::strategy_view<gbtg::CarriedWeaponStrategy>(mark.strategy).weapon;
                 if (dropped == 0 || gbtg::read_u32(mark.body, 0x48) == dropped)
                 {
                     continue;

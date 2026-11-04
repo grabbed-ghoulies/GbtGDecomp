@@ -312,6 +312,11 @@ and `read_u32(holder_bytes, 0xCE0)` and its like are the player's bytes, for `pl
 chair and large projectile run in 9 modes, the bob in 3, and the candle, container, water pistol and thrown projectile
 in 1 each. The homing projectile, extinguisher and single shot have not run since.
 
+`CarriedWeaponStrategy` names the +0x38 word that 0x000BEB80 reads for both the pirate's chest and the baron's cane. The
+custom effects are on `FxCustomBase` (the base object's header, the node words, elapsed and actor), viewed with
+`fx_custom_view<T>`. `FxFadeState`'s +0x24 is a union: the fade-to-grey's texture or the fade-out's switch. Plain fxCustom
+(type 0xC) and the fade-out (type 0x33) haven't run in the regular modes since.
+
 The scene controls come in two kinds. Those with no host pointers (walkabout, chapter 2 scene 4, chapter 5 countdown,
 scene fx, final score) are overlays like the body states, on `SceneControlBase`. Those whose retail words hold pointers can't lay
 them out in the factory bytes on a 64-bit host, so their fields join the host struct that already holds the pointers,
@@ -594,9 +599,6 @@ the offset, size and span length. All ten regular modes are byte-identical to th
 - The 0x30-byte screen texture (0x000533A0) is the engine's texture resource (width +8, height +0xA, header offset
   +4, data +0x14, size +0x18), which the widgets' `texture_width` helpers and the presenter also read. It belongs
   with the texture resource's own layout.
-- `runtime_strategy_weapon_free` (0x000BEB80) reads +0x38 for both the pirate (chest) and the barons (cane), and a test
-  probe in `play_scene7_run` reads that word across strategies. They need a name that fits both.
-- The custom effects in `fx_custom_electric.h` (`fx_custom_field` and its kinds), which aren't actor-derived.
 - The entities. The body (`body_field`),
   base mind (`mind_field`), mind target records (`mind_target_field`) and the player's
   part (`player_field`) are named now. The actor's own 0x934 bytes are mostly read through the native `Actor`; the

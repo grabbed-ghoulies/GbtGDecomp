@@ -65,6 +65,15 @@ inline const StrategyBase& strategy_base(std::span<const u8> bytes)
     return *reinterpret_cast<const StrategyBase*>(bytes.data());
 }
 
+// A strategy whose first word is the weapon it carries or goes for: the pirate's chest, the baron's cane. 0x000BEB80
+// reads it for both.
+struct CarriedWeaponStrategy
+{
+    StrategyBase base;
+    u32 weapon = 0; // +0x38, by address
+};
+static_assert(sizeof(CarriedWeaponStrategy) == 0x3C);
+
 // The player strategy (factory type 0x4F, 0x54 bytes).
 struct PlayerStrategyState
 {

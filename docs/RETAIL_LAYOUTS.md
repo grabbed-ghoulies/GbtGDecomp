@@ -196,6 +196,7 @@ For one object type:
 | Walkabout music control (`WalkaboutControlState`, 0x00080570): the playlist word (kept by `SceneControlInstance`), position and count, track, start countdown, timer switch | 0x3C | `src/engine/scene/scene_control_fields.h` |
 | Chapter 2 scene 4 control (`Chapter2Scene4ControlState`, factory type 0x95): phase, wait, morph time | 0x38 | `src/engine/scene/chapter2_scene4_control.h` |
 | Scene fx control (`SceneFxControlState`): scale, radius, count, effect, on and off times, rate, prerun, eight copies (`SceneFxSlot`) | 0x1EC | `src/engine/scene/scene_fx_control.h` |
+| Final score control (`FinalScoreControlState`, factory type 0x99): the base and the page | 0x28 | `src/engine/frontend/final_score.h` |
 | Haunted chairs control (`HauntedChairsControlState`, factory type 0x93; retail 0x74): chairs, their cutscene rows, count, phase | host | `src/engine/scene/haunted_chairs_control.h` |
 | Relics store control (`RelicsStoreControlState`, factory type 0x94; retail 0x5C): walk cutscene, phase, pulses, marker, mummy, player, candle, flame block and its pointer words, pause held | host | `src/engine/scene/relics_store_control.h` |
 | Trophy heads control (`TrophyHeadsControlState`, factory type 0x92; retail 0x188): cutscene, player, attacks, health, seek time, phase, chosen heads, per-head attacked and roaring flags, attacking head, pause hold, head events, challenge won | host | `src/engine/scene/trophy_heads_control.h` |
@@ -287,7 +288,7 @@ ever wrote the next key and now take `BodyStateBase&`. That ended `retail_bytes(
 channels, input tracking, callout tokens and the wobble timer.
 
 The scene controls come in two kinds. Those with no host pointers (walkabout, chapter 2 scene 4, chapter 5 countdown,
-scene fx) are overlays like the body states, on `SceneControlBase`. Those whose retail words hold pointers can't lay
+scene fx, final score) are overlays like the body states, on `SceneControlBase`. Those whose retail words hold pointers can't lay
 them out in the factory bytes on a 64-bit host, so their fields join the host struct that already holds the pointers,
 one struct per control, as `GameSelectControlState` did.
 

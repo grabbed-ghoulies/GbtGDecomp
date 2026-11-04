@@ -1708,16 +1708,15 @@ void draw_runtime_final_score(FinalScoreServices& services)
 }
 
 // Xbox 0x00082DC0
-bool construct_runtime_final_score_control(std::span<u8> control, FinalScoreServices& services)
+bool construct_runtime_final_score_control(FinalScoreControlState& control, FinalScoreServices& services)
 {
-    namespace field = final_score_control_field;
     auto& s = services.frontend;
-    set(control, field::page, 0);
+    control.page = 0;
     ++s.pause_count; // DAT_00510CEC
     s.flags |= 0x100000u; // DAT_0050EA9C
     finish_runtime_game_save(s.profile, services.saves); // 0x000F2D70
     create_runtime_final_score(services); // 0x000D3E30
-    set(control, field::page, 1);
+    control.page = 1;
     start_runtime_final_score_ditty(services); // 0x000D44D0
     const char16_t* name = s.profile.name[0] != 0 ? s.profile.name.data() : nullptr; // DAT_00506C90, or null
     open_runtime_final_score_intro(name, services); // 0x000D4190, EAX
@@ -1734,20 +1733,18 @@ void destroy_runtime_final_score_control(FinalScoreServices& services)
 }
 
 // Xbox 0x00082E50
-void tick_runtime_final_score_control(std::span<u8> control, FinalScoreServices& services)
+void tick_runtime_final_score_control(FinalScoreControlState& control, FinalScoreServices& services)
 {
-    namespace field = final_score_control_field;
     auto& s = services.frontend;
-    const float time = read_f32(control, 0x20) + frame_step(s);
-    std::memcpy(control.data() + 0x20, &time, 4);
+    control.base.elapsed = control.base.elapsed + frame_step(s);
     tick_runtime_final_score(services); // 0x000D4070
     bool done = false;
-    switch (get(control, field::page))
+    switch (control.page)
     {
     case 1:
         if (page_of(1).done(services)) // 0x00304ED4
         {
-            set(control, field::page, 2);
+            control.page = 2;
             const char16_t* name = s.profile.name[0] != 0 ? s.profile.name.data() : nullptr; // DAT_00506C90
             open_runtime_final_score_scores(name, services); // 0x000D41E0, EAX
             return;
@@ -1756,7 +1753,7 @@ void tick_runtime_final_score_control(std::span<u8> control, FinalScoreServices&
     case 2:
         if (page_of(2).done(services)) // 0x00304EE8
         {
-            set(control, field::page, 3);
+            control.page = 3;
             const char16_t* name = s.profile.name[0] != 0 ? s.profile.name.data() : nullptr; // DAT_00506C90
             open_runtime_final_score_super_scary(name, services); // 0x000D4230, EAX
             return;
@@ -1773,7 +1770,7 @@ void tick_runtime_final_score_control(std::span<u8> control, FinalScoreServices&
     }
     if (done)
     {
-        set(control, field::page, 5);
+        control.page = 5;
         char script[0x80]{};
         std::strcpy(script, "aid_script_ghoulies_credits_final");
         stop_runtime_final_score_ditty(services); // 0x000D4500

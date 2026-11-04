@@ -182,7 +182,7 @@ bool construct_final_score_view(FactoryObject& object, std::span<const u8>)
     auto& control = installing->instance(object);
     control.state = state_of(object);
     control.type = object.type;
-    return construct_runtime_final_score_control(state_of(object),
+    return construct_runtime_final_score_control(scene_control_view<FinalScoreControlState>(state_of(object)),
         installing->context.final_score_services()); // 0x00082DC0
 }
 
@@ -684,15 +684,16 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
             context.fx_services()); // 0x00083570
         return;
     case 0x99:
-        tick_runtime_final_score_control(control.state, context.final_score_services()); // 0x00082E50
+        tick_runtime_final_score_control(scene_control_view<FinalScoreControlState>(control.state),
+            context.final_score_services()); // 0x00082E50
         return;
     case 0x9D:
         tick_runtime_chapter5_countdown_control(scene_control_view<SceneControlBase>(control.state),
             chapter5_countdown("0x00082D10")); // 0x00082D10
         return;
     case 0x98:
-        tick_runtime_super_scary_control(scene_control_view<SceneControlBase>(control.state), *control.super_scary, control,
-            context.lists,
+        tick_runtime_super_scary_control(scene_control_view<SceneControlBase>(control.state), *control.super_scary,
+            control, context.lists,
             context.super_scary_services());
         return;
     case 0x9E:

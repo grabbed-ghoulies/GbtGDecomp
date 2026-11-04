@@ -25,9 +25,7 @@
 namespace gbtg
 {
 namespace stand_parameter = stand_alert_parameter;
-namespace walk = walk_alert_field;
 namespace walk_parameter = walk_alert_parameter;
-namespace fly = fly_state_field;
 namespace fly_parameter = fly_state_parameter;
 namespace row = walk_alert_row_field;
 
@@ -95,29 +93,29 @@ void destroy_stand_alert_view(FactoryObject& object)
 
 bool construct_walk_alert_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    WalkAlertState& state = body_state_view<WalkAlertState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     return initialize_runtime_walk_alert(state, parameters, context);
 }
 
 void destroy_walk_alert_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    WalkAlertState& state = body_state_view<WalkAlertState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     destroy_runtime_walk_alert(state, context);
 }
 
 bool construct_fly_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    FlyState& state = body_state_view<FlyState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     return initialize_runtime_fly_state(state, parameters, context);
 }
 
 void destroy_fly_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    FlyState& state = body_state_view<FlyState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     destroy_runtime_fly_state(state, context);
 }
 
@@ -362,29 +360,29 @@ const ObjectFactoryVtable* struggle_state_lifecycle()
 
 bool construct_walk_target_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    WalkTargetState& state = body_state_view<WalkTargetState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     return initialize_runtime_walk_target(state, parameters, context);
 }
 
 void destroy_walk_target_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    WalkTargetState& state = body_state_view<WalkTargetState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     destroy_runtime_walk_target(state, context);
 }
 
 bool construct_fly_alert_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    FlyAlertState& state = body_state_view<FlyAlertState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     return initialize_runtime_fly_alert(state, parameters, context);
 }
 
 void destroy_fly_alert_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    FlyAlertState& state = body_state_view<FlyAlertState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     destroy_runtime_fly_alert(state, context);
 }
 
@@ -638,18 +636,18 @@ void destroy_runtime_stand_alert(StandAlertState& state, RuntimeBodyStateContext
 // Xbox 0x000A55D0
 void walk_alert_object_sizes(ObjectSizes& output)
 {
-    output.instance = walk::kSize;
+    output.instance = sizeof(WalkAlertState);
     output.parameters = walk_parameter::kSize;
 }
 
 // Xbox 0x000A5650
-bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_walk_alert(WalkAlertState& state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context)
 {
     const auto body = context.body;
     const i16 count = get(parameters, walk_parameter::row_count);
-    set(state, walk::row_count, count);
-    auto& records = walk_alert_records[state.data()];
+    state.row_count = count;
+    auto& records = walk_alert_records[body_state_key(state)];
     records.assign(count > 0 ? size_t(count) : 0, nullptr);
     for (i16 index = 0; index < count; ++index)
     {
@@ -660,23 +658,23 @@ bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> para
         // The inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
         const AnimationRecord* record = find_runtime_body_animation(name, context.actions);
         records[size_t(index)] = record;
-        const auto band = gbtg::record(state, walk::rows, size_t(index));
-        set(band, row::animation, record != nullptr ? 1 : 0);
-        set(band, row::lower_duration, get(entry, row::lower_duration));
-        set(band, row::upper_duration, get(entry, row::upper_duration));
-        set(band, row::top_speed, get(entry, row::top_speed));
+        WalkAlertRow& band = state.rows[size_t(index)];
+        band.found = record != nullptr ? 1 : 0;
+        band.lower_duration = get(entry, row::lower_duration);
+        band.upper_duration = get(entry, row::upper_duration);
+        band.top_speed = get(entry, row::top_speed);
     }
-    set(state, walk::band, 0);
-    set(state, walk::stop_key, get(parameters, walk_parameter::stop_key));
-    set(state, walk::alert_key, get(parameters, walk_parameter::alert_key));
-    set(state, walk::settles, get(parameters, walk_parameter::settles));
-    set(state, walk::stops_at_once, get(parameters, walk_parameter::stops_at_once));
-    set(state, walk::stick_limit, get(parameters, walk_parameter::stick_limit));
-    set(state, walk::holds_heading, get(parameters, walk_parameter::holds_heading));
-    set(state, walk::hold_heading_above, get(parameters, walk_parameter::hold_heading_above));
-    set(state, walk::alert_when_calm, get(parameters, walk_parameter::alert_when_calm));
-    set(state, walk::fixed_turn_ratio, get(parameters, walk_parameter::fixed_turn_ratio));
-    set(state, walk::body_bit, get(parameters, walk_parameter::body_bit));
+    state.band = 0;
+    state.stop_key = get(parameters, walk_parameter::stop_key);
+    state.alert_key = get(parameters, walk_parameter::alert_key);
+    state.settles = get(parameters, walk_parameter::settles);
+    state.stops_at_once = get(parameters, walk_parameter::stops_at_once);
+    state.stick_limit = get(parameters, walk_parameter::stick_limit);
+    state.holds_heading = get(parameters, walk_parameter::holds_heading);
+    state.hold_heading_above = get(parameters, walk_parameter::hold_heading_above);
+    state.alert_when_calm = get(parameters, walk_parameter::alert_when_calm);
+    state.fixed_turn_ratio = get(parameters, walk_parameter::fixed_turn_ratio);
+    state.body_bit = get(parameters, walk_parameter::body_bit);
     context.bits->bytes[6] |= 0x80;
     const char* sound = field_data(parameters, walk_parameter::sound);
     if (sound[0] != 0)
@@ -686,16 +684,16 @@ bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> para
             queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f, sound,
                 context.sounds);
         }
-        set(state, walk::sound_started, 1);
+        state.sound_started = 1;
     }
-    const u32 bit = get(state, walk::body_bit);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] |= u8(1u << (bit & 7));
     }
     // The inlined 0x0003A9E0 for the band (0): 0x000322A0 with actor +0x84, the +0x50 controller (0x0003ACB0
     // inline) and 0x00030880, then actor +0x84 is cleared.
-    const u16 band = get(state, walk::band);
+    const u16 band = state.band;
     if (band >= records.size() || records[band] == nullptr)
     {
         throw Error("walk-alert band record is null; 0x000A5650 reads its +0x117");
@@ -709,36 +707,36 @@ bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> para
 }
 
 // Xbox 0x000A5950
-void destroy_runtime_walk_alert(std::span<u8> state, RuntimeBodyStateContext& context)
+void destroy_runtime_walk_alert(WalkAlertState& state, RuntimeBodyStateContext& context)
 {
-    if (get(state, walk::sound_started) != 0)
+    if (state.sound_started != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds);
     }
-    const u32 bit = get(state, walk::body_bit);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
     }
     context.bits->bytes[6] &= 0x7F;
-    walk_alert_records.erase(state.data());
+    walk_alert_records.erase(body_state_key(state));
 }
 
 // Xbox 0x00090D10
 void fly_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = fly::kSize;
+    output.instance = sizeof(FlyState);
     output.parameters = fly_parameter::kSize;
 }
 
 // Xbox 0x00090D90
-bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_fly_state(FlyState& state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context)
 {
     const auto body = context.body;
     const i16 count = get(parameters, fly_parameter::row_count);
-    set(state, fly::row_count, count);
-    auto& records = walk_alert_records[state.data()];
+    state.row_count = count;
+    auto& records = walk_alert_records[body_state_key(state)];
     records.assign(count > 0 ? size_t(count) : 0, nullptr);
     for (i16 index = 0; index < count; ++index)
     {
@@ -749,18 +747,18 @@ bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> param
         // The inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
         const AnimationRecord* record = find_runtime_body_animation(name, context.actions);
         records[size_t(index)] = record;
-        const auto band = gbtg::record(state, fly::rows, size_t(index));
-        set(band, row::animation, record != nullptr ? 1 : 0);
-        set(band, row::lower_duration, get(entry, row::lower_duration));
-        set(band, row::upper_duration, get(entry, row::upper_duration));
-        set(band, row::top_speed, get(entry, row::top_speed));
+        WalkAlertRow& band = state.rows[size_t(index)];
+        band.found = record != nullptr ? 1 : 0;
+        band.lower_duration = get(entry, row::lower_duration);
+        band.upper_duration = get(entry, row::upper_duration);
+        band.top_speed = get(entry, row::top_speed);
     }
-    set(state, fly::band, 0);
-    set(state, fly::stop_key, get(parameters, fly_parameter::stop_key));
-    set(state, fly::alert_key, get(parameters, fly_parameter::alert_key));
-    set(state, fly::stick_limit, get(parameters, fly_parameter::stick_limit));
-    set(state, fly::holds_heading, get(parameters, fly_parameter::holds_heading));
-    set(state, fly::hold_heading_above, get(parameters, fly_parameter::hold_heading_above));
+    state.band = 0;
+    state.stop_key = get(parameters, fly_parameter::stop_key);
+    state.alert_key = get(parameters, fly_parameter::alert_key);
+    state.stick_limit = get(parameters, fly_parameter::stick_limit);
+    state.holds_heading = get(parameters, fly_parameter::holds_heading);
+    state.hold_heading_above = get(parameters, fly_parameter::hold_heading_above);
     const char* sound = field_data(parameters, fly_parameter::sound);
     if (sound[0] != 0)
     {
@@ -769,15 +767,15 @@ bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> param
             queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f, sound,
                 context.sounds); // 0x0012A260
         }
-        set(state, fly::sound_started, 1);
+        state.sound_started = 1;
     }
     // The looping animation: the inlined 0x0003AAA0 pair, then the inlined 0x0001AFA0.
     const u32 loop_address = get(parameters, fly_parameter::loop);
     const char* loop_name = loop_address == 0 ? nullptr
         : reinterpret_cast<const char*>(context.resolve(loop_address, 0).data());
     const AnimationRecord* loop = find_runtime_body_animation(loop_name, context.actions);
-    fly_loop_records[state.data()] = loop;
-    set(state, fly::loop_found, loop != nullptr ? 1 : 0);
+    fly_loop_records[body_state_key(state)] = loop;
+    state.loop_found = loop != nullptr ? 1 : 0;
     if (loop != nullptr)
     {
         start_actor_animation(context.actions.animation, *loop, context.actions.registry, context.actions.error,
@@ -785,7 +783,7 @@ bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> param
         notify_runtime_body_animation(context.actions); // 0x0001B020
     }
     // The inlined 0x0001AFA0 for the band (0).
-    const u16 band = get(state, fly::band);
+    const u16 band = state.band;
     if (band >= records.size() || records[band] == nullptr)
     {
         throw Error("fly band record is null; 0x00090D90 reads its +0x117");
@@ -800,16 +798,16 @@ bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> param
 }
 
 // Xbox 0x00091110
-void destroy_runtime_fly_state(std::span<u8> state, RuntimeBodyStateContext& context)
+void destroy_runtime_fly_state(FlyState& state, RuntimeBodyStateContext& context)
 {
-    if (get(state, fly::sound_started) != 0)
+    if (state.sound_started != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds); // 0x0012A3D0
     }
-    if (get(state, fly::loop_found) != 0)
+    if (state.loop_found != 0)
     {
         // The loop's slot fades out over 0.25 s (DAT_0032B104).
-        const AnimationRecord* loop = fly_loop_records[state.data()];
+        const AnimationRecord* loop = fly_loop_records[body_state_key(state)];
         AnimationController* controller = context.animation; // Actor +0x50.
         const i32 slot = loop == nullptr ? 0 : i32(loop->slot); // Record +0x117.
         if (controller != nullptr && slot != 0)
@@ -824,13 +822,13 @@ void destroy_runtime_fly_state(std::span<u8> state, RuntimeBodyStateContext& con
         }
     }
     context.bits->bytes[6] &= 0x7F;
-    walk_alert_records.erase(state.data());
-    fly_loop_records.erase(state.data());
+    walk_alert_records.erase(body_state_key(state));
+    fly_loop_records.erase(body_state_key(state));
 }
 
-const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 index)
+const AnimationRecord* runtime_walk_alert_record(const u8* state_key, u16 index)
 {
-    const auto found = walk_alert_records.find(state.data());
+    const auto found = walk_alert_records.find(state_key);
     if (found == walk_alert_records.end() || index >= found->second.size())
     {
         throw Error("walk-alert state has no record for its speed band");

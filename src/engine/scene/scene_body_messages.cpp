@@ -993,7 +993,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             {
                 settle_runtime_body_turn(player_.body, player_.actor); // 0x00134720, ESI body
             }};
-        tick_runtime_walk_alert({action.bytes.get(), action.size}, tick);
+        tick_runtime_walk_alert(body_state_view<WalkAlertState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x6D:
@@ -1011,7 +1011,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         RuntimeWalkAlertTick tick{player_.body, player_.actor, *player_.body_bits, player_.body_selection,
             services_.clock, device, player_.scene.input_state, services_.damage_tables, services_.mode_scales,
             !player_.mind.empty(), player_.mind.empty() ? u8(0) : get(player_.mind, mind_field::target_mode), {}};
-        tick_runtime_fly_state({action.bytes.get(), action.size}, tick); // 0x00091190
+        tick_runtime_fly_state(body_state_view<FlyState>({action.bytes.get(), action.size}), tick); // 0x00091190
         return;
     }
     case 0x8B:
@@ -1172,7 +1172,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
                 }
                 return actor_world_position(*target);
             }};
-        tick_runtime_fly_alert({action.bytes.get(), action.size}, tick, player_.body_bits->bytes[0]); // 0x00091E10
+        tick_runtime_fly_alert(body_state_view<FlyAlertState>({action.bytes.get(), action.size}),
+            tick, player_.body_bits->bytes[0]); // 0x00091E10
         return;
     }
     case 0x83:
@@ -1209,7 +1210,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
                 }
                 return actor_world_position(*target);
             }};
-        tick_runtime_walk_target({action.bytes.get(), action.size}, tick);
+        tick_runtime_walk_target(body_state_view<WalkTargetState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x73:

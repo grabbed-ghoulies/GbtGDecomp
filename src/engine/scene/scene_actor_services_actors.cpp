@@ -260,7 +260,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
             {
             case 0x8F:
             case 0x6E: // Getter 0x00091AB0 keeps 0x00091F70 at +0x1C too.
-                return runtime_walk_target_next_key({action.bytes.get(), action.size},
+                return runtime_walk_target_next_key(body_state_view<WalkTargetState>({action.bytes.get(), action.size}),
                     player.body_selection.animation);
             case 0x5E:
             case 0x62:

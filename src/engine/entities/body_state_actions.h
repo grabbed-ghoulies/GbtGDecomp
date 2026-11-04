@@ -92,6 +92,15 @@ constexpr RetailField<float, 0xC> top_speed{};
 constexpr u32 kSize = 0x10;
 static_assert(retail_fits(kSize, top_speed));
 } // namespace walk_alert_row_field
+// A row in the state, where animation says whether the record was found.
+struct WalkAlertRow
+{
+    u32 found = 0; // +0
+    float lower_duration = 0.f; // +4
+    float upper_duration = 0.f; // +8
+    float top_speed = 0.f; // +0xC
+};
+static_assert(sizeof(WalkAlertRow) == walk_alert_row_field::kSize);
 
 // Type 0x8E, entityStateWalkAlert: the stick walks the body through its speed bands. State +0xC is the next key and
 // +0x10 the state clock (`body_state_field`).
@@ -113,25 +122,27 @@ constexpr RetailField<u32, 0xB4> body_bit{};
 constexpr u32 kSize = 0xB8;
 static_assert(retail_fits(kSize, body_bit));
 } // namespace walk_alert_parameter
-namespace walk_alert_field
+struct WalkAlertState
 {
-constexpr RetailField<u16, 0x1A> stop_key{}; // the next key once the body stops
-constexpr RetailField<u16, 0x1C> alert_key{}; // the next key while the mind is alert
-constexpr RetailField<u32, 0x20> settles{}; // the body's turn settles while it walks (0x00134720)
-constexpr RetailField<u32, 0x24> stops_at_once{}; // stop_key without waiting for the actor to slow down
-constexpr RetailField<float, 0x28> stick_limit{}; // the most of the stick's push that counts
-constexpr RetailField<i16, 0x2C> row_count{};
-constexpr RetailField<u16, 0x2E> band{}; // the row playing now
-constexpr RetailRecord<0x30, walk_alert_row_field::kSize, 4> rows{};
-constexpr RetailField<u32, 0x70> sound_started{};
-constexpr RetailField<u32, 0x74> holds_heading{}; // above hold_heading_above the actor keeps its own heading
-constexpr RetailField<float, 0x78> hold_heading_above{};
-constexpr RetailField<u32, 0x7C> alert_when_calm{}; // alert_key is taken while the mind is not alert instead
-constexpr RetailField<u32, 0x80> fixed_turn_ratio{}; // 0x00133D50's fixed ratio
-constexpr RetailField<u32, 0x84> body_bit{}; // raised while the state lasts
-constexpr u32 kSize = 0x88;
-static_assert(retail_fits(kSize, body_bit));
-} // namespace walk_alert_field
+    BodyStateBase base{}; // +0
+    std::array<u8, 2> unk_18{}; // +0x18, never read or written by translated code
+    u16 stop_key = 0; // +0x1A, the next key once the body stops
+    u16 alert_key = 0; // +0x1C, the next key while the mind is alert
+    std::array<u8, 2> unk_1E{}; // +0x1E, padding
+    u32 settles = 0; // +0x20, the body's turn settles while it walks (0x00134720)
+    u32 stops_at_once = 0; // +0x24, stop_key without waiting for the actor to slow down
+    float stick_limit = 0.f; // +0x28, the most of the stick's push that counts
+    i16 row_count = 0; // +0x2C
+    u16 band = 0; // +0x2E, the row playing now
+    std::array<WalkAlertRow, 4> rows{}; // +0x30
+    u32 sound_started = 0; // +0x70
+    u32 holds_heading = 0; // +0x74, above hold_heading_above the actor keeps its own heading
+    float hold_heading_above = 0.f; // +0x78
+    u32 alert_when_calm = 0; // +0x7C, alert_key is taken while the mind is not alert instead
+    u32 fixed_turn_ratio = 0; // +0x80, 0x00133D50's fixed ratio
+    u32 body_bit = 0; // +0x84, raised while the state lasts
+};
+static_assert(sizeof(WalkAlertState) == 0x88);
 
 // Type 0x6D, entityStateFly: the walk alert's rows steered in the air. State +0xC is the next key and +0x10 the
 // state clock (`body_state_field`).
@@ -149,43 +160,45 @@ constexpr RetailField<u32, 0xA4> loop{}; // the looping animation's name, an XBE
 constexpr u32 kSize = 0xA8;
 static_assert(retail_fits(kSize, loop));
 } // namespace fly_state_parameter
-namespace fly_state_field
+struct FlyState
 {
-constexpr RetailField<u16, 0x1A> stop_key{}; // the next key once the body stops
-constexpr RetailField<u16, 0x1C> alert_key{}; // the next key while the mind is alert
-constexpr RetailField<float, 0x20> stick_limit{}; // the most of the stick's push that counts
-constexpr RetailField<u32, 0x24> holds_heading{}; // above hold_heading_above the actor keeps its own heading
-constexpr RetailField<float, 0x28> hold_heading_above{};
-constexpr RetailField<i16, 0x2C> row_count{};
-constexpr RetailField<u16, 0x2E> band{}; // the row playing now
-constexpr RetailRecord<0x30, walk_alert_row_field::kSize, 4> rows{};
-constexpr RetailField<u32, 0x70> sound_started{};
-constexpr RetailField<u32, 0x74> loop_found{};
-constexpr u32 kSize = 0x78;
-static_assert(retail_fits(kSize, loop_found));
-} // namespace fly_state_field
+    BodyStateBase base{}; // +0
+    std::array<u8, 2> unk_18{}; // +0x18, never read or written by translated code
+    u16 stop_key = 0; // +0x1A, the next key once the body stops
+    u16 alert_key = 0; // +0x1C, the next key while the mind is alert
+    std::array<u8, 2> unk_1E{}; // +0x1E, padding
+    float stick_limit = 0.f; // +0x20, the most of the stick's push that counts
+    u32 holds_heading = 0; // +0x24, above hold_heading_above the actor keeps its own heading
+    float hold_heading_above = 0.f; // +0x28
+    i16 row_count = 0; // +0x2C
+    u16 band = 0; // +0x2E, the row playing now
+    std::array<WalkAlertRow, 4> rows{}; // +0x30
+    u32 sound_started = 0; // +0x70
+    u32 loop_found = 0; // +0x74
+};
+static_assert(sizeof(FlyState) == 0x78);
 // 0x000A5FD0 and the band code read both states' rows through the same offsets.
-static_assert(fly_state_field::row_count.offset == walk_alert_field::row_count.offset
-    && fly_state_field::band.offset == walk_alert_field::band.offset
-    && fly_state_field::rows.offset == walk_alert_field::rows.offset);
+static_assert(offsetof(FlyState, row_count) == offsetof(WalkAlertState, row_count)
+    && offsetof(FlyState, band) == offsetof(WalkAlertState, band)
+    && offsetof(FlyState, rows) == offsetof(WalkAlertState, rows));
 
 void stand_alert_object_sizes(ObjectSizes& output); // Xbox 0x000A2510
 bool initialize_runtime_stand_alert(StandAlertState& state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x000A2590
 void destroy_runtime_stand_alert(StandAlertState& state, RuntimeBodyStateContext& context); // Xbox 0x000A2790
 void walk_alert_object_sizes(ObjectSizes& output); // Xbox 0x000A55D0
-bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_walk_alert(WalkAlertState& state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x000A5650
-void destroy_runtime_walk_alert(std::span<u8> state, RuntimeBodyStateContext& context); // Xbox 0x000A5950
+void destroy_runtime_walk_alert(WalkAlertState& state, RuntimeBodyStateContext& context); // Xbox 0x000A5950
 // Type 0x6D, entityStateFly (getter 0x00090D30, vtable 0x00505880): `fly_state_field`, with a looping animation
 // under the band's.
 void fly_state_object_sizes(ObjectSizes& output); // Xbox 0x00090D10
-bool initialize_runtime_fly_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_fly_state(FlyState& state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x00090D90
-void destroy_runtime_fly_state(std::span<u8> state, RuntimeBodyStateContext& context); // Xbox 0x00091110
+void destroy_runtime_fly_state(FlyState& state, RuntimeBodyStateContext& context); // Xbox 0x00091110
 // The animation record 0x000A5650 found for the walk alert's (or fly state's) speed band `index`. The record lives
 // on the host, so the band's native word only says whether one was found.
-const AnimationRecord* runtime_walk_alert_record(std::span<const u8> state, u16 index);
+const AnimationRecord* runtime_walk_alert_record(const u8* state_key, u16 index);
 struct RuntimeHitStateLifecycle;
 struct RuntimeDizzyStateContext;
 struct RuntimeKnockdownContext;

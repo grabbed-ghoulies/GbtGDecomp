@@ -187,6 +187,8 @@ For one object type:
 | Dizzy state (`DizzyState`, factory type 0x64, 0x0008C9A0): two `InputTrackingRecord`s, player input, animation wait, settle switch, star scale, time left, star names, three stars (`DizzyStar`: orbit, bob, actor), body bit | 0x184 | `src/engine/entities/body_dizzy_state.h` |
 | Spin dizzy state (`SpinDizzyState`, factory type 0x86 over 0x64, 0x000A21D0): the whole `DizzyState`, then turn and reach rates, speed, three body words, the circle's centre, sounding | 0x1AC | `src/engine/entities/body_spin_dizzy_state.h` |
 | Knockdown state (`KnockdownState`, factory type 0x7A, 0x0009C5D0): phase and its clock, end timer, the seven animations' found flags (`KnockdownAnimation` slots), the end keys, the sweep point, callout tokens (`KnockdownCalloutTokens`), the pose and flight values, contact pool, landing point, switches | 0xF4 | `src/engine/entities/body_knockdown_state.h` |
+| Walk target and fly alert states (`WalkTargetState`, `FlyAlertState`): the rows block (`WalkTargetRows`: four `WalkTargetRow`s and the band limits), arrival delay and arrived, the keys, direction and band | 0x7C | `src/engine/entities/body_walk_target_state.h` |
+| Walk alert and fly states (`WalkAlertState`, `FlyState`): keys, switches, stick limit, row count and band, four `WalkAlertRow`s, sound | 0x88 / 0x78 | `src/engine/entities/body_state_actions.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -257,6 +259,11 @@ reached through `state.dizzy`.
 The knockdown state followed. Its callout tokens had been named both as a whole and as a count and ids, so they are a
 small struct handed to the attachment functions through `retail_bytes`. +0x24 and +0xDC are `unk_`.
 
+The four row-table states followed. Each pair shares code retail runs on both layouts, so static checks pin the
+offsets those functions depend on. 0x00091F70 runs on walk target and fly alert objects alike, so it views both as
+`WalkTargetState`. 0x000A5FD0 serves the walk alert and fly states and now takes just the row count and rows. The
+record lookups take the state's address (`body_state_key`). The parameter rows read from the XBE stay on descriptors.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -274,7 +281,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Trophy heads (factory type 0x92, 0x000816A0) | 0x188, parameters 0x108 | `trophy_heads_field`: player, attacks, health, seek time, phase, chosen heads, per-head attacked and roaring flags, attacking head, pause hold, head events name, challenge won; `trophy_heads_parameter`: the clip and events names; `cutscene_event_field`: the two event-record words 0x00082440 reads | `src/engine/scene/trophy_heads_control.h` |
 | Factory parameter header | — | `object_parameter_field`: size, unk_2, type | `include/gbtg/object_factory.h` |
 | Body-state base (type 9, 0x00095530) | 0x18 | `body_state_field`: next key (+0xC), unk_E, elapsed (+0x10), for the states still on their bytes; `BodyStateBase` is the whole base as a struct (below) | `src/engine/entities/body_state_fields.h` |
-| Walk-target state (factory type 0x8F, 0x00091A90) | 0x7C, parameters 0x60 | `walk_target_field`, `walk_target_parameter`; the rows block (`walk_target_rows_field`, 0x4C bytes: four `walk_target_row_field` rows and the band limits) | `src/engine/entities/body_walk_target_state.h` |
+| Walk-target and fly-alert parameters (factory types 0x8F and 0x6E; the states are structs, above) | parameters 0x60 | `walk_target_parameter`, `fly_alert_parameter` | `src/engine/entities/body_walk_target_state.h` |
 | Pick-up and lift state parameters (factory types 0x7C and 0x7D; the states are structs, above) | parameters 0x10 / 0x1C | `pickup_state_parameter`, `lift_state_parameter` | `src/engine/entities/body_pickup_state.h` |
 | Throw state parameters (factory type 0x8B; the state is a struct, above) | parameters 0x2C | `throw_state_parameter` | `src/engine/entities/body_throw_state.h` |
 | Skeleton strategy (factory type 0x51) | — | `skeleton_strategy_field`: no spawn in reach, fetch delay; and the base strategy's `strategy_field::state` (+0xE, `strategy_fields.h`) | `src/engine/entities/skeleton_strategy.h` |
@@ -297,7 +304,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Player death state parameters (factory type 0x69; the state is a struct, above) | parameters 0x18 | `player_death_state_parameter` | `src/engine/entities/body_player_death_state.h` |
 | Grabbed state parameters (factory type 0x70; the state is a struct, above) | parameters 0x18 | `grabbed_state_parameter` | `src/engine/entities/body_grabbed_state.h` |
 | Stand alert parameters (factory type 0x87; the state is a struct, above) | parameters 0xBC | `stand_alert_parameter` | `src/engine/entities/body_state_actions.h` |
-| Walk alert and fly states (factory types 0x8E, 0x000A5650, and 0x6D, 0x00090D90) | 0x88 / 0x78, parameters 0xB8 / 0xA8 | `walk_alert_field` / `fly_state_field`: stop and alert keys, stick limit, heading hold, row count, band, the four speed-band rows (`walk_alert_row_field`: animation, lower and upper durations, top speed), sound started; the walk alert's settle, stop-at-once, alert-when-calm, fixed-ratio and body-bit words; the fly state's loop; and their parameters | `src/engine/entities/body_state_actions.h` |
+| Walk alert and fly parameters, and their parameter rows (factory types 0x8E and 0x6D; the states are structs, above) | parameters 0xB8 / 0xA8, rows 0x10 | `walk_alert_parameter`, `fly_state_parameter`, `walk_alert_row_field` | `src/engine/entities/body_state_actions.h` |
 | fxCustom and its effects (factory types 0xC, 0x2E, 0x30, 0x31, 0x32, 0x33) | 0x18 base; 0xA8, 0x28, 0xD0, 0x54, 0x28 | `fx_custom_field` (seconds alive, actor); `fx_electric_field` (sound, texture loaded, spark count and rows, light slot); `fx_fade_field` (the fade-to-grey's and fade-out's level, target, speed and their +0x24 word); `fx_outline_field` (phase, hold end, time left, the three times, sound, texture loaded, scale, colour, level, shape group, rows, light slot); `fx_solid_fade_in_field` (phase, time left, level, the four times, colour, strength, hold end); and their parameters | `src/engine/entities/fx_custom_electric.h` |
 | Weapon base (factory type 0xB over the actor, 0x00145C80), its own part | 0xE54 (0x934 onward), parameters 0x5F8 | `weapon_parameter` (the block 0x00145C80 copies from); `weapon_field`: mask and its neighbours, firing, accepted classes, contact test, spawn-model block, names, break category, grab prompt (pulse, phase, alpha, fade), shape and point counts, pick-up count, variant name and attributes, spawn trigger, group owner, state and its next and initial values and time, scene start, thrown and follow motion, floor, voice, spawn owner, broken pieces, hit kind/strength/style, animation, target record | `src/engine/entities/weapon_fields.h` |
 | Player (factory type 5 over the actor, 0x00028830), its own part | 0xCF8 (0x934 onward) | `player_field`: case link, mind, body, input device, provoked and the two countdowns, unk_984, goal volume, latch and delay, ghouly spawn record, kind, count and box, saved, start position and euler, pause count, mode, owner class, live, cells, floor, damage class, tag | `src/engine/entities/player_fields.h` |

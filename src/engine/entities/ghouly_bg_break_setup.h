@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "trigger_actor.h"
 #include "camera_director.h"
 #include "ghouly_spawn_scheduler.h"
@@ -29,28 +31,29 @@ constexpr RetailField<u32, 0x45C> spawn_slots{};
 constexpr u32 kSize = 0x460;
 static_assert(retail_fits(kSize, spawn_slots));
 } // namespace ghouly_bg_break_parameter
-namespace ghouly_bg_break_field
+struct GhoulyBgBreakState
 {
-constexpr RetailField<std::array<char, 0x80>, 0x934> box{}; // empty unless 0x0006A350 / 0x0006A120 keep it
-constexpr RetailField<std::array<char, 0x80>, 0x9B4> attributes{};
-constexpr RetailField<u16, 0xA34> spawn_tag{};
-constexpr RetailField<float, 0xA38> radius{}; // the player radius, then the scare radius (0x0013B660)
-constexpr RetailField<float, 0xA3C> chance{};
-constexpr RetailField<u32, 0xA40> grouped{};
-constexpr RetailField<u32, 0xA44> group{}; // the script records' +0x140 group word
-constexpr RetailField<u32, 0xA48> anchor{}; // the anchor actor message 0x7D looks up by actor +0x1FE
-constexpr RetailField<u32, 0xA4C> load{}; // the ghoulybox load (0x000F39A0); its native view is the context's
-constexpr RetailField<u32, 0xA50> broken{}; // the part is gone or none was found
-constexpr RetailField<u32, 0xA54> background{}; // the background whose part this setup holds
-constexpr RetailField<i32, 0xA58> part{};
-constexpr RetailField<u32, 0xA5C> hold_part{};
-constexpr RetailField<u32, 0xA60> unk_A60{}; // set: message 0xA8 waits for the part (0xA50)
-constexpr RetailField<u32, 0xA64> unk_A64{};
-constexpr RetailField<u32, 0xA68> spawn_slots{}; // 0: one unchecked slot
-constexpr RetailRecord<0xA6C, 4, 4> spawned{}; // the spawned actors (message 0x7C clears them)
-constexpr u32 kSize = 0xA7C;
-static_assert(retail_fits(kSize, spawned));
-} // namespace ghouly_bg_break_field
+    ActorBytes base{}; // +0
+    std::array<char, 0x80> box{}; // +0x934, empty unless 0x0006A350 / 0x0006A120 keep it
+    std::array<char, 0x80> attributes{}; // +0x9B4
+    u16 spawn_tag = 0; // +0xA34
+    std::array<u8, 2> unk_A36{}; // +0xA36, padding
+    float radius = 0.f; // +0xA38, the player radius, then the scare radius (0x0013B660)
+    float chance = 0.f; // +0xA3C
+    u32 grouped = 0; // +0xA40
+    u32 group = 0; // +0xA44, the script records' +0x140 group word
+    u32 anchor = 0; // +0xA48, the anchor actor message 0x7D looks up by actor +0x1FE
+    u32 load = 0; // +0xA4C, the ghoulybox load (0x000F39A0); its native view is the context's
+    u32 broken = 0; // +0xA50, the part is gone or none was found
+    u32 background = 0; // +0xA54, the background whose part this setup holds
+    i32 part = 0; // +0xA58
+    u32 hold_part = 0; // +0xA5C
+    u32 unk_A60 = 0; // +0xA60, set: message 0xA8 waits for the part (0xA50)
+    u32 unk_A64 = 0; // +0xA64
+    u32 spawn_slots = 0; // +0xA68, 0: one unchecked slot
+    std::array<u32, 4> spawned{}; // +0xA6C, the spawned actors (message 0x7C clears them)
+};
+static_assert(sizeof(GhoulyBgBreakState) == 0xA7C);
 struct RuntimeGhoulyBgBreakSetup
 {
     std::span<u8> bytes;

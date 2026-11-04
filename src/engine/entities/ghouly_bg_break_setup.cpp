@@ -19,7 +19,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = ghouly_bg_break_field;
+GhoulyBgBreakState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<GhoulyBgBreakState>(bytes);
+}
+
+const GhoulyBgBreakState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<GhoulyBgBreakState>(bytes);
+}
+
 namespace parameter = ghouly_bg_break_parameter;
 
 const char* name_at(std::span<const u32> message, size_t index)
@@ -51,25 +60,25 @@ void put_record_word(u8* row, size_t offset, u32 value)
 
 u32 spawned(std::span<const u8> bytes, size_t slot)
 {
-    return read_u32(record(bytes, field::spawned, slot), 0);
+    return fields_of(bytes).spawned[slot];
 }
 
 void set_spawned(std::span<u8> bytes, size_t slot, u32 value)
 {
-    std::memcpy(record(bytes, field::spawned, slot).data(), &value, 4);
+    fields_of(bytes).spawned[slot] = value;
 }
 
 // Xbox 0x0006A350, ESI parameters, EDI setup
 void keep_runtime_bg_break_box_by_chance(RuntimeGhoulyBgBreakSetup& context, std::span<const u8> parameters)
 {
     const auto bytes = context.bytes;
-    set(bytes, field::grouped, 0);
+    fields_of(bytes).grouped = 0;
     if (random_fraction(context.random) <= get(parameters, parameter::box_chance))
     {
-        std::strcpy(field_data(bytes, field::box), field_data(parameters, parameter::box));
-        std::strcpy(field_data(bytes, field::attributes), field_data(parameters, parameter::attributes));
-        set(bytes, field::radius, get(parameters, parameter::radius));
-        set(bytes, field::chance, get(parameters, parameter::chance));
+        std::strcpy(fields_of(bytes).box.data(), field_data(parameters, parameter::box));
+        std::strcpy(fields_of(bytes).attributes.data(), field_data(parameters, parameter::attributes));
+        fields_of(bytes).radius = get(parameters, parameter::radius);
+        fields_of(bytes).chance = get(parameters, parameter::chance);
     }
 }
 
@@ -77,10 +86,10 @@ void keep_runtime_bg_break_box_by_chance(RuntimeGhoulyBgBreakSetup& context, std
 void keep_runtime_bg_break_group_box(RuntimeGhoulyBgBreakSetup& context, std::span<const u8> parameters)
 {
     const auto bytes = context.bytes;
-    std::strcpy(field_data(bytes, field::box), field_data(parameters, parameter::box));
-    std::strcpy(field_data(bytes, field::attributes), field_data(parameters, parameter::attributes));
-    set(bytes, field::grouped, 1);
-    set(bytes, field::group, get(parameters, parameter::group));
+    std::strcpy(fields_of(bytes).box.data(), field_data(parameters, parameter::box));
+    std::strcpy(fields_of(bytes).attributes.data(), field_data(parameters, parameter::attributes));
+    fields_of(bytes).grouped = 1;
+    fields_of(bytes).group = get(parameters, parameter::group);
 }
 
 // Xbox 0x0006AF20, EAX setup
@@ -107,7 +116,7 @@ void load_runtime_bg_break_box(RuntimeGhoulyBgBreakSetup& context, const char* n
     {
         throw Error("0x0006B0A0 writes the ghoulybox load through address zero");
     }
-    set(context.bytes, field::load, context.address_of(context.load));
+    fields_of(context.bytes).load = context.address_of(context.load);
     GhoulySpawnRecord& load = *context.load;
     load.controller_24 = &context.controller;
     load.flags_2c = 2;
@@ -123,7 +132,7 @@ void load_runtime_bg_break_box(RuntimeGhoulyBgBreakSetup& context, const char* n
 void mark_runtime_bg_break_broken(RuntimeGhoulyBgBreakSetup& context)
 {
     put_record_word(own_record(context), 0x148, 1);
-    set(context.bytes, field::broken, 1);
+    fields_of(context.bytes).broken = 1;
 }
 
 // Xbox 0x0006A310, EAX setup
@@ -142,7 +151,7 @@ void share_runtime_bg_break_box(RuntimeGhoulyBgBreakSetup& context, RuntimeMarke
     {
         return;
     }
-    const u32 group = get(context.bytes, field::group);
+    const u32 group = fields_of(context.bytes).group;
     for (i32 index = 0; index < count; ++index)
     {
         u16 id = next_runtime_marker_id(0, 0xD, 1, context.records); // 0x0011F1C0, AX 0
@@ -174,10 +183,10 @@ void share_runtime_bg_break_box(RuntimeGhoulyBgBreakSetup& context, RuntimeMarke
         return;
     }
     if (random_fraction(context.random) <= ((members - unbroken) + 1.f) / members
-        && read_u32(context.bytes, field::box.offset) == 0x5F646961)
+        && read_u32(context.bytes, offsetof(GhoulyBgBreakState, box)) == 0x5F646961)
     {
-        load_runtime_bg_break_box(context, field_data(context.bytes, field::box),
-            field_data(context.bytes, field::attributes), objects); // 0x0006B0A0
+        load_runtime_bg_break_box(context, fields_of(context.bytes).box.data(),
+            fields_of(context.bytes).attributes.data(), objects); // 0x0006B0A0
         mark_runtime_bg_break_loaded(context); // 0x0006A310
     }
     mark_runtime_bg_break_broken(context); // 0x0006A2C0
@@ -186,31 +195,31 @@ void share_runtime_bg_break_box(RuntimeGhoulyBgBreakSetup& context, RuntimeMarke
 // Xbox 0x0006A470, ESI setup: loads the box once the part is gone; true when there is nothing to wait for.
 bool load_runtime_bg_break_box_after_break(RuntimeGhoulyBgBreakSetup& context, RuntimeMarkerObjects& objects)
 {
-    if (read_u32(context.bytes, field::box.offset) == 0x5F646961)
+    if (read_u32(context.bytes, offsetof(GhoulyBgBreakState, box)) == 0x5F646961)
     {
-        load_runtime_bg_break_box(context, field_data(context.bytes, field::box),
-            field_data(context.bytes, field::attributes), objects); // 0x0006B0A0
+        load_runtime_bg_break_box(context, fields_of(context.bytes).box.data(),
+            fields_of(context.bytes).attributes.data(), objects); // 0x0006B0A0
         if (context.load != nullptr)
         {
-            set(context.bytes, field::broken, 1);
+            fields_of(context.bytes).broken = 1;
             return context.load->value_b0 != 0;
         }
     }
-    set(context.bytes, field::broken, 1);
+    fields_of(context.bytes).broken = 1;
     return true;
 }
 
 // Xbox 0x0006A760, EDX setup, ESI slot
 bool find_runtime_bg_break_spawn_slot(std::span<u8> bytes, i32& slot)
 {
-    const i32 count = std::bit_cast<i32>(get(bytes, field::spawn_slots));
+    const i32 count = std::bit_cast<i32>(fields_of(bytes).spawn_slots);
     if (count == 0)
     {
         set_spawned(bytes, 0, 0);
         slot = 0;
         return true;
     }
-    for (i32 index = 0; index < std::bit_cast<i32>(get(bytes, field::spawn_slots)); ++index)
+    for (i32 index = 0; index < std::bit_cast<i32>(fields_of(bytes).spawn_slots); ++index)
     {
         if (spawned(bytes, size_t(index)) == 0)
         {
@@ -264,7 +273,7 @@ bool query_runtime_bg_break_spawn_pose(RuntimeGhoulyBgBreakSetup& context, Vec3&
     {
         return false;
     }
-    const u32 anchor = get(context.bytes, field::anchor);
+    const u32 anchor = fields_of(context.bytes).anchor;
     if (anchor == 0)
     {
         position = source_position;
@@ -300,7 +309,7 @@ void place_runtime_bg_break_spawn(RuntimeGhoulyBgBreakSetup& context, FactoryObj
 // Xbox 0x0006A4D0
 void ghouly_bg_break_setup_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(GhoulyBgBreakState);
     sizes.parameters = parameter::kSize;
 }
 
@@ -325,16 +334,16 @@ bool initialize_runtime_ghouly_bg_break_setup(RuntimeGhoulyBgBreakSetup& context
     {
         keep_runtime_bg_break_group_box(context, parameters); // 0x0006A120
     }
-    set(bytes, field::spawn_tag, get(parameters, parameter::spawn_tag));
-    set(bytes, field::anchor, 0);
-    set(bytes, field::broken, 0);
-    set(bytes, field::background, 0);
-    set(bytes, field::part, -1);
-    set(bytes, field::hold_part, get(parameters, parameter::hold_part));
-    set(bytes, field::unk_A60, get(parameters, parameter::unk_454));
-    set(bytes, field::unk_A64, get(parameters, parameter::unk_458));
+    fields_of(bytes).spawn_tag = get(parameters, parameter::spawn_tag);
+    fields_of(bytes).anchor = 0;
+    fields_of(bytes).broken = 0;
+    fields_of(bytes).background = 0;
+    fields_of(bytes).part = -1;
+    fields_of(bytes).hold_part = get(parameters, parameter::hold_part);
+    fields_of(bytes).unk_A60 = get(parameters, parameter::unk_454);
+    fields_of(bytes).unk_A64 = get(parameters, parameter::unk_458);
     clear_runtime_bg_break_record(context); // 0x0006AF20
-    set(bytes, field::spawn_slots, get(parameters, parameter::spawn_slots));
+    fields_of(bytes).spawn_slots = get(parameters, parameter::spawn_slots);
     return true;
 }
 
@@ -346,7 +355,7 @@ void destroy_runtime_ghouly_bg_break_setup(RuntimeGhoulyBgBreakSetup& context)
     {
         release_ghouly_spawn_record(*context.load); // 0x000F3A00
         context.load = nullptr;
-        set(context.bytes, field::load, 0);
+        fields_of(context.bytes).load = 0;
     }
 }
 
@@ -359,22 +368,22 @@ void dispatch_runtime_ghouly_bg_break_setup_message(RuntimeGhoulyBgBreakSetupMes
     switch (message[0])
     {
     case 0x13:
-        if (get(bytes, field::background) != 0)
+        if (fields_of(bytes).background != 0)
         {
             const Vec3 position = actor_world_position(setup.actor); // 0x000412A0
-            setup.break_part(get(bytes, field::background), get(bytes, field::part), position,
+            setup.break_part(fields_of(bytes).background, fields_of(bytes).part, position,
                 setup.address_of(bytes.data())); // 0x00045D40, EDI background, ESI part
         }
         break;
     case 0x20:
-        message[1] = get(bytes, field::broken);
+        message[1] = fields_of(bytes).broken;
         break;
     case 0x7C:
-        if (message[1] == get(bytes, field::anchor))
+        if (message[1] == fields_of(bytes).anchor)
         {
-            set(bytes, field::anchor, 0);
+            fields_of(bytes).anchor = 0;
         }
-        for (size_t slot = 0; slot < field::spawned.count; ++slot)
+        for (size_t slot = 0; slot < fields_of(bytes).spawned.size(); ++slot)
         {
             if (message[1] == spawned(bytes, slot))
             {
@@ -387,20 +396,20 @@ void dispatch_runtime_ghouly_bg_break_setup_message(RuntimeGhoulyBgBreakSetupMes
         const Vec3 position = actor_world_position(setup.actor); // 0x000412A0
         if (read_u16(bytes, 0x1FE) != 0)
         {
-            set(bytes, field::anchor, find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
-                context.bytes_at)); // 0x00129ED0
+            fields_of(bytes).anchor = find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
+                context.bytes_at); // 0x00129ED0
         }
-        u32 background = get(bytes, field::background);
-        i32 part = get(bytes, field::part);
+        u32 background = fields_of(bytes).background;
+        i32 part = fields_of(bytes).part;
         const auto backgrounds = setup.backgrounds();
         if (!find_background_part_near(position, backgrounds, background, part)) // 0x0013B980
         {
-            set(bytes, field::broken, 1);
+            fields_of(bytes).broken = 1;
             break;
         }
-        set(bytes, field::background, background);
-        set(bytes, field::part, part);
-        if (get(bytes, field::hold_part) != 0)
+        fields_of(bytes).background = background;
+        fields_of(bytes).part = part;
+        if (fields_of(bytes).hold_part != 0)
         {
             setup.hold_part(background, part); // 0x00046440, EAX part, EDI background
         }
@@ -423,7 +432,7 @@ void dispatch_runtime_ghouly_bg_break_setup_message(RuntimeGhoulyBgBreakSetupMes
             return message[index] == 0x5F646961 ? name_at(message, index) : nullptr;
         };
         FactoryObject* object = create_runtime_marker_actor(name_at(message, 1), source_position, source_euler, 1.f,
-            aid(0x21), aid(0x61), aid(0x41), get(bytes, field::spawn_tag), 0, position, euler, nullptr, 0, 0,
+            aid(0x21), aid(0x61), aid(0x41), fields_of(bytes).spawn_tag, 0, position, euler, nullptr, 0, 0,
             context.objects); // 0x001349E0, EDX +0x184, ECX +0x104
         if (object == nullptr)
         {
@@ -438,11 +447,11 @@ void dispatch_runtime_ghouly_bg_break_setup_message(RuntimeGhoulyBgBreakSetupMes
         break;
     }
     case 0xA8:
-        if (setup.load == nullptr && (get(bytes, field::unk_A60) == 0 || get(bytes, field::broken) == 0))
+        if (setup.load == nullptr && (fields_of(bytes).unk_A60 == 0 || fields_of(bytes).broken == 0))
         {
-            if (get(bytes, field::broken) == 0)
+            if (fields_of(bytes).broken == 0)
             {
-                field_data(bytes, field::box)[0] = 0;
+                fields_of(bytes).box.data()[0] = 0;
                 send_runtime_bg_break_self_message(setup); // 0x0006B080
             }
             load_runtime_bg_break_box(setup, name_at(message, 1), name_at(message, 0x21),
@@ -497,10 +506,10 @@ void dispatch_runtime_ghouly_bg_break_setup_message(RuntimeGhoulyBgBreakSetupMes
         break;
     }
     case 0xAB:
-        if (message[1] == get(bytes, field::background) && std::bit_cast<i32>(message[2]) == get(bytes, field::part)
-            && get(bytes, field::broken) == 0)
+        if (message[1] == fields_of(bytes).background && std::bit_cast<i32>(message[2]) == fields_of(bytes).part
+            && fields_of(bytes).broken == 0)
         {
-            if (get(bytes, field::grouped) != 0)
+            if (fields_of(bytes).grouped != 0)
             {
                 share_runtime_bg_break_box(setup, context.objects); // 0x0006A170
             }
@@ -508,7 +517,7 @@ void dispatch_runtime_ghouly_bg_break_setup_message(RuntimeGhoulyBgBreakSetupMes
             {
                 break;
             }
-            scare_near_runtime_actor(setup.actor, get(bytes, field::radius), setup.marks(),
+            scare_near_runtime_actor(setup.actor, fields_of(bytes).radius, setup.marks(),
                 setup.message); // 0x0013B660, ESI actor
         }
         break;
@@ -522,14 +531,14 @@ void dispatch_runtime_ghouly_bg_break_setup_message(RuntimeGhoulyBgBreakSetupMes
 void update_runtime_ghouly_bg_break_setup(RuntimeGhoulyBgBreakSetup& context)
 {
     const auto bytes = context.bytes;
-    if (get(bytes, field::grouped) == 0)
+    if (fields_of(bytes).grouped == 0)
     {
         // 0x0006A3F0, EAX setup.
-        if (get(bytes, field::broken) == 0 && get(bytes, field::radius) != 0.f && get(bytes, field::chance) != 0.f)
+        if (fields_of(bytes).broken == 0 && fields_of(bytes).radius != 0.f && fields_of(bytes).chance != 0.f)
         {
             const Vec3 position = actor_world_position(context.actor); // 0x000412A0
             if (spawn_queue_below_maximum(context.spawns()) // 0x0013E790
-                && check_ghouly_spawn_trigger(position, get(bytes, field::radius), get(bytes, field::chance),
+                && check_ghouly_spawn_trigger(position, fields_of(bytes).radius, fields_of(bytes).chance,
                     context.random) == 1) // 0x0013E980
             {
                 send_runtime_bg_break_self_message(context); // 0x0006B080
@@ -540,7 +549,7 @@ void update_runtime_ghouly_bg_break_setup(RuntimeGhoulyBgBreakSetup& context)
     {
         release_ghouly_spawn_record(*context.load); // 0x000F3A00
         context.load = nullptr;
-        set(bytes, field::load, 0);
+        fields_of(bytes).load = 0;
     }
 }
 }

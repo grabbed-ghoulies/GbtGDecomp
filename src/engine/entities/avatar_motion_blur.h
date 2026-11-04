@@ -23,7 +23,7 @@ struct RuntimeAvatarActorViews
 };
 
 // entityAvatarFxMotionBlur (type 15, getter 0x00066900, vtable 0x005049A0) over the avatar actor (type 2): the
-// fading copy of a dying actor. Its bytes and parameters are `avatar_motion_blur_field` and
+// fading copy of a dying actor. Its bytes and parameters are `AvatarMotionBlurState` and
 // `avatar_motion_blur_parameter` (avatar_fields.h). +0x1A0 / +0x1A4 are the draw hooks 0x00066B90 / 0x00066C00 with
 // +0x1A8 the avatar.
 struct RuntimeAvatarMotionBlur
@@ -81,7 +81,7 @@ void start_runtime_avatar_effect(RuntimeAvatarMotionBlur& context, const char* n
     float scale); // Xbox 0x00066AB0
 
 // Type 16 (getter 0x000690A0, vtable 0x00504A54) over the avatar actor (type 2): a copy of an actor's look that
-// fades over its life, the swing trail 0x0013B030 leaves. Its bytes and parameters are `avatar_afterimage_field` and
+// fades over its life, the swing trail 0x0013B030 leaves. Its bytes and parameters are `AvatarAfterimageState` and
 // `avatar_afterimage_parameter` (avatar_fields.h).
 struct RuntimeAvatarAfterimage
 {

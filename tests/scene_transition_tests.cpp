@@ -1386,7 +1386,8 @@ void check_spawn_trigger_and_lifecycle()
     }
     // The swap setup (type 0x26) over its own +0x934..+0xA54 words: 0x0006BCA0, 0x0006C0A0 and 0x0006BC70.
     RequestProbe controller;
-    std::vector<u8> setup_bytes(ghouly_swap_field::kSize);
+    std::vector<u8> setup_bytes(sizeof(GhoulySwapState));
+    GhoulySwapState& setup_state = actor_record_view<GhoulySwapState>(std::span<u8>(setup_bytes));
     Actor setup_actor;
     Actor source;
     source.position = Vec3{5.f, 6.f, 7.f};
@@ -1409,7 +1410,7 @@ void check_spawn_trigger_and_lifecycle()
         {
             return address == 0x5000 ? &source : nullptr;
         }};
-    set(setup_bytes, ghouly_swap_field::source, 0x5000u);
+    setup_state.source = 0x5000u;
     Vec3 source_position;
     Vec3 source_euler;
     Vec3 position;
@@ -1419,10 +1420,10 @@ void check_spawn_trigger_and_lifecycle()
     {
         throw Error("swap setup pose query lost its actual spawn source");
     }
-    set(setup_bytes, ghouly_swap_field::radius, 2.f);
-    set(setup_bytes, ghouly_swap_field::chance, 1.f);
-    std::strcpy(field_data(setup_bytes, ghouly_swap_field::box), "aid_ghoulybox_trigger_test");
-    std::strcpy(field_data(setup_bytes, ghouly_swap_field::attributes), "attributes");
+    setup_state.radius = 2.f;
+    setup_state.chance = 1.f;
+    std::strcpy(setup_state.box.data(), "aid_ghoulybox_trigger_test");
+    std::strcpy(setup_state.attributes.data(), "attributes");
     update_runtime_ghouly_swap_setup(setup);
     if (requests.size() != 1 || requests[0][0] != 0xA8 ||
         std::strcmp(reinterpret_cast<const char*>(requests[0].data() + 1), "aid_ghoulybox_trigger_test") != 0 ||
@@ -1430,25 +1431,25 @@ void check_spawn_trigger_and_lifecycle()
     {
         throw Error("swap setup update did not send its actual queued request");
     }
-    set(setup_bytes, ghouly_swap_field::swapped, 1u);
+    setup_state.swapped = 1u;
     update_runtime_ghouly_swap_setup(setup);
     if (requests.size() != 1)
     {
         throw Error("swap setup update retriggered after its ghouly was made");
     }
     load = allocate_ghouly_spawn_record();
-    set(setup_bytes, ghouly_swap_field::load, 1u);
+    setup_state.load = 1u;
     update_runtime_ghouly_swap_setup(setup);
-    if (load != nullptr || get(setup_bytes, ghouly_swap_field::load) != 0)
+    if (load != nullptr || setup_state.load != 0)
     {
         throw Error("swap setup update retained a completed spawn record");
     }
     const size_t count = g_ghouly_controllers.size();
     g_ghouly_controllers.push_back({123, &controller});
     load = allocate_ghouly_spawn_record();
-    set(setup_bytes, ghouly_swap_field::load, 1u);
+    setup_state.load = 1u;
     destroy_runtime_ghouly_swap_setup(setup);
-    if (load != nullptr || get(setup_bytes, ghouly_swap_field::load) != 0 || g_ghouly_controllers.size() != count)
+    if (load != nullptr || setup_state.load != 0 || g_ghouly_controllers.size() != count)
     {
         throw Error("swap setup shutdown retained its record or registration");
     }
@@ -6347,27 +6348,28 @@ void check_actor_loading()
     parameter_word(0x440, 34);
     parameter_word(0x444, 56);
     u32 random_state = 0;
-    std::vector<u8> probe_bytes(ghouly_swap_field::kSize);
+    std::vector<u8> probe_bytes(sizeof(GhoulySwapState));
+    GhoulySwapState& probe_state = actor_record_view<GhoulySwapState>(std::span<u8>(probe_bytes));
     Actor probe_actor;
     GhoulySpawnRecord* probe_load = nullptr;
     RuntimeGhoulySwapSetup probe_setup{probe_bytes, probe_actor, probe, random_state, probe_load, {}, {}, {}, {}};
-    auto setup_word = [&](auto descriptor)
+    auto setup_word = [&](auto member)
     {
-        return std::bit_cast<u32>(get(probe_bytes, descriptor));
+        return std::bit_cast<u32>(probe_state.*member);
     };
-    set(probe_bytes, ghouly_swap_field::load, 0x1234u);
-    set(probe_bytes, ghouly_swap_field::anchor, 0x1234u);
-    set(probe_bytes, ghouly_swap_field::source, 0x1234u);
+    probe_state.load = 0x1234u;
+    probe_state.anchor = 0x1234u;
+    probe_state.source = 0x1234u;
     g_ghouly_controllers.clear();
     if (!initialize_runtime_ghouly_swap_setup(probe_setup, parameters) ||
         g_ghouly_controllers.size() != 1 || g_ghouly_controllers[0].key != 7 ||
         g_ghouly_controllers[0].controller != &probe || random_state != 0x3C6EF35Fu ||
-        get(probe_bytes, ghouly_swap_field::anchor) != 0 || get(probe_bytes, ghouly_swap_field::source) != 0 ||
-        get(probe_bytes, ghouly_swap_field::load) != 0x1234u ||
-        std::strcmp(field_data(probe_bytes, ghouly_swap_field::box), initial_box) != 0 ||
-        std::strcmp(field_data(probe_bytes, ghouly_swap_field::attributes), initial_attributes) != 0 ||
-        setup_word(ghouly_swap_field::radius) != 12 || setup_word(ghouly_swap_field::chance) != 34 ||
-        setup_word(ghouly_swap_field::unk_A50) != 56)
+        probe_state.anchor != 0 || probe_state.source != 0 ||
+        probe_state.load != 0x1234u ||
+        std::strcmp(probe_state.box.data(), initial_box) != 0 ||
+        std::strcmp(probe_state.attributes.data(), initial_attributes) != 0 ||
+        setup_word(&GhoulySwapState::radius) != 12 || setup_word(&GhoulySwapState::chance) != 34 ||
+        setup_word(&GhoulySwapState::unk_A50) != 56)
     {
         throw Error("swap setup initialization lost registry, random, or parameter fields");
     }
@@ -6380,8 +6382,8 @@ void check_actor_loading()
     random_state = 0;
     initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
     if (g_ghouly_controllers.size() != 1 || random_state != 0x3C6EF35Fu ||
-        setup_word(ghouly_swap_field::radius) != 12 || setup_word(ghouly_swap_field::unk_A50) != 78 ||
-        std::strcmp(field_data(probe_bytes, ghouly_swap_field::box), initial_box) != 0)
+        setup_word(&GhoulySwapState::radius) != 12 || setup_word(&GhoulySwapState::unk_A50) != 78 ||
+        std::strcmp(probe_state.box.data(), initial_box) != 0)
     {
         throw Error("unkeyed or rejected-chance initialization changed the wrong fields");
     }
@@ -6389,7 +6391,7 @@ void check_actor_loading()
     parameter_word(0x438, std::bit_cast<u32>(boundary));
     random_state = 0;
     initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
-    if (setup_word(ghouly_swap_field::radius) != 99)
+    if (setup_word(&GhoulySwapState::radius) != 99)
     {
         throw Error("swap setup chance equality was rejected");
     }
@@ -6397,7 +6399,7 @@ void check_actor_loading()
     parameter_word(0x43C, 100);
     random_state = 0;
     initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
-    if (setup_word(ghouly_swap_field::radius) != 99)
+    if (setup_word(&GhoulySwapState::radius) != 99)
     {
         throw Error("NaN swap setup chance selected a ghoulybox");
     }
@@ -6405,7 +6407,7 @@ void check_actor_loading()
     parameter_word(0x338, 0);
     random_state = 0;
     initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
-    if (setup_word(ghouly_swap_field::radius) != 99 || random_state != 0x3C6EF35Fu)
+    if (setup_word(&GhoulySwapState::radius) != 99 || random_state != 0x3C6EF35Fu)
     {
         throw Error("non-AID box selected parameters or skipped its random draw");
     }
@@ -8537,8 +8539,6 @@ void log_scene_objects(gbtg::Game& game, const std::string& label, int frame)
 // Scene 4_2's breakables: the bg-break keys (type 0x1E), the bg-break setups (type 0x24) and Cooper.
 void log_scene4_breakables(gbtg::Game& game, const std::string& label, int frame)
 {
-    namespace key = gbtg::bg_break_key_field;
-    namespace setup = gbtg::ghouly_bg_break_field;
     if (const auto* steps = gbtg::g_event_sequence.steps; steps != nullptr)
     {
         std::cout << label << " frame " << frame << ": event state " << gbtg::g_event_sequence_state << ", steps";
@@ -8564,16 +8564,16 @@ void log_scene4_breakables(gbtg::Game& game, const std::string& label, int frame
         }
         if (object.type == 0x1E)
         {
-            std::cout << " background 0x" << std::hex << gbtg::get(bytes, key::background) << std::dec << " part "
-                      << gbtg::get(bytes, key::part) << " armed " << gbtg::get(bytes, key::armed) << " active "
-                      << gbtg::get(bytes, key::active);
+            std::cout << " background 0x" << std::hex << gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).background << std::dec << " part "
+                      << gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).part << " armed " << gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).armed << " active "
+                      << gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).active;
         }
         else if (object.type == 0x24)
         {
-            std::cout << " box '" << gbtg::field_data(bytes, setup::box) << "' background 0x" << std::hex
-                      << gbtg::get(bytes, setup::background) << std::dec << " part " << gbtg::get(bytes, setup::part)
-                      << " broken " << gbtg::get(bytes, setup::broken) << " radius " << gbtg::get(bytes, setup::radius)
-                      << " grouped " << gbtg::get(bytes, setup::grouped) << " hold " << gbtg::get(bytes, setup::hold_part);
+            std::cout << " box '" << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).box.data() << "' background 0x" << std::hex
+                      << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).background << std::dec << " part " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).part
+                      << " broken " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).broken << " radius " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).radius
+                      << " grouped " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).grouped << " hold " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).hold_part;
         }
         std::cout << "\n";
     }
@@ -8650,7 +8650,7 @@ void play_scene4_run(gbtg::Game& game, const std::string& label, bool drive)
             if (object.type == 0x1E && object.bytes != nullptr)
             {
                 const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
-                key_active = gbtg::get(bytes, gbtg::bg_break_key_field::active) != 0;
+                key_active = gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).active != 0;
                 if (const gbtg::Actor* actor = actor_of_object(game, object); actor != nullptr)
                 {
                     key_at = gbtg::actor_world_position(*actor);
@@ -10016,7 +10016,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     continue;
                 }
                 const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
-                if (gbtg::get(bytes, gbtg::bg_break_key_field::active) != 0)
+                if (gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).active != 0)
                 {
                     std::cout << label << " frame " << frame << ": the key comes out\n";
                     key_found = true;
@@ -10024,7 +10024,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     break;
                 }
                 const gbtg::Actor* actor = actor_of_object(game, object);
-                if (actor != nullptr && gbtg::get(bytes, gbtg::bg_break_key_field::armed) != 0)
+                if (actor != nullptr && gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).armed != 0)
                 {
                     key_at = gbtg::actor_world_position(*actor);
                 }

@@ -17,7 +17,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = ghouly_swap_field;
+GhoulySwapState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<GhoulySwapState>(bytes);
+}
+
+const GhoulySwapState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<GhoulySwapState>(bytes);
+}
+
 namespace parameter = ghouly_swap_parameter;
 
 const char* name_at(std::span<const u32> message, size_t index)
@@ -33,7 +42,7 @@ const char* aid_at(std::span<const u32> message, size_t index)
 
 Actor& source_of(RuntimeGhoulySwapSetup& context)
 {
-    Actor* source = context.actor_at(get(context.bytes, field::source));
+    Actor* source = context.actor_at(fields_of(context.bytes).source);
     if (source == nullptr)
     {
         throw Error("ghouly swap setup reads the pose of a missing +0x93C actor");
@@ -45,7 +54,7 @@ Actor& source_of(RuntimeGhoulySwapSetup& context)
 // Xbox 0x0006BB10
 void ghouly_swap_setup_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(GhoulySwapState);
     sizes.parameters = parameter::kSize;
 }
 
@@ -77,18 +86,18 @@ bool initialize_runtime_ghouly_swap_setup(RuntimeGhoulySwapSetup& context, std::
         }
         g_ghouly_controllers.push_back({key, &context.controller});
     }
-    set(bytes, field::anchor, 0u);
-    set(bytes, field::source, 0u);
+    fields_of(bytes).anchor = 0u;
+    fields_of(bytes).source = 0u;
     context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
     const float roll = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
     if (roll <= get(parameters, parameter::box_chance) && read_u32(parameters, parameter::box.offset) == 0x5F646961u)
     {
-        std::strcpy(field_data(bytes, field::box), field_data(parameters, parameter::box));
-        std::strcpy(field_data(bytes, field::attributes), field_data(parameters, parameter::attributes));
-        set(bytes, field::radius, get(parameters, parameter::radius));
-        set(bytes, field::chance, get(parameters, parameter::chance));
+        std::strcpy(fields_of(bytes).box.data(), field_data(parameters, parameter::box));
+        std::strcpy(fields_of(bytes).attributes.data(), field_data(parameters, parameter::attributes));
+        fields_of(bytes).radius = get(parameters, parameter::radius);
+        fields_of(bytes).chance = get(parameters, parameter::chance);
     }
-    set(bytes, field::unk_A50, get(parameters, parameter::unk_444));
+    fields_of(bytes).unk_A50 = get(parameters, parameter::unk_444);
     return true;
 }
 
@@ -96,11 +105,11 @@ bool initialize_runtime_ghouly_swap_setup(RuntimeGhoulySwapSetup& context, std::
 void destroy_runtime_ghouly_swap_setup(RuntimeGhoulySwapSetup& context)
 {
     remove_ghouly_controller(&context.controller); // 0x0012ACA0
-    if (get(context.bytes, field::load) != 0)
+    if (fields_of(context.bytes).load != 0)
     {
         release_ghouly_spawn_record(*context.load); // 0x000F3A00
         context.load = nullptr;
-        set(context.bytes, field::load, 0u);
+        fields_of(context.bytes).load = 0u;
     }
 }
 
@@ -111,7 +120,7 @@ bool query_runtime_ghouly_swap_pose(RuntimeGhoulySwapSetup& context, Vec3& sourc
     Actor& source = source_of(context);
     source_position = actor_world_position(source); // 0x000412A0, ESI +0x93C
     source_euler = actor_world_euler(source); // 0x00041820
-    const u32 anchor = get(context.bytes, field::anchor);
+    const u32 anchor = fields_of(context.bytes).anchor;
     if (anchor == 0)
     {
         position = source_position;
@@ -141,21 +150,21 @@ void dispatch_runtime_ghouly_swap_setup_message(RuntimeGhoulySwapSetupMessages& 
     switch (message[0])
     {
     case 0x7C:
-        if (message[1] == get(bytes, field::source))
+        if (message[1] == fields_of(bytes).source)
         {
-            set(bytes, field::source, 0u);
+            fields_of(bytes).source = 0u;
         }
-        if (message[1] == get(bytes, field::anchor))
+        if (message[1] == fields_of(bytes).anchor)
         {
-            set(bytes, field::anchor, 0u);
+            fields_of(bytes).anchor = 0u;
         }
         break;
     case 0x7D:
     {
         if (read_u16(bytes, 0x1FE) != 0)
         {
-            set(bytes, field::anchor, find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
-                context.bytes_at)); // 0x00129ED0, DX +0x1FE
+            fields_of(bytes).anchor = find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
+                context.bytes_at); // 0x00129ED0, DX +0x1FE
         }
         const Vec3 position = actor_world_position(setup.actor); // 0x000412A0
         u32 source = find_runtime_actor_by_link_key(read_u16(bytes, 0x1FC), context.latch_owner,
@@ -167,7 +176,7 @@ void dispatch_runtime_ghouly_swap_setup_message(RuntimeGhoulySwapSetupMessages& 
             const Actor* nearest = find_nearest_spawn_actor(position, nullptr, &distance, 4); // 0x00129D70
             source = nearest == nullptr ? 0u : context.actor_address(*nearest);
         }
-        set(bytes, field::source, source);
+        fields_of(bytes).source = source;
         break;
     }
     case 0xA6:
@@ -202,18 +211,18 @@ void dispatch_runtime_ghouly_swap_setup_message(RuntimeGhoulySwapSetupMessages& 
         if (made)
         {
             context.runtime_flags |= 2;
-            context.retire(get(bytes, field::source)); // 0x00112CC0, ESI +0x93C
-            set(bytes, field::swapped, 1u);
+            context.retire(fields_of(bytes).source); // 0x00112CC0, ESI +0x93C
+            fields_of(bytes).swapped = 1u;
         }
         break;
     }
     case 0xA8:
-        if (get(bytes, field::source) != 0 && actor_can_supply_ghoulybox(source_of(setup)) // 0x00146150
-            && get(bytes, field::load) == 0)
+        if (fields_of(bytes).source != 0 && actor_can_supply_ghoulybox(source_of(setup)) // 0x00146150
+            && fields_of(bytes).load == 0)
         {
             setup.load = load_ghoulybox(name_at(message, 1), context.objects.registry, context.objects.error,
                 setup.random); // 0x000F39A0, EAX message +4
-            set(bytes, field::load, setup.load == nullptr ? 0u : setup.address_of(setup.load));
+            fields_of(bytes).load = setup.load == nullptr ? 0u : setup.address_of(setup.load);
             if (setup.load != nullptr)
             {
                 GhoulySpawnRecord& load = *setup.load;
@@ -236,22 +245,22 @@ void update_runtime_ghouly_swap_setup(RuntimeGhoulySwapSetup& context)
 {
     const auto bytes = context.bytes;
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
-    if (get(bytes, field::swapped) == 0
-        && check_ghouly_spawn_trigger(position, get(bytes, field::radius), get(bytes, field::chance),
+    if (fields_of(bytes).swapped == 0
+        && check_ghouly_spawn_trigger(position, fields_of(bytes).radius, fields_of(bytes).chance,
             context.random) == 1) // 0x0013E980
     {
         // {0xA8, box, attributes} through the setup's own vtable +0xC.
         std::array<u32, 0x42> request{};
         request[0] = 0xA8;
-        std::strcpy(reinterpret_cast<char*>(request.data() + 1), field_data(bytes, field::box));
-        std::strcpy(reinterpret_cast<char*>(request.data() + 0x21), field_data(bytes, field::attributes));
+        std::strcpy(reinterpret_cast<char*>(request.data() + 1), fields_of(bytes).box.data());
+        std::strcpy(reinterpret_cast<char*>(request.data() + 0x21), fields_of(bytes).attributes.data());
         context.self_message(request);
     }
-    if (get(bytes, field::load) != 0 && context.load->remaining_c == 0)
+    if (fields_of(bytes).load != 0 && context.load->remaining_c == 0)
     {
         release_ghouly_spawn_record(*context.load); // 0x000F3A00
         context.load = nullptr;
-        set(bytes, field::load, 0u);
+        fields_of(bytes).load = 0u;
     }
 }
 }

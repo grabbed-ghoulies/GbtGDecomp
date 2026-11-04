@@ -1,4 +1,5 @@
 #pragma once
+#include "scene_control_fields.h"
 #include "cutscene_scene_runtime.h"
 #include "gbtg/object_factory.h"
 #include "gbtg/resource_error.h"
@@ -59,45 +60,10 @@ struct TrophyHeadsControlServices
 namespace trophy_heads_parameter
 {
 constexpr RetailField<std::array<char, 0x80>, 0x08> cutscene{}; // the heads' clip, 0x00081710 starts it
-constexpr RetailField<std::array<char, 0x80>, 0x88> head_events{}; // copied to trophy_heads_field::head_events
+constexpr RetailField<std::array<char, 0x80>, 0x88> head_events{}; // copied to TrophyHeadsControlState::head_events
 constexpr u32 kSize = 0x108;
 static_assert(retail_fits(kSize, head_events));
 } // namespace trophy_heads_parameter
-
-// The trophy-heads control's state at its retail offsets (0x188 bytes, 0x000816A0; see docs/RETAIL_LAYOUTS.md).
-// +0x20 is the scene-control base's scene_control_field::elapsed. The words that hold pointers are
-// TrophyHeadsControlState members, noted here by offset.
-namespace trophy_heads_field
-{
-constexpr u32 kSize = 0x188;
-// +0x28 the heads' cutscene instance (0x0004EDA0); message 0x7F names it
-// The player state 2 spawns (0x00134920); 0 once message 0x8E 7 or 8 retires the player.
-constexpr RetailField<u32, 0x02C> player{};
-constexpr RetailField<i32, 0x030> attacks{}; // attacks so far; 0x00082370 gets the count before this one
-// The player's health, carried between attacks: 50 (10 in the alternate modes) at construction, less 10 for each
-// lost challenge (message 0x8E 8). State 2 gives it to the spawned player's body +0x94.
-constexpr RetailField<i32, 0x034> health{};
-// A clip position the tick seeks to (0x0004E4A0) once, then clears. Inferred: nothing here writes it.
-constexpr RetailField<float, 0x040> seek_time{};
-// 0x00081CE0 sets it; 0x00081890 switches on it: 1 the heads' clip plays, 2 an attack, 3 the clip has ended (event
-// 0xAF each tick), 4 its end is near (the award, paused), 5 the last challenge lost.
-constexpr RetailField<u16, 0x044> phase{};
-// The heads that may attack: up to four ids, -1 past the last (0x000821A0).
-constexpr RetailField<std::array<std::int8_t, 4>, 0x046> chosen{};
-// By head id (1..21): set once the head has attacked. Entry 0, which would overlap chosen, is never used.
-constexpr RetailField<std::array<u32, 22>, 0x048> attacked{};
-// By head id (1..21): set while its cutscene row is live after an attack, cleared when the row goes quiet.
-constexpr RetailField<std::array<u32, 22>, 0x09C> roaring{};
-constexpr RetailField<u32, 0x0F4> head_id{}; // the attacking head; read as a byte where a track id is wanted
-// +0xF8 the attacking head's actor
-// Set while the control holds DAT_00510CEC and DAT_004DEA24 down (0x00081710); 0x00081AD0 and message 0x7F
-// give them back.
-constexpr RetailField<u32, 0x100> pause_held{};
-constexpr RetailField<std::array<char, 0x80>, 0x104> head_events{}; // trophy_heads_parameter::head_events
-// Set from challenge bit 1 at construction, and by state 4: the end-of-clip state 4 and its award are done.
-constexpr RetailField<u32, 0x184> challenge_won{};
-static_assert(retail_fits(kSize, challenge_won));
-} // namespace trophy_heads_field
 
 // The two fields 0x00082440 reads in each record of a cutscene events resource.
 namespace cutscene_event_field
@@ -106,33 +72,58 @@ constexpr RetailField<u16, 0x0C> kind{}; // 0 ends the list; DAT_00423630 gives 
 constexpr RetailField<u16, 0x10> value{}; // kind 0xD: a trophy head's id
 } // namespace cutscene_event_field
 
-// Native state of a trophy-heads control whose retail words are pointers.
+// The trophy-heads control's state at its retail offsets (0x188 bytes, 0x000816A0; see docs/RETAIL_LAYOUTS.md).
 struct TrophyHeadsControlState
 {
-    RuntimeCutsceneInstance* cutscene = nullptr; // +0x28
-    u32 player = 0; // +0x2C, the spawned player's address.
-    Actor* head = nullptr; // +0xF8, the attacking head's actor.
+    // +0x28: the heads' cutscene instance (0x0004EDA0); message 0x7F names it.
+    RuntimeCutsceneInstance* cutscene = nullptr;
+    // +0x2C: the player state 2 spawns (0x00134920), by address; 0 once message 0x8E 7 or 8 retires the player.
+    u32 player = 0;
+    i32 attacks = 0; // +0x30, attacks so far; 0x00082370 gets the count before this one
+    // +0x34: the player's health, carried between attacks: 50 (10 in the alternate modes) at construction, less 10 for
+    // each lost challenge (message 0x8E 8). State 2 gives it to the spawned player's body +0x94.
+    i32 health = 0;
+    // +0x40: A clip position the tick seeks to (0x0004E4A0) once, then clears. Inferred: nothing here writes it.
+    float seek_time = 0.f;
+    // +0x44: 0x00081CE0 sets it; 0x00081890 switches on it: 1 the heads' clip plays, 2 an attack, 3 the clip has ended
+    // (event 0xAF each tick), 4 its end is near (the award, paused), 5 the last challenge lost.
+    u16 phase = 0;
+    // +0x46: the heads that may attack: up to four ids, -1 past the last (0x000821A0).
+    std::array<std::int8_t, 4> chosen{};
+    // +0x48: by head id (1..21): set once the head has attacked. Entry 0, which would overlap chosen, is never used.
+    std::array<u32, 22> attacked{};
+    // +0x9C: by head id (1..21): set while its cutscene row is live after an attack, cleared when the row goes quiet.
+    std::array<u32, 22> roaring{};
+    u32 head_id = 0; // +0xF4, the attacking head; read as a byte where a track id is wanted
+    Actor* head = nullptr; // +0xF8, the attacking head's actor
+    // +0x100: set while the control holds DAT_00510CEC and DAT_004DEA24 down (0x00081710); 0x00081AD0 and message 0x7F
+    // give them back.
+    u32 pause_held = 0;
+    std::array<char, 0x80> head_events{}; // +0x104, trophy_heads_parameter::head_events
+    // +0x184: set from challenge bit 1 at construction, and by state 4: the end-of-clip state 4 and its award are done.
+    u32 challenge_won = 0;
 };
 void trophy_heads_control_object_sizes(ObjectSizes& output); // Xbox 0x000816A0
-bool construct_runtime_trophy_heads_control(std::span<u8> state, std::span<const u8> parameters,
+bool construct_runtime_trophy_heads_control(std::span<const u8> parameters,
     TrophyHeadsControlState& control, TrophyHeadsControlServices& services); // Xbox 0x00081710
-void destroy_runtime_trophy_heads_control(std::span<u8> state,
+void destroy_runtime_trophy_heads_control(TrophyHeadsControlState& control,
     TrophyHeadsControlServices& services); // Xbox 0x00081AD0
 // `reference` is the native pointer a 0x7E/0x7F message carries in its second word.
-void message_runtime_trophy_heads_control(std::span<u8> state, std::span<const u32> message,
+void message_runtime_trophy_heads_control(std::span<const u32> message,
     const void* reference, TrophyHeadsControlState& control, SceneControlInstance& instance,
     SceneControlLists& lists, TrophyHeadsControlServices& services); // Xbox 0x00081B00
-void tick_runtime_trophy_heads_control(std::span<u8> state, TrophyHeadsControlState& control,
+void tick_runtime_trophy_heads_control(SceneControlBase& base, TrophyHeadsControlState& control,
     TrophyHeadsControlServices& services); // Xbox 0x00081890
-void set_runtime_trophy_heads_state(std::span<u8> state, u8 next, TrophyHeadsControlState& control,
+void set_runtime_trophy_heads_state(u8 next, TrophyHeadsControlState& control,
     TrophyHeadsControlServices& services); // Xbox 0x00081CE0
-void choose_runtime_trophy_heads(std::span<u8> state,
+void choose_runtime_trophy_heads(TrophyHeadsControlState& control,
     TrophyHeadsControlServices& services); // Xbox 0x000821A0, ESI state
-u32 accept_runtime_trophy_head(std::span<const u8> state, std::int8_t id,
+u32 accept_runtime_trophy_head(const TrophyHeadsControlState& control, std::int8_t id,
     TrophyHeadsControlServices& services); // Xbox 0x000820D0, AL id
-u32 runtime_trophy_head_has_event(std::span<const u8> state, std::int8_t id,
+u32 runtime_trophy_head_has_event(const TrophyHeadsControlState& control, std::int8_t id,
     TrophyHeadsControlServices& services); // Xbox 0x00082440, EAX state, EDI id
-u32 runtime_trophy_head_chosen(std::span<const u8> state, std::int8_t id); // Xbox 0x00082170, ECX state, DL id
+u32 runtime_trophy_head_chosen(const TrophyHeadsControlState& control,
+    std::int8_t id); // Xbox 0x00082170, ECX state, DL id
 void start_runtime_trophy_head_attack(i32 count, i32 id, Actor* head,
     TrophyHeadsControlServices& services); // Xbox 0x00082370, ECX count, EAX id
 // The scene-control parameters 0x000873A0 builds for type 0x98 (0x1D8 bytes): EAX the block, ECX the first

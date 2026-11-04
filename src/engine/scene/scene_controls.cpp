@@ -97,14 +97,14 @@ bool construct_attract_view(FactoryObject& object, std::span<const u8> parameter
     control.state = state_of(object);
     control.type = object.type;
     control.attract = std::make_unique<AttractControlState>();
-    return construct_runtime_attract_control(state_of(object), parameters, *control.attract,
+    return construct_runtime_attract_control(parameters, *control.attract,
         installing->context.attract_services());
 }
 
 void destroy_attract_view(FactoryObject& object)
 {
     auto& control = installing->instance(object);
-    destroy_runtime_attract_control(state_of(object), *control.attract, installing->context.attract_services());
+    destroy_runtime_attract_control(*control.attract, installing->context.attract_services());
 }
 
 bool construct_gameselect_view(FactoryObject& object, std::span<const u8>)
@@ -130,13 +130,14 @@ bool construct_trophy_heads_view(FactoryObject& object, std::span<const u8> para
     control.state = state_of(object);
     control.type = object.type;
     control.trophy_heads = std::make_unique<TrophyHeadsControlState>();
-    return construct_runtime_trophy_heads_control(state_of(object), parameters, *control.trophy_heads,
+    return construct_runtime_trophy_heads_control(parameters, *control.trophy_heads,
         installing->context.trophy_heads_services());
 }
 
 void destroy_trophy_heads_view(FactoryObject& object)
 {
-    destroy_runtime_trophy_heads_control(state_of(object), installing->context.trophy_heads_services());
+    auto& control = installing->instance(object);
+    destroy_runtime_trophy_heads_control(*control.trophy_heads, installing->context.trophy_heads_services());
 }
 
 bool construct_haunted_chairs_view(FactoryObject& object, std::span<const u8>)
@@ -145,7 +146,7 @@ bool construct_haunted_chairs_view(FactoryObject& object, std::span<const u8>)
     control.state = state_of(object);
     control.type = object.type;
     control.haunted_chairs = std::make_unique<HauntedChairsControlState>();
-    return construct_runtime_haunted_chairs_control(state_of(object));
+    return construct_runtime_haunted_chairs_control(*control.haunted_chairs);
 }
 
 void destroy_haunted_chairs_view(FactoryObject&)
@@ -201,14 +202,15 @@ bool construct_relics_store_view(FactoryObject& object, std::span<const u8>)
     control.state = state_of(object);
     control.type = object.type;
     control.relics_store = std::make_unique<RelicsStoreControlState>();
-    return construct_runtime_relics_store_control(state_of(object), *control.relics_store,
+    return construct_runtime_relics_store_control(scene_control_view<SceneControlBase>(state_of(object)),
+        *control.relics_store,
         installing->context.relics_store_services()); // 0x00081060
 }
 
 void destroy_relics_store_view(FactoryObject& object)
 {
     auto& control = installing->instance(object);
-    destroy_runtime_relics_store_control(state_of(object), *control.relics_store,
+    destroy_runtime_relics_store_control(*control.relics_store,
         installing->context.relics_store_services()); // 0x00081150
 }
 
@@ -616,19 +618,20 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
 {
     if (control.type == 0x92)
     {
-        message_runtime_trophy_heads_control(control.state, words, reference, *control.trophy_heads, control,
+        message_runtime_trophy_heads_control(words, reference, *control.trophy_heads, control,
             context.lists, context.trophy_heads_services());
         return;
     }
     if (control.type == 0x93)
     {
-        message_runtime_haunted_chairs_control(control.state, words, *control.haunted_chairs, control,
+        message_runtime_haunted_chairs_control(words, *control.haunted_chairs, control,
             context.lists, context.haunted_chairs_services());
         return;
     }
     if (control.type == 0x94)
     {
-        message_runtime_relics_store_control(control.state, words, reference, *control.relics_store, control,
+        message_runtime_relics_store_control(scene_control_view<SceneControlBase>(control.state),
+            words, reference, *control.relics_store, control,
             context.lists, context.relics_store_services()); // 0x000811A0
         return;
     }
@@ -655,17 +658,20 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
         tick_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());
         return;
     case 0x9B:
-        tick_runtime_attract_control(control.state, *control.attract, context.attract_services());
+        tick_runtime_attract_control(scene_control_view<SceneControlBase>(control.state),
+            *control.attract, context.attract_services());
         return;
     case 0x92:
-        tick_runtime_trophy_heads_control(control.state, *control.trophy_heads, context.trophy_heads_services());
+        tick_runtime_trophy_heads_control(scene_control_view<SceneControlBase>(control.state),
+            *control.trophy_heads, context.trophy_heads_services());
         return;
     case 0x93:
-        tick_runtime_haunted_chairs_control(control.state, *control.haunted_chairs, control, context.lists,
+        tick_runtime_haunted_chairs_control(scene_control_view<SceneControlBase>(control.state),
+            *control.haunted_chairs, control, context.lists,
             context.haunted_chairs_services());
         return;
     case 0x94:
-        tick_runtime_relics_store_control(control.state, *control.relics_store,
+        tick_runtime_relics_store_control(scene_control_view<SceneControlBase>(control.state), *control.relics_store,
             context.relics_store_services()); // 0x00081080
         return;
     case 0x95:
@@ -727,7 +733,7 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
         draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());
         return;
     case 0x94:
-        draw_runtime_relics_store_control(control.state, *control.relics_store,
+        draw_runtime_relics_store_control(*control.relics_store,
             context.relics_store_services()); // 0x00081310
         return;
     case 0x98:

@@ -196,6 +196,10 @@ For one object type:
 | Walkabout music control (`WalkaboutControlState`, 0x00080570): the playlist word (kept by `SceneControlInstance`), position and count, track, start countdown, timer switch | 0x3C | `src/engine/scene/scene_control_fields.h` |
 | Chapter 2 scene 4 control (`Chapter2Scene4ControlState`, factory type 0x95): phase, wait, morph time | 0x38 | `src/engine/scene/chapter2_scene4_control.h` |
 | Scene fx control (`SceneFxControlState`): scale, radius, count, effect, on and off times, rate, prerun, eight copies (`SceneFxSlot`) | 0x1EC | `src/engine/scene/scene_fx_control.h` |
+| Haunted chairs control (`HauntedChairsControlState`, factory type 0x93; retail 0x74): chairs, their cutscene rows, count, phase | host | `src/engine/scene/haunted_chairs_control.h` |
+| Relics store control (`RelicsStoreControlState`, factory type 0x94; retail 0x5C): walk cutscene, phase, pulses, marker, mummy, player, candle, flame block and its pointer words, pause held | host | `src/engine/scene/relics_store_control.h` |
+| Trophy heads control (`TrophyHeadsControlState`, factory type 0x92; retail 0x188): cutscene, player, attacks, health, seek time, phase, chosen heads, per-head attacked and roaring flags, attacking head, pause hold, head events, challenge won | host | `src/engine/scene/trophy_heads_control.h` |
+| Attract control (`AttractControlState`, factory type 0x9B; retail 0x324): clip, banner text, pool and id, camera, banner time, started, clips and cutscene, clip count, next script | host | `src/engine/scene/attract_control.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -286,6 +290,12 @@ scene fx) are overlays like the body states, on `SceneControlBase`. Those whose 
 them out in the factory bytes on a 64-bit host, so their fields join the host struct that already holds the pointers,
 one struct per control, as `GameSelectControlState` did.
 
+The haunted chairs, relics store, trophy heads and attract controls moved this way. The factory bytes stay allocated at
+the retail size and keep their address, which the relics store and game select use as the control's identity, but only
+`SceneControlBase` is read from them. The trophy heads' `player` had been written to both places and read only from
+the host struct, so the byte copy went. At the retail offsets its `attacked[0]` overlaps `chosen` and `attacked[21]`
+overlaps `roaring[0]`; head ids are never 0, so separate members behave the same. Game select only moved its elapsed.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -300,7 +310,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 |---|---|---|---|
 | Super Scary challenge (factory type 0x98, 0x000842D0) | 0x2C8, parameters 0x1D8 | `super_scary_field`: actor addresses, phase, timers, clip names and placements, shock camera, presses and button row, settle, render swap; `super_scary_parameter`: the construction block | `src/engine/scene/super_scary_control.h` |
 | Scene-control base (factory type 3) | — | `scene_control_field::elapsed` (+0x20) only; the list links at +8, +0x10 and +0x18 are SceneControlInstance members | `src/engine/scene/scene_control_fields.h` |
-| Trophy heads (factory type 0x92, 0x000816A0) | 0x188, parameters 0x108 | `trophy_heads_field`: player, attacks, health, seek time, phase, chosen heads, per-head attacked and roaring flags, attacking head, pause hold, head events name, challenge won; `trophy_heads_parameter`: the clip and events names; `cutscene_event_field`: the two event-record words 0x00082440 reads | `src/engine/scene/trophy_heads_control.h` |
+| Trophy heads parameters (factory type 0x92; the state is in the host struct, above) | parameters 0x108 | `trophy_heads_parameter` | `src/engine/scene/trophy_heads_control.h` |
 | Factory parameter header | — | `object_parameter_field`: size, unk_2, type | `include/gbtg/object_factory.h` |
 | Walk-target and fly-alert parameters (factory types 0x8F and 0x6E; the states are structs, above) | parameters 0x60 | `walk_target_parameter`, `fly_alert_parameter` | `src/engine/entities/body_walk_target_state.h` |
 | Pick-up and lift state parameters (factory types 0x7C and 0x7D; the states are structs, above) | parameters 0x10 / 0x1C | `pickup_state_parameter`, `lift_state_parameter` | `src/engine/entities/body_pickup_state.h` |

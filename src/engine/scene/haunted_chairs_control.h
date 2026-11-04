@@ -1,4 +1,5 @@
 #pragma once
+#include "scene_control_fields.h"
 #include "cutscene_scene_runtime.h"
 #include "../entities/actor_render_registration.h"
 #include "gbtg/object_factory.h"
@@ -16,18 +17,12 @@ struct SceneControlLists;
 // 0x7E (while armed) hides each chair that stands free and drops the other chairs' cutscene rows. When the cutscene
 // has ended (DAT_004E1C34 below 0) the tick shows the free chairs again at their markers, then the control retires.
 // The destroy and +0x14 slots are the empty 0x001628B0.
-namespace haunted_chairs_field
-{
-// +0x24 the chairs' actors (HauntedChairsControlState::chairs).
-constexpr RetailField<std::array<i32, 9>, 0x48> rows{}; // each chair's cutscene row, -1 for none
-constexpr RetailField<i32, 0x6C> count{};
-constexpr RetailField<u32, 0x70> phase{}; // 1 armed (message 1), 2 chairs hidden (0x7E), 3 shown again
-constexpr u32 kSize = 0x74;
-static_assert(retail_fits(kSize, phase));
-} // namespace haunted_chairs_field
 struct HauntedChairsControlState
 {
-    std::array<Actor*, 9> chairs{}; // +0x24
+    std::array<Actor*, 9> chairs{}; // +0x24, the chairs' actors
+    std::array<i32, 9> rows{}; // +0x48, each chair's cutscene row, -1 for none
+    i32 count = 0; // +0x6C
+    u32 phase = 0; // +0x70, 1 armed (message 1), 2 chairs hidden (0x7E), 3 shown again
 };
 struct HauntedChairsControlServices
 {
@@ -39,17 +34,17 @@ struct HauntedChairsControlServices
     std::function<ActorRenderRegistration&(Actor&)> render;
 };
 void haunted_chairs_control_object_sizes(ObjectSizes& output); // Xbox 0x000824D0
-bool construct_runtime_haunted_chairs_control(std::span<u8> state); // Xbox 0x00082540
-void message_runtime_haunted_chairs_control(std::span<u8> state, std::span<const u32> message,
+bool construct_runtime_haunted_chairs_control(HauntedChairsControlState& control); // Xbox 0x00082540
+void message_runtime_haunted_chairs_control(std::span<const u32> message,
     HauntedChairsControlState& control, SceneControlInstance& instance, SceneControlLists& lists,
     HauntedChairsControlServices& services); // Xbox 0x00082560
-void tick_runtime_haunted_chairs_control(std::span<u8> state, HauntedChairsControlState& control,
+void tick_runtime_haunted_chairs_control(SceneControlBase& base, HauntedChairsControlState& control,
     SceneControlInstance& instance, SceneControlLists& lists,
     HauntedChairsControlServices& services); // Xbox 0x00082680
-void gather_runtime_haunted_chairs(std::span<u8> state, HauntedChairsControlState& control,
+void gather_runtime_haunted_chairs(HauntedChairsControlState& control,
     HauntedChairsControlServices& services); // Xbox 0x00082710, ECX state
-void hide_runtime_haunted_chairs(std::span<const u8> state, const HauntedChairsControlState& control,
+void hide_runtime_haunted_chairs(const HauntedChairsControlState& control,
     HauntedChairsControlServices& services); // Xbox 0x00082780
-void show_runtime_haunted_chairs(std::span<const u8> state, const HauntedChairsControlState& control,
+void show_runtime_haunted_chairs(const HauntedChairsControlState& control,
     HauntedChairsControlServices& services); // Xbox 0x00082810
 }

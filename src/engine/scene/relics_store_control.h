@@ -1,4 +1,5 @@
 #pragma once
+#include "scene_control_fields.h"
 #include "cutscene_scene_runtime.h"
 #include "../entities/candle_weapon.h"
 #include "../camera/display_view.h"
@@ -18,28 +19,22 @@ struct SceneControlLists;
 // "sssmummy" ghoulybox to one of six markers, and once a mummy (class 0x22) stands, state 3 puts the candle out, ends
 // the cutscene, spawns the player holding the candle at the view and starts the mummy's attack challenge at the
 // marker's partner. Message 0x8E 1 makes the mummy cheer; 7 and 8 end the challenge.
-namespace relics_store_field
-{
-// +0x24 the walk cutscene (RelicsStoreControlState::cutscene).
-constexpr RetailField<u32, 0x28> phase{}; // 1 waiting, 2 walking, 3 the challenge, 4 the mummy coming
-constexpr RetailField<i32, 0x2C> pulses{}; // the cutscene's 0x13 events so far
-constexpr RetailField<i32, 0x30> marker{}; // 0..5, the DAT_00427600 row the mummy comes to
-// +0x34 the mummy, +0x38 the player, +0x3C the relic candle's actor (RelicsStoreControlState).
-constexpr u32 kFlame = 0x40; // The relic candle's flame block (candle_flame_field), 0x18 bytes.
-constexpr RetailField<u32, 0x58> pause_held{}; // the control holds DAT_00510CEC and DAT_004DEA24 down
-constexpr u32 kSize = 0x5C;
-static_assert(retail_fits(kSize, pause_held));
-} // namespace relics_store_field
 struct RelicsStoreControlState
 {
-    RuntimeCutsceneInstance* cutscene = nullptr; // +0x24
-    u32 mummy = 0; // +0x34, its address.
-    u32 player = 0; // +0x38, its address.
-    Actor* candle = nullptr; // +0x3C
+    RuntimeCutsceneInstance* cutscene = nullptr; // +0x24, the walk cutscene
+    u32 phase = 0; // +0x28, 1 waiting, 2 walking, 3 the challenge, 4 the mummy coming
+    i32 pulses = 0; // +0x2C, the cutscene's 0x13 events so far
+    i32 marker = 0; // +0x30, 0..5, the DAT_00427600 row the mummy comes to
+    u32 mummy = 0; // +0x34, its address
+    u32 player = 0; // +0x38, its address
+    Actor* candle = nullptr; // +0x3C, the relic candle's actor
+    // +0x40: the relic candle's flame block (candle_flame_field). Its pointer words are the four members after it.
+    std::array<u8, 0x18> flame_block{};
     const u8* binding = nullptr; // +0x44
     std::unique_ptr<std::array<u8, 0x98>> light; // The +0x48 slot's record.
     std::span<const u8> flame; // +0x50
     std::span<const u8> glow; // +0x54
+    u32 pause_held = 0; // +0x58, the control holds DAT_00510CEC and DAT_004DEA24 down
 };
 struct RelicsStoreControlServices
 {
@@ -74,22 +69,22 @@ struct RelicsStoreControlServices
     std::function<void(std::span<const u8>)> queue_event; // 0x00116810
 };
 void relics_store_control_object_sizes(ObjectSizes& output); // Xbox 0x00080FF0
-bool construct_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+bool construct_runtime_relics_store_control(SceneControlBase& base, RelicsStoreControlState& control,
     RelicsStoreControlServices& services); // Xbox 0x00081060
-void destroy_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+void destroy_runtime_relics_store_control(RelicsStoreControlState& control,
     RelicsStoreControlServices& services); // Xbox 0x00081150
 // `reference` is the native pointer a 0x7F message carries in its second word.
-void message_runtime_relics_store_control(std::span<u8> state, std::span<const u32> message, const void* reference,
+void message_runtime_relics_store_control(SceneControlBase& base, std::span<const u32> message, const void* reference,
     RelicsStoreControlState& control, SceneControlInstance& instance, SceneControlLists& lists,
     RelicsStoreControlServices& services); // Xbox 0x000811A0
-void tick_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+void tick_runtime_relics_store_control(SceneControlBase& base, RelicsStoreControlState& control,
     RelicsStoreControlServices& services); // Xbox 0x00081080
-void draw_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+void draw_runtime_relics_store_control(RelicsStoreControlState& control,
     RelicsStoreControlServices& services); // Xbox 0x00081310
-void set_runtime_relics_store_state(std::span<u8> state, u8 next, RelicsStoreControlState& control,
+void set_runtime_relics_store_state(SceneControlBase& base, u8 next, RelicsStoreControlState& control,
     RelicsStoreControlServices& services); // Xbox 0x00081330, ESI state
 // The cutscene's 0x13 event: one more pulse, or the mummy's arrival (state 4) at the drawn total.
-void pulse_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+void pulse_runtime_relics_store_control(SceneControlBase& base, RelicsStoreControlState& control,
     RelicsStoreControlServices& services); // Xbox 0x00081630
 // The position of the DAT_00511AA4 actor whose +0x1FC id is `actor`'s +0x1FE.
 Vec3 runtime_relics_store_partner(u32 actor, RelicsStoreControlServices& services); // Xbox 0x00081650, EAX actor

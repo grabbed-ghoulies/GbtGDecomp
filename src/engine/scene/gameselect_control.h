@@ -13,7 +13,7 @@ struct RuntimeDisplaySetupContext;
 struct RuntimeTransitionBook;
 // A game-select control (factory type 0x9A, 300 bytes in retail, 0x000835F0). Members are in retail order with
 // their retail offsets; the words that were pointers are host pointers. +0x20, the scene-control base's elapsed
-// time (scene_control_field::elapsed), stays in the factory object's bytes.
+// time (SceneControlBase::elapsed), stays in the factory object's bytes.
 struct GameSelectControlState
 {
     EntityCamNode camera{}; // +0x24, "gameselect"

@@ -12910,10 +12910,6 @@ int main(int argc, char** argv)
             // later ones (state 8). A closes Crivens' page after each; the heads' cutscene then resumes (state 1).
             std::string title = game.scene_name;
             const std::string scene_script = game.scene_script.name;
-            const auto words = [](const gbtg::SceneControlInstance& control, size_t offset)
-            {
-                return gbtg::read_u32(control.state, offset);
-            };
             int challenges = 0;
             int failures = 0;
             int successes = 0;
@@ -12981,11 +12977,11 @@ int main(int argc, char** argv)
                 }
                 if (const auto* heads = gbtg::find_runtime_scene_control(0x92); heads != nullptr)
                 {
-                    const gbtg::u32 state = gbtg::read_u16(heads->state, 0x44);
+                    const gbtg::u32 state = heads->trophy_heads->phase;
                     if (state != last_heads)
                     {
                         std::cout << "scene6 frame " << frame << ": trophy heads state " << state << ", health "
-                                  << words(*heads, 0x34) << ", attacks " << words(*heads, 0x30) << "\n";
+                                  << heads->trophy_heads->health << ", attacks " << heads->trophy_heads->attacks << "\n";
                         resumed += state == 1 && last_heads != 0xFFFFFFFFu ? 1 : 0;
                         last_heads = state;
                     }

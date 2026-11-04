@@ -19,21 +19,6 @@ u32 word(std::span<const u8> bytes, size_t offset)
     return read_u32(bytes, offset);
 }
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-float real(std::span<const u8> bytes, size_t offset)
-{
-    return std::bit_cast<float>(read_u32(bytes, offset));
-}
-
-void put_real(std::span<u8> bytes, size_t offset, float value)
-{
-    put_word(bytes, offset, std::bit_cast<u32>(value));
-}
-
 // The frame step the tick uses twice: nothing while frozen (DAT_004312DC > 0), else DAT_005096C0 * DAT_004312C4.
 float frame_step(const AttractControlServices& services)
 {
@@ -58,7 +43,7 @@ void attract_control_object_sizes(ObjectSizes& output)
 }
 
 // Xbox 0x00080A30
-bool construct_runtime_attract_control(std::span<u8> state, std::span<const u8> parameters,
+bool construct_runtime_attract_control(std::span<const u8> parameters,
     AttractControlState& control, AttractControlServices& services)
 {
     std::span<const u8> clips;
@@ -86,13 +71,13 @@ bool construct_runtime_attract_control(std::span<u8> state, std::span<const u8> 
             clips = {};
         }
     }
-    put_word(state, 0x2A0, u32(count));
+    control.clip_count = u32(count);
     size_t at = 0;
     char copied;
     do
     {
         copied = char(parameters[0x108 + at]);
-        state[0x2A4 + at] = u8(copied);
+        control.next_script[at] = copied;
         ++at;
     }
     while (copied != 0);
@@ -107,14 +92,14 @@ bool construct_runtime_attract_control(std::span<u8> state, std::span<const u8> 
         resource_error(services.error, 2);
         return false;
     }
-    if (lookup_borrowed_localtext(text, "attract", "StartBanner", reinterpret_cast<char16_t*>(state.data() + 0x28),
+    if (lookup_borrowed_localtext(text, "attract", "StartBanner", control.banner_text.data(),
         services.text) == 0)
     {
         return false;
     }
     release_animation_resource(services.resources, text);
     allocate_dialogue_text_pool(control.banner_pool, 0, 1, 0x180, services.text_pools);
-    show_runtime_attract_banner(state, control, services);
+    show_runtime_attract_banner(control, services);
     initialize_camera_view(control.camera, "attract", 0);
     link_camera_view(0, control.camera);
     ++services.pause_count;
@@ -122,16 +107,16 @@ bool construct_runtime_attract_control(std::span<u8> state, std::span<const u8> 
     {
         return false;
     }
-    put_word(state, 0x24, 0);
+    control.clip = 0;
     control.cutscene = start_scene_cutscene(reinterpret_cast<const char*>(control.clips.data()), 1, 1,
         services.cutscenes);
     show_runtime_attract_bubbles(control, services);
-    put_word(state, 0x294, 0);
+    control.started = 0;
     return true;
 }
 
 // Xbox 0x00080BB0
-void destroy_runtime_attract_control(std::span<u8> state, AttractControlState& control,
+void destroy_runtime_attract_control(AttractControlState& control,
     AttractControlServices& services)
 {
     release_dialogue_text_pool(control.banner_pool, *services.text_pools);
@@ -145,47 +130,46 @@ void destroy_runtime_attract_control(std::span<u8> state, AttractControlState& c
         release_animation_resource(services.resources, control.clips);
         control.clips = {};
     }
-    (void)state;
 }
 
 // Xbox 0x00080C10
-void tick_runtime_attract_control(std::span<u8> state, AttractControlState& control,
+void tick_runtime_attract_control(SceneControlBase& base, AttractControlState& control,
     AttractControlServices& services)
 {
-    put_real(state, 0x20, real(state, 0x20) + frame_step(services));
-    advance_runtime_attract_clip(state, control, services);
-    if (word(state, 0x294) == 0)
+    base.elapsed = base.elapsed + frame_step(services);
+    advance_runtime_attract_clip(control, services);
+    if (control.started == 0)
     {
-        accept_runtime_attract_start(state, services);
+        accept_runtime_attract_start(control, services);
     }
     const float step = frame_step(services);
-    if (0.f < real(state, 0x290))
+    if (0.f < control.banner_time)
     {
-        const float left = real(state, 0x290) - step;
-        put_real(state, 0x290, left);
+        const float left = control.banner_time - step;
+        control.banner_time = left;
         if (left <= 0.f)
         {
-            put_real(state, 0x290, 0.f);
-            show_runtime_attract_banner(state, control, services);
+            control.banner_time = 0.f;
+            show_runtime_attract_banner(control, services);
         }
     }
 }
 
 // Xbox 0x000809C0
-void show_runtime_attract_banner(std::span<u8> state, AttractControlState& control,
+void show_runtime_attract_banner(AttractControlState& control,
     AttractControlServices& services)
 {
     const float cell = float(i32(read_u32(services.font, 0x10)));
     const float y = services.banner_bottom - cell * 1.125f; // DAT_0032B5B4
     const u32 id = create_dialogue_text_record(*control.banner_pool,
-        reinterpret_cast<const char16_t*>(state.data() + 0x28), services.banner_x, y, 1.125f, 1.125f, 4.f, 1, 0, 0,
+        control.banner_text.data(), services.banner_x, y, 1.125f, 1.125f, 4.f, 1, 0, 0,
         services.metrics, services.viewport_width, services.next_text_id, services.random);
-    put_word(state, 0x22C, id);
-    put_real(state, 0x290, 7.f); // DAT_0032B284
+    control.banner = id;
+    control.banner_time = 7.f; // DAT_0032B284
 }
 
 // Xbox 0x00080CB0
-void accept_runtime_attract_start(std::span<u8> state, AttractControlServices& services)
+void accept_runtime_attract_start(AttractControlState& control, AttractControlServices& services)
 {
     char script[0x80]{};
     std::memcpy(script, "aid_script_ghoulies_gameselect_gameselect", 42); // 0x00322B8C
@@ -195,12 +179,12 @@ void accept_runtime_attract_start(std::span<u8> state, AttractControlServices& s
     {
         services.request_script(script);
         services.start_laugh();
-        put_word(state, 0x294, 1);
+        control.started = 1;
     }
 }
 
 // Xbox 0x00080D20
-void advance_runtime_attract_clip(std::span<u8> state, AttractControlState& control,
+void advance_runtime_attract_clip(AttractControlState& control,
     AttractControlServices& services)
 {
     auto& cutscenes = services.cutscenes;
@@ -210,15 +194,15 @@ void advance_runtime_attract_clip(std::span<u8> state, AttractControlState& cont
         if (current.duration <= current.time)
         {
             release_scene_cutscenes(cutscenes);
-            const u32 clip = word(state, 0x24) + 1;
-            put_word(state, 0x24, clip);
-            if (word(state, 0x2A0) <= clip)
+            const u32 clip = control.clip + 1;
+            control.clip = clip;
+            if (control.clip_count <= clip)
             {
-                services.request_script(reinterpret_cast<const char*>(state.data() + 0x2A4));
-                put_word(state, 0x24, 0);
+                services.request_script(control.next_script.data());
+                control.clip = 0;
             }
             control.cutscene = start_scene_cutscene(
-                reinterpret_cast<const char*>(control.clips.data()) + size_t(word(state, 0x24)) * 0x80, 1, 1,
+                reinterpret_cast<const char*>(control.clips.data()) + size_t(control.clip) * 0x80, 1, 1,
                 cutscenes);
             show_runtime_attract_bubbles(control, services);
         }

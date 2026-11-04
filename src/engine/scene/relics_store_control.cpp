@@ -13,7 +13,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = relics_store_field;
 namespace flame_field = candle_flame_field;
 
 constexpr u32 kPulse = 0x00081630; // The walk cutscene's +0x150 callback.
@@ -28,64 +27,64 @@ float frame_step(const RelicsStoreControlServices& services)
     return services.freeze > 0.f ? 0.f : services.dt * services.scene_scale;
 }
 
-RuntimeCandleFlame candle_flame(std::span<u8> state, RelicsStoreControlState& control,
+RuntimeCandleFlame candle_flame(RelicsStoreControlState& control,
     RelicsStoreControlServices& services)
 {
-    return RuntimeCandleFlame{state.subspan(field::kFlame, flame_field::kSize), *control.candle, control.binding,
+    return RuntimeCandleFlame{control.flame_block, *control.candle, control.binding,
         control.light, control.flame, control.glow, services.elapsed(*control.candle), services.candle,
         services.registry, services.error, services.sounds};
 }
 
 // The marker id of the drawn row (DAT_00427600, the low word of each 4-byte row).
-u16 marker_id(std::span<const u8> state, RelicsStoreControlServices& services)
+u16 marker_id(const RelicsStoreControlState& control, RelicsStoreControlServices& services)
 {
-    return read_u16(services.markers, size_t(get(state, field::marker)) * 4);
+    return read_u16(services.markers, size_t(control.marker) * 4);
 }
 
 // The control's hold on the scene's pause counters is given back.
-void release_pause(std::span<u8> state, RelicsStoreControlServices& services)
+void release_pause(RelicsStoreControlState& control, RelicsStoreControlServices& services)
 {
     ++services.pause_count;
     ++services.transition_pause_count;
-    set(state, field::pause_held, 0u);
+    control.pause_held = 0u;
 }
 }
 
 // Xbox 0x00080FF0
 void relics_store_control_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = 0x5C;
     output.parameters = 8;
 }
 
 // Xbox 0x00081060
-bool construct_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+bool construct_runtime_relics_store_control(SceneControlBase& base, RelicsStoreControlState& control,
     RelicsStoreControlServices& services)
 {
-    set_runtime_relics_store_state(state, 1, control, services); // 0x00081330, ESI state
-    set(state, field::pause_held, 0u);
-    set(state, field::pulses, 0);
+    set_runtime_relics_store_state(base, 1, control, services); // 0x00081330, ESI state
+    control.pause_held = 0u;
+    control.pulses = 0;
     return true;
 }
 
 // Xbox 0x00081150
-void destroy_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+void destroy_runtime_relics_store_control(RelicsStoreControlState& control,
     RelicsStoreControlServices& services)
 {
     if (control.candle != nullptr)
     {
-        RuntimeCandleFlame flame = candle_flame(state, control, services);
+        RuntimeCandleFlame flame = candle_flame(control, services);
         put_out_runtime_candle(flame); // 0x000C7260, EDI +0x40
         control.candle = nullptr;
     }
-    if (get(state, field::pause_held) != 0)
+    if (control.pause_held != 0)
     {
-        release_pause(state, services);
+        release_pause(control, services);
     }
 }
 
 // Xbox 0x00081080
-void tick_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+void tick_runtime_relics_store_control(SceneControlBase& base, RelicsStoreControlState& control,
     RelicsStoreControlServices& services)
 {
     if ((services.runtime_flags & 0x400) == 0 && services.gameplay_tick != services.gameplay_mark)
@@ -93,52 +92,52 @@ void tick_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlSt
         services.gameplay_time += frame_step(services);
         services.gameplay_mark = services.gameplay_tick;
     }
-    switch (get(state, field::phase))
+    switch (control.phase)
     {
     case 1:
-        set_runtime_relics_store_state(state, 2, control, services); // 0x00081330
+        set_runtime_relics_store_state(base, 2, control, services); // 0x00081330
         break;
     case 4:
         control.mummy = services.find_class(0x22); // 0x00129EA0, EDX 0x22
         if (control.mummy != 0)
         {
-            set_runtime_relics_store_state(state, 3, control, services); // 0x00081330
+            set_runtime_relics_store_state(base, 3, control, services); // 0x00081330
             break;
         }
         [[fallthrough]];
     case 2:
     {
-        RuntimeCandleFlame flame = candle_flame(state, control, services);
+        RuntimeCandleFlame flame = candle_flame(control, services);
         update_runtime_candle_flame(1.f, 1, flame); // 0x000C7060, EDI +0x40, ECX +0x3C, XMM0 DAT_0032B0F8
         break;
     }
     default:
         break;
     }
-    set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + frame_step(services));
+    base.elapsed = base.elapsed + frame_step(services);
 }
 
 // Xbox 0x00081310
-void draw_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+void draw_runtime_relics_store_control(RelicsStoreControlState& control,
     RelicsStoreControlServices& services)
 {
     if (control.candle != nullptr)
     {
-        RuntimeCandleFlame flame = candle_flame(state, control, services);
+        RuntimeCandleFlame flame = candle_flame(control, services);
         queue_runtime_candle_flame(flame); // 0x000C6C80, EBX +0x3C, EDI +0x40
     }
 }
 
 // Xbox 0x00081630
-void pulse_runtime_relics_store_control(std::span<u8> state, RelicsStoreControlState& control,
+void pulse_runtime_relics_store_control(SceneControlBase& base, RelicsStoreControlState& control,
     RelicsStoreControlServices& services)
 {
-    if (get(state, field::pulses) == get(state, field::marker))
+    if (control.pulses == control.marker)
     {
-        set_runtime_relics_store_state(state, 4, control, services); // 0x00081330
+        set_runtime_relics_store_state(base, 4, control, services); // 0x00081330
         return;
     }
-    set(state, field::pulses, get(state, field::pulses) + 1);
+    control.pulses = control.pulses + 1;
 }
 
 // Xbox 0x00081650, EAX actor
@@ -167,7 +166,7 @@ void start_runtime_relics_store_attack(i32 id, u32 mummy, const Vec3& position, 
 }
 
 // Xbox 0x00081330, ESI state
-void set_runtime_relics_store_state(std::span<u8> state, u8 next, RelicsStoreControlState& control,
+void set_runtime_relics_store_state(SceneControlBase& base, u8 next, RelicsStoreControlState& control,
     RelicsStoreControlServices& services)
 {
     switch (next)
@@ -185,9 +184,9 @@ void set_runtime_relics_store_state(std::span<u8> state, u8 next, RelicsStoreCon
         }
         --services.pause_count;
         --services.transition_pause_count;
-        set(state, field::pause_held, 1u);
+        control.pause_held = 1u;
         control.cutscene->pending[0] = kPulse; // +0x150
-        control.cutscene->pending[1] = services.address_of(state.data()); // +0x154
+        control.cutscene->pending[1] = services.address_of(&base); // +0x154
         auto& runtime = services.cutscenes.bindings.runtime;
         const auto& view = runtime.views.at(control.cutscene->resource);
         auto& rows = runtime.instances.at(control.cutscene);
@@ -198,23 +197,23 @@ void set_runtime_relics_store_state(std::span<u8> state, u8 next, RelicsStoreCon
             throw Error("relics store control: the walk cutscene has no relic candle for 0x000408D0");
         }
         control.binding = find_actor_model_binding(*control.candle, 0); // 0x000408D0, EDI 0
-        const std::span<u8> block = state.subspan(field::kFlame, flame_field::kSize);
+        const std::span<u8> block = control.flame_block;
         set(block, flame_field::lit, 0u);
         control.flame = {};
         control.glow = {};
         set(block, flame_field::light, std::int8_t(-1));
         set(block, flame_field::point_light, -1);
-        RuntimeCandleFlame flame = candle_flame(state, control, services);
+        RuntimeCandleFlame flame = candle_flame(control, services);
         light_runtime_candle(flame); // 0x000C6FB0, EAX +0x40, ECX +0x3C
         update_runtime_candle_flame(1.f, 1, flame); // 0x000C7060, EDI +0x40, XMM0 DAT_0032B0F8, EAX 1
         services.random = services.random * 0x19660Du + 0x3C6EF35Fu;
         const float roll = std::bit_cast<float>((services.random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8
-        set(state, field::marker, i32(roll * 6.f)); // DAT_0032B218; CVTTSS2SI
+        control.marker = i32(roll * 6.f); // DAT_0032B218; CVTTSS2SI
         break;
     }
     case 3:
     {
-        RuntimeCandleFlame flame = candle_flame(state, control, services);
+        RuntimeCandleFlame flame = candle_flame(control, services);
         put_out_runtime_candle(flame); // 0x000C7260, EDI +0x40, stack +0x3C
         control.candle = nullptr;
         Vec3 position = services.view->position; // DAT_005077A8
@@ -227,7 +226,7 @@ void set_runtime_relics_store_state(std::span<u8> state, u8 next, RelicsStoreCon
             release_scene_cutscenes(services.cutscenes); // 0x0004ECE0
         }
         control.player = services.spawn_player("aid_objparams_ghoulies_weapon_candle", position); // 0x00134920
-        const u16 id = marker_id(state, services);
+        const u16 id = marker_id(control, services);
         const u32 marker = services.find_id(id); // 0x00129ED0, DX the row's id
         position = runtime_relics_store_partner(marker, services); // 0x00081650
         start_runtime_relics_store_attack(i32(id), control.mummy, position, services); // 0x000815A0
@@ -240,29 +239,29 @@ void set_runtime_relics_store_state(std::span<u8> state, u8 next, RelicsStoreCon
         message[0] = 0xA8;
         const char* name = "aid_ghoulybox_ghoulies_chapter1_scene10_sssmummy";
         std::memcpy(message.data() + 1, name, std::strlen(name) + 1);
-        services.message(services.find_id(marker_id(state, services)), message); // 0x00129ED0, vtable +0xC
+        services.message(services.find_id(marker_id(control, services)), message); // 0x00129ED0, vtable +0xC
         break;
     }
     default:
         break;
     }
-    set(state, field::phase, u32(next));
+    control.phase = u32(next);
 }
 
 // Xbox 0x000811A0
-void message_runtime_relics_store_control(std::span<u8> state, std::span<const u32> message, const void* reference,
+void message_runtime_relics_store_control(SceneControlBase& base, std::span<const u32> message, const void* reference,
     RelicsStoreControlState& control, SceneControlInstance& instance, SceneControlLists& lists,
     RelicsStoreControlServices& services)
 {
     switch (message[0])
     {
     case 0x7D:
-        set_runtime_relics_store_state(state, 2, control, services); // 0x00081330
+        set_runtime_relics_store_state(base, 2, control, services); // 0x00081330
         break;
     case 0x7F:
-        if (reference == control.cutscene && get(state, field::pause_held) != 0)
+        if (reference == control.cutscene && control.pause_held != 0)
         {
-            release_pause(state, services);
+            release_pause(control, services);
         }
         break;
     case 0x8E:

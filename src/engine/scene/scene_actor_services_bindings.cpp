@@ -2869,7 +2869,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             unbound("relics store pulse for an object outside the scene");
         }
         auto& control = scene.controls->instance(*object);
-        pulse_runtime_relics_store_control(control.state, *control.relics_store, *relics_store_services); // 0x00081630
+        pulse_runtime_relics_store_control(scene_control_view<SceneControlBase>(control.state),
+            *control.relics_store, *relics_store_services); // 0x00081630
     };
     // The scene's effect emitters (factory type 0x97, entitySceneControlFx).
     fx_services = std::make_unique<SceneFxControlServices>(SceneFxControlServices{clock, random, effects,

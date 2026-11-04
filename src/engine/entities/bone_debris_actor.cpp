@@ -17,19 +17,28 @@ namespace gbtg
 {
 namespace
 {
-namespace field = bone_debris_field;
+BoneDebrisState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<BoneDebrisState>(bytes);
+}
+
+const BoneDebrisState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<BoneDebrisState>(bytes);
+}
+
 namespace parameter = bone_debris_parameter;
 
 i32 carried_effect(std::span<const u8> bytes, u32 index)
 {
-    return get(bytes, field::carried_effects).at(index);
+    return fields_of(bytes).carried_effects.at(index);
 }
 
 void set_carried_effect(std::span<u8> bytes, u32 index, i32 slot)
 {
-    auto slots = get(bytes, field::carried_effects);
+    auto slots = fields_of(bytes).carried_effects;
     slots.at(index) = slot;
-    set(bytes, field::carried_effects, slots);
+    fields_of(bytes).carried_effects = slots;
 }
 
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
@@ -104,28 +113,28 @@ void push_debris_particle(EffectParticle& particle, const Vec3& position, const 
 void carry_debris_effect(const Vec3& position, u32 particle, RuntimeBoneDebris& context)
 {
     const auto bytes = context.self.bytes;
-    const u32 carried = get(bytes, field::carried_count);
+    const u32 carried = fields_of(bytes).carried_count;
     if (i32(carried) >= 8)
     {
         return;
     }
     context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
     const float roll = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
-    if (!(get(bytes, field::carry_chance) >= roll))
+    if (!(fields_of(bytes).carry_chance >= roll))
     {
         return;
     }
     g_actor_creation_options.position = position;
     g_actor_creation_options.flags = 1;
-    if (load_actor_effect_stream(field_data(bytes, field::carried_effect), &g_actor_creation_options,
+    if (load_actor_effect_stream(fields_of(bytes).carried_effect.data(), &g_actor_creation_options,
         context.effects) != 0)
     {
         set_carried_effect(bytes, carried, i32(g_last_actor_effect));
-        auto particles = get(bytes, field::carried_particles);
+        auto particles = fields_of(bytes).carried_particles;
         particles.at(carried) = particle;
-        set(bytes, field::carried_particles, particles);
+        fields_of(bytes).carried_particles = particles;
         g_last_actor_effect = -1;
-        set(bytes, field::carried_count, carried + 1);
+        fields_of(bytes).carried_count = carried + 1;
     }
 }
 
@@ -261,9 +270,9 @@ bool initialize_runtime_bone_debris(std::span<const u8> parameters, RuntimeBoneD
     copy_runtime_actor_appearance(context.self, source, field_data(parameters, parameter::appearance),
         context.startup); // 0x0013AE30
     actor_refresh_transform(context.self.actor); // 0x00040DE0
-    set(bytes, field::carry_chance, get(parameters, parameter::carry_chance));
+    fields_of(bytes).carry_chance = get(parameters, parameter::carry_chance);
     const char* name = field_data(parameters, parameter::carried_effect);
-    char* copy = field_data(bytes, field::carried_effect);
+    char* copy = fields_of(bytes).carried_effect.data();
     char character;
     do
     {
@@ -279,7 +288,7 @@ bool initialize_runtime_bone_debris(std::span<const u8> parameters, RuntimeBoneD
     {
         const ActorModel* model = context.self.actor.model; // EBX, actor +0x204.
         const std::span<const u8> words = context.bytes_at(record);
-        std::memcpy(field_data(bytes, field::shader_texture), words.data(), field::shader_texture.size); // 0x00140560
+        std::memcpy(fields_of(bytes).shader_texture.data(), words.data(), sizeof(BoneDebrisState::shader_texture)); // 0x00140560
         if (model == nullptr || model->runtime == nullptr)
         {
             throw Error("bone debris 0x00067EB0 reads the shader texture's model through actor +0x204 with no model");
@@ -287,23 +296,23 @@ bool initialize_runtime_bone_debris(std::span<const u8> parameters, RuntimeBoneD
         context.texture_parameter = create_shader_parameter(*model->runtime,
             reinterpret_cast<const char*>(context.bytes_at(read_u32(words, 0)).data()),
             reinterpret_cast<const char*>(context.bytes_at(read_u32(words, 4)).data())); // 0x000F8540
-        set(bytes, field::texture_parameter, context.texture_parameter != nullptr ? 1u : 0u);
+        fields_of(bytes).texture_parameter = context.texture_parameter != nullptr ? 1u : 0u;
         context.texture = acquire_named_animation_resource(context.startup.registry,
             reinterpret_cast<const char*>(words.data() + 8), context.startup.error); // 0x00035B60
         const u32 texture = context.texture.data() == nullptr ? 0u : context.resource_address(context.texture.data());
-        set(bytes, field::texture, texture);
+        fields_of(bytes).texture = texture;
         if (context.texture_parameter == nullptr)
         {
             throw Error("bone debris 0x00067EB0 binds its texture through a null +0x9D8 parameter (0x000F86F0)");
         }
         set_shader_parameter_texture(*context.texture_parameter, texture, 0, context.texture_bytes); // 0x000F86F0
     }
-    set(bytes, field::stay_time, get(parameters, parameter::stay_time));
-    set(bytes, field::fade_timer, get(parameters, parameter::fade_length));
-    set(bytes, field::fade_length, get(parameters, parameter::fade_length));
-    set(bytes, field::fade_alpha, 0xFF);
-    set(bytes, field::resting, 0);
-    set(bytes, field::dead_actor, get(parameters, parameter::dead_actor));
+    fields_of(bytes).stay_time = get(parameters, parameter::stay_time);
+    fields_of(bytes).fade_timer = get(parameters, parameter::fade_length);
+    fields_of(bytes).fade_length = get(parameters, parameter::fade_length);
+    fields_of(bytes).fade_alpha = 0xFF;
+    fields_of(bytes).resting = 0;
+    fields_of(bytes).dead_actor = get(parameters, parameter::dead_actor);
     dispatch_actor_attachment_records(context.self.state.resource.resource.data(), 0x18, nullptr, nullptr,
         context.callouts, 0); // 0x0003BE20 over actor +0x8C
     const char* sound = field_data(parameters, parameter::sound);
@@ -323,12 +332,12 @@ void destroy_runtime_bone_debris(RuntimeBoneDebris& context)
         release_actor_effect_node(*context.effect, context.effect_release()); // 0x000ED2E0
         context.effect = nullptr;
     }
-    if (get(context.self.bytes, field::texture_parameter) != 0)
+    if (fields_of(context.self.bytes).texture_parameter != 0)
     {
         release_shader_parameter(context.texture_parameter); // 0x000F85D0
         context.texture_parameter = nullptr;
     }
-    if (get(context.self.bytes, field::texture) != 0)
+    if (fields_of(context.self.bytes).texture != 0)
     {
         release_animation_resource(context.startup.registry, context.texture); // 0x00035C00, EBX the texture
         context.texture = {};
@@ -379,11 +388,11 @@ void message_runtime_bone_debris(std::span<const u32> message, RuntimeBoneDebris
         }
         return;
     }
-    if (message[0] == 0x7C && get(bytes, field::dead_actor) == message[1])
+    if (message[0] == 0x7C && fields_of(bytes).dead_actor == message[1])
     {
         auto source = context.actor_at(message[1]);
         take_runtime_actor_sounds(source, context); // 0x00041D90, ECX the dead actor
-        set(bytes, field::dead_actor, 0);
+        fields_of(bytes).dead_actor = 0;
     }
 }
 
@@ -414,41 +423,41 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
     Actor& actor = context.self.actor;
     const float step = runtime_actor_rate(actor) * runtime_frame_step(context.clock);
     update_actor_frame(context.frame, context.frame_context); // 0x000420D0
-    if (get(bytes, field::texture_parameter) != 0)
+    if (fields_of(bytes).texture_parameter != 0)
     {
         advance_shader_parameter(*context.texture_parameter, step, context.texture_bytes); // 0x000F8640
     }
-    if (get(bytes, field::resting) != 0)
+    if (fields_of(bytes).resting != 0)
     {
         // At rest: the pieces stay for +0x93C, then fade out as an after-image.
-        const float stay = get(bytes, field::stay_time);
+        const float stay = fields_of(bytes).stay_time;
         if (stay > 0.f)
         {
             const float left = stay - runtime_actor_rate(actor) * runtime_frame_step(context.clock);
-            set(bytes, field::stay_time, left);
+            fields_of(bytes).stay_time = left;
             if (!(0.f < left))
             {
-                set(bytes, field::stay_time, 0.f);
+                fields_of(bytes).stay_time = 0.f;
                 // 0x0013AF80, EAX actor, with +0x9DC by address.
                 RuntimeActorFade fade{actor, bytes, context.address, context.factory, context.keep, context.default_name};
-                spawn_runtime_actor_fade(2.f, context.address + field::shader_texture.offset, 0, nullptr, fade); // EDI 0
+                spawn_runtime_actor_fade(2.f, context.address + offsetof(BoneDebrisState, shader_texture), 0, nullptr, fade); // EDI 0
                 activate_actor_bind_tree(actor); // 0x00112CC0
             }
         }
         return;
     }
-    if (get(bytes, field::fade_timer) > 0.f)
+    if (fields_of(bytes).fade_timer > 0.f)
     {
-        const float fade = get(bytes, field::fade_timer);
+        const float fade = fields_of(bytes).fade_timer;
         const float rate = runtime_actor_rate(actor) * runtime_frame_step(context.clock);
         bool alpha = true;
         if (fade > 0.f)
         {
             const float left = fade - rate;
-            set(bytes, field::fade_timer, left);
+            fields_of(bytes).fade_timer = left;
             if (!(0.f < left))
             {
-                set(bytes, field::fade_timer, 0.f);
+                fields_of(bytes).fade_timer = 0.f;
                 activate_actor_bind_tree(actor); // 0x00112CC0
                 alpha = false;
             }
@@ -457,11 +466,11 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
         {
             constexpr float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
             constexpr float half_pi = std::bit_cast<float>(0x3FC90FDBu); // DAT_0032B140.
-            const float phase = float(static_cast<long double>(get(bytes, field::fade_timer))
-                / get(bytes, field::fade_length)
+            const float phase = float(static_cast<long double>(fields_of(bytes).fade_timer)
+                / fields_of(bytes).fade_length
                 * pi - half_pi);
             const long double wave = (retail_sin(phase) + 1.0L) * 127.5L; // 0x00153320, DAT_0032B678.
-            set(bytes, field::fade_alpha, u32(truncate_runtime_float(wave))); // 0x001673D8
+            fields_of(bytes).fade_alpha = u32(truncate_runtime_float(wave)); // 0x001673D8
         }
     }
     if (!(step > 0.f))
@@ -472,7 +481,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
     context.tick_effect(effect, runtime_frame_step(context.clock)); // 0x000EF2D0
     const auto header = background_part_header(actor);
     const u32 groups = header.data() == nullptr ? 0 : header[0];
-    set(bytes, field::resting, 1);
+    fields_of(bytes).resting = 1;
     u32 carried = 0;
     i32 particle = 0;
     for (u32 group = 0; group < groups; ++group)
@@ -487,7 +496,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
         {
             const EffectParticle& piece = debris_particle(context, particle);
             const u8 resting = piece.stopped;
-            set(bytes, field::resting, get(bytes, field::resting) != 0 && resting != 0 ? 1 : 0);
+            fields_of(bytes).resting = fields_of(bytes).resting != 0 && resting != 0 ? 1 : 0;
             const Vec3 position = piece.position;
             const Vec3 euler = piece.euler;
             ActorMatrixRecord& row = matrix_row(context, joints[index]);
@@ -516,15 +525,15 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
             wrap_runtime_euler_angles(wrapped); // 0x001059B0, ESI the row's euler
             row.euler = wrapped;
             row.active = 1;
-            if (get(bytes, field::landed) == 0 && piece.collisions != 0 && piece.unk_55 == 0
+            if (fields_of(bytes).landed == 0 && piece.collisions != 0 && piece.unk_55 == 0
                 && context.collision_normal.y > 0.75f) // DAT_00506928, DAT_0032B2AC.
             {
-                set(bytes, field::landed, 1);
+                fields_of(bytes).landed = 1;
                 dispatch_actor_attachment_records(context.self.state.resource.resource.data(), 0x16, nullptr,
                     nullptr, context.callouts, 0); // 0x0003BE20 over actor +0x8C
             }
-            if (i32(get(bytes, field::carried_count)) > particle
-                && i32(get(bytes, field::carried_particles).at(carried)) == particle)
+            if (i32(fields_of(bytes).carried_count) > particle
+                && i32(fields_of(bytes).carried_particles.at(carried)) == particle)
             {
                 const i32 slot = carried_effect(bytes, carried);
                 if (slot != -1)
@@ -557,7 +566,7 @@ void update_runtime_bone_debris(RuntimeBoneDebris& context)
             ++particle;
         }
     }
-    if (get(bytes, field::resting) != 0)
+    if (fields_of(bytes).resting != 0)
     {
         refresh_actor_model_matrices(actor, context.matrices.matrices, 1, context.boundaries); // 0x00040200
         bytes[0x298] = 1;
@@ -603,7 +612,7 @@ u32 draw_runtime_bone_debris(i32 kind, RuntimeBoneDebrisDraw& draw, RuntimeBoneD
     {
         refresh_actor_model_matrices(actor, context.matrices.matrices, 0, context.boundaries); // 0x00040200
     }
-    if (get(context.self.bytes, field::fade_alpha) != 0xFF)
+    if (fields_of(context.self.bytes).fade_alpha != 0xFF)
     {
         return draw_runtime_bone_debris_fade(kind, draw, context); // Tail jump, EAX actor, ECX kind.
     }

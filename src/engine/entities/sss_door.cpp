@@ -18,14 +18,17 @@ namespace gbtg
 {
 namespace
 {
-namespace field = sss_door_field;
-namespace parameter = sss_door_parameter;
-
-template <u32 Offset>
-const char* text(RuntimeSssDoor& context, RetailRecord<Offset, 0x80> name)
+SssDoorState& fields_of(std::span<u8> bytes)
 {
-    return reinterpret_cast<const char*>(record(context.bytes, name).data());
+    return actor_record_view<SssDoorState>(bytes);
 }
+
+const SssDoorState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<SssDoorState>(bytes);
+}
+
+namespace parameter = sss_door_parameter;
 
 void copy_text(std::span<u8> target, const u8* source)
 {
@@ -75,7 +78,7 @@ void wait_out_of_sight(RuntimeSssDoor& context)
 // Xbox 0x00071180
 void sss_door_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(SssDoorState);
     sizes.parameters = parameter::kSize;
 }
 
@@ -83,29 +86,29 @@ void sss_door_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_sss_door(RuntimeSssDoor& context, std::span<const u8> parameters)
 {
     auto bytes = context.bytes;
-    set(bytes, field::reach, get(parameters, parameter::reach));
-    copy_text(record(bytes, field::first_clip), record(parameters, parameter::first_clip).data());
-    copy_text(record(bytes, field::second_clip), record(parameters, parameter::second_clip).data());
-    set(bytes, field::reusable, get(parameters, parameter::reusable));
-    set(bytes, field::door, get(parameters, parameter::door));
-    set(bytes, field::face_player, get(parameters, parameter::face_player));
-    set(bytes, field::move_player, get(parameters, parameter::move_player));
+    fields_of(bytes).reach = get(parameters, parameter::reach);
+    copy_text(retail_bytes(fields_of(bytes).first_clip), record(parameters, parameter::first_clip).data());
+    copy_text(retail_bytes(fields_of(bytes).second_clip), record(parameters, parameter::second_clip).data());
+    fields_of(bytes).reusable = get(parameters, parameter::reusable);
+    fields_of(bytes).door = get(parameters, parameter::door);
+    fields_of(bytes).face_player = get(parameters, parameter::face_player);
+    fields_of(bytes).move_player = get(parameters, parameter::move_player);
     const float chance = context.restarting == 1 ? get(parameters, parameter::restart_chance)
                                                  : get(parameters, parameter::chance);
     context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
     const float roll = std::bit_cast<float>((context.random & 0x7FFFFF) | 0x3F800000u) - 1.f; // DAT_0032B0F8
     if (roll > chance)
     {
-        if (get(bytes, field::reusable) == 0)
+        if (fields_of(bytes).reusable == 0)
         {
             return false;
         }
         wait_out_of_sight(context);
-        set(bytes, field::phase, 4u);
+        fields_of(bytes).phase = 4u;
         return true;
     }
     wait_out_of_sight(context);
-    set(bytes, field::phase, 0u);
+    fields_of(bytes).phase = 0u;
     return true;
 }
 
@@ -114,13 +117,13 @@ void update_runtime_sss_door(RuntimeSssDoor& context, const std::function<void()
 {
     auto bytes = context.bytes;
     Actor& actor = context.view.bat.actor;
-    switch (get(bytes, field::phase))
+    switch (fields_of(bytes).phase)
     {
     case 0:
         if (runtime_sss_door_triggered(context)) // 0x00071640, EBX actor
         {
             const Vec3 position = actor_world_position(actor); // 0x000412A0
-            if (get(bytes, field::door) != 0)
+            if (fields_of(bytes).door != 0)
             {
                 close_runtime_door_nearest(position, context.doors()); // 0x0005C130, EDI position
             }
@@ -128,18 +131,18 @@ void update_runtime_sss_door(RuntimeSssDoor& context, const std::function<void()
             const std::array<u32, 4> message{0x37, std::bit_cast<u32>(where.x), std::bit_cast<u32>(where.y),
                 std::bit_cast<u32>(where.z)};
             broadcast_actor_world_message(message); // 0x00122CE0, EDI the message
-            if (get(bytes, field::reusable) == 0)
+            if (fields_of(bytes).reusable == 0)
             {
                 register_actor_render_bins(context.view.render); // 0x0003CAE0
             }
             release_runtime_actor_animation_slot(context.view.animation, 0); // 0x0003B340, ECX 0
             start_named_animation(context, "out"); // 0x0031C38C
-            set(bytes, field::timer, 0.001f); // DAT_0032B1A4
-            set(bytes, field::phase, 1u);
+            fields_of(bytes).timer = 0.001f; // DAT_0032B1A4
+            fields_of(bytes).phase = 1u;
         }
         break;
     case 1:
-        if (const Actor* player = context.player(); player != nullptr && get(bytes, field::face_player) != 0)
+        if (const Actor* player = context.player(); player != nullptr && fields_of(bytes).face_player != 0)
         {
             const Vec3 euler{0.f, runtime_actor_angle_toward(*player, actor), 0.f}; // 0x00041900, EAX player
             wrap_runtime_euler(euler, actor.euler); // 0x00105AA0, EDI actor +0x14
@@ -149,16 +152,16 @@ void update_runtime_sss_door(RuntimeSssDoor& context, const std::function<void()
         {
             start_runtime_sss_door_challenge(context); // 0x00071750, EAX actor
             start_named_animation(context, "scare"); // 0x0031C638
-            set(bytes, field::phase, 2u);
+            fields_of(bytes).phase = 2u;
         }
         break;
     case 3:
         if (actor_animation_completed(context.view.animation, 0)) // 0x0003B290, EAX actor, ECX 0
         {
-            if (get(bytes, field::reusable) != 0)
+            if (fields_of(bytes).reusable != 0)
             {
                 wait_out_of_sight(context);
-                set(bytes, field::phase, 4u);
+                fields_of(bytes).phase = 4u;
                 break;
             }
             activate_actor_bind_tree(actor); // 0x00112CC0, ESI actor
@@ -176,7 +179,7 @@ void dispatch_runtime_sss_door_message(RuntimeSssDoor& context, std::span<u32> m
     context.base_message(message); // 0x0003EF70
     if (message[0] == 0x23)
     {
-        if (get(context.bytes, field::reusable) == 0)
+        if (fields_of(context.bytes).reusable == 0)
         {
             unregister_actor_render_bins(context.view.render); // 0x0003CBB0, EDI actor
             unregister_actor_segment_probes(context.view.render); // 0x0003E850, EAX actor
@@ -184,10 +187,10 @@ void dispatch_runtime_sss_door_message(RuntimeSssDoor& context, std::span<u32> m
         }
         return;
     }
-    if (message[0] == 0x8E && get(context.bytes, field::phase) == 2 && (message[1] == 7 || message[1] == 8))
+    if (message[0] == 0x8E && fields_of(context.bytes).phase == 2 && (message[1] == 7 || message[1] == 8))
     {
         start_named_animation(context, "in"); // 0x0031C390
-        set(context.bytes, field::phase, 3u);
+        fields_of(context.bytes).phase = 3u;
     }
 }
 
@@ -209,7 +212,7 @@ bool runtime_sss_door_triggered(RuntimeSssDoor& context)
     {
         return false;
     }
-    const float reach = get(context.bytes, field::reach);
+    const float reach = fields_of(context.bytes).reach;
     if (0.f >= reach)
     {
         return true;
@@ -223,7 +226,7 @@ bool runtime_sss_door_triggered(RuntimeSssDoor& context)
     {
         return false;
     }
-    if (get(context.bytes, field::door) == 0)
+    if (fields_of(context.bytes).door == 0)
     {
         return true;
     }
@@ -241,9 +244,9 @@ void start_runtime_sss_door_challenge(RuntimeSssDoor& context)
     const Vec3 spawn{float(static_cast<long double>(across) + position.x), position.y,
         float(static_cast<long double>(position.z) + along)};
     std::array<u8, 0x1D8> parameters{};
-    build_runtime_scene_challenge_parameters(parameters, text(context, field::first_clip),
-        context.address_of(actor), -1.f, -1.f, nullptr, &spawn, get(context.bytes, field::move_player), nullptr, 0, 0,
-        0, text(context, field::second_clip), context.runtime_flags); // 0x000873A0
+    build_runtime_scene_challenge_parameters(parameters, fields_of(context.bytes).first_clip.data(),
+        context.address_of(actor), -1.f, -1.f, nullptr, &spawn, fields_of(context.bytes).move_player, nullptr, 0, 0,
+        0, fields_of(context.bytes).second_clip.data(), context.runtime_flags); // 0x000873A0
     context.create_object(parameters); // 0x00107520
 }
 }

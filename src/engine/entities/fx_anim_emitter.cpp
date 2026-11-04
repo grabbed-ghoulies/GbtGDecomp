@@ -21,6 +21,16 @@ namespace gbtg
 {
 namespace
 {
+AnimEmitterState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<AnimEmitterState>(bytes);
+}
+
+const AnimEmitterState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<AnimEmitterState>(bytes);
+}
+
 constexpr std::array<u32, 3> random_powerup_kinds{0x11, 0xE, 4}; // DAT_0030E220.
 
 float actor_step(const RuntimeFxAnimEmitter& context)
@@ -34,7 +44,7 @@ ActorAttachmentEventContext emitter_callouts(RuntimeFxAnimEmitter& context)
     const ActorAttachmentEventContext& callouts = context.base.callouts;
     return ActorAttachmentEventContext{callouts.actor, callouts.attachments, callouts.effects, callouts.factory,
         callouts.resources, callouts.objects, callouts.actor_address, callouts.linked_records,
-        record(context.bytes, anim_emitter_field::callout_tokens)};
+        context.bytes.subspan(offsetof(AnimEmitterState, callout_count), 0x24)};
 }
 
 // The inlined 0x0003AAA0/0x0003A9E0 pair that restarts the "wait" animation (0x0031CB4C).
@@ -76,7 +86,7 @@ float pulse_size(float phase)
 // Xbox 0x00109DB0
 void fx_anim_emitter_object_sizes(ObjectSizes& output)
 {
-    output.instance = anim_emitter_field::kSize;
+    output.instance = sizeof(AnimEmitterState);
     output.parameters = anim_emitter_parameter::kSize;
 }
 
@@ -101,26 +111,26 @@ bool initialize_runtime_fx_anim_emitter(std::span<const u8> parameters, RuntimeF
         return false;
     }
     std::span<u8> bytes = context.bytes;
-    set(bytes, anim_emitter_field::kind, kind);
-    set(bytes, anim_emitter_field::amount, get(parameters, anim_emitter_parameter::amount));
-    set(bytes, anim_emitter_field::extra, get(parameters, anim_emitter_parameter::extra));
-    set(bytes, anim_emitter_field::id, get(parameters, anim_emitter_parameter::id));
-    set(bytes, anim_emitter_field::sprite_alpha, 0xC0);
+    fields_of(bytes).kind = kind;
+    fields_of(bytes).amount = get(parameters, anim_emitter_parameter::amount);
+    fields_of(bytes).extra = get(parameters, anim_emitter_parameter::extra);
+    fields_of(bytes).id = get(parameters, anim_emitter_parameter::id);
+    fields_of(bytes).sprite_alpha = 0xC0;
     if (kind == 0x10)
     {
         context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
         const float fraction = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
         const i32 index = _mm_cvttss_si32(_mm_set_ss(fraction * -3.f)); // DAT_0032B1A8.
-        set(bytes, anim_emitter_field::kind, random_powerup_kinds[size_t(-index)]);
+        fields_of(bytes).kind = random_powerup_kinds[size_t(-index)];
     }
     if (std::memcmp(field_data(parameters, anim_emitter_parameter::sprite), "aid_", 4) == 0)
     {
         context.sprite = acquire_named_animation_resource(context.registry,
             field_data(parameters, anim_emitter_parameter::sprite), context.error);
-        set(bytes, anim_emitter_field::sprite_width, 1.f);
-        set(bytes, anim_emitter_field::sprite_height, 1.f);
+        fields_of(bytes).sprite_width = 1.f;
+        fields_of(bytes).sprite_height = 1.f;
     }
-    set(bytes, anim_emitter_field::state, 1);
+    fields_of(bytes).state = 1;
     start_wait_animation(context);
     return true;
 }
@@ -129,12 +139,12 @@ bool initialize_runtime_fx_anim_emitter(std::span<const u8> parameters, RuntimeF
 void release_runtime_fx_emitter_attachments(RuntimeFxAnimEmitter& context)
 {
     std::span<u8> bytes = context.bytes;
-    for (i32 index = 0; index < get(bytes, anim_emitter_field::callout_count); ++index)
+    for (i32 index = 0; index < fields_of(bytes).callout_count; ++index)
     {
-        remove_runtime_body_attachment(u16(get(bytes, anim_emitter_field::callout_ids).at(size_t(index))),
+        remove_runtime_body_attachment(u16(fields_of(bytes).callout_ids.at(size_t(index))),
             context.attachment_lists);
     }
-    set(bytes, anim_emitter_field::callout_count, 0);
+    fields_of(bytes).callout_count = 0;
 }
 
 // Xbox 0x0010A120
@@ -164,22 +174,22 @@ void launch_runtime_fx_anim_emitter(std::span<const u32, 3> landing, RuntimeFxAn
 {
     std::span<u8> bytes = context.bytes;
     const Vec3 origin = actor_world_position(context.actor);
-    set(bytes, anim_emitter_field::origin, origin);
-    set(bytes, anim_emitter_field::landing, Vec3{std::bit_cast<float>(landing[0]), std::bit_cast<float>(landing[1]),
-        std::bit_cast<float>(landing[2])});
-    if (get(bytes, anim_emitter_field::kind) == 1)
+    fields_of(bytes).origin = origin;
+    fields_of(bytes).landing = Vec3{std::bit_cast<float>(landing[0]), std::bit_cast<float>(landing[1]),
+        std::bit_cast<float>(landing[2])};
+    if (fields_of(bytes).kind == 1)
     {
-        field_data(bytes, anim_emitter_field::landing)->y += 2.f; // DAT_0032B110.
+        fields_of(bytes).landing.y += 2.f; // DAT_0032B110.
     }
-    set(bytes, anim_emitter_field::bounces, 0);
-    set(bytes, anim_emitter_field::flight_timer, 0.75f); // DAT_0032B2AC.
+    fields_of(bytes).bounces = 0;
+    fields_of(bytes).flight_timer = 0.75f; // DAT_0032B2AC.
     if (context.address + 0x8Cu != 0)
     {
         ActorAttachmentEventContext callouts = emitter_callouts(context);
         dispatch_actor_attachment_records(context.resource.resource.data(), 0x4A, record_runtime_body_attachment_event,
-            nullptr, callouts, context.address + anim_emitter_field::callout_tokens.offset);
+            nullptr, callouts, context.address + offsetof(AnimEmitterState, callout_count));
     }
-    set(bytes, anim_emitter_field::state, 0);
+    fields_of(bytes).state = 0;
     if (context.animation.controller != nullptr)
     {
         release_animation_controller(context.animation.controller, false, context.registry);
@@ -244,26 +254,26 @@ void update_runtime_fx_emitter_flight(RuntimeFxAnimEmitter& context)
 {
     std::span<u8> bytes = context.bytes;
     Actor& actor = context.actor;
-    if (get(bytes, anim_emitter_field::bounces) == 0)
+    if (fields_of(bytes).bounces == 0)
     {
         const float step = runtime_frame_step(context.clock);
         const float rate = runtime_actor_rate(actor);
         bool landed = false;
-        const float timer = get(bytes, anim_emitter_field::flight_timer);
+        const float timer = fields_of(bytes).flight_timer;
         if (timer > 0.f)
         {
             const float remaining = timer - rate * step;
-            set(bytes, anim_emitter_field::flight_timer, remaining);
+            fields_of(bytes).flight_timer = remaining;
             if (0.f >= remaining)
             {
-                set(bytes, anim_emitter_field::flight_timer, 0.f);
+                fields_of(bytes).flight_timer = 0.f;
                 landed = true;
             }
         }
         const float progress =
-            1.f - get(bytes, anim_emitter_field::flight_timer) * std::bit_cast<float>(0x3FAAAAABu); // DAT_0032B3C0.
-        const Vec3 origin = get(bytes, anim_emitter_field::origin);
-        const Vec3 landing = get(bytes, anim_emitter_field::landing);
+            1.f - fields_of(bytes).flight_timer * std::bit_cast<float>(0x3FAAAAABu); // DAT_0032B3C0.
+        const Vec3 origin = fields_of(bytes).origin;
+        const Vec3 landing = fields_of(bytes).landing;
         Vec3 position{(landing.x - origin.x) * progress + origin.x, (landing.y - origin.y) * progress + origin.y,
             (landing.z - origin.z) * progress + origin.z};
         const float angle = progress * std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
@@ -276,7 +286,7 @@ void update_runtime_fx_emitter_flight(RuntimeFxAnimEmitter& context)
             ActorAttachmentEventContext& callouts = context.base.callouts;
             dispatch_actor_resource_callout(context.resource, 0xC, nullptr, callouts);
             actor.anchor = Vec3{0.f, 15.f, 0.f}; // DAT_0032B214.
-            set(bytes, anim_emitter_field::bounces, get(bytes, anim_emitter_field::bounces) + 1);
+            fields_of(bytes).bounces = fields_of(bytes).bounces + 1;
         }
         return;
     }
@@ -288,12 +298,12 @@ void update_runtime_fx_emitter_flight(RuntimeFxAnimEmitter& context)
     velocity.y = velocity.y - delta * 50.f; // DAT_0032B1E0.
     const Vec3 position = actor_world_position(actor);
     Vec3 next{velocity.x * delta + position.x, velocity.y * delta + position.y, velocity.z * delta + position.z};
-    const float floor = get(bytes, anim_emitter_field::landing).y;
+    const float floor = fields_of(bytes).landing.y;
     if (floor > next.y && 0.f > velocity.y)
     {
-        const u32 bounces = get(bytes, anim_emitter_field::bounces) + 1;
+        const u32 bounces = fields_of(bytes).bounces + 1;
         next.y = floor;
-        set(bytes, anim_emitter_field::bounces, bounces);
+        fields_of(bytes).bounces = bounces;
         if (i32(bounces) >= 3)
         {
             velocity = Vec3{0.f, 0.f, 0.f};
@@ -308,10 +318,10 @@ void update_runtime_fx_emitter_flight(RuntimeFxAnimEmitter& context)
     actor_set_world_position(actor, next);
     if (settled)
     {
-        clear_runtime_player_attachment_events(record(bytes, anim_emitter_field::callout_tokens),
+        clear_runtime_player_attachment_events(bytes.subspan(offsetof(AnimEmitterState, callout_count), 0x24),
             context.attachment_lists);
         actor.anchor = context.base.callouts.effects.default_position; // DAT_0050DD80.
-        set(bytes, anim_emitter_field::state, 1);
+        fields_of(bytes).state = 1;
         start_wait_animation(context);
     }
 }
@@ -400,8 +410,8 @@ u32 collect_runtime_fx_anim_emitter(const EntityCylinderBound& bounds, RuntimeFx
     dispatch_actor_resource_callout(context.resource, 0x16, nullptr, context.base.callouts);
     dispatch_actor_resource_callout(context.resource, 0x48, nullptr, context.base.callouts);
     dispatch_actor_resource_callout(player.resource, 0x49, nullptr, player.callouts);
-    context.award(get(bytes, anim_emitter_field::id), player, get(bytes, anim_emitter_field::kind),
-        get(bytes, anim_emitter_field::amount), get(bytes, anim_emitter_field::extra));
+    context.award(fields_of(bytes).id, player, fields_of(bytes).kind,
+        fields_of(bytes).amount, fields_of(bytes).extra);
     std::array<u8, 0x354> parameters{};
     build_runtime_emitter_burst_parameters(parameters, context.actor, context.address, 1.f, context.default_name);
     set(parameters, avatar_afterimage_parameter::alpha, bytes[0x19B]);
@@ -423,8 +433,8 @@ u32 collect_runtime_fx_anim_emitter(const EntityCylinderBound& bounds, RuntimeFx
         release_animation_controller(context.animation.controller, false, context.registry);
         context.animation.controller = nullptr;
     }
-    set(bytes, anim_emitter_field::fade_timer, 1.f);
-    set(bytes, anim_emitter_field::state, 2);
+    fields_of(bytes).fade_timer = 1.f;
+    fields_of(bytes).state = 2;
     return 1;
 }
 
@@ -458,7 +468,7 @@ void scan_runtime_fx_emitter_players(RuntimeFxAnimEmitter& context)
         {
             continue;
         }
-        if (get(context.bytes, anim_emitter_field::kind) == 1 || (context.story_byte & 0x80) != 0)
+        if (fields_of(context.bytes).kind == 1 || (context.story_byte & 0x80) != 0)
         {
             if (collect_runtime_fx_anim_emitter(bounds, *player, context) != 0)
             {
@@ -484,34 +494,33 @@ void update_runtime_fx_anim_emitter(RuntimeFxAnimEmitter& context)
 {
     std::span<u8> bytes = context.bytes;
     update_actor_frame(context.frame, context.frame_context);
-    const float first = actor_step(context) + get(bytes, anim_emitter_field::pulse_phase);
-    set(bytes, anim_emitter_field::pulse_phase, first);
-    const float second = actor_step(context) + get(bytes, anim_emitter_field::second_pulse_phase);
-    set(bytes, anim_emitter_field::second_pulse_phase, second);
+    const float first = actor_step(context) + fields_of(bytes).pulse_phase;
+    fields_of(bytes).pulse_phase = first;
+    const float second = actor_step(context) + fields_of(bytes).second_pulse_phase;
+    fields_of(bytes).second_pulse_phase = second;
     if (first > 1.f)
     {
-        float phase = get(bytes, anim_emitter_field::pulse_phase);
+        float phase = fields_of(bytes).pulse_phase;
         do
         {
             phase = phase - 1.f;
         } while (phase > 1.f);
-        set(bytes, anim_emitter_field::pulse_phase, phase);
+        fields_of(bytes).pulse_phase = phase;
     }
     if (second > 1.5f) // DAT_0032B210.
     {
-        float phase = get(bytes, anim_emitter_field::second_pulse_phase);
+        float phase = fields_of(bytes).second_pulse_phase;
         do
         {
             phase = phase - 1.5f;
         } while (phase > 1.5f);
-        set(bytes, anim_emitter_field::second_pulse_phase, phase);
+        fields_of(bytes).second_pulse_phase = phase;
     }
     const float tau = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
-    set(bytes, anim_emitter_field::sprite_width, pulse_size(get(bytes, anim_emitter_field::pulse_phase) * tau));
+    fields_of(bytes).sprite_width = pulse_size(fields_of(bytes).pulse_phase * tau);
     const float two_thirds = std::bit_cast<float>(0x3F2AAAABu); // DAT_0032B204.
-    set(bytes, anim_emitter_field::sprite_height,
-        pulse_size(get(bytes, anim_emitter_field::second_pulse_phase) * two_thirds * tau));
-    switch (get(bytes, anim_emitter_field::state))
+    fields_of(bytes).sprite_height = pulse_size(fields_of(bytes).second_pulse_phase * two_thirds * tau);
+    switch (fields_of(bytes).state)
     {
     case 0:
         update_runtime_fx_emitter_flight(context);
@@ -521,17 +530,17 @@ void update_runtime_fx_anim_emitter(RuntimeFxAnimEmitter& context)
         return;
     case 2:
     {
-        const float timer = get(bytes, anim_emitter_field::fade_timer);
+        const float timer = fields_of(bytes).fade_timer;
         if (timer > 0.f)
         {
             const float remaining = timer - actor_step(context);
-            set(bytes, anim_emitter_field::fade_timer, remaining);
+            fields_of(bytes).fade_timer = remaining;
             if (0.f >= remaining)
             {
-                set(bytes, anim_emitter_field::fade_timer, 0.f);
+                fields_of(bytes).fade_timer = 0.f;
             }
         }
-        float alpha = get(bytes, anim_emitter_field::fade_timer) * 192.f; // DAT_0032B454.
+        float alpha = fields_of(bytes).fade_timer * 192.f; // DAT_0032B454.
         if (alpha > 192.f)
         {
             alpha = 192.f;
@@ -541,7 +550,7 @@ void update_runtime_fx_anim_emitter(RuntimeFxAnimEmitter& context)
             alpha = 0.f;
         }
         const i32 value = _mm_cvttss_si32(_mm_set_ss(alpha));
-        set(bytes, anim_emitter_field::sprite_alpha, u32(value));
+        fields_of(bytes).sprite_alpha = u32(value);
         if (!runtime_actor_sound_playing(context.actor, context.sounds) && value == 0)
         {
             activate_actor_bind_tree(context.actor);
@@ -580,17 +589,17 @@ u32 draw_runtime_fx_anim_emitter(i32 kind, RuntimeFxEmitterDraw& draw, RuntimeFx
 {
     std::span<u8> bytes = context.bytes;
     u32 result = 0;
-    if (get(bytes, anim_emitter_field::state) != 2)
+    if (fields_of(bytes).state != 2)
     {
         result = draw_runtime_actor(draw.state, kind, draw.attachments, draw.scene);
     }
     if (context.sprite.data() != nullptr && kind == 2)
     {
-        const std::array<float, 2> size{get(bytes, anim_emitter_field::sprite_width) * 5.f,
-            get(bytes, anim_emitter_field::sprite_height) * 5.f}; // DAT_0032B184.
+        const std::array<float, 2> size{fields_of(bytes).sprite_width * 5.f,
+            fields_of(bytes).sprite_height * 5.f}; // DAT_0032B184.
         // DAT_00314F48 with the alpha byte.
         const u32 color =
-            (0xFFFFFFFFu & 0x00FFFFFFu) | (u32(field_byte(bytes, anim_emitter_field::sprite_alpha, 0)) << 24);
+            (0xFFFFFFFFu & 0x00FFFFFFu) | ((fields_of(bytes).sprite_alpha & 0xFFu) << 24);
         Vec3 point;
         actor_transform_joint_point(context.actor, 0, context.base.callouts.effects.default_position, point); // DAT_0050DD80.
         point.y = float(static_cast<long double>(context.actor.radius_y) * 2.5f // DAT_0032B20C.

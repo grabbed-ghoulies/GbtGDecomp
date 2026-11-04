@@ -18,7 +18,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = spider_web_field;
+SpiderWebState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<SpiderWebState>(bytes);
+}
+
+const SpiderWebState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<SpiderWebState>(bytes);
+}
+
 
 // DAT_00427430: how far a new web sits off its surface; each web placed raises it by 0.0375 up to 0.5, then it
 // starts again at 0.2, so overlapping webs do not fight.
@@ -70,7 +79,7 @@ Vec3 read_vec3(std::span<const u8> bytes, size_t offset)
 // Xbox 0x000704B0
 void spider_web_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(SpiderWebState);
     sizes.parameters = spider_web_parameter::kSize;
 }
 
@@ -93,9 +102,9 @@ bool initialize_runtime_spider_web(RuntimeSpiderWeb& context)
             joint = i32(found);
         }
     }
-    set(context.bytes, field::joint, joint);
-    set(context.bytes, field::flat, 1u);
-    set(context.bytes, field::state, 0u);
+    fields_of(context.bytes).joint = joint;
+    fields_of(context.bytes).flat = 1u;
+    fields_of(context.bytes).state = 0u;
     start_named_animation(context, "expand"); // 0x0031C3E0
     return true;
 }
@@ -104,13 +113,13 @@ bool initialize_runtime_spider_web(RuntimeSpiderWeb& context)
 void update_runtime_spider_web(RuntimeSpiderWeb& context, RuntimeSpiderWebUpdate& update)
 {
     update.update_actor(); // 0x000420D0
-    const u32 state = get(context.bytes, field::state);
+    const u32 state = fields_of(context.bytes).state;
     if (state == 0)
     {
         snare_runtime_spider_web_players(context, update.players()); // 0x00070780
         if (runtime_actor_animation_slot_complete(context.animation, 0)) // 0x0003B290, ECX 0
         {
-            set_runtime_spider_web_state(context, get(context.bytes, field::flat) == 0 ? 2u : 1u); // 0x00070720
+            set_runtime_spider_web_state(context, fields_of(context.bytes).flat == 0 ? 2u : 1u); // 0x00070720
         }
         return;
     }
@@ -120,14 +129,14 @@ void update_runtime_spider_web(RuntimeSpiderWeb& context, RuntimeSpiderWebUpdate
         const float step = runtime_frame_step(update.clock);
         const float rate = runtime_actor_rate(context.actor); // +0x930, +0x92C
         bool ended = false;
-        const float timer = get(context.bytes, field::timer);
+        const float timer = fields_of(context.bytes).timer;
         if (timer > 0.f)
         {
             const float left = timer - rate * step;
-            set(context.bytes, field::timer, left);
+            fields_of(context.bytes).timer = left;
             if (!(0.f < left))
             {
-                set(context.bytes, field::timer, 0.f);
+                fields_of(context.bytes).timer = 0.f;
                 ended = true;
             }
         }
@@ -135,7 +144,7 @@ void update_runtime_spider_web(RuntimeSpiderWeb& context, RuntimeSpiderWebUpdate
         {
             return;
         }
-        set(context.bytes, field::state, 2u);
+        fields_of(context.bytes).state = 2u;
         start_named_animation(context, "shrink"); // 0x0031C3D8
         return;
     }
@@ -168,14 +177,14 @@ void dispatch_runtime_spider_web_message(RuntimeSpiderWeb& context, std::span<u3
 // Xbox 0x00070720
 void set_runtime_spider_web_state(RuntimeSpiderWeb& context, u32 state)
 {
-    set(context.bytes, field::state, state);
+    fields_of(context.bytes).state = state;
     if (state == 0)
     {
         start_named_animation(context, "expand"); // 0x0031C3E0
     }
     else if (state == 1)
     {
-        set(context.bytes, field::timer, 5.f); // DAT_0032B184
+        fields_of(context.bytes).timer = 5.f; // DAT_0032B184
     }
     else if (state == 2)
     {
@@ -187,8 +196,8 @@ void set_runtime_spider_web_state(RuntimeSpiderWeb& context, u32 state)
 void snare_runtime_spider_web_players(RuntimeSpiderWeb& context,
     const std::vector<RuntimeSegmentContactActor*>& players)
 {
-    const i32 joint = get(context.bytes, field::joint);
-    if (joint == -1 || get(context.bytes, field::flat) == 0)
+    const i32 joint = fields_of(context.bytes).joint;
+    if (joint == -1 || fields_of(context.bytes).flat == 0)
     {
         return;
     }
@@ -271,9 +280,9 @@ void place_runtime_spider_web(RuntimeSpiderWeb& context, std::span<const u32> me
     const u8* record = entity_detail::g_segment_slots[0].pool.begin; // DAT_00511A20 + 4.
     Vec3 normal = read_vec3({record, 0x54}, 0xC);
     const float upright = 0.9f; // DAT_0032B174.
-    set(context.bytes, field::flat, upright < normal.y ? 1u : 0u);
+    fields_of(context.bytes).flat = upright < normal.y ? 1u : 0u;
     float top = hit.y;
-    if (get(context.bytes, field::flat) != 0 || (record[0x20] & 8) != 0)
+    if (fields_of(context.bytes).flat != 0 || (record[0x20] & 8) != 0)
     {
         // Four probes straight down around the hit, 5 above to 5 below; the surface's normal is the average of
         // the normals found, only the upright ones once two are, and without the first hit's once three are.
@@ -336,7 +345,7 @@ void place_runtime_spider_web(RuntimeSpiderWeb& context, std::span<const u32> me
                 top = samples[size_t(index)].y;
             }
         }
-        set(context.bytes, field::flat, upright < normal.y ? 1u : 0u);
+        fields_of(context.bytes).flat = upright < normal.y ? 1u : 0u;
     }
     const float lift = g_spider_web_lift;
     const Vec3 placed{normal.x * lift + hit.x, lift * normal.y + top, normal.z * lift + hit.z};

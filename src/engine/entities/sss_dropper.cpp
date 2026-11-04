@@ -21,14 +21,17 @@ namespace gbtg
 {
 namespace
 {
-namespace field = sss_dropper_field;
-namespace parameter = sss_dropper_parameter;
-
-template <u32 Offset>
-const char* text(RuntimeSssDropper& context, RetailRecord<Offset, 0x80> name)
+SssDropperState& fields_of(std::span<u8> bytes)
 {
-    return reinterpret_cast<const char*>(record(context.bytes, name).data());
+    return actor_record_view<SssDropperState>(bytes);
 }
+
+const SssDropperState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<SssDropperState>(bytes);
+}
+
+namespace parameter = sss_dropper_parameter;
 
 void copy_text(std::span<u8> target, const u8* source)
 {
@@ -91,7 +94,7 @@ float clamp_between(float value, float first, float second)
 // Xbox 0x00071800
 void sss_dropper_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(SssDropperState);
     sizes.parameters = parameter::kSize;
 }
 
@@ -107,12 +110,12 @@ bool initialize_runtime_sss_dropper(RuntimeSssDropper& context, std::span<const 
         return false;
     }
     auto bytes = context.bytes;
-    set(bytes, field::reach, get(parameters, parameter::reach));
-    set(bytes, field::target, get(parameters, parameter::target));
-    set(bytes, field::start, actor_world_position(context.view.bat.actor)); // 0x000412A0, EDI +0x938
-    copy_text(record(bytes, field::first_clip), record(parameters, parameter::first_clip).data());
-    copy_text(record(bytes, field::second_clip), record(parameters, parameter::second_clip).data());
-    set(bytes, field::phase, 0u);
+    fields_of(bytes).reach = get(parameters, parameter::reach);
+    fields_of(bytes).target = get(parameters, parameter::target);
+    fields_of(bytes).start = actor_world_position(context.view.bat.actor); // 0x000412A0, EDI +0x938
+    copy_text(retail_bytes(fields_of(bytes).first_clip), record(parameters, parameter::first_clip).data());
+    copy_text(retail_bytes(fields_of(bytes).second_clip), record(parameters, parameter::second_clip).data());
+    fields_of(bytes).phase = 0u;
     return true;
 }
 
@@ -121,7 +124,7 @@ void update_runtime_sss_dropper(RuntimeSssDropper& context, const std::function<
 {
     auto bytes = context.bytes;
     Actor& actor = context.view.bat.actor;
-    switch (get(bytes, field::phase))
+    switch (fields_of(bytes).phase)
     {
     case 0:
         if (runtime_sss_dropper_triggered(context)) // 0x00072100
@@ -133,7 +136,7 @@ void update_runtime_sss_dropper(RuntimeSssDropper& context, const std::function<
     {
         const float step = runtime_actor_step(actor, context.clock);
         const Actor* player = context.player();
-        float trail = get(bytes, field::trail_timer);
+        float trail = fields_of(bytes).trail_timer;
         if (context.timer_elapsed(trail)) // 0x00042360, EAX +0x960
         {
             std::array<u8, 0x354> burst{};
@@ -145,17 +148,17 @@ void update_runtime_sss_dropper(RuntimeSssDropper& context, const std::function<
             context.create_object(burst); // 0x00107520
             trail = 1.f / 15.f; // DAT_0032B128
         }
-        set(bytes, field::trail_timer, trail);
-        set(bytes, field::fall_speed, get(bytes, field::fall_speed) - step * 500.f); // DAT_0032B64C
+        fields_of(bytes).trail_timer = trail;
+        fields_of(bytes).fall_speed = fields_of(bytes).fall_speed - step * 500.f; // DAT_0032B64C
         Vec3 position = actor_world_position(actor); // 0x000412A0
-        float timer = get(bytes, field::timer);
+        float timer = fields_of(bytes).timer;
         context.timer_elapsed(timer); // 0x00042360, EAX +0x95C
-        set(bytes, field::timer, timer);
+        fields_of(bytes).timer = timer;
         const float fraction = (timer - 0.2f) * -5.f; // DAT_0032B1AC, DAT_0032B37C
-        const Vec3 start = get(bytes, field::start);
-        const Vec3 target = get(bytes, field::target);
+        const Vec3 start = fields_of(bytes).start;
+        const Vec3 target = fields_of(bytes).target;
         position.x = clamp_between((target.x - start.x) * fraction + start.x, start.x, target.x);
-        position.y = get(bytes, field::fall_speed) * step + position.y;
+        position.y = fields_of(bytes).fall_speed * step + position.y;
         position.z = clamp_between((target.z - start.z) * fraction + start.z, start.z, target.z);
         if (target.y > position.y)
         {
@@ -175,7 +178,7 @@ void update_runtime_sss_dropper(RuntimeSssDropper& context, const std::function<
         if (actor_animation_completed(context.view.animation, 0)) // 0x0003B290, EAX actor, ECX 0
         {
             start_named_animation(context, "scare"); // 0x0031C638
-            set(bytes, field::phase, 3u);
+            fields_of(bytes).phase = 3u;
         }
         break;
     case 3:
@@ -183,14 +186,14 @@ void update_runtime_sss_dropper(RuntimeSssDropper& context, const std::function<
     case 4:
     {
         const float step = runtime_frame_step(context.clock);
-        float timer = get(bytes, field::timer);
+        float timer = fields_of(bytes).timer;
         if (timer > 0.f)
         {
             timer -= step;
-            set(bytes, field::timer, timer);
+            fields_of(bytes).timer = timer;
             if (!(0.f < timer))
             {
-                set(bytes, field::timer, 0.f);
+                fields_of(bytes).timer = 0.f;
                 if (actor_animation_completed(context.view.animation, 0)) // 0x0003B290, EAX actor, ECX 0
                 {
                     activate_actor_bind_tree(actor); // 0x00112CC0, ESI actor
@@ -200,9 +203,9 @@ void update_runtime_sss_dropper(RuntimeSssDropper& context, const std::function<
         }
         // Back up toward the start over the 5 s (DAT_0032B184, DAT_0032B274).
         Vec3 position = actor_world_position(actor); // 0x000412A0
-        const float top = get(bytes, field::start).y;
-        const float bottom = get(bytes, field::target).y;
-        const float fraction = (get(bytes, field::timer) - 5.f) * -0.2f;
+        const float top = fields_of(bytes).start.y;
+        const float bottom = fields_of(bytes).target.y;
+        const float fraction = (fields_of(bytes).timer - 5.f) * -0.2f;
         position.y = clamp_between((top - bottom) * fraction + bottom, bottom, top);
         actor_set_world_position(actor, position); // 0x00041730, ESI position, EDI actor
         break;
@@ -224,12 +227,12 @@ void dispatch_runtime_sss_dropper_message(RuntimeSssDropper& context, std::span<
         clear_actor_shape_probe(context.view.bat.actor, context.view.shape); // 0x0003C700
         return;
     }
-    if (message[0] == 0x8E && get(context.bytes, field::phase) == 3 && (message[1] == 7 || message[1] == 8))
+    if (message[0] == 0x8E && fields_of(context.bytes).phase == 3 && (message[1] == 7 || message[1] == 8))
     {
         change_runtime_actor_pause(u8(0xFFFF), 1, context.pause()); // 0x00117400
         start_named_animation(context, "leapoff"); // 0x0031C394
-        set(context.bytes, field::timer, 5.f); // DAT_0032B184
-        set(context.bytes, field::phase, 4u);
+        fields_of(context.bytes).timer = 5.f; // DAT_0032B184
+        fields_of(context.bytes).phase = 4u;
     }
 }
 
@@ -262,9 +265,9 @@ void set_runtime_sss_dropper_phase(RuntimeSssDropper& context, u32 phase)
         }
         register_actor_render_bins(context.view.render); // 0x0003CAE0
         start_named_animation(context, "drop"); // 0x0031C3A4
-        set(bytes, field::fall_speed, 0.f);
-        set(bytes, field::timer, 0.2f); // DAT_0032B1AC
-        set(bytes, field::trail_timer, 0.001f); // DAT_0032B1A4
+        fields_of(bytes).fall_speed = 0.f;
+        fields_of(bytes).timer = 0.2f; // DAT_0032B1AC
+        fields_of(bytes).trail_timer = 0.001f; // DAT_0032B1A4
         break;
     }
     case 2:
@@ -281,12 +284,12 @@ void set_runtime_sss_dropper_phase(RuntimeSssDropper& context, u32 phase)
     case 4:
         change_runtime_actor_pause(u8(0xFFFF), 1, context.pause()); // 0x00117400
         start_named_animation(context, "leapoff"); // 0x0031C394
-        set(bytes, field::timer, 5.f); // DAT_0032B184
+        fields_of(bytes).timer = 5.f; // DAT_0032B184
         break;
     default:
         break;
     }
-    set(bytes, field::phase, phase);
+    fields_of(bytes).phase = phase;
 }
 
 // Xbox 0x00072100, EBX actor
@@ -307,7 +310,7 @@ bool runtime_sss_dropper_triggered(RuntimeSssDropper& context)
     {
         return false;
     }
-    const float reach = get(context.bytes, field::reach);
+    const float reach = fields_of(context.bytes).reach;
     if (0.f >= reach)
     {
         return true;
@@ -324,9 +327,9 @@ bool runtime_sss_dropper_triggered(RuntimeSssDropper& context)
 void start_runtime_sss_dropper_challenge(RuntimeSssDropper& context)
 {
     std::array<u8, 0x1D8> parameters{};
-    build_runtime_scene_challenge_parameters(parameters, text(context, field::first_clip),
+    build_runtime_scene_challenge_parameters(parameters, fields_of(context.bytes).first_clip.data(),
         context.address_of(context.view.bat.actor), -1.f, -1.f, nullptr, nullptr, 0, nullptr, 0, 0, 0,
-        text(context, field::second_clip), context.runtime_flags); // 0x000873A0
+        fields_of(context.bytes).second_clip.data(), context.runtime_flags); // 0x000873A0
     context.create_object(parameters); // 0x00107520
 }
 }

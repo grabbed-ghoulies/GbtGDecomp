@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_base_messages.h"
 #include "actor_frame_update.h"
 #include "actor_frame_render.h"
@@ -36,29 +38,32 @@ static_assert(retail_fits(kSize, id));
 } // namespace anim_emitter_parameter
 
 // entityAvatarFxAnimEmitter's own part (0x934..0x9E4). The list link (+0x934) and sprite (+0x994) are native views.
-namespace anim_emitter_field
+struct AnimEmitterState
 {
-constexpr RetailField<u32, 0x93C> state{}; // 0 in flight, 1 waiting to be collected, 2 collected and fading
-constexpr RetailField<u32, 0x940> kind{};
-constexpr RetailField<float, 0x944> amount{};
-constexpr RetailField<u32, 0x948> extra{};
-constexpr RetailField<u32, 0x94C> id{};
-// The callout tokens 0x0013B7C0 records for callouts 0x4A (a count and up to eight tokens, 0x24 bytes).
-constexpr RetailRecord<0x950, 0x24> callout_tokens{};
-constexpr RetailField<i32, 0x950> callout_count{};
-constexpr RetailField<std::array<u32, 8>, 0x954> callout_ids{};
-constexpr RetailField<Vec3, 0x974> origin{}; // where the flight started
-constexpr RetailField<Vec3, 0x980> landing{}; // its y is the floor it bounces on
-constexpr RetailField<float, 0x98C> flight_timer{};
-constexpr RetailField<u32, 0x990> bounces{};
-constexpr RetailField<float, 0x998> sprite_width{};
-constexpr RetailField<float, 0x99C> sprite_height{};
-constexpr RetailField<float, 0x9A0> pulse_phase{}; // wraps at 1
-constexpr RetailField<float, 0x9A4> second_pulse_phase{}; // wraps at 1.5
-constexpr RetailField<u32, 0x9A8> sprite_alpha{}; // its low byte is the sprite's alpha
-constexpr RetailField<float, 0x9AC> fade_timer{};
-constexpr u32 kSize = 0x9E4;
-} // namespace anim_emitter_field
+    ActorBytes base{}; // +0
+    std::array<u8, 8> unk_934{}; // +0x934, never read or written by translated code
+    u32 state = 0; // +0x93C, 0 in flight, 1 waiting to be collected, 2 collected and fading
+    u32 kind = 0; // +0x940
+    float amount = 0.f; // +0x944
+    u32 extra = 0; // +0x948
+    u32 id = 0; // +0x94C
+    // +0x950: the callout tokens 0x0013B7C0 records for callouts 0x4A (a count and up to eight tokens, 0x24 bytes).
+    i32 callout_count = 0;
+    std::array<u32, 8> callout_ids{}; // +0x954
+    Vec3 origin{}; // +0x974, where the flight started
+    Vec3 landing{}; // +0x980, its y is the floor it bounces on
+    float flight_timer = 0.f; // +0x98C
+    u32 bounces = 0; // +0x990
+    std::array<u8, 4> unk_994{}; // +0x994, never read or written by translated code
+    float sprite_width = 0.f; // +0x998
+    float sprite_height = 0.f; // +0x99C
+    float pulse_phase = 0.f; // +0x9A0, wraps at 1
+    float second_pulse_phase = 0.f; // +0x9A4, wraps at 1.5
+    u32 sprite_alpha = 0; // +0x9A8, its low byte is the sprite's alpha
+    float fade_timer = 0.f; // +0x9AC
+    std::array<u8, 52> unk_9B0{}; // +0x9B0, never read or written by translated code
+};
+static_assert(sizeof(AnimEmitterState) == 0x9E4);
 
 // entityAvatarFxAnimEmitter (type 0xD, vtable 0x0050E108) over the avatar actor (type 2).
 struct RuntimeFxAnimEmitter

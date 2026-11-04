@@ -16,14 +16,17 @@ namespace gbtg
 {
 namespace
 {
-namespace field = scare_figure_field;
-namespace parameter = scare_figure_parameter;
-
-template <u32 Offset>
-const char* text(RuntimeScareFigure& context, RetailRecord<Offset, 0x80> name)
+ScareFigureState& fields_of(std::span<u8> bytes)
 {
-    return reinterpret_cast<const char*>(record(context.bytes, name).data());
+    return actor_record_view<ScareFigureState>(bytes);
 }
+
+const ScareFigureState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<ScareFigureState>(bytes);
+}
+
+namespace parameter = scare_figure_parameter;
 
 void copy_name(std::span<const u8> source, std::span<u8> target)
 {
@@ -38,7 +41,7 @@ void copy_name(std::span<const u8> source, std::span<u8> target)
 // Message 0xB2 to the players: {0xB2, ended, +0xB7C}.
 void tell_players(u32 ended, RuntimeScareFigure& context)
 {
-    const std::array<u32, 3> message{0xB2, ended, get(context.bytes, field::scare_word)};
+    const std::array<u32, 3> message{0xB2, ended, fields_of(context.bytes).scare_word};
     context.tell_players(message);
 }
 
@@ -58,14 +61,14 @@ void announce_scare(RuntimeScareFigure& context)
 void finish_scare(RuntimeScareFigure& context)
 {
     tell_players(1, context);
-    if (get(context.bytes, field::stays) != 0)
+    if (fields_of(context.bytes).stays != 0)
     {
-        play_runtime_scare_figure_animation(nullptr, text(context, field::animation), true, false, context);
-        set(context.bytes, field::state, 5);
+        play_runtime_scare_figure_animation(nullptr, fields_of(context.bytes).animation.data(), true, false, context);
+        fields_of(context.bytes).state = 5;
         return;
     }
     activate_actor_bind_tree(context.actor); // 0x00112CC0, ESI this
-    set(context.bytes, field::state, 5);
+    fields_of(context.bytes).state = 5;
 }
 
 // The fade's alpha toward the second bound, kept between the two in 0x0006F1C0's branch order.
@@ -127,26 +130,26 @@ void scare_figure_object_sizes(ObjectSizes& sizes)
 bool initialize_runtime_scare_figure(RuntimeScareFigure& context, std::span<const u8> parameters)
 {
     auto bytes = context.bytes;
-    copy_name(record(parameters, parameter::appear_animation), record(bytes, field::appear_animation));
-    copy_name(record(parameters, parameter::appear_events), record(bytes, field::appear_events));
-    copy_name(record(parameters, parameter::animation), record(bytes, field::animation));
-    copy_name(record(parameters, parameter::play_events), record(bytes, field::play_events));
-    set(bytes, field::alpha_limit, get(parameters, parameter::alpha));
-    set(bytes, field::fade_in, get(parameters, parameter::fade_in));
-    set(bytes, field::fade_out, get(parameters, parameter::fade_out));
-    set(bytes, field::stays, get(parameters, parameter::stays));
-    set(bytes, field::scare_word, get(parameters, parameter::scare_word));
-    set(bytes, field::facing, get(parameters, parameter::facing));
-    set(bytes, field::timer, get(parameters, parameter::delay));
-    set(bytes, field::delay, get(parameters, parameter::delay));
-    set(bytes, field::reach, get(parameters, parameter::reach));
-    set(bytes, field::unk_958, get(parameters, parameter::unk_340));
-    set(bytes, field::unk_95C, get(parameters, parameter::unk_344));
-    set(bytes, field::paused, 0u);
-    set(bytes, field::state, 5);
-    set(bytes, field::fade_in_plays, get(parameters, parameter::fade_in_plays));
-    set(bytes, field::facing_states, get(parameters, parameter::facing_states));
-    set(bytes, field::trigger, get(parameters, parameter::trigger));
+    copy_name(record(parameters, parameter::appear_animation), retail_bytes(fields_of(bytes).appear_animation));
+    copy_name(record(parameters, parameter::appear_events), retail_bytes(fields_of(bytes).appear_events));
+    copy_name(record(parameters, parameter::animation), retail_bytes(fields_of(bytes).animation));
+    copy_name(record(parameters, parameter::play_events), retail_bytes(fields_of(bytes).play_events));
+    fields_of(bytes).alpha_limit = get(parameters, parameter::alpha);
+    fields_of(bytes).fade_in = get(parameters, parameter::fade_in);
+    fields_of(bytes).fade_out = get(parameters, parameter::fade_out);
+    fields_of(bytes).stays = get(parameters, parameter::stays);
+    fields_of(bytes).scare_word = get(parameters, parameter::scare_word);
+    fields_of(bytes).facing = get(parameters, parameter::facing);
+    fields_of(bytes).timer = get(parameters, parameter::delay);
+    fields_of(bytes).delay = get(parameters, parameter::delay);
+    fields_of(bytes).reach = get(parameters, parameter::reach);
+    fields_of(bytes).unk_958 = get(parameters, parameter::unk_340);
+    fields_of(bytes).unk_95C = get(parameters, parameter::unk_344);
+    fields_of(bytes).paused = 0u;
+    fields_of(bytes).state = 5;
+    fields_of(bytes).fade_in_plays = get(parameters, parameter::fade_in_plays);
+    fields_of(bytes).facing_states = get(parameters, parameter::facing_states);
+    fields_of(bytes).trigger = get(parameters, parameter::trigger);
     i32 state = 0;
     const float chance = get(parameters, parameter::chance);
     if (chance != 1.f) // DAT_0032B0F8.
@@ -155,14 +158,14 @@ bool initialize_runtime_scare_figure(RuntimeScareFigure& context, std::span<cons
         const float roll = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
         if (!(roll < chance))
         {
-            if (get(bytes, field::stays) == 0)
+            if (fields_of(bytes).stays == 0)
             {
                 return false;
             }
             state = 5;
         }
     }
-    if (state != get(bytes, field::state))
+    if (state != fields_of(bytes).state)
     {
         set_runtime_scare_figure_state(state, context); // 0x0006F7C0, EAX actor
     }
@@ -174,39 +177,39 @@ void update_runtime_scare_figure(RuntimeScareFigure& context)
 {
     auto bytes = context.bytes;
     Actor& actor = context.actor;
-    float timer = get(bytes, field::timer);
-    switch (get(bytes, field::state))
+    float timer = fields_of(bytes).timer;
+    switch (fields_of(bytes).state)
     {
     case 0:
-        if (get(bytes, field::stays) != 0)
+        if (fields_of(bytes).stays != 0)
         {
             notify_runtime_scare_watcher(context); // 0x0013D510
         }
         tick_runtime_decay_timer(actor, timer, context.clock); // 0x000423D0
-        set(bytes, field::timer, timer);
+        fields_of(bytes).timer = timer;
         if (timer == 0.f && runtime_scare_figure_triggered(context)) // DAT_0032B100, 0x0006FA40
         {
-            set_runtime_scare_figure_state(get(bytes, field::fade_in) == 0.f ? 2 : 1, context);
+            set_runtime_scare_figure_state(fields_of(bytes).fade_in == 0.f ? 2 : 1, context);
         }
         break;
     case 1:
     {
         const bool done = actor_tick_timer(actor, timer, context.clock.freeze, context.clock.dt,
             context.clock.scale); // 0x00042360, EAX timer, ECX actor
-        set(bytes, field::timer, timer);
+        fields_of(bytes).timer = timer;
         if (done)
         {
             set_runtime_scare_figure_state(2, context);
             break;
         }
-        const float duration = get(bytes, field::fade_in);
-        const float limit = float(get(bytes, field::alpha_limit));
+        const float duration = fields_of(bytes).fade_in;
+        const float limit = float(fields_of(bytes).alpha_limit);
         float alpha = limit;
         if (duration != 0.f)
         {
             alpha = clamp_alpha((timer - duration) / (0.f - duration) * limit, limit, 0.f);
         }
-        set(bytes, field::alpha, i32(alpha));
+        fields_of(bytes).alpha = i32(alpha);
         break;
     }
     case 2:
@@ -214,12 +217,12 @@ void update_runtime_scare_figure(RuntimeScareFigure& context)
         {
             break;
         }
-        if (get(bytes, field::fade_out) != 0.f)
+        if (fields_of(bytes).fade_out != 0.f)
         {
             set_runtime_scare_figure_state(3, context);
             break;
         }
-        if (get(bytes, field::stays) == 0)
+        if (fields_of(bytes).stays == 0)
         {
             activate_actor_bind_tree(actor); // 0x00112CC0, ESI this
             break;
@@ -229,36 +232,36 @@ void update_runtime_scare_figure(RuntimeScareFigure& context)
     case 3:
         if (!runtime_scare_blocker_present(context)) // 0x0006FC70
         {
-            set(bytes, field::timer, get(bytes, field::fade_out));
-            set(bytes, field::state, 4);
+            fields_of(bytes).timer = fields_of(bytes).fade_out;
+            fields_of(bytes).state = 4;
         }
         break;
     case 4:
     {
         const bool done = actor_tick_timer(actor, timer, context.clock.freeze, context.clock.dt,
             context.clock.scale); // 0x00042360, EAX timer, ECX actor
-        set(bytes, field::timer, timer);
+        fields_of(bytes).timer = timer;
         if (done)
         {
-            if (get(bytes, field::state) == 0)
+            if (fields_of(bytes).state == 0)
             {
                 announce_scare(context);
             }
             finish_scare(context);
             break;
         }
-        const float duration = get(bytes, field::fade_out);
-        const float limit = float(get(bytes, field::alpha_limit));
+        const float duration = fields_of(bytes).fade_out;
+        const float limit = float(fields_of(bytes).alpha_limit);
         float alpha = 0.f;
         if (duration != 0.f)
         {
             alpha = clamp_alpha((timer - duration) / (0.f - duration) * (0.f - limit) + limit, 0.f, limit);
         }
-        set(bytes, field::alpha, i32(alpha));
+        fields_of(bytes).alpha = i32(alpha);
         break;
     }
     case 5:
-        if (get(bytes, field::stays) != 0)
+        if (fields_of(bytes).stays != 0)
         {
             notify_runtime_scare_watcher(context); // 0x0013D510
         }
@@ -267,11 +270,11 @@ void update_runtime_scare_figure(RuntimeScareFigure& context)
         break;
     }
     // Facing: states below +0x964 turn toward the player, +0xB80 added (0x00100DA0 wraps it to 2pi).
-    if (!(get(bytes, field::facing) < 0.f) && get(bytes, field::state) < get(bytes, field::facing_states)
+    if (!(fields_of(bytes).facing < 0.f) && fields_of(bytes).state < fields_of(bytes).facing_states
         && context.player() != nullptr)
     {
         const Vec3 point = actor_world_position(*context.player()); // 0x000412A0
-        const float yaw = runtime_actor_direction_to_point(actor, point) + get(bytes, field::facing); // 0x000419D0
+        const float yaw = runtime_actor_direction_to_point(actor, point) + fields_of(bytes).facing; // 0x000419D0
         const Vec3 euler{0.f, float(animation_remainder(yaw, std::bit_cast<float>(0x40C90FDBu))), 0.f};
         normalize_euler_angles(actor.euler, euler); // 0x00105AA0, EDI actor +0x14
         actor.xform_valid = 0; // +0x2A8.
@@ -290,7 +293,7 @@ void dispatch_runtime_scare_figure_message(RuntimeScareFigure& context, std::spa
     {
         throw Error("scare figure activation has no actor +0x908 view");
     }
-    if (get(context.bytes, field::stays) == 0)
+    if (fields_of(context.bytes).stays == 0)
     {
         unregister_actor_render_bins(*context.actor.render_registration); // 0x0003CBB0
     }
@@ -301,7 +304,7 @@ void dispatch_runtime_scare_figure_message(RuntimeScareFigure& context, std::spa
 u32 draw_runtime_scare_figure(RuntimeScareFigure& context, ActorDrawState& state, i32 kind,
     const ActorFrameDrawContext& attachments, SceneModelDrawContext& draw, RuntimeGlowPass& glow)
 {
-    switch (get(context.bytes, field::state))
+    switch (fields_of(context.bytes).state)
     {
     case 0:
     case 5:
@@ -327,7 +330,7 @@ u32 draw_runtime_scare_figure(RuntimeScareFigure& context, ActorDrawState& state
         {
             return 0;
         }
-        const i32 alpha = get(context.bytes, field::alpha);
+        const i32 alpha = fields_of(context.bytes).alpha;
         if (alpha != 0xFF)
         {
             begin_runtime_glow_capture(minimum.data(), maximum.data(), glow); // 0x00062220
@@ -349,68 +352,68 @@ u32 draw_runtime_scare_figure(RuntimeScareFigure& context, ActorDrawState& state
 void set_runtime_scare_figure_state(i32 state, RuntimeScareFigure& context)
 {
     auto bytes = context.bytes;
-    if (get(bytes, field::state) == 0)
+    if (fields_of(bytes).state == 0)
     {
         announce_scare(context);
     }
-    const bool appears = read_u32(bytes, field::appear_animation.offset) == 0x5F646961; // "aid_".
+    const bool appears = read_u32(bytes, offsetof(ScareFigureState, appear_animation)) == 0x5F646961; // "aid_".
     switch (state)
     {
     case 0:
-        set(bytes, field::timer, get(bytes, field::delay));
-        set(bytes, field::alpha, get(bytes, field::alpha_limit));
-        play_runtime_scare_figure_animation(nullptr, text(context, field::animation), true, false, context);
+        fields_of(bytes).timer = fields_of(bytes).delay;
+        fields_of(bytes).alpha = fields_of(bytes).alpha_limit;
+        play_runtime_scare_figure_animation(nullptr, fields_of(context.bytes).animation.data(), true, false, context);
         break;
     case 1:
         if (appears)
         {
-            play_runtime_scare_figure_animation(text(context, field::appear_events),
-                text(context, field::appear_animation), false, true, context);
+            play_runtime_scare_figure_animation(fields_of(context.bytes).appear_events.data(),
+                fields_of(context.bytes).appear_animation.data(), false, true, context);
         }
         else
         {
-            play_runtime_scare_figure_animation(nullptr, text(context, field::animation),
-                get(bytes, field::fade_in_plays) == 0, true, context);
+            play_runtime_scare_figure_animation(nullptr, fields_of(context.bytes).animation.data(),
+                fields_of(bytes).fade_in_plays == 0, true, context);
         }
-        if (get(bytes, field::stays) == 0)
+        if (fields_of(bytes).stays == 0)
         {
             register_actor_render_bins(*context.actor.render_registration); // 0x0003CAE0
         }
-        if (get(bytes, field::alpha_limit) != 0xFF)
+        if (fields_of(bytes).alpha_limit != 0xFF)
         {
-            set(bytes, field::alpha, 0);
+            fields_of(bytes).alpha = 0;
         }
-        set(bytes, field::timer, get(bytes, field::fade_in));
+        fields_of(bytes).timer = fields_of(bytes).fade_in;
         tell_players(0, context); // 0x00122D10
         break;
     case 2:
-        play_runtime_scare_figure_animation(text(context, field::play_events), text(context, field::animation), false,
+        play_runtime_scare_figure_animation(fields_of(context.bytes).play_events.data(), fields_of(context.bytes).animation.data(), false,
             false, context);
         register_actor_render_bins(*context.actor.render_registration); // 0x0003CAE0
-        set(bytes, field::state, state);
-        set(bytes, field::alpha, get(bytes, field::alpha_limit));
+        fields_of(bytes).state = state;
+        fields_of(bytes).alpha = fields_of(bytes).alpha_limit;
         return;
     case 3:
         if (appears)
         {
-            play_runtime_scare_figure_animation(text(context, field::appear_events),
-                text(context, field::appear_animation), false, true, context);
+            play_runtime_scare_figure_animation(fields_of(context.bytes).appear_events.data(),
+                fields_of(context.bytes).appear_animation.data(), false, true, context);
         }
         else
         {
-            play_runtime_scare_figure_animation(nullptr, text(context, field::animation),
-                get(bytes, field::fade_in_plays) == 0, true, context);
+            play_runtime_scare_figure_animation(nullptr, fields_of(context.bytes).animation.data(),
+                fields_of(bytes).fade_in_plays == 0, true, context);
         }
         break;
     case 4:
-        set(bytes, field::state, state);
-        set(bytes, field::timer, get(bytes, field::fade_out));
+        fields_of(bytes).state = state;
+        fields_of(bytes).timer = fields_of(bytes).fade_out;
         return;
     case 5:
         tell_players(1, context); // 0x00122D10
-        if (get(bytes, field::stays) != 0)
+        if (fields_of(bytes).stays != 0)
         {
-            play_runtime_scare_figure_animation(nullptr, text(context, field::animation), true, false, context);
+            play_runtime_scare_figure_animation(nullptr, fields_of(context.bytes).animation.data(), true, false, context);
             break;
         }
         activate_actor_bind_tree(context.actor); // 0x00112CC0
@@ -418,7 +421,7 @@ void set_runtime_scare_figure_state(i32 state, RuntimeScareFigure& context)
     default:
         break;
     }
-    set(bytes, field::state, state);
+    fields_of(bytes).state = state;
 }
 
 // Xbox 0x0006FA40, EBX actor
@@ -428,7 +431,7 @@ bool runtime_scare_figure_triggered(RuntimeScareFigure& context)
     {
         return false;
     }
-    const float reach = get(context.bytes, field::reach);
+    const float reach = fields_of(context.bytes).reach;
     if (reach <= 0.f)
     {
         return true;
@@ -439,7 +442,7 @@ bool runtime_scare_figure_triggered(RuntimeScareFigure& context)
         return false;
     }
     const Vec3 position = actor_world_position(*player); // 0x000412A0
-    const Vec3 trigger = get(context.bytes, field::trigger);
+    const Vec3 trigger = fields_of(context.bytes).trigger;
     const float dz = trigger.z - position.z;
     const float dx = trigger.x - position.x;
     const float dy = trigger.y - position.y;
@@ -477,17 +480,17 @@ void play_runtime_scare_figure_animation(const char* events, const char* name, b
     };
     if (hold)
     {
-        if (get(bytes, field::paused) == 0)
+        if (fields_of(bytes).paused == 0)
         {
             hold_slot(true);
-            set(bytes, field::paused, 1u);
+            fields_of(bytes).paused = 1u;
         }
         return;
     }
-    if (get(bytes, field::paused) != 0)
+    if (fields_of(bytes).paused != 0)
     {
         hold_slot(false);
-        set(bytes, field::paused, 0u);
+        fields_of(bytes).paused = 0u;
     }
 }
 

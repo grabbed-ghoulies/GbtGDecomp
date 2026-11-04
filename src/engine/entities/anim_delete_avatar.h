@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 
 #include "gbtg/anim.h"
 #include "gbtg/entity.h"
@@ -23,12 +25,12 @@ constexpr RetailField<float, 0x33C> fade{};
 constexpr u32 kSize = 0x340;
 static_assert(retail_fits(kSize, fade));
 } // namespace anim_delete_parameter
-namespace anim_delete_field
+struct AnimDeleteState
 {
-constexpr RetailField<float, 0x934> fade{};
-constexpr u32 kSize = 0x938;
-static_assert(retail_fits(kSize, fade));
-} // namespace anim_delete_field
+    ActorBytes base{}; // +0
+    float fade = 0.f; // +0x934
+};
+static_assert(sizeof(AnimDeleteState) == 0x938);
 struct RuntimeAnimDelete
 {
     std::span<u8> bytes;

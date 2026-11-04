@@ -9,7 +9,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = anim_delete_field;
+AnimDeleteState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<AnimDeleteState>(bytes);
+}
+
+const AnimDeleteState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<AnimDeleteState>(bytes);
+}
+
 namespace parameter = anim_delete_parameter;
 
 MinaPlayer* slot_player(const ActorAnimationState& animation)
@@ -26,7 +35,7 @@ MinaPlayer* slot_player(const ActorAnimationState& animation)
 // Xbox 0x0006C9C0
 void anim_delete_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(AnimDeleteState);
     output.parameters = parameter::kSize;
 }
 
@@ -66,7 +75,7 @@ bool initialize_runtime_anim_delete(std::span<const u8> parameters, RuntimeAnimD
         }
         controller->dirty = true;
     }
-    set(context.bytes, field::fade, get(parameters, parameter::fade));
+    fields_of(context.bytes).fade = get(parameters, parameter::fade);
     return true;
 }
 
@@ -77,7 +86,7 @@ void update_runtime_anim_delete(RuntimeAnimDelete& context)
     {
         return;
     }
-    const float fade = get(context.bytes, field::fade);
+    const float fade = fields_of(context.bytes).fade;
     if (fade > 0.f && 0.f < fade) // COMISS twice: JBE, then JNC, skip the after-image.
     {
         std::array<u8, 0x354> parameters{};

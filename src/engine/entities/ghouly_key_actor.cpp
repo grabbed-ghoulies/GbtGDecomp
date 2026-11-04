@@ -7,12 +7,19 @@
 
 namespace gbtg
 {
-namespace field = ghouly_key_field;
+namespace
+{
+GhoulyKeyState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<GhoulyKeyState>(bytes);
+}
+} // namespace
+
 
 // Xbox 0x0006E930
 void ghouly_key_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(GhoulyKeyState);
     output.parameters = 0x334;
 }
 
@@ -21,7 +28,7 @@ bool initialize_runtime_ghouly_key(RuntimeGhoulyKey& context)
 {
     context.callouts(0x4A); // 0x0003BE20, EAX actor +0x8C
     request_audio_event_voice("XACT_SOUNDBANK_GPICKUPDITTIES_KEYAPPEAR", 1, context.voices); // The inlined 0x000395E0.
-    set(context.bytes, field::ditty_delay, 0.4f); // DAT_0032B11C.
+    fields_of(context.bytes).ditty_delay = 0.4f; // DAT_0032B11C.
     return true;
 }
 
@@ -37,13 +44,13 @@ void update_runtime_ghouly_key(RuntimeGhoulyKey& context)
     const u32 stale = 0;
     std::memcpy(context.bytes.data() + 0x2A8, &stale, 4); // Actor +0x2A8, the transform.
     actor.xform_valid = 0;
-    if (!(get(context.bytes, field::ditty_delay) > 0.f))
+    if (!(fields_of(context.bytes).ditty_delay > 0.f))
     {
         return;
     }
-    set(context.bytes, field::ditty_delay,
-        get(context.bytes, field::ditty_delay) - runtime_actor_step(actor, context.clock)); // Inlined 0x00042320.
-    if (!(0.f > get(context.bytes, field::ditty_delay)))
+    // Inlined 0x00042320.
+    fields_of(context.bytes).ditty_delay = fields_of(context.bytes).ditty_delay - runtime_actor_step(actor, context.clock);
+    if (!(0.f > fields_of(context.bytes).ditty_delay))
     {
         return;
     }

@@ -290,7 +290,18 @@ channels, input tracking, callout tokens and the wobble timer.
 
 The base strategy was read by literal offset almost everywhere (+8, +0xE, +0x1A, +0x1B and +0x1C, some 275 places in all),
 so it went straight to a struct rather than through descriptors. The `tests/*_checks.cpp` files keep their literal
-offsets, since checking the retail layout is their job. The derived strategies' own fields, from +0x38, are next.
+offsets, since checking the retail layout is their job.
+
+Every derived strategy is now a struct on `StrategyBase`, viewed with `strategy_view<T>`, each beside its own code; the
+player's is in `strategy_fields.h`, as the state and children files read it too. Each `.cpp` has a small `fields_of`
+for its own struct. The strings typed as one word (imp flying and imp ninja's effect names) are `std::array<char, 0x80>`,
+and the haunted TV's six numbered textures and the baron's timelines are arrays. The actor-derived records with one
+header and one source file went the same way, on `ActorBytes` (the actor's 0x934 bytes) and `actor_record_view<T>`.
+
+Only some of these run in the regular modes. The strategies for baron, baron plane, chicken, generic, ghoulie girl, giant
+hand, haunted coat, door and picture, hunchback, imp flamethrower, imp ninja, Jessie and Clyde, cursed mummy, pirate, ugly
+girl, vampire, vampire chicken, warlock and worm, and the anim delete, ghouly key, Super Scary door and shock actors, were
+built and their offsets checked, but no mode has run them since.
 
 The scene controls come in two kinds. Those with no host pointers (walkabout, chapter 2 scene 4, chapter 5 countdown,
 scene fx, final score) are overlays like the body states, on `SceneControlBase`. Those whose retail words hold pointers can't lay
@@ -330,12 +341,12 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Walk-target and fly-alert parameters (factory types 0x8F and 0x6E; the states are structs, above) | parameters 0x60 | `walk_target_parameter`, `fly_alert_parameter` | `src/engine/entities/body_walk_target_state.h` |
 | Pick-up and lift state parameters (factory types 0x7C and 0x7D; the states are structs, above) | parameters 0x10 / 0x1C | `pickup_state_parameter`, `lift_state_parameter` | `src/engine/entities/body_pickup_state.h` |
 | Throw state parameters (factory type 0x8B; the state is a struct, above) | parameters 0x2C | `throw_state_parameter` | `src/engine/entities/body_throw_state.h` |
-| Skeleton strategy (factory type 0x51) | — | `skeleton_strategy_field`: no spawn in reach, fetch delay; and the base strategy's `StrategyBase::state` (+0xE, `strategy_fields.h`) | `src/engine/entities/skeleton_strategy.h` |
+| Skeleton strategy (factory type 0x51) | — | `SkeletonStrategyState`: no spawn in reach, fetch delay; and the base strategy's `StrategyBase::state` (+0xE, `strategy_fields.h`) | `src/engine/entities/skeleton_strategy.h` |
 | Bob weapon (factory type 0xA0, 0x000C5B90), the bob's own part | 0xFE8, parameters 0x7FC | `bob_weapon_field`: holders, hits, the break animation and its events, state 7 timer, cutscene name, unk_FE4; `bob_weapon_parameter` | `src/engine/entities/bob_weapon.h` |
 | Swing state parameters (factory type 0x78; the state is a struct, above) | parameters 0x128 | `swing_state_parameter` | `src/engine/entities/body_swing_state.h` |
 | Large projectile (0x000CD620), its own part | 0xF08, parameters 0x604 | `large_projectile_field`: throw target, fall, heading, spin, shatter, bounces, hits, rest pose, catch, hold offset and rise, command attachments, trail; `large_projectile_parameter` | `src/engine/entities/projectile_weapon.h` |
-| Ghouly cutscene setup (factory type 0x25, 0x0006B0F0), its own part | 0x9DC, parameters 0x3C4 | `ghouly_cutscene_field`, `ghouly_cutscene_parameter` | `src/engine/entities/ghouly_cutscene_setup.h` |
-| Bone debris (factory type 0x12, 0x00067E40), its own part | 0xAAC, parameters 0x55C | `bone_debris_field`, `bone_debris_parameter` | `src/engine/entities/bone_debris_actor.h` |
+| Ghouly cutscene setup (factory type 0x25, 0x0006B0F0), its own part | 0x9DC, parameters 0x3C4 | `GhoulyCutsceneState`, `ghouly_cutscene_parameter` | `src/engine/entities/ghouly_cutscene_setup.h` |
+| Bone debris (factory type 0x12, 0x00067E40), its own part | 0xAAC, parameters 0x55C | `BoneDebrisState`, `bone_debris_parameter` | `src/engine/entities/bone_debris_actor.h` |
 | Ghouly bg-break setup (factory type 0x24, 0x0006A4F0), its own part | 0xA7C, parameters 0x460 | `ghouly_bg_break_field`, `ghouly_bg_break_parameter` | `src/engine/entities/ghouly_bg_break_setup.h` |
 | Bg-break key (factory type 0x1E, 0x0006CC70), its own part | 0xA70, parameters 0x3B4 | `bg_break_key_field`, `bg_break_key_parameter` | `src/engine/entities/bg_break_key.h` |
 | Save record, one field | — | `save_record_field::unk_184` (0x0010DC20 / 0x0010E2C0) | `src/engine/saves/save_scan.h` |
@@ -355,13 +366,13 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Weapon base (factory type 0xB over the actor, 0x00145C80), its own part | 0xE54 (0x934 onward), parameters 0x5F8 | `weapon_parameter` (the block 0x00145C80 copies from); `weapon_field`: mask and its neighbours, firing, accepted classes, contact test, spawn-model block, names, break category, grab prompt (pulse, phase, alpha, fade), shape and point counts, pick-up count, variant name and attributes, spawn trigger, group owner, state and its next and initial values and time, scene start, thrown and follow motion, floor, voice, spawn owner, broken pieces, hit kind/strength/style, animation, target record | `src/engine/entities/weapon_fields.h` |
 | Player (factory type 5 over the actor, 0x00028830), its own part | 0xCF8 (0x934 onward) | `player_field`: case link, mind, body, input device, provoked and the two countdowns, unk_984, goal volume, latch and delay, ghouly spawn record, kind, count and box, saved, start position and euler, pause count, mode, owner class, live, cells, floor, damage class, tag | `src/engine/entities/player_fields.h` |
 | Actor parameters (type 2's block, read by 0x0003E940, filled by 0x000411A0) | 0x334 | `actor_parameter_field`: position, euler, scale, model scale, the model, animation, animation table, resource and attachment names, attachment bone, marker id and next, secondary mode and model; with `object_parameter_field`'s size, unk_2 and type before them | `include/gbtg/object_factory.h` |
-| Ghouly trigger (factory type 0x23 over the actor, 0x00069660) | 0xC6C, parameters 0x65C | `trigger_field`: spawn radii, goal and goal names, anchor, box record, facing, unk_B4C, box name and attributes, spawn trigger radius and chance, slot count and slots; `trigger_parameter` | `src/engine/entities/trigger_actor.h` |
+| Ghouly trigger (factory type 0x23 over the actor, 0x00069660) | 0xC6C, parameters 0x65C | `TriggerState`: spawn radii, goal and goal names, anchor, box record, facing, unk_B4C, box name and attributes, spawn trigger radius and chance, slot count and slots; `trigger_parameter` | `src/engine/entities/trigger_actor.h` |
 | Mind requests (a mind's queued steps, run by the cinema mind's 0x0007C0E0) | varies by kind | `mind_request_field` (kind, elapsed) and one namespace per kind the cinema movement runs: target action (2), escape (0xD), vertical escape (0xE), vertical position (0xF), vertical point (0x10), vertical target (0x11), random position (0x14), heading position (0x15), timed motion (0x24), facing (0x25..0x27), position (0x2D), target position (0x2F); most fields named by the navigation calls they feed (0x00136B00, 0x00136D60) | `src/engine/entities/mind_request_fields.h` |
 | Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `mind_target_field`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
 | Motion-blur avatar (entityAvatarFxMotionBlur, type 15, 0x00066E20): a dying actor's fading copy | 0xA50, parameters 0x4B8 | `avatar_motion_blur_field`: height scale, timer, fade, light, phase, pixel shader, resource, effect, ignite effect; `avatar_motion_blur_parameter`: source, resource, effect, ignite effect | `src/engine/entities/avatar_fields.h` |
 | After-image avatar (type 16, 0x000690F0): the swing trail's fading copy | 0x968, parameters 0x354 | `avatar_afterimage_field`: time left, life, alpha, start alpha, start and end scale, texture parameter, texture, glow; `avatar_afterimage_parameter`: source, life, alpha, end scale, glow, texture record (built by 0x0013B030) | `src/engine/entities/avatar_fields.h` |
 | Event step (a DAT_005064E0 pool row, built by script nodes 0x19..0x88, run by 0x000D0B40) | 0x88 | `event_step_field` (type, delay and its block, icon, icon shown), `event_step_delay_field` (the +4 block: left, started, waits for cutscene) and one namespace per type with fields after +0x18: tag (2), kill count (3), timed (4, 5), done (6), spare tag (7), next different (8), unhit since (10), one type (0xD), number (0xE), key carrier (0xF), attack limit (0x10), tag kill count (0x12) | `src/engine/scripts/script_event_step_fields.h` |
-| Anim emitter (entityAvatarFxAnimEmitter, type 0xD, 0x00109FC0): a powerup pickup that flies out, waits and fades once collected | 0x9E4, parameters 0x3C4 | `anim_emitter_field`: state, kind, amount, extra, id, callout tokens (count, ids), origin, landing, flight timer, bounces, sprite size, two pulse phases, sprite alpha, fade timer; `anim_emitter_parameter`: kind, amount, extra, sprite, id | `src/engine/entities/fx_anim_emitter.h` |
+| Anim emitter (entityAvatarFxAnimEmitter, type 0xD, 0x00109FC0): a powerup pickup that flies out, waits and fades once collected | 0x9E4, parameters 0x3C4 | `AnimEmitterState`: state, kind, amount, extra, id, callout tokens (count, ids), origin, landing, flight timer, bounces, sprite size, two pulse phases, sprite alpha, fade timer; `anim_emitter_parameter`: kind, amount, extra, sprite, id | `src/engine/entities/fx_anim_emitter.h` |
 | Colour channels (an effect particle's +0x60, a debris record's +0x24, a trail record's +0x10; run by 0x000F1F60, 0x000F22F0, 0x000F23E0, 0x000F2430) | 0x3C | `effect_channel_field`: five values (red, green, blue, alpha and unk_10), their targets and their rates | `src/engine/graphics/effect_channels.h` |
 | Bounded channel (a value moved between limits: 0x00101980, 0x00101A40, 0x00101B00; three in a row for 0x001062E0, 0x001063D0, 0x00106590) | 0x14 | `bounded_channel_field`: lower, upper, rate, value, mode; `BoundedChannel` is the same layout as a struct, for the effect particle | `src/engine/entities/bounded_channels.h` |
 | Debris type (DAT_005068E8, ten types from aid_misc_ghoulies_fx_cheap_splat; resource data) | 0xAC | `effect_debris_type_field`: texture and its address, colour, size, growth, and the grow, hold and fade time ranges; `effect_debris_types` | `src/engine/graphics/effect_debris.h` |
@@ -574,9 +585,9 @@ the offset, size and span length. All ten regular modes are byte-identical to th
 - The 0x30-byte screen texture (0x000533A0) is the engine's texture resource (width +8, height +0xA, header offset
   +4, data +0x14, size +0x18), which the widgets' `texture_width` helpers and the presenter also read. It belongs
   with the texture resource's own layout.
-- The derived strategies, on `StrategyBase`. `imp_fire_strategy`, `player_strategy`, `butler_strategy`,
-  `camera_director` and `camera_actor_classes` still read their own fields from +0x38 by literal offset; name those
-  first.
+- `runtime_strategy_weapon_free` (0x000BEB80) reads +0x38 for both the pirate (chest) and the barons (cane), and a test
+  probe in `play_scene7_run` reads that word across strategies. They need a name that fits both.
+- The actor-derived records shared across files: the avatars, bg break key, ghouly bg break and ghouly swap.
 - The entities. The body (`body_field`),
   base mind (`mind_field`), mind target records (`mind_target_field`), weapon base (`weapon_field`) and the player's
   part (`player_field`) are named now. The actor's own 0x934 bytes are mostly read through the native `Actor`; the

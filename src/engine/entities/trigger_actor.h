@@ -1,4 +1,5 @@
 #pragma once
+#include "actor_fields.h"
 #include "area_actor.h"
 #include "ghouly_requests.h"
 #include "ghouly_spawn_record.h"
@@ -30,27 +31,28 @@ constexpr RetailField<u32, 0x658> slot_count{};
 constexpr u32 kSize = 0x65C;
 static_assert(retail_fits(kSize, slot_count));
 } // namespace trigger_parameter
-namespace trigger_field
+struct TriggerState
 {
-// The spawn distance from the trigger: an annulus (0x00106670) or the navigation spawn's band (0x00111420).
-constexpr RetailField<float, 0x934> min_radius{};
-constexpr RetailField<float, 0x938> max_radius{};
-constexpr RetailField<u16, 0x93C> goal{}; // the spawned marker actor's goal
-constexpr RetailField<std::array<u8, 0x200>, 0x93E> goal_names{}; // 0x000280D0's copy
-constexpr RetailField<u32, 0xB40> anchor{}; // the actor the next marker names (message 0x7D), which places spawns
-constexpr RetailField<u32, 0xB44> box_record{}; // the loaded ghoulybox's spawn record
-constexpr RetailField<u32, 0xB48> facing{}; // 1 a spawn faces the trigger, 2 away from it, else the trigger's own
-constexpr RetailField<u32, 0xB4C> unk_B4C{}; // clear with goal 0: spawns pick a random annulus point
-constexpr RetailField<std::array<char, 0x80>, 0xB50> box_name{};
-constexpr RetailField<std::array<char, 0x80>, 0xBD0> box_attributes{};
-// The ghoulybox spawn trigger (0x0013E980): its radius and chance, cleared once it fires.
-constexpr RetailField<float, 0xC50> trigger_radius{};
-constexpr RetailField<float, 0xC54> trigger_chance{};
-constexpr RetailField<u32, 0xC58> slot_count{};
-constexpr RetailField<std::array<u32, 4>, 0xC5C> slots{}; // the spawned objects, by address
-constexpr u32 kSize = 0xC6C;
-static_assert(retail_fits(kSize, slots));
-} // namespace trigger_field
+    ActorBytes base{}; // +0
+    // +0x934: the spawn distance from the trigger: an annulus (0x00106670) or the navigation spawn's band (0x00111420).
+    float min_radius = 0.f;
+    float max_radius = 0.f; // +0x938
+    u16 goal = 0; // +0x93C, the spawned marker actor's goal
+    std::array<u8, 0x200> goal_names{}; // +0x93E, 0x000280D0's copy
+    std::array<u8, 2> unk_B3E{}; // +0xB3E, padding
+    u32 anchor = 0; // +0xB40, the actor the next marker names (message 0x7D), which places spawns
+    u32 box_record = 0; // +0xB44, the loaded ghoulybox's spawn record
+    u32 facing = 0; // +0xB48, 1 a spawn faces the trigger, 2 away from it, else the trigger's own
+    u32 unk_B4C = 0; // +0xB4C, clear with goal 0: spawns pick a random annulus point
+    std::array<char, 0x80> box_name{}; // +0xB50
+    std::array<char, 0x80> box_attributes{}; // +0xBD0
+    // +0xC50: the ghoulybox spawn trigger (0x0013E980): its radius and chance, cleared once it fires.
+    float trigger_radius = 0.f;
+    float trigger_chance = 0.f; // +0xC54
+    u32 slot_count = 0; // +0xC58
+    std::array<u32, 4> slots{}; // +0xC5C, the spawned objects, by address
+};
+static_assert(sizeof(TriggerState) == 0xC6C);
 struct RuntimeTriggerActorContext
 {
     std::span<u8> bytes;

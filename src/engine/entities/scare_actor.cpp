@@ -16,8 +16,17 @@ namespace gbtg
 {
 namespace
 {
+ScareActorState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<ScareActorState>(bytes);
+}
+
+const ScareActorState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<ScareActorState>(bytes);
+}
+
 namespace parameter = scare_actor_parameter;
-namespace field = scare_actor_field;
 
 constexpr float kThird = std::bit_cast<float>(0x3EAAAAABu); // DAT_0032B3D4
 constexpr float kEnd = std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8, 0.95
@@ -47,7 +56,7 @@ MinaPlayer* slot_player(const ActorAnimationState& animation)
 // Xbox 0x0006FCA0
 void scare_actor_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(ScareActorState);
     output.parameters = parameter::kSize;
 }
 
@@ -55,10 +64,10 @@ void scare_actor_object_sizes(ObjectSizes& output)
 bool initialize_runtime_scare_actor(RuntimeScareActor& context, std::span<const u8> parameters)
 {
     auto bytes = context.bytes;
-    set(bytes, field::effect, get(parameters, parameter::effect));
-    set(bytes, field::pulse_time, 0.f);
-    set(bytes, field::pulsing, 1u);
-    set(bytes, field::pulses, 3);
+    fields_of(bytes).effect = get(parameters, parameter::effect);
+    fields_of(bytes).pulse_time = 0.f;
+    fields_of(bytes).pulsing = 1u;
+    fields_of(bytes).pulses = 3;
     // 'PxiM': no duration, DAT_0032B1FC, 0x21, DAT_0032B1AC, mode 1, 0x31, DAT_0032B1AC, the parameters' events.
     const auto events = get(parameters, parameter::events);
     AnimationMix mix;
@@ -97,16 +106,16 @@ bool initialize_runtime_scare_actor(RuntimeScareActor& context, std::span<const 
     {
         return context.texture_bytes(address);
     }); // 0x00040B70
-    set(bytes, field::texture, texture);
-    set(bytes, field::silence, get(parameters, parameter::silence));
-    set(bytes, field::silenced, 0u);
-    set(bytes, field::player_flag, context.player_flag()); // DAT_00511B40
+    fields_of(bytes).texture = texture;
+    fields_of(bytes).silence = get(parameters, parameter::silence);
+    fields_of(bytes).silenced = 0u;
+    fields_of(bytes).player_flag = context.player_flag(); // DAT_00511B40
     context.runtime_flags |= 1; // DAT_0050EA9C
-    set(bytes, field::camera_inside, 0u);
-    if (get(bytes, field::silence) != 0)
+    fields_of(bytes).camera_inside = 0u;
+    if (fields_of(bytes).silence != 0)
     {
         acquire_tracked_audio_bank("XACT_SILENCE", 4, context.streams); // 0x00038910, EAX 0x002FFCC0
-        set(bytes, field::silenced, 1u);
+        fields_of(bytes).silenced = 1u;
     }
     return true;
 }
@@ -114,10 +123,10 @@ bool initialize_runtime_scare_actor(RuntimeScareActor& context, std::span<const 
 // Xbox 0x0006FF20
 void release_runtime_scare_actor(RuntimeScareActor& context)
 {
-    if (get(context.bytes, field::silenced) != 0)
+    if (fields_of(context.bytes).silenced != 0)
     {
         release_tracked_audio_bank("XACT_SILENCE", context.streams); // 0x00038970 inlined
-        set(context.bytes, field::silenced, 0u);
+        fields_of(context.bytes).silenced = 0u;
     }
     context.runtime_flags &= ~1u; // DAT_0050EA9C
 }
@@ -149,7 +158,7 @@ void start_runtime_scare_actor_effect(RuntimeScareActor& context)
     g_actor_creation_options.flags = 0; // DAT_004E1C5C
     g_actor_creation_options.position = actor_world_position(context.actor); // 0x000412A0
     g_actor_creation_options.flags |= 1;
-    const auto name = get(context.bytes, field::effect);
+    const auto name = fields_of(context.bytes).effect;
     load_actor_effect_stream(name.data(), &g_actor_creation_options, context.effects); // 0x00053170
 }
 
@@ -161,7 +170,7 @@ void update_runtime_scare_actor(RuntimeScareActor& context)
     MinaPlayer* player = slot_player(context.animation);
     const float position = player != nullptr ? player->position : 0.f; // +0x14
     // The texture flickers through its frames with the clip: |sin(6 pi position)| of the last frame.
-    if (const u32 texture = get(bytes, field::texture); texture != 0)
+    if (const u32 texture = fields_of(bytes).texture; texture != 0)
     {
         const float wave = float(retail_sin(position * std::bit_cast<float>(0x4196CBE4u))); // DAT_0032B608, 0x00153320
         u8* record = context.texture_bytes(texture);
@@ -173,31 +182,31 @@ void update_runtime_scare_actor(RuntimeScareActor& context)
             record[0x13] = u8(frame);
         }
     }
-    if (get(bytes, field::pulsing) != 0)
+    if (fields_of(bytes).pulsing != 0)
     {
-        float time = get(bytes, field::pulse_time) - runtime_actor_step(actor, context.clock);
-        set(bytes, field::pulse_time, time);
+        float time = fields_of(bytes).pulse_time - runtime_actor_step(actor, context.clock);
+        fields_of(bytes).pulse_time = time;
         if (!(0.f < time))
         {
             time = time + 0.5f; // DAT_0032B0F4
-            set(bytes, field::pulse_time, time);
-            const i32 pulses = get(bytes, field::pulses) - 1;
-            set(bytes, field::pulses, pulses);
+            fields_of(bytes).pulse_time = time;
+            const i32 pulses = fields_of(bytes).pulses - 1;
+            fields_of(bytes).pulses = pulses;
             if (pulses == 0)
             {
-                set(bytes, field::pulsing, 0u);
+                fields_of(bytes).pulsing = 0u;
             }
         }
     }
-    const u32 previous = get(bytes, field::player_flag);
+    const u32 previous = fields_of(bytes).player_flag;
     const u32 flag = context.player_flag(); // DAT_00511B40
-    set(bytes, field::player_flag, flag);
+    fields_of(bytes).player_flag = flag;
     if (flag != 0 && previous == 0)
     {
-        set(bytes, field::unk_94C, 0.2f); // DAT_0032B1AC
+        fields_of(bytes).unk_94C = 0.2f; // DAT_0032B1AC
     }
     const float reach = runtime_scare_actor_reach(actor); // 0x00070410
-    set(bytes, field::reach, reach);
+    fields_of(bytes).reach = reach;
     const Vec3 at = actor_world_position(actor); // 0x000412A0
     const Vec3& eye = context.view->position; // DAT_005077A8
     const float x = at.x - eye.x;
@@ -206,7 +215,7 @@ void update_runtime_scare_actor(RuntimeScareActor& context)
     // x87: (z z + y y) + x x, its square root against the reach.
     const long double distance = std::sqrt(((long double)z * z + (long double)y * y) + (long double)x * x);
     const bool inside = !((long double)reach < distance);
-    set(bytes, field::camera_inside, inside ? 1u : 0u);
+    fields_of(bytes).camera_inside = inside ? 1u : 0u;
     if (inside)
     {
         const u32 color = 0x800000FFu; // DAT_0042742C
@@ -270,7 +279,7 @@ void update_runtime_scare_actor(RuntimeScareActor& context)
 // Xbox 0x000702C0
 bool face_runtime_scare_actor(RuntimeScareActor& context)
 {
-    if (get(context.bytes, field::camera_inside) != 0)
+    if (fields_of(context.bytes).camera_inside != 0)
     {
         return false;
     }

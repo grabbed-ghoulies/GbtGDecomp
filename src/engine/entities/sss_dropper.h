@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_clock.h"
 #include "actor_factory_owner.h"
 #include "gbtg/retail_field.h"
@@ -32,20 +34,21 @@ constexpr RetailRecord<0x3CC, 0x80> second_clip{};
 constexpr u32 kSize = 0x44C;
 static_assert(retail_fits(kSize, second_clip));
 } // namespace sss_dropper_parameter
-namespace sss_dropper_field
+struct SssDropperState
 {
-constexpr RetailField<float, 0x934> reach{};
-constexpr RetailField<Vec3, 0x938> start{}; // The world position at construction.
-constexpr RetailField<Vec3, 0x944> target{};
-constexpr RetailField<u32, 0x954> phase{}; // 0 waiting, 1 dropping, 2 landing, 3 scaring, 4 leaping off
-constexpr RetailField<float, 0x958> fall_speed{};
-constexpr RetailField<float, 0x95C> timer{}; // The drop's 0.2 s, then the leap's 5 s.
-constexpr RetailField<float, 0x960> trail_timer{}; // The next after-image.
-constexpr RetailRecord<0x964, 0x80> first_clip{};
-constexpr RetailRecord<0x9E4, 0x80> second_clip{};
-constexpr u32 kSize = 0xA64;
-static_assert(retail_fits(kSize, second_clip));
-} // namespace sss_dropper_field
+    ActorBytes base{}; // +0
+    float reach = 0.f; // +0x934
+    Vec3 start{}; // +0x938, the world position at construction
+    Vec3 target{}; // +0x944
+    std::array<u8, 4> unk_950{}; // +0x950, never read or written by translated code
+    u32 phase = 0; // +0x954, 0 waiting, 1 dropping, 2 landing, 3 scaring, 4 leaping off
+    float fall_speed = 0.f; // +0x958
+    float timer = 0.f; // +0x95C, the drop's 0.2 s, then the leap's 5 s
+    float trail_timer = 0.f; // +0x960, the next after-image
+    std::array<char, 0x80> first_clip{}; // +0x964
+    std::array<char, 0x80> second_clip{}; // +0x9E4
+};
+static_assert(sizeof(SssDropperState) == 0xA64);
 struct RuntimeSssDropper
 {
     std::span<u8> bytes;

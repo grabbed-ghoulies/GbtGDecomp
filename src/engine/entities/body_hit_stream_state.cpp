@@ -15,15 +15,9 @@ namespace gbtg
 {
 namespace
 {
-namespace field = hit_stream_state_field;
 namespace parameter = hit_stream_state_parameter;
 
 std::function<RuntimeHitStreamStateContext&(u32)> hit_stream_context_of;
-
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -43,11 +37,6 @@ void copy_name(char* target, const char* source)
         target[index] = source[index];
     }
     while (source[index++] != 0);
-}
-
-std::span<u8> effect_tokens(std::span<u8> state)
-{
-    return state.subspan(field::kEffects, 36);
 }
 
 // Body +0x30, +0x6B, +0x309..+0x30C and +0x338 step together.
@@ -77,14 +66,14 @@ void announce_emptied(RuntimeHitStreamStateContext& context, u32 attacker, u32 t
 
 bool construct_hit_stream_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_hit_stream_state(state, parameters, hit_stream_context_of(body_address_of(state)));
+    HitStreamState& state = body_state_view<HitStreamState>({object.bytes.get(), object.size});
+    return initialize_runtime_hit_stream_state(state, parameters, hit_stream_context_of(state.base.body));
 }
 
 void destroy_hit_stream_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_hit_stream_state(state, hit_stream_context_of(body_address_of(state)));
+    HitStreamState& state = body_state_view<HitStreamState>({object.bytes.get(), object.size});
+    destroy_runtime_hit_stream_state(state, hit_stream_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* hit_stream_state_lifecycle()
@@ -98,23 +87,23 @@ const ObjectFactoryVtable* hit_stream_state_lifecycle()
 // Xbox 0x000971E0
 void hit_stream_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(HitStreamState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x00097260
-bool initialize_runtime_hit_stream_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_hit_stream_state(HitStreamState& state, std::span<const u8> parameters,
     RuntimeHitStreamStateContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    set(state, field::unk_18, get(parameters, parameter::unk_10));
-    set(state, field::stream_left, 0.5f); // DAT_0032B0F4.
-    set(state, field::hit, 1u);
-    set(state, field::push_speed, get(parameters, parameter::push_speed));
-    set(state, field::unk_130, get(parameters, parameter::unk_194));
-    copy_name(field_data(state, field::sound), field_data(parameters, parameter::sound));
-    char* start = field_data(state, field::start_sound);
+    state.unk_18 = get(parameters, parameter::unk_10);
+    state.stream_left = 0.5f; // DAT_0032B0F4.
+    state.hit = 1u;
+    state.push_speed = get(parameters, parameter::push_speed);
+    state.unk_130 = get(parameters, parameter::unk_194);
+    copy_name(state.sound.data(), field_data(parameters, parameter::sound));
+    char* start = state.start_sound.data();
     copy_name(start, field_data(parameters, parameter::start_sound));
     if (start[0] != 0 && start[0] != 0)
     {
@@ -124,9 +113,10 @@ bool initialize_runtime_hit_stream_state(std::span<u8> state, std::span<const u8
     if (context.actor_address != 0xFFFFFF74u) // Actor +0x8C is not address zero.
     {
         // 0x0003BE20 over callout 0x36 with 0x0013B8B0 recording the tokens at +0x13C.
-        context.events.command_attachments = effect_tokens(state);
+        const std::span<u8> tokens = state.effect_tokens;
+        context.events.command_attachments = tokens;
         dispatch_actor_attachment_records(context.callout_records, 0x36, record_runtime_body_attachment_event,
-            nullptr, context.events, context.address_of(state.data() + field::kEffects));
+            nullptr, context.events, context.address_of(tokens.data()));
     }
     if (read_u32(parameters, parameter::effect.offset) == 0x5F646961) // "aid_"
     {
@@ -138,7 +128,7 @@ bool initialize_runtime_hit_stream_state(std::span<u8> state, std::span<const u8
             effect = context.create_object({clone.bytes.get(), clone.size}); // 0x00107520
             clone.bytes.reset(); // 0x000663E0
         }
-        set(state, field::effect, effect);
+        state.effect = effect;
     }
     step_counters(body, 1);
     body[0x38] = 1;
@@ -150,71 +140,70 @@ bool initialize_runtime_hit_stream_state(std::span<u8> state, std::span<const u8
 }
 
 // Xbox 0x00097400
-void destroy_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateContext& context)
+void destroy_runtime_hit_stream_state(HitStreamState& state, RuntimeHitStreamStateContext& context)
 {
     const auto body = context.body;
     put_word(body, 0x334, read_u32(body, 0x330));
     step_counters(body, -1);
     context.bits.bytes[2] &= 0xFD;
-    if (get(state, field::sounding) != 0)
+    if (state.sounding != 0)
     {
         release_actor_sound(context.actor.sound_slots[1], context.sounds); // 0x0012A3D0, ESI actor +0x3EC
-        set(state, field::sounding, 0u);
+        state.sounding = 0u;
     }
-    if (field_data(state, field::start_sound)[0] != 0)
+    if (state.start_sound.data()[0] != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds); // 0x0012A3D0, ESI actor +0x614
     }
     // The inlined 0x0013B810: each recorded token's attachment goes (0x0003CFD0).
-    clear_runtime_player_attachment_events(effect_tokens(state), context.lists);
-    const u32 effect = get(state, field::effect);
+    clear_runtime_player_attachment_events(state.effect_tokens, context.lists);
+    const u32 effect = state.effect;
     if (effect != 0)
     {
         context.release_frame_object(context.actor, effect); // 0x0003DE30, ECX actor, ESI effect
-        set(state, field::effect, 0u);
+        state.effect = 0u;
     }
 }
 
 // Xbox 0x00097500
-void tick_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateContext& context)
+void tick_runtime_hit_stream_state(HitStreamState& state, RuntimeHitStreamStateContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
     const u32 attacker = get(body, body_field::attacker);
-    set(state, body_state_field::elapsed, runtime_actor_step(actor, context.clock)
-        + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
     if (body[0xA6] != 0)
     {
         put_float(body, 0xB4, 2.f); // DAT_0032B110.
     }
-    if (actor.animation_pause > 0.f && get(state, field::hit) == 0)
+    if (actor.animation_pause > 0.f && state.hit == 0)
     {
-        if (get(state, field::sounding) != 0)
+        if (state.sounding != 0)
         {
             release_actor_sound(actor.sound_slots[1], context.sounds); // 0x0012A3D0, ESI actor +0x3EC
-            set(state, field::sounding, 0u);
+            state.sounding = 0u;
         }
     }
-    else if (get(state, field::sounding) == 0)
+    else if (state.sounding == 0)
     {
-        const char* sound = field_data(state, field::sound);
+        const char* sound = state.sound.data();
         if (sound[0] != 0)
         {
             queue_actor_sound(actor.sound_slots[1], 0, &actor, 1, nullptr, nullptr, 1.f, sound,
                 context.sounds); // 0x0012A260, EBX actor +0x3EC
         }
-        set(state, field::sounding, 1u);
+        state.sounding = 1u;
     }
     bool facing = true;
-    if (get(state, field::hit) != 0)
+    if (state.hit != 0)
     {
         // The out word starts as the tick's own argument; 0x000979F0 writes it only when it drains.
-        u32 taken = context.address_of(state.data());
+        u32 taken = context.address_of(body_state_key(state));
         if (drain_runtime_hit_stream(state, taken, context) == 0) // 0x000979F0
         {
-            if (get(state, field::unk_130) == 0)
+            if (state.unk_130 == 0)
             {
-                set(state, body_state_field::next_key, u16(0x82));
+                state.base.next_key = u16(0x82);
                 announce_emptied(context, attacker, taken, 0);
                 return;
             }
@@ -223,7 +212,7 @@ void tick_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateCon
                 const std::array<u32, 2> expire{5, 0};
                 context.first_timer->message(expire); // Body +0x760 vtable +0xC.
             }
-            set(state, body_state_field::next_key, context.body_slot_key(0x4C)); // Body vtable +0x4C.
+            state.base.next_key = context.body_slot_key(0x4C); // Body vtable +0x4C.
             announce_emptied(context, attacker, taken, 1);
             return;
         }
@@ -240,7 +229,7 @@ void tick_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateCon
             }
             Vec3 push;
             runtime_horizontal_direction(push, runtime_actor_angle_toward(actor, *source), // 0x00041900
-                get(state, field::push_speed)); // 0x001060A0, ESI the push
+                state.push_speed); // 0x001060A0, ESI the push
             std::memcpy(body.data() + 0x318, &push, sizeof(push));
         }
     }
@@ -260,31 +249,31 @@ void tick_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateCon
     {
         level_body_euler(body);
     }
-    const float left = get(state, field::stream_left);
+    const float left = state.stream_left;
     if (0.f < left)
     {
         const float next = left - runtime_actor_step(actor, context.clock);
-        set(state, field::stream_left, next);
+        state.stream_left = next;
         if (!(0.f < next))
         {
-            set(state, field::stream_left, 0.f);
-            set(state, body_state_field::next_key, context.body_slot_key(0x20)); // Body vtable +0x20.
+            state.stream_left = 0.f;
+            state.base.next_key = context.body_slot_key(0x20); // Body vtable +0x20.
         }
     }
-    set(state, field::hit, 0u);
+    state.hit = 0u;
 }
 
 // Xbox 0x00097890
-void message_runtime_hit_stream_state(std::span<u8> state, std::span<const u32> message,
+void message_runtime_hit_stream_state(HitStreamState& state, std::span<const u32> message,
     RuntimeHitStreamStateContext& context)
 {
     if (message[0] != 0x18)
     {
         return;
     }
-    set(state, field::stream_left, 0.5f); // DAT_0032B0F4.
-    set(state, field::hit, 1u);
-    const auto tokens = effect_tokens(state);
+    state.stream_left = 0.5f; // DAT_0032B0F4.
+    state.hit = 1u;
+    const std::span<const u8> tokens = state.effect_tokens;
     const i32 count = std::bit_cast<i32>(read_u32(tokens, 0));
     for (i32 index = 0; index < count; ++index)
     {
@@ -332,7 +321,7 @@ void message_runtime_hit_stream_state(std::span<u8> state, std::span<const u32> 
 }
 
 // Xbox 0x000979F0, EAX state, EDI body
-u16 drain_runtime_hit_stream(std::span<u8> state, u32& taken, RuntimeHitStreamStateContext& context)
+u16 drain_runtime_hit_stream(HitStreamState& state, u32& taken, RuntimeHitStreamStateContext& context)
 {
     const auto body = context.body;
     const auto counts = [&context]()
@@ -349,8 +338,8 @@ u16 drain_runtime_hit_stream(std::span<u8> state, u32& taken, RuntimeHitStreamSt
         {
             step = context.clock.dt * context.clock.scale;
         }
-        float drained = step * float(std::bit_cast<i32>(read_u32(body, 0x280))) + get(state, field::drained);
-        set(state, field::drained, drained);
+        float drained = step * float(std::bit_cast<i32>(read_u32(body, 0x280))) + state.drained;
+        state.drained = drained;
         u32 whole = 0;
         if (!(drained < 1.f)) // DAT_0032B0F8.
         {
@@ -359,7 +348,7 @@ u16 drain_runtime_hit_stream(std::span<u8> state, u32& taken, RuntimeHitStreamSt
                 drained -= 1.f;
                 ++whole;
             } while (!(drained < 1.f));
-            set(state, field::drained, drained);
+            state.drained = drained;
         }
         taken = whole;
         if (counts())

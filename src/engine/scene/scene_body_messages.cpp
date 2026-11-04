@@ -332,7 +332,8 @@ void SceneBodyMessages::bind_action_children()
                 walk->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_walk_state({child->bytes.get(), child->size}, words, walk_context()); // 0x000A5270
+                    message_runtime_walk_state(body_state_view<WalkState>({child->bytes.get(), child->size}),
+                        words, walk_context()); // 0x000A5270
                 };
             }
             children_[child->bytes.get()] = walk.get();
@@ -565,7 +566,8 @@ void SceneBodyMessages::bind_action_children()
                 stream->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_hit_stream_state({child->bytes.get(), child->size}, words,
+                    message_runtime_hit_stream_state(body_state_view<HitStreamState>({child->bytes.get(), child->size}),
+                        words,
                         hit_stream_context()); // 0x00097890
                 };
             }
@@ -1021,7 +1023,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         tick_runtime_jump_on_state({action.bytes.get(), action.size}, jump_on_context()); // 0x0009AB00
         return;
     case 0x8D:
-        tick_runtime_walk_state({action.bytes.get(), action.size}, walk_context()); // 0x000A5100
+        tick_runtime_walk_state(body_state_view<WalkState>({action.bytes.get(), action.size}),
+            walk_context()); // 0x000A5100
         return;
     case 0x5F:
         tick_runtime_arc_attack_state(body_state_view<ArcAttackState>({action.bytes.get(), action.size}),
@@ -1113,7 +1116,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             shoot_context(input)); // 0x0009FA80
         return;
     case 0x76:
-        tick_runtime_hit_stream_state({action.bytes.get(), action.size}, hit_stream_context()); // 0x00097500
+        tick_runtime_hit_stream_state(body_state_view<HitStreamState>({action.bytes.get(), action.size}),
+            hit_stream_context()); // 0x00097500
         return;
     case 0x84:
         tick_runtime_endure_state(body_state_view<EndureState>({action.bytes.get(), action.size}),

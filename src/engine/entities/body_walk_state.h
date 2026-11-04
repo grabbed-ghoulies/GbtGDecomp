@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "body_dizzy_state.h"
 #include "body_state_fields.h"
@@ -28,22 +29,32 @@ constexpr RetailField<float, 0x124> size{}; // the objects' size, times the acto
 constexpr u32 kSize = 0x128;
 static_assert(retail_fits(kSize, size));
 } // namespace walk_state_parameter
-namespace walk_state_field
+// One of the three objects a walk carries (state +0x13C).
+struct WalkObjectSlot
 {
-constexpr RetailField<u32, 0x18> bit{};
-constexpr RetailField<u16, 0x1C> next{};
-constexpr RetailField<float, 0x20> start_yaw{}; // actor +0x18 at the start
-constexpr RetailField<float, 0x24> turn{}; // radians over the whole walk
-constexpr RetailField<float, 0x28> time{};
-constexpr RetailField<float, 0x2C> length{};
-constexpr RetailField<u32, 0x30> clockwise{}; // set: the yaw falls
-constexpr RetailField<u32, 0x34> orbit{};
-constexpr RetailField<float, 0x38> size{};
-constexpr RetailField<std::array<char, 0x80>, 0x3C> first_name{};
-constexpr RetailField<std::array<char, 0x80>, 0xBC> second_name{};
-constexpr u32 kSlots = 0x13C; // three 0xC-byte slots: orbit angle, bob angle, the object's address
-constexpr u32 kSize = 0x160;
-} // namespace walk_state_field
+    float orbit_angle = 0.f; // +0
+    float bob_angle = 0.f; // +4
+    u32 object = 0; // +8, the object's address
+};
+static_assert(sizeof(WalkObjectSlot) == 0xC);
+struct WalkState
+{
+    BodyStateBase base{}; // +0
+    u32 bit = 0; // +0x18
+    u16 next = 0; // +0x1C
+    std::array<u8, 2> unk_1E{}; // +0x1E, padding
+    float start_yaw = 0.f; // +0x20, actor +0x18 at the start
+    float turn = 0.f; // +0x24, radians over the whole walk
+    float time = 0.f; // +0x28
+    float length = 0.f; // +0x2C
+    u32 clockwise = 0; // +0x30, set: the yaw falls
+    u32 orbit = 0; // +0x34
+    float size = 0.f; // +0x38
+    std::array<char, 0x80> first_name{}; // +0x3C
+    std::array<char, 0x80> second_name{}; // +0xBC
+    std::array<WalkObjectSlot, 3> slots{}; // +0x13C
+};
+static_assert(sizeof(WalkState) == 0x160);
 struct RuntimeWalkStateContext
 {
     std::span<u8> body;
@@ -59,19 +70,20 @@ struct RuntimeWalkStateContext
     std::function<u16()> primary_key; // 0x00026950 on the body.
 };
 void walk_state_object_sizes(ObjectSizes& output); // Xbox 0x000A4CD0
-bool initialize_runtime_walk_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_walk_state(WalkState& state, std::span<const u8> parameters,
     RuntimeWalkStateContext& context); // Xbox 0x000A4D50
-void destroy_runtime_walk_state(std::span<u8> state, RuntimeWalkStateContext& context); // Xbox 0x000A5060
-void tick_runtime_walk_state(std::span<u8> state, RuntimeWalkStateContext& context); // Xbox 0x000A5100
-void message_runtime_walk_state(std::span<u8> state, std::span<const u32> message,
+void destroy_runtime_walk_state(WalkState& state, RuntimeWalkStateContext& context); // Xbox 0x000A5060
+void tick_runtime_walk_state(WalkState& state, RuntimeWalkStateContext& context); // Xbox 0x000A5100
+void message_runtime_walk_state(WalkState& state, std::span<const u32> message,
     RuntimeWalkStateContext& context); // Xbox 0x000A5270
 // The body bit set and the next action taken.
-void end_runtime_walk_state(std::span<u8> state, RuntimeWalkStateContext& context); // Xbox 0x000A5340, ESI state, EDI actor
+void end_runtime_walk_state(WalkState& state,
+    RuntimeWalkStateContext& context); // Xbox 0x000A5340, ESI state, EDI actor
 // Each live object moves along its orbit by `step` (XMM0) times 5 degrees and is placed.
-void orbit_runtime_walk_objects(std::span<u8> state, float step,
+void orbit_runtime_walk_objects(WalkState& state, float step,
     RuntimeWalkStateContext& context); // Xbox 0x000A5390
 // The object's position (ESI) and euler (EBX) for slot `index` (EDX) around the body (EAX).
-void place_runtime_walk_object(std::span<const u8> state, std::span<const u8> body, const Actor& actor, i32 index,
+void place_runtime_walk_object(const WalkState& state, std::span<const u8> body, const Actor& actor, i32 index,
     Vec3& position, Vec3& euler); // Xbox 0x000A54D0
 // Type 0x8D (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_walk_state_class(std::span<ObjectFactoryType> types,

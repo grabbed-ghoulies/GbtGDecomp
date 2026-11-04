@@ -178,6 +178,8 @@ For one object type:
 | Endure, flamethrower, shoot, transform, drone-appear and drone-dance states (`EndureState`, `FlamethrowerState`, `ShootState`, `TransformState`, `DroneAppearState`, `DroneDanceState`) | 0x1BC / 0x144 / 0xD0 / 0x3BC / 0x28 / 0xD0 | `body_endure_state.h`, `body_flamethrower_state.h`, `body_shoot_state.h`, `body_transform_state.h`, `body_drone_appear_state.h`, `body_drone_dance_state.h` |
 | Stand alert (`StandAlertState`, factory type 0x87, 0x000A2590): input, alert and moving keys, counter, pause and hold switches, model node slot and keep switch, secondary detach and mode switches with the saved mode, sound started, body bit, saved shape mode | 0x50 | `src/engine/entities/body_state_actions.h` |
 | Slam smash, yoyo spin, grab throw and arc attack states (`SlamSmashState`, `YoyoSpinState`, `GrabThrowState`, `ArcAttackState`) | 0xD8 / 0x1DC / 0x5C / 0x268 | `body_slam_smash_state.h`, `body_yoyo_spin_state.h`, `body_grab_throw_state.h`, `body_arc_attack_state.h` |
+| Walk state (`WalkState`): bit, next, turn, time, length, orbit and size, the two names, three carried objects (`WalkObjectSlot`: orbit angle, bob angle, object) | 0x160 | `src/engine/entities/body_walk_state.h` |
+| Hit stream state (`HitStreamState`): sounds, push speed, stream time, drained energy, hit and sounding switches, effect, callout 0x36's tokens (a byte block the attachment functions take) | 0x160 | `src/engine/entities/body_hit_stream_state.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -232,6 +234,10 @@ compare captures only, and whether the tests reach every one of these states was
 The stand alert, slam smash, yoyo spin, grab throw and arc attack states followed. Their last offset uses were found
 words picked by byte offset: the arc attack's animations now go by `ArcAttackAnimation`, and the slam smash's start
 takes the found word. `arc_attack_state`'s +0x28 is the one word here no translated code touches (`unk_28`).
+
+The walk and hit stream states' trailing +0x13C blocks were named from the code that uses them: three carried-object
+slots, and the attachment tokens 0x0013B8B0 records. The tokens stay bytes because the attachment functions and the
+projectile records share that form.
 
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first

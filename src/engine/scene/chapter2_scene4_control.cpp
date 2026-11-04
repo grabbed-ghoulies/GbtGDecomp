@@ -8,7 +8,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = chapter2_scene4_field;
 namespace parameter = chapter2_scene4_parameter;
 
 RuntimeBackgroundMorphs& morphs_of(Chapter2Scene4ControlServices& services)
@@ -22,20 +21,19 @@ RuntimeBackgroundMorphs& morphs_of(Chapter2Scene4ControlServices& services)
 }
 
 // Counts a timer down by the frame step, stopping at zero. Returns true when it reached zero this tick.
-template <u32 Offset>
-bool count_down(std::span<u8> state, RetailField<float, Offset> timer, float step)
+bool count_down(float& timer, float step)
 {
-    if (!(get(state, timer) > 0.f))
+    if (!(timer > 0.f))
     {
         return false;
     }
-    const float left = get(state, timer) - step;
-    set(state, timer, left);
+    const float left = timer - step;
+    timer = left;
     if (0.f < left)
     {
         return false;
     }
-    set(state, timer, 0.f);
+    timer = 0.f;
     return true;
 }
 }
@@ -43,19 +41,19 @@ bool count_down(std::span<u8> state, RetailField<float, Offset> timer, float ste
 // Xbox 0x00082980
 void chapter2_scene4_control_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(Chapter2Scene4ControlState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x000829F0
-bool construct_runtime_chapter2_scene4_control(std::span<u8> state, std::span<const u8> parameters,
+bool construct_runtime_chapter2_scene4_control(Chapter2Scene4ControlState& state, std::span<const u8> parameters,
     SceneControlInstance& instance, SceneControlLists& lists, Chapter2Scene4ControlServices& services)
 {
     if (services.restarting == 1 || (services.scene_flags & 8) != 0 || (services.runtime_flags & 0x200000) != 0)
     {
         // The inlined 0x00114050 with 1.
         set_runtime_background_morphs_playing(services.morphs, 1);
-        set(state, field::phase, 4u);
+        state.phase = 4u;
         return true;
     }
     start_scene_cutscene(field_data(parameters, parameter::cutscene), 0, 1, services.cutscenes); // 0x0004EDA0
@@ -70,10 +68,10 @@ void destroy_runtime_chapter2_scene4_control(Chapter2Scene4ControlServices& serv
 }
 
 // Xbox 0x00082A90
-void tick_runtime_chapter2_scene4_control(std::span<u8> state, SceneControlInstance& instance,
+void tick_runtime_chapter2_scene4_control(Chapter2Scene4ControlState& state, SceneControlInstance& instance,
     SceneControlLists& lists, Chapter2Scene4ControlServices& services)
 {
-    const u32 phase = get(state, field::phase);
+    const u32 phase = state.phase;
     if (phase == 1)
     {
         const auto& cutscenes = services.cutscenes;
@@ -88,7 +86,7 @@ void tick_runtime_chapter2_scene4_control(std::span<u8> state, SceneControlInsta
     }
     else if (phase == 2)
     {
-        if (count_down(state, field::wait, runtime_frame_step(services.clock)))
+        if (count_down(state.wait, runtime_frame_step(services.clock)))
         {
             set_runtime_chapter2_scene4_phase(state, 3, instance, lists, services);
         }
@@ -106,15 +104,14 @@ void tick_runtime_chapter2_scene4_control(std::span<u8> state, SceneControlInsta
         }
         else
         {
-            count_down(state, field::morph_time, runtime_frame_step(services.clock));
+            count_down(state.morph_time, runtime_frame_step(services.clock));
         }
     }
-    set(state, scene_control_field::elapsed,
-        get(state, scene_control_field::elapsed) + runtime_frame_step(services.clock));
+    state.base.elapsed = state.base.elapsed + runtime_frame_step(services.clock);
 }
 
 // Xbox 0x00082BC0, EDI state
-void set_runtime_chapter2_scene4_phase(std::span<u8> state, u8 phase, SceneControlInstance& instance,
+void set_runtime_chapter2_scene4_phase(Chapter2Scene4ControlState& state, u8 phase, SceneControlInstance& instance,
     SceneControlLists& lists, Chapter2Scene4ControlServices& services)
 {
     switch (phase)
@@ -126,13 +123,13 @@ void set_runtime_chapter2_scene4_phase(std::span<u8> state, u8 phase, SceneContr
     {
         services.random = services.random * 0x19660Du + 0x3C6EF35Fu;
         const float fraction = std::bit_cast<float>((services.random & 0x7FFFFF) | 0x3F800000u) - 1.f;
-        set(state, field::wait, fraction * 0.5f + 0.5f); // DAT_0032B0F8, DAT_0032B0F4
+        state.wait = fraction * 0.5f + 0.5f; // DAT_0032B0F8, DAT_0032B0F4
         break;
     }
     case 3:
         set_runtime_background_morphs_playing(services.morphs, 1); // 0x00114050, BL 1
         services.reverb_index = 0;
-        set(state, field::morph_time, 0.5f); // DAT_0032B0F4
+        state.morph_time = 0.5f; // DAT_0032B0F4
         break;
     case 4:
         if (services.cutscenes.index > 0)
@@ -151,6 +148,6 @@ void set_runtime_chapter2_scene4_phase(std::span<u8> state, u8 phase, SceneContr
     default:
         break;
     }
-    set(state, field::phase, u32(phase));
+    state.phase = u32(phase);
 }
 }

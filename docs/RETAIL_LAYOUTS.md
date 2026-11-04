@@ -192,6 +192,10 @@ For one object type:
 | Jump on state (`JumpOnState`, factory type 0x79, 0x0009A4C0): the leap (`LeapRecord`, 0x50: target, start and current euler, start, end and current point, length, time left), phase, switches, the ride (`JumpOnRide`, 0xC8: phase, strikes, animations found, wobble timer and wobble, hold and ride times, `InputTrackingRecord`, hold sound, hat intro), animations found, claim and target | 0x158 | `src/engine/entities/body_jump_on_state.h` |
 | Generate ghouly state (`GenerateGhoulyState`): phase, grow, animations found, the sound, model and effect names, two bolt rows (`GhoulyBoltRow`: pool, shape, angle), texture switches, the ghouly's name, variant and kind, attached actor, scales, beam, spawn point, light | 0x4A0 | `src/engine/entities/generate_ghouly_state.h` |
 | Grabbed hold state (factory type 0x71): the base and nothing else, so its functions take `BodyStateBase` | 0x18 | `src/engine/entities/body_grabbed_hold_state.h` |
+| Scene-control base (`SceneControlBase`, type 3's instance): vtable address, type, unk_6, the list links (kept by `SceneControlInstance`), elapsed. `scene_control_view<T>` views a control's bytes as its struct. | 0x24 | `src/engine/scene/scene_control_fields.h` |
+| Walkabout music control (`WalkaboutControlState`, 0x00080570): the playlist word (kept by `SceneControlInstance`), position and count, track, start countdown, timer switch | 0x3C | `src/engine/scene/scene_control_fields.h` |
+| Chapter 2 scene 4 control (`Chapter2Scene4ControlState`, factory type 0x95): phase, wait, morph time | 0x38 | `src/engine/scene/chapter2_scene4_control.h` |
+| Scene fx control (`SceneFxControlState`): scale, radius, count, effect, on and off times, rate, prerun, eight copies (`SceneFxSlot`) | 0x1EC | `src/engine/scene/scene_fx_control.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -277,6 +281,11 @@ ever wrote the next key and now take `BodyStateBase&`. That ended `retail_bytes(
 `body_state_field`, which is gone. `retail_bytes` remains for the blocks handed to shared byte functions: bounded
 channels, input tracking, callout tokens and the wobble timer.
 
+The scene controls come in two kinds. Those with no host pointers (walkabout, chapter 2 scene 4, chapter 5 countdown,
+scene fx) are overlays like the body states, on `SceneControlBase`. Those whose retail words hold pointers can't lay
+them out in the factory bytes on a 64-bit host, so their fields join the host struct that already holds the pointers,
+one struct per control, as `GameSelectControlState` did.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -344,7 +353,6 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Parent mind requests (0x000295E0) and the navigation request (0x2E, 0x00136620) | varies by kind | `named_request`, `value_request`, `reach_request`, `body_range_request`, `slot_action_request`, `flag_action_request`, `wait_request`, `flag_test_request`, `navigation_request`; the header's `started` byte | `src/engine/entities/mind_request_fields.h` |
 | Mind event (0x0002A190) | | `mind_event_field`: kind, time left, duration, cooldown, age, subject, other, count, payload | `src/engine/entities/player_mind_events.h` |
 | Body messages (0x00074080, 0x00075C60, 0x00075DD0) | varies by id | `body_message_field` (id), `control_message`, `point_message`, `collision_hit_message`, `impact_message`, `movement_message`; and the body's actor, action key, alert level, control tokens and saved energy | `src/engine/entities/player_body_messages.h` |
-| Walkabout music control (0x00080570) | | `walkabout_control_field`: playlist position and count, track, start countdown, timer switch | `src/engine/scene/scene_control_fields.h` |
 | Base strategy (factory type 8), the goal states | | `strategy_field` gains the goals' next states (unk_0C, unk_10, after wait, resume, flagged resume) and the wait timer | `src/engine/entities/strategy_fields.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 

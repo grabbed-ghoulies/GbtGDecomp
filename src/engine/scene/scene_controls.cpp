@@ -81,12 +81,14 @@ bool construct_walkabout_view(FactoryObject& object, std::span<const u8>)
     auto& control = installing->instance(object);
     control.state = state_of(object);
     control.type = object.type;
-    return construct_runtime_walkabout_control(state_of(object), control, installing->context);
+    return construct_runtime_walkabout_control(scene_control_view<WalkaboutControlState>(state_of(object)),
+        control, installing->context);
 }
 
 void destroy_walkabout_view(FactoryObject& object)
 {
-    destroy_runtime_walkabout_control(state_of(object), installing->instance(object), installing->context);
+    destroy_runtime_walkabout_control(scene_control_view<WalkaboutControlState>(state_of(object)),
+        installing->instance(object), installing->context);
 }
 
 bool construct_attract_view(FactoryObject& object, std::span<const u8> parameters)
@@ -156,7 +158,8 @@ bool construct_chapter2_scene4_view(FactoryObject& object, std::span<const u8> p
     auto& control = installing->instance(object);
     control.state = state_of(object);
     control.type = object.type;
-    return construct_runtime_chapter2_scene4_control(state_of(object), parameters, control, installing->context.lists,
+    return construct_runtime_chapter2_scene4_control(scene_control_view<Chapter2Scene4ControlState>(state_of(object)),
+        parameters, control, installing->context.lists,
         installing->context.chapter2_scene4_services());
 }
 
@@ -214,7 +217,8 @@ bool construct_scene_fx_view(FactoryObject& object, std::span<const u8> paramete
     auto& control = installing->instance(object);
     control.state = state_of(object);
     control.type = object.type;
-    return construct_runtime_scene_fx_control(state_of(object), parameters, installing->context.fx_services());
+    return construct_runtime_scene_fx_control(scene_control_view<SceneFxControlState>(state_of(object)),
+        parameters, installing->context.fx_services());
 }
 
 void destroy_scene_fx_view(FactoryObject&)
@@ -642,10 +646,10 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
     switch (control.type)
     {
     case 3:
-        tick_runtime_scene_control(control.state, context.frame_clock());
+        tick_runtime_scene_control(scene_control_view<SceneControlBase>(control.state), context.frame_clock());
         return;
     case 0x91:
-        tick_runtime_walkabout_control(control.state, control, context);
+        tick_runtime_walkabout_control(scene_control_view<WalkaboutControlState>(control.state), control, context);
         return;
     case 0x9A:
         tick_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());
@@ -665,17 +669,20 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
             context.relics_store_services()); // 0x00081080
         return;
     case 0x95:
-        tick_runtime_chapter2_scene4_control(control.state, control, context.lists,
+        tick_runtime_chapter2_scene4_control(scene_control_view<Chapter2Scene4ControlState>(control.state),
+            control, context.lists,
             context.chapter2_scene4_services()); // 0x00082A90
         return;
     case 0x97:
-        tick_runtime_scene_fx_control(control.state, context.fx_services()); // 0x00083570
+        tick_runtime_scene_fx_control(scene_control_view<SceneFxControlState>(control.state),
+            context.fx_services()); // 0x00083570
         return;
     case 0x99:
         tick_runtime_final_score_control(control.state, context.final_score_services()); // 0x00082E50
         return;
     case 0x9D:
-        tick_runtime_chapter5_countdown_control(control.state, chapter5_countdown("0x00082D10")); // 0x00082D10
+        tick_runtime_chapter5_countdown_control(scene_control_view<SceneControlBase>(control.state),
+            chapter5_countdown("0x00082D10")); // 0x00082D10
         return;
     case 0x98:
         tick_runtime_super_scary_control(control.state, *control.super_scary, control, context.lists,
@@ -782,18 +789,18 @@ void message_runtime_scene_control(SceneControlInstance& control, std::span<cons
 }
 
 // Xbox 0x00115E30
-void tick_runtime_scene_control(std::span<u8> state, const RuntimeActorClock& clock)
+void tick_runtime_scene_control(SceneControlBase& state, const RuntimeActorClock& clock)
 {
-    set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + runtime_frame_step(clock));
+    state.elapsed = state.elapsed + runtime_frame_step(clock);
 }
 
 // Xbox 0x00080670
-void build_runtime_scene_playlist(std::span<u8> state, std::vector<u16>& playlist, u32 count, u32& random)
+void build_runtime_scene_playlist(WalkaboutControlState& state, std::vector<u16>& playlist, u32 count, u32& random)
 {
     // +0x24 holds the playlist (0x000F72D0); the pool of remaining indices is a temporary allocation.
     playlist.assign(count, 0);
-    set(state, walkabout_control_field::count, count);
-    set(state, walkabout_control_field::position, 0);
+    state.count = count;
+    state.position = 0;
     std::vector<u16> pool;
     for (u32 index = 0; i32(index) < i32(count); ++index)
     {
@@ -813,25 +820,25 @@ void build_runtime_scene_playlist(std::span<u8> state, std::vector<u16>& playlis
 }
 
 // Xbox 0x00080570
-bool construct_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
+bool construct_runtime_walkabout_control(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context)
 {
     build_runtime_scene_playlist(state, control.playlist, 0x2A, context.random);
-    set(state, walkabout_control_field::track, 0xFFFFFFFFu);
-    set(state, walkabout_control_field::start_countdown, 2);
-    set(state, walkabout_control_field::plays_timer, context.chapter() == 9 ? 1 : 0);
+    state.track = 0xFFFFFFFFu;
+    state.start_countdown = 2;
+    state.plays_timer = context.chapter() == 9 ? 1 : 0;
     return true;
 }
 
 // Xbox 0x00080810
-void stop_runtime_walkabout_track(std::span<u8> state, SceneControlContext& context)
+void stop_runtime_walkabout_track(WalkaboutControlState& state, SceneControlContext& context)
 {
-    const u32 track = get(state, walkabout_control_field::track);
+    const u32 track = state.track;
     if (track == 0xFFFFFFFFu)
     {
         return;
     }
-    const char* name = get(state, walkabout_control_field::plays_timer) == 0 ? walkabout_name(track, context) : context.timer;
+    const char* name = state.plays_timer == 0 ? walkabout_name(track, context) : context.timer;
     AudioTrackedBank* bank = find_tracked_audio_bank(name, context.streams());
     if (bank == nullptr)
     {
@@ -851,23 +858,23 @@ void stop_runtime_walkabout_track(std::span<u8> state, SceneControlContext& cont
         detach_tracked_audio_bank(*bank, context.streams());
         bank->id = 0;
     }
-    set(state, walkabout_control_field::track, 0xFFFFFFFFu);
+    state.track = 0xFFFFFFFFu;
 }
 
 // Xbox 0x000808B0
-void play_runtime_walkabout_track(std::span<u8> state, SceneControlInstance& control,
+void play_runtime_walkabout_track(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context)
 {
     stop_runtime_walkabout_track(state, context);
-    const u32 position = get(state, walkabout_control_field::position);
+    const u32 position = state.position;
     const u16 track = control.playlist.at(position);
-    set(state, walkabout_control_field::position, position + 1);
-    if (position + 1 == get(state, walkabout_control_field::count))
+    state.position = position + 1;
+    if (position + 1 == state.count)
     {
-        set(state, walkabout_control_field::position, 0);
+        state.position = 0;
     }
-    set(state, walkabout_control_field::track, track);
-    if (get(state, walkabout_control_field::plays_timer) != 0)
+    state.track = track;
+    if (state.plays_timer != 0)
     {
         acquire_tracked_audio_bank(context.timer, 2, context.streams());
         return;
@@ -876,7 +883,7 @@ void play_runtime_walkabout_track(std::span<u8> state, SceneControlInstance& con
 }
 
 // Xbox 0x000805B0
-void destroy_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
+void destroy_runtime_walkabout_control(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context)
 {
     stop_runtime_walkabout_track(state, context);
@@ -884,11 +891,11 @@ void destroy_runtime_walkabout_control(std::span<u8> state, SceneControlInstance
 }
 
 // Xbox 0x00080600
-void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
+void tick_runtime_walkabout_control(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context)
 {
-    set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + runtime_frame_step(context.frame_clock()));
-    const u32 countdown = get(state, walkabout_control_field::start_countdown);
+    state.base.elapsed = state.base.elapsed + runtime_frame_step(context.frame_clock());
+    const u32 countdown = state.start_countdown;
 #if !defined(GBTG_RETAIL_GAME_ONLY)
     // Rare Replay: +0x34 counts retail ticks.
     if (countdown != 0 && rare_replay_retail_tick())
@@ -896,13 +903,13 @@ void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& c
     if (countdown != 0)
 #endif
     {
-        set(state, walkabout_control_field::start_countdown, countdown - 1);
+        state.start_countdown = countdown - 1;
         if (countdown - 1 == 0)
         {
             play_runtime_walkabout_track(state, control, context);
         }
     }
-    const u32 track = get(state, walkabout_control_field::track);
+    const u32 track = state.track;
     if (track != 0xFFFFFFFFu && runtime_audio_bank_state(walkabout_name(track, context), context.streams()) == 2)
     {
         play_runtime_walkabout_track(state, control, context);

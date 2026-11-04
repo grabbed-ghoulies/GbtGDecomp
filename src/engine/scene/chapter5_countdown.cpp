@@ -207,7 +207,7 @@ bool construct_runtime_chapter5_countdown_control(Chapter5CountdownServices& con
 }
 
 // Xbox 0x00082D10
-void tick_runtime_chapter5_countdown_control(std::span<u8> state, Chapter5CountdownServices& context)
+void tick_runtime_chapter5_countdown_control(SceneControlBase& state, Chapter5CountdownServices& context)
 {
     tick_runtime_chapter5_countdown(context); // 0x000F25E0
     tick_runtime_scene_control(state, context.clock); // The inlined 0x00115E30.

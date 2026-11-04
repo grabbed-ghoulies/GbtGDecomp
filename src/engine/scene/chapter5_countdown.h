@@ -1,4 +1,5 @@
 #pragma once
+#include "scene_control_fields.h"
 #include "../entities/actor_clock.h"
 #include "gbtg/object_factory.h"
 
@@ -54,6 +55,6 @@ void finish_runtime_chapter5_countdown(Chapter5CountdownServices& context); // X
 void stop_runtime_chapter5_countdown(Chapter5CountdownServices& context); // Xbox 0x000F2780
 // The control's construct (0x000F2580, then 1) and update (0x000F25E0, then the base 0x00115E30's +0x20 time).
 bool construct_runtime_chapter5_countdown_control(Chapter5CountdownServices& context); // Xbox 0x00082D00
-void tick_runtime_chapter5_countdown_control(std::span<u8> state,
+void tick_runtime_chapter5_countdown_control(SceneControlBase& state,
     Chapter5CountdownServices& context); // Xbox 0x00082D10
 }

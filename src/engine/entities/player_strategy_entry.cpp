@@ -1,4 +1,5 @@
 #include "player_strategy_entry.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "player_fields.h"
 #include <cstring>
@@ -117,13 +118,13 @@ void enter_runtime_base_strategy_state(RuntimePlayerStrategyEntry& context, u16 
                 break;
             }
         }
-        ++context.strategy[0x1C];
+        ++strategy_base(context.strategy).pause_count;
         return;
     case 0x3FF:
         context.body[0x328] = 7;
         [[fallthrough]];
     case 0x415:
-        ++context.strategy[0x1C];
+        ++strategy_base(context.strategy).pause_count;
         return;
     case 0x418:
         load_runtime_mind_goal(context.goal_418, context.goals);

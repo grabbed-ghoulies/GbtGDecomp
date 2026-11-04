@@ -97,11 +97,6 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-void step_byte(std::span<u8> bytes, size_t offset, i32 step)
-{
-    bytes[offset] = u8(bytes[offset] + step);
-}
-
 // Each of the actor's live attachment records (+0x8F8) holds `step` more (0x00042090 / 0x000420B0).
 void adjust_live_holds(i32 step, RuntimeHauntedCoatStrategy& context)
 {
@@ -326,9 +321,9 @@ void wake_runtime_haunted_coat(u32 release, RuntimeHauntedCoatStrategy& context)
         return;
     }
     set(strategy, field::awake, 1u);
-    set(strategy, strategy_field::unk_18, 0x416);
-    set(strategy, strategy_field::after_wait_state, 0x416);
-    strategy[0x1B] = 1;
+    strategy_base(strategy).unk_18 = 0x416;
+    strategy_base(strategy).after_wait_state = 0x416;
+    strategy_base(strategy).unk_1B = 1;
     const u32 tag = read_u16(goals.entry.actor_bytes, 6);
     const std::array<u32, 2> event{0xB4, tag};
     script_queue_event(goals.game, {reinterpret_cast<const u8*>(event.data()), sizeof(event)}); // 0x00116810, EDI
@@ -385,7 +380,7 @@ void update_runtime_haunted_coat_strategy(RuntimeHauntedCoatStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     bool found = false;
     switch (state)
@@ -454,7 +449,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     // LAB 0x000AF392: a hostile target (0x00139C70, EDX 0) wakes it.
     const auto wake_on_hostile = [&]()
     {
@@ -468,7 +463,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
     switch (message[0])
     {
     case 1:
-        if (get(strategy, strategy_field::state) == 0x3E9)
+        if (strategy_base(strategy).state == 0x3E9)
         {
             if (get(strategy, field::awake) != 0)
             {
@@ -477,7 +472,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
             wake_on_hostile();
             return;
         }
-        if (get(strategy, strategy_field::state) == 0x413)
+        if (strategy_base(strategy).state == 0x413)
         {
             wake_on_hostile();
             return;
@@ -485,7 +480,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
         return;
     case 0x27:
-        if (get(strategy, strategy_field::state) == 0x417)
+        if (strategy_base(strategy).state == 0x417)
         {
             return;
         }
@@ -512,7 +507,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
         {
             return;
         }
-        if (get(strategy, strategy_field::state) == 0x413)
+        if (strategy_base(strategy).state == 0x413)
         {
             change_state(0x416, context);
         }
@@ -524,7 +519,7 @@ void dispatch_runtime_haunted_coat_message(std::span<const u32> message, Runtime
         return;
     case 0x70:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
-        if (get(strategy, strategy_field::state) == 0x413
+        if (strategy_base(strategy).state == 0x413
             && adopt_runtime_strategy_message_attacker(message, 1, context.checks, context.views) != 0) // 0x00139550
         {
             goals.room = nullptr; // Actor +0xCA0.
@@ -553,20 +548,20 @@ void enter_runtime_haunted_coat_state(u16 state, u16 previous, RuntimeHauntedCoa
     const std::span<u8> body = body_of(context);
     (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
     body[0x328] = 2;
-    strategy[0x1A] = 0;
-    strategy[0x1B] = 0;
+    strategy_base(strategy).attacking = 0;
+    strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3ED:
         body[0x328] = 4;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack, context);
         set(strategy, field::turn, 0.f);
         set(strategy, field::sway, 0.f);
         set(strategy, field::closing, 0.f);
         return;
     case 0x40C:
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         body[0x328] = 3;
         return;
     case 0x413:
@@ -604,7 +599,7 @@ void leave_runtime_haunted_coat_state(u16 state, RuntimeHauntedCoatStrategy& con
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        step_byte(strategy, 0x1C, -1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

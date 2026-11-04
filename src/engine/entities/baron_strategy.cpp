@@ -1,4 +1,5 @@
 #include "baron_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
@@ -416,7 +417,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     alert_runtime_goal_listener(goals); // 0x0013D400
     update_runtime_base_strategy(goals); // 0x0002C130
     tick_runtime_baron_effect(context); // 0x000A7470
@@ -582,8 +583,8 @@ void dispatch_runtime_baron_message(std::span<u32> message, RuntimeBaronStrategy
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    const u32 actor = read_u32(strategy, 8);
-    const u16 state = get(strategy, strategy_field::state);
+    const u32 actor = strategy_base(strategy).actor;
+    const u16 state = strategy_base(strategy).state;
     if ((message[0] == 0x26 || message[0] == 0x27) && (state == 0x409 || state == 0x411))
     {
         return;
@@ -689,7 +690,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
     const std::span<u8> body = body_of(context);
     const bool holding = get(body, body_field::attached) != 0;
     body[0x328] = 2;
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3EA:
@@ -715,8 +716,8 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
             turn_effect_on(context);
         }
         body[0x328] = 5;
-        strategy[0x1A] = 1;
-        set(strategy, strategy_field::unk_18, u16(0x401));
+        strategy_base(strategy).attacking = 1;
+        strategy_base(strategy).unk_18 = u16(0x401);
         if (!holding)
         {
             load_goal(context.goal_fetch_cane, context);
@@ -766,7 +767,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
     case 0x405:
         turn_effect_on(context);
         body[0x328] = 3;
-        set(strategy, strategy_field::unk_18, u16(0x405));
+        strategy_base(strategy).unk_18 = u16(0x405);
         load_goal(context.goal_get_weapon, context);
         set(mind, mind_field::action_actor, get(strategy, field::cane));
         return;
@@ -775,7 +776,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         {
             begin_timeline(context);
         }
-        strategy[0x1C] = u8(strategy[0x1C] + 1);
+        ++strategy_base(strategy).pause_count;
         load_goal(context.goal_knocked_down, context);
         release_runtime_player_attachment(1, 1, context.attachment); // 0x0001B810, EAX body
         return;
@@ -784,7 +785,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         return;
     case 0x411:
         load_goal(context.goal_worried, context);
-        strategy[0x1C] = u8(strategy[0x1C] + 1);
+        ++strategy_base(strategy).pause_count;
         if (get(strategy, field::effect_mode) != 2)
         {
             begin_timeline(context);
@@ -817,15 +818,15 @@ void leave_runtime_baron_state(u16 state, RuntimeBaronStrategy& context)
         return;
     case 0x405:
         turn_effect_off(context);
-        set(strategy, strategy_field::unk_18, u16(0x401));
+        strategy_base(strategy).unk_18 = u16(0x401);
         put_f32(body, 0x32C, 1.f); // DAT_0032B0F8.
         return;
     case 0x409:
         turn_effect_off(context);
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
         return;
     case 0x411:
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
         turn_effect_off(context);
         return;
     case 0x3EB:
@@ -838,7 +839,7 @@ void leave_runtime_baron_state(u16 state, RuntimeBaronStrategy& context)
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

@@ -1,4 +1,5 @@
 #include "imp_flying_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_pose_updates.h"
@@ -117,7 +118,7 @@ EntityBitBlock& body_bits(RuntimeImpFlyingStrategy& context, const char* caller)
 
 bool attacking(RuntimeImpFlyingStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     return state > 0x3EC && state < 0x3F0;
 }
 
@@ -629,7 +630,7 @@ void enter_arrow_dive(RuntimeImpFlyingStrategy& context)
 {
     body_bits(context, "0x000B5F70").bytes[7] |= 8;
     set_dive_phase(1, context); // 0x000B63A0, AL 1
-    strategy_of(context)[0x1A] = 1;
+    strategy_base(strategy_of(context)).attacking = 1;
 }
 
 // Xbox 0x000B5FA0, ESI strategy: the dive ends and its body bits clear.
@@ -644,7 +645,7 @@ void leave_arrow_dive(RuntimeImpFlyingStrategy& context)
     bits.bytes[4] &= 0xFE;
     bits.bytes[6] &= 0xEF;
     bits.bytes[0] &= 0xEF;
-    strategy_of(context)[0x1A] = 0;
+    strategy_base(strategy_of(context)).attacking = 0;
 }
 }
 
@@ -667,7 +668,7 @@ bool initialize_runtime_imp_flying_strategy(std::span<u8> strategy, std::span<co
 // Xbox 0x000B6BF0
 void update_runtime_imp_flying_strategy(RuntimeImpFlyingStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_runtime_base_strategy(goals_of(context)); // 0x0002C130
     switch (state)
     {
@@ -697,7 +698,7 @@ void dispatch_runtime_imp_flying_message(std::span<const u32> message, RuntimeIm
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     RuntimeSpiderStrategy& shared = context.shared;
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     react_runtime_strategy_message(message, shared.checks); // 0x001384F0; its result is not read.
     switch (message[0])
     {
@@ -772,7 +773,7 @@ void enter_runtime_imp_flying_state(u16 state, u16 previous, RuntimeImpFlyingStr
     {
     case 0x3ED:
         // The tail jump to 0x000B5D50.
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         goals.entry.body[0x328] = 4;
         set_whack_step(1, context); // 0x000B5E20, AL 1
         return;
@@ -809,7 +810,7 @@ void leave_runtime_imp_flying_state(u16 state, RuntimeImpFlyingStrategy& context
     case 0x3ED:
         set_whack_step(0, context); // 0x000B5E20, AL 0
         detach_runtime_strategy_link(context.shared.base.link); // 0x00112A20, EAX strategy +0x20
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x3EF:
         leave_arrow_dive(context); // 0x000B5FA0
@@ -830,7 +831,7 @@ void leave_runtime_imp_flying_state(u16 state, RuntimeImpFlyingStrategy& context
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

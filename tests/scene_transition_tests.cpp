@@ -1,4 +1,5 @@
 #include <unordered_set>
+#include "../src/engine/entities/strategy_fields.h"
 #include "gbtg/engine_internal.h"
 #include "../src/engine/runtime/throw_trace.h"
 #include "../src/engine/scene/cutscene_scene_runtime.h"
@@ -8093,7 +8094,7 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
         }
         for (const auto& skeleton : skeletons)
         {
-            const gbtg::u16 state = gbtg::read_u16(skeleton.strategy, 0xE);
+            const gbtg::u16 state = gbtg::strategy_base(skeleton.strategy).state;
             auto [found, inserted] = skeleton_states.try_emplace(skeleton.address, state);
             if (inserted || found->second != state)
             {
@@ -13114,7 +13115,7 @@ int main(int argc, char** argv)
             };
             const auto strategy_state = [](const gbtg::RuntimeDirectorActor& mark)
             {
-                return mark.strategy.empty() ? 0 : gbtg::read_u16(mark.strategy, 0xE);
+                return mark.strategy.empty() ? 0 : gbtg::strategy_base(mark.strategy).state;
             };
             // Script type 0x2F sends Cooper goal 7 (message 0x4D): his strategy holds in its goal state 0x3FB until
             // type 0x30 (message 0x32) releases him after the tutorial.
@@ -13893,7 +13894,7 @@ int main(int argc, char** argv)
                             {
                                 if (mark.actor->class_key == 4)
                                 {
-                                    return mark.strategy.empty() ? 0 : gbtg::read_u16(mark.strategy, 0xE);
+                                    return mark.strategy.empty() ? 0 : gbtg::strategy_base(mark.strategy).state;
                                 }
                             }
                             return -1;

@@ -77,13 +77,13 @@ bool join_queue(const RuntimeMindTarget* target, RuntimeVampireChickenStrategy& 
 
 bool attacking(RuntimeVampireChickenStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     return state > 0x3EC && state < 0x3F0; // 0x000B7120
 }
 
 u32 own_address(RuntimeVampireChickenStrategy& context)
 {
-    return read_u32(strategy_of(context), 8);
+    return strategy_base(strategy_of(context)).actor;
 }
 
 // The body +0x3C names, through the actor it belongs to.
@@ -267,7 +267,7 @@ void update_runtime_vampire_chicken_strategy(RuntimeVampireChickenStrategy& cont
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     const RuntimeMindTarget* target = mind_target(context);
     u32 provoked = 0;
     if (target != nullptr)
@@ -393,13 +393,13 @@ void enter_runtime_vampire_chicken_state(u16 state, u16 previous, RuntimeVampire
         // 0x000C26E0.
         load_goal(context.goal_grab, context);
         body[0x328] = 4;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         return;
     case 0x3EE:
         // 0x000C27F0.
         load_goal(context.goal_knockdown, context);
         body[0x328] = 5;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         return;
     case 0x3FD:
         load_goal(context.goal_emerge, context);
@@ -423,11 +423,11 @@ void leave_runtime_vampire_chicken_state(u16 state, RuntimeVampireChickenStrateg
         // 0x000C2710.
         release_held(context); // The same release as 0x000C2D90.
         detach_runtime_strategy_link(context.shared.base.link); // 0x00112A20, EAX strategy +0x20
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x3EE:
         detach_runtime_strategy_link(context.shared.base.link); // 0x00112A20, EAX strategy +0x20
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x3FD:
     case 0x401:
@@ -435,7 +435,7 @@ void leave_runtime_vampire_chicken_state(u16 state, RuntimeVampireChickenStrateg
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

@@ -222,7 +222,7 @@ void update_runtime_imp_flamethrower_strategy(RuntimeImpFlamethrowerStrategy& co
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     bool found = false;
     // LAB 0x000B5644: off the target's queue, the imp waits on it (0x40D).
@@ -416,19 +416,19 @@ void enter_runtime_imp_flamethrower_state(u16 state, u16 previous, RuntimeImpFla
     const u32 target_address = get(mind_of(context), mind_field::target_record);
     const RuntimeMindTarget* target = target_address == 0 ? nullptr : goals.target_at(target_address);
     body[0x328] = 2;
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3ED:
         body[0x328] = 4;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         set(strategy, field::fast, 0u);
         set(strategy, field::in_reach, 0u);
         approach_runtime_imp_flamethrower_target(target, context); // 0x000B4FE0
         return;
     case 0x3EF:
         body[0x328] = 6;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         set(strategy, field::fast, 1u);
         set(strategy, field::in_reach, 1u);
         load_runtime_mind_goal(context.goal_flamethrower, mind); // 0x0002A8E0

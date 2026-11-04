@@ -1,4 +1,5 @@
 #include "mummy_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
@@ -228,7 +229,7 @@ void choose_runtime_mummy_attack(RuntimeMummyStrategy& context)
     }
     const float aggression = context.checks.attributes.data() == nullptr ? 0.f
         : read_f32(context.checks.attributes, 0xC); // Actor +0x964 -> +0xC.
-    if (aggression >= roll(context) && get(strategy_of(context), strategy_field::state) != 0x3EE) // COMISS; JC
+    if (aggression >= roll(context) && strategy_base(strategy_of(context)).state != 0x3EE) // COMISS; JC
     {
         change_state(0x3EE, context);
         return;
@@ -241,7 +242,7 @@ void update_runtime_mummy_strategy(RuntimeMummyStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     bool found = false;
     switch (state)
@@ -388,7 +389,7 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     if (react_runtime_strategy_message(message, context.checks) != 0 || message[0] - 1 > 0x83) // 0x001384F0
     {
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
@@ -498,7 +499,7 @@ void enter_runtime_mummy_state(u16 state, u16 previous, RuntimeMummyStrategy& co
     const std::span<u8> body = body_of_actor(context);
     const u32 target = get(mind_of(context), mind_field::target_record);
     body[0x328] = 2;
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3EC:
@@ -507,13 +508,13 @@ void enter_runtime_mummy_state(u16 state, u16 previous, RuntimeMummyStrategy& co
         return;
     case 0x3ED:
         body[0x328] = 4;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack, context);
         return;
     case 0x3EE:
         set(strategy, field::unk_3C, 0u);
         body[0x328] = 5;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         if (get(body, body_field::attached) == 0)
         {
             load_goal(context.goal_ankh_getout, context);
@@ -522,7 +523,7 @@ void enter_runtime_mummy_state(u16 state, u16 previous, RuntimeMummyStrategy& co
         return;
     case 0x3EF:
         body[0x328] = 6;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_bandage, context);
         return;
     case 0x3F4:
@@ -559,7 +560,7 @@ void leave_runtime_mummy_state(u16 state, RuntimeMummyStrategy& context)
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
         const std::span<u8> strategy = strategy_of(context);
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
     }
 }
 }

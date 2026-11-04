@@ -1,4 +1,5 @@
 #include "pirate_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "body_message_helpers.h"
 #include "body_timers.h"
@@ -170,7 +171,7 @@ void choose_runtime_pirate_attack(RuntimePirateStrategy& context)
 // Xbox 0x000BECF0
 bool runtime_pirate_reacts(RuntimePirateStrategy& context)
 {
-    const u16 state = get(strategy_of(context), strategy_field::state);
+    const u16 state = strategy_base(strategy_of(context)).state;
     return state != 0x3EF && state != 0x3FA && state != 0x405;
 }
 
@@ -178,7 +179,7 @@ bool runtime_pirate_reacts(RuntimePirateStrategy& context)
 void count_runtime_pirate_hit(std::span<const u32> message, RuntimePirateStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (message[2] != read_u32(strategy, 8) || message[4] != 0)
+    if (message[2] != strategy_base(strategy).actor || message[4] != 0)
     {
         return;
     }
@@ -191,7 +192,7 @@ void update_runtime_pirate_strategy(RuntimePirateStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     float window = get(strategy, field::hit_window);
     const bool closed = count_down_runtime_strategy_live_timer(window, goals); // 0x0002BA60, EDX +0xD0
@@ -356,8 +357,8 @@ void dispatch_runtime_pirate_message(std::span<const u32> message, RuntimePirate
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
-    if (message[0] == 0x64 && get(strategy, strategy_field::state) == 0x3FA)
+    const u32 actor = strategy_base(strategy).actor;
+    if (message[0] == 0x64 && strategy_base(strategy).state == 0x3FA)
     {
         return;
     }
@@ -422,7 +423,7 @@ void dispatch_runtime_pirate_message(std::span<const u32> message, RuntimePirate
         }
         const std::span<u8> body = body_of(context);
         u16 next = 0x401;
-        if (get(strategy, strategy_field::state) == 0x3FA && get(strategy, field::drink_open) != 0 && message[2] != 0)
+        if (strategy_base(strategy).state == 0x3FA && get(strategy, field::drink_open) != 0 && message[2] != 0)
         {
             const char* effect = reinterpret_cast<const char*>(strategy.data() + field::angry_effect.offset);
             set(strategy, field::angry_object, context.create_effect(effect, actor)); // 0x0003DF40
@@ -480,7 +481,7 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
     const std::span<u8> body = body_of(context);
     RuntimeMindGoalContext& goal_context = goals.entry.goals;
     body[0x328] = 2;
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     const auto clear_hits = [&]()
     {
         set(strategy, field::hits, 0u);
@@ -494,19 +495,19 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
         return;
     case 0x3ED:
         body[0x328] = 4;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack, context);
         return;
     case 0x3EE:
         body[0x328] = 5;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_goal(runtime_pirate_holds_sword(context) ? context.goal_knockdown : context.goal_knockdown_confused,
             context);
         clear_hits();
         return;
     case 0x3EF:
         body[0x328] = 6;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         if (get(strategy, field::angry_object) != 0)
         {
             load_goal(context.goal_angry, context);
@@ -593,7 +594,7 @@ void leave_runtime_pirate_state(u16 state, RuntimePirateStrategy& context)
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

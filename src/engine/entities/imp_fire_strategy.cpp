@@ -117,7 +117,7 @@ void set_runtime_imp_fire_effect(u32 state, RuntimeImpFireStrategy& context)
     put(strategy, 0x40, state);
     if (state == 2 && previous != 2)
     {
-        put(strategy, 0x44, context.create_effect(context.effect_name, read_u32(strategy, 8)));
+        put(strategy, 0x44, context.create_effect(context.effect_name, strategy_base(strategy).actor));
     }
 }
 
@@ -166,7 +166,7 @@ void release_runtime_imp_fire_hold(RuntimeImpFireStrategy& context)
         return;
     }
     const RuntimeStrategyBodyView body = context.body_at(held);
-    if (read_u32(body.bytes, 0x50) == read_u32(strategy, 8))
+    if (read_u32(body.bytes, 0x50) == strategy_base(strategy).actor)
     {
         put(body.bytes, 0x50, 0);
         put(strategy, 0x3C, 0);
@@ -312,7 +312,7 @@ void grab_runtime_imp_fire_target(const Actor* target, RuntimeImpFireStrategy& c
     if (roll_runtime_imp_fire_attachment(context) && read_u32(body.bytes, 0x50) == 0
         && (body.bits->bytes[3] & 8) == 0 && read_u32(body.bytes, 0x58) != 0)
     {
-        put(body.bytes, 0x50, read_u32(strategy, 8));
+        put(body.bytes, 0x50, strategy_base(strategy).actor);
         put(strategy, 0x3C, body.address);
         change_state(0x40B, context);
         return;
@@ -478,7 +478,7 @@ void update_runtime_imp_fire_bite(RuntimeImpFireStrategy& context)
             load_runtime_mind_goal(context.goal_bite, goals.entry.goals);
             return;
         }
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_runtime_mind_goal(context.goal_bite_prepare, goals.entry.goals);
         return;
     }
@@ -490,7 +490,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     if (react_runtime_strategy_message(message, context.checks) != 0 || message[0] - 0x14 > 0x70)
     {
         dispatch_runtime_base_strategy_message(message, context.base);
@@ -506,7 +506,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
         return;
     case 0x26:
     case 0x27:
-        if (get(strategy, strategy_field::state) == 0x3EF && read_u32(strategy, 0x48) != 0)
+        if (strategy_base(strategy).state == 0x3EF && read_u32(strategy, 0x48) != 0)
         {
             return;
         }
@@ -544,7 +544,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
         }
         return;
     case 0x52:
-        if (get(strategy, strategy_field::state) == 0x3EF)
+        if (strategy_base(strategy).state == 0x3EF)
         {
             set_runtime_imp_fire_effect(1, context);
         }
@@ -552,7 +552,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
     case 0x6E:
     {
         const bool own = message[1] == actor;
-        const u16 state = get(strategy, strategy_field::state);
+        const u16 state = strategy_base(strategy).state;
         dispatch_runtime_base_strategy_message(message, context.base);
         if (check_runtime_player_knockout(goals) != 0)
         {
@@ -607,7 +607,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
 // Xbox 0x000B45D0
 void update_runtime_imp_fire_strategy(RuntimeImpFireStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_runtime_base_strategy(goals_of(context));
     switch (state)
     {
@@ -681,7 +681,7 @@ void leave_runtime_imp_fire_state(u16 state, u16 next, RuntimeImpFireStrategy& c
     if (state == 0x3EF || state == 0x40B)
     {
         put(strategy, 0x48, 0);
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         if (next != 0x3EF)
         {
             set_runtime_imp_fire_effect(1, context);
@@ -691,7 +691,7 @@ void leave_runtime_imp_fire_state(u16 state, u16 next, RuntimeImpFireStrategy& c
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
 }
 }

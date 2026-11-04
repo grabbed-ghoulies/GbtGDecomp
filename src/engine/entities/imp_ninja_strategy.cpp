@@ -425,7 +425,7 @@ void update_runtime_imp_ninja_strategy(RuntimeImpNinjaStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     const bool provoked =
         get(actor, player_field::countdown_56) > 0.f || get(actor, player_field::provoked) != 0; // DAT_0032B100.
     const RuntimeMindTarget* target = mind_target(context);
@@ -468,8 +468,8 @@ void dispatch_runtime_imp_ninja_message(std::span<const u32> message, RuntimeImp
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     RuntimeSpiderStrategy& shared = context.shared;
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
-    const u16 state = get(strategy, strategy_field::state);
+    const u32 actor = strategy_base(strategy).actor;
+    const u16 state = strategy_base(strategy).state;
     const bool attacking = state >= 0x3ED && state <= 0x3EF; // 0x000B8080 for 0x6E.
     react_runtime_strategy_message(message, shared.checks); // 0x001384F0; its result is not read.
     switch (message[0])
@@ -496,7 +496,7 @@ void dispatch_runtime_imp_ninja_message(std::span<const u32> message, RuntimeImp
             react_runtime_strategy_contact(message, 0.5f, shared.checks); // 0x001395C0, DAT_0032B0F4
         }
         bool settle = false;
-        if (message[1] == actor && strategy[0x1C] == 0)
+        if (message[1] == actor && strategy_base(strategy).pause_count == 0)
         {
             const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
             const u32 kind =
@@ -555,13 +555,13 @@ void enter_runtime_imp_ninja_state(u16 state, u16 previous, RuntimeImpNinjaStrat
     case 0x3ED:
         // The tail jump to 0x000B7710.
         body[0x328] = 4;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_goal(get(strategy, field::unk_C0) == 0 ? context.goal_psycheup : context.goal_psycheup_traitor, context);
         return;
     case 0x3EE:
         // The tail jump to 0x000B7800.
         body[0x328] = 5;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         if (get(strategy, field::spin_kick) != 0)
         {
             load_goal(context.goal_spin_kick, context);
@@ -574,7 +574,7 @@ void enter_runtime_imp_ninja_state(u16 state, u16 previous, RuntimeImpNinjaStrat
         load_goal(context.goal_inner_force, context);
         set(strategy, field::effect_made, 0u);
         body[0x328] = 6;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         return;
     case 0x401:
         set(strategy, field::spin_kick, 0u);
@@ -590,7 +590,7 @@ void enter_runtime_imp_ninja_state(u16 state, u16 previous, RuntimeImpNinjaStrat
             const float longest = parameter(context, 0x14);
             set(strategy, field::meditation, (longest - shortest) * roll(context) + shortest);
         }
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         return;
     default:
         enter_runtime_base_strategy_state(goals.entry, state); // The tail jump to 0x0002BAF0.
@@ -608,12 +608,12 @@ void leave_runtime_imp_ninja_state(u16 state, RuntimeImpNinjaStrategy& context)
     case 0x3ED:
     case 0x3EE:
         detach_runtime_strategy_link(context.shared.base.link); // 0x00112A20, EAX strategy +0x20
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x3EF:
         // 0x000B7180.
         detach_runtime_strategy_link(context.shared.base.link); // 0x00112A20, EAX strategy +0x20
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         end_inner_force_effect(context); // The same release as 0x000B73C0.
         return;
     case 0x401:
@@ -624,12 +624,12 @@ void leave_runtime_imp_ninja_state(u16 state, RuntimeImpNinjaStrategy& context)
         {
             set(strategy, field::meditation_step, 0u);
         }
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

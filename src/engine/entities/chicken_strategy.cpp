@@ -50,7 +50,7 @@ void update_runtime_chicken_strategy(RuntimeChickenStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     if (state != 0x401)
     {
@@ -93,7 +93,7 @@ void dispatch_runtime_chicken_message(std::span<const u32> message, RuntimeChick
     case 0x6E:
     {
         const u32 sender = message[1];
-        const u32 actor = read_u32(strategy, 8);
+        const u32 actor = strategy_base(strategy).actor;
         if (sender == actor)
         {
             set(strategy, field::provoked, 1u);
@@ -129,7 +129,7 @@ void dispatch_runtime_chicken_message(std::span<const u32> message, RuntimeChick
 void enter_runtime_chicken_state(u16 state, RuntimeChickenStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    switch (read_u16(strategy_of(context), 0xE))
+    switch (strategy_base(strategy_of(context)).state)
     {
     case 0x3EF:
         clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind

@@ -1,4 +1,5 @@
 #include "camera_actor_classes.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_mind_goals.h"
@@ -159,7 +160,7 @@ void leave_runtime_director_state(std::span<u8> strategy, u16 state)
 {
     if (state != 0x3F7 && (state == 0x3FC || state == 0x3FF || state == 0x415))
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
 }
 }

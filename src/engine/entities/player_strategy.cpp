@@ -136,13 +136,13 @@ u32 check_runtime_player_knockout(RuntimePlayerStrategyGoals& context)
     if (get(body, body_field::energy) == 0 && get(body, body_field::max_energy) != 0)
     {
         std::span<u8> strategy = context.entry.strategy;
-        const u16 state = get(strategy, strategy_field::state);
+        const u16 state = strategy_base(strategy).state;
         if (state != 1000 && state != 0x3FC)
         {
             drain_runtime_player_goals(context.cleanup);
-            set(strategy, strategy_field::unk_18, 0x3FC);
-            set(strategy, strategy_field::resume_state, 0x3FC);
-            set(strategy, strategy_field::flagged_resume_state, 0x3FC);
+            strategy_base(strategy).unk_18 = 0x3FC;
+            strategy_base(strategy).resume_state = 0x3FC;
+            strategy_base(strategy).flagged_resume_state = 0x3FC;
             move_state(0x3FC, context);
         }
         return 1;
@@ -224,7 +224,7 @@ void dispatch_runtime_player_strategy_message(std::span<const u32> message, Runt
     switch (message[0])
     {
     case 0x27:
-        if (get(strategy, strategy_field::state) == 0x3F1)
+        if (strategy_base(strategy).state == 0x3F1)
         {
             return;
         }
@@ -261,7 +261,7 @@ void enter_runtime_player_strategy_state(u16 state, RuntimePlayerStrategyFlow& c
     {
     case 0x3F1:
         put_float(strategy, 0x50, 5.0f); // DAT_0032B184.
-        ++strategy[0x1C];
+        ++strategy_base(strategy).pause_count;
         change_runtime_actor_pause(u8(0xFFFF), 0, context.pause);
         ++context.pause_count;
         break;
@@ -296,7 +296,7 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = goals.entry.strategy;
     std::span<u8> body = goals.entry.body;
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     if (read_u32(strategy, 0x38) != 0)
     {
         if ((goals.body_bits->bytes[6] & 1) != 0)
@@ -394,8 +394,8 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
         if (read_u32(strategy, 0x40) != 0)
         {
             put(strategy, 0x40, 0);
-            set(strategy, strategy_field::after_wait_state, 0x3F1);
-            set(strategy, strategy_field::unk_18, 0x3F1);
+            strategy_base(strategy).after_wait_state = 0x3F1;
+            strategy_base(strategy).unk_18 = 0x3F1;
             move_state(0x3F1, context);
             return;
         }

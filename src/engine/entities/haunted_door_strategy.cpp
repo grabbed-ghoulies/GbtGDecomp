@@ -383,7 +383,7 @@ void update_runtime_haunted_door_strategy(RuntimeHauntedDoorStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     drive_runtime_haunted_door_overlay(context); // 0x000AF9D0, EAX strategy
     bool found = false;
@@ -536,12 +536,12 @@ void dispatch_runtime_haunted_door_message(std::span<const u32> message, Runtime
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     switch (message[0])
     {
     case 0x26:
     case 0x27:
-        if (get(strategy, strategy_field::state) == 0x413 || get(strategy, strategy_field::state) == 0x417)
+        if (strategy_base(strategy).state == 0x413 || strategy_base(strategy).state == 0x417)
         {
             return;
         }
@@ -585,7 +585,7 @@ void dispatch_runtime_haunted_door_message(std::span<const u32> message, Runtime
         return;
     case 0x70:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
-        if (get(strategy, strategy_field::state) == 0x413
+        if (strategy_base(strategy).state == 0x413
             && adopt_runtime_strategy_message_attacker(message, 1, context.checks, context.views) != 0) // 0x00139550
         {
             goals.room = nullptr; // Actor +0xCA0.
@@ -613,8 +613,8 @@ void enter_runtime_haunted_door_state(u16 state, u16 previous, RuntimeHauntedDoo
     RuntimeMindGoalContext& mind = goals.entry.goals;
     (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
     body[0x328] = 2;
-    strategy[0x1A] = 0;
-    strategy[0x1B] = 0;
+    strategy_base(strategy).attacking = 0;
+    strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3EC:
@@ -623,13 +623,13 @@ void enter_runtime_haunted_door_state(u16 state, u16 previous, RuntimeHauntedDoo
         return;
     case 0x3EE:
         body[0x328] = 5;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         start_runtime_haunted_door_overlay(context); // 0x000AFA80
         load_goal(context.goal_knockdown, context);
         return;
     case 0x3EF:
         body[0x328] = 6;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack_special, context);
         return;
     case 0x409:
@@ -644,7 +644,7 @@ void enter_runtime_haunted_door_state(u16 state, u16 previous, RuntimeHauntedDoo
         return;
     case 0x413:
         load_goal(context.goal_sleep, context);
-        step_byte(strategy, 0x1C, 1);
+        ++strategy_base(strategy).pause_count;
         return;
     case 0x416:
         set(strategy, field::wait, 1.f); // DAT_0032B0F8.
@@ -652,10 +652,10 @@ void enter_runtime_haunted_door_state(u16 state, u16 previous, RuntimeHauntedDoo
     case 0x417:
     {
         set(strategy, field::awake, 1u);
-        set(strategy, strategy_field::unk_18, 0x416);
+        strategy_base(strategy).unk_18 = 0x416;
         load_goal(context.goal_wakeup, context);
-        step_byte(strategy, 0x1C, 1);
-        strategy[0x1B] = 1;
+        ++strategy_base(strategy).pause_count;
+        strategy_base(strategy).unk_1B = 1;
         // 0x0013A400, EAX strategy: the script hears {0xB4, the actor's tag}.
         const std::array<u32, 2> event{0xB4, read_u16(goals.entry.actor_bytes, 6)};
         script_queue_event(goals.game, {reinterpret_cast<const u8*>(event.data()), sizeof(event)}); // 0x00116810
@@ -681,7 +681,7 @@ void leave_runtime_haunted_door_state(u16 state, RuntimeHauntedDoorStrategy& con
         detach_runtime_strategy_link(context.base.link); // The tail jump to 0x00112A20, EAX strategy +0x20.
         return;
     case 0x417:
-        step_byte(strategy, 0x1C, -1);
+        --strategy_base(strategy).pause_count;
         if (get(strategy, field::latched) == 0)
         {
             return;
@@ -694,7 +694,7 @@ void leave_runtime_haunted_door_state(u16 state, RuntimeHauntedDoorStrategy& con
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        step_byte(strategy, 0x1C, -1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

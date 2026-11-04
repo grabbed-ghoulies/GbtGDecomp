@@ -1,4 +1,5 @@
 #include "warlock_strategy.h"
+#include "strategy_fields.h"
 #include "actor_clock.h"
 #include "actor_live_attachments.h"
 #include "actor_model_anchors.h"
@@ -86,7 +87,7 @@ Actor& actor_of(RuntimeWarlockStrategy& context)
 
 u32 actor_address(RuntimeWarlockStrategy& context)
 {
-    return read_u32(strategy_of(context), 8);
+    return strategy_base(strategy_of(context)).actor;
 }
 
 EntityBitBlock& body_bits(RuntimeWarlockStrategy& context)
@@ -174,7 +175,7 @@ float actor_height(const Actor& actor)
 // byte 3 bit 8 clear).
 bool can_react(RuntimeWarlockStrategy& context)
 {
-    if (read_u16(strategy_of(context), 0xE) == 0x401)
+    if (strategy_base(strategy_of(context)).state == 0x401)
     {
         return false;
     }
@@ -507,7 +508,7 @@ void set_mode(u32 mode, RuntimeWarlockStrategy& context)
         move_away(context); // 0x000C3370
         set(strategy, field::timer, kGoneTime); // Record +0x20.
         set(strategy, field::duration, kGoneTime);
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         clear_runtime_player_attachment_events(strategy.subspan(field::first_events.offset, 0x24),
             context.lists); // 0x0013B810, EBX +0xF0
         clear_runtime_player_attachment_events(strategy.subspan(field::second_events.offset, 0x24),
@@ -526,7 +527,7 @@ void set_mode(u32 mode, RuntimeWarlockStrategy& context)
         show(context); // 0x000C3440, ESI strategy
         set(strategy, field::timer, kVanishTime); // Record +0x28.
         set(strategy, field::duration, kVanishTime);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         callout(0x51, context); // 0x0003C040, ECX actor, EDX 0x51
         return;
     case 5:
@@ -592,7 +593,7 @@ void enter_attack(RuntimeWarlockStrategy& context)
     goals.room = nullptr; // Actor +0xCA0.
     pick_attack_limit(context); // 0x000C3BE0, EAX strategy
     load_goal(context.goal_attack_prepare, context);
-    strategy[0x1A] = 1;
+    strategy_base(strategy).attacking = 1;
 }
 
 // Xbox 0x000C3B20, ECX strategy, EAX actor: without a target it goes back to holding; otherwise, each time the mind
@@ -604,9 +605,9 @@ void update_attack(RuntimeWarlockStrategy& context)
     RuntimeMindTarget* target = nullptr;
     if (!select_runtime_strategy_target(target, 0, goals)) // 0x00139AA0, EAX strategy
     {
-        const u16 previous = get(strategy, strategy_field::state);
+        const u16 previous = strategy_base(strategy).state;
         goals.setup.leaving(goals.strategy, previous, 0x401); // Vtable +0x18.
-        set(strategy, strategy_field::state, u16(0x401));
+        strategy_base(strategy).state = u16(0x401);
         if (goals.setup.mind == nullptr)
         {
             throw Error("0x000C3B20 clears the requests of a mind it does not have");
@@ -860,7 +861,7 @@ void dispatch_runtime_warlock_message(std::span<const u32> message, RuntimeWarlo
 // Xbox 0x000C3EA0
 void update_runtime_warlock_strategy(RuntimeWarlockStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_entrance(context); // 0x000C42F0, EBX strategy
     update_runtime_base_strategy(goals_of(context)); // 0x0002C130
     switch (state)
@@ -900,12 +901,12 @@ void leave_runtime_warlock_state(u16 state, RuntimeWarlockStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
     }
     switch (state)
     {
     case 0x3EE:
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x401:
         stop_holding(context); // 0x000C2DB0, EDI strategy

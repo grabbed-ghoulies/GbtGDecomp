@@ -313,7 +313,7 @@ void update_runtime_haunted_chair_strategy(RuntimeHauntedChairStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     switch (state)
     {
@@ -331,21 +331,21 @@ void update_runtime_haunted_chair_strategy(RuntimeHauntedChairStrategy& context)
         return;
     case 0x401:
         selected(context);
-        if (state == get(strategy, strategy_field::state))
+        if (state == strategy_base(strategy).state)
         {
             update_holding(context); // 0x000AE230
         }
         return;
     case 0x413:
         selected(context);
-        if (state == get(strategy, strategy_field::state))
+        if (state == strategy_base(strategy).state)
         {
             update_asleep(context); // 0x000AE5C0
         }
         return;
     case 0x417:
         selected(context);
-        if (state == get(strategy, strategy_field::state))
+        if (state == strategy_base(strategy).state)
         {
             update_settled_attack(context); // 0x000AE6E0
         }
@@ -364,7 +364,7 @@ void dispatch_runtime_haunted_chair_message(std::span<const u32> message, Runtim
     {
     case 0x26:
     case 0x27:
-        if (get(strategy, strategy_field::state) == 0x413)
+        if (strategy_base(strategy).state == 0x413)
         {
             return;
         }
@@ -374,7 +374,7 @@ void dispatch_runtime_haunted_chair_message(std::span<const u32> message, Runtim
         break;
     case 0x6E:
     {
-        const bool own = message[1] == read_u32(strategy, 8);
+        const bool own = message[1] == strategy_base(strategy).actor;
         if (check_runtime_player_knockout(goals) != 0) // 0x0013A490, EBX strategy
         {
             break;
@@ -384,12 +384,12 @@ void dispatch_runtime_haunted_chair_message(std::span<const u32> message, Runtim
             react_runtime_strategy_contact(message, -1.f, context.checks); // 0x001395C0, DAT_0032B120
             break;
         }
-        const u16 state = get(strategy, strategy_field::state);
-        const bool landed = runtime_message_lands_on_actor(message, read_u32(strategy, 8)); // 0x001408A0
+        const u16 state = strategy_base(strategy).state;
+        const bool landed = runtime_message_lands_on_actor(message, strategy_base(strategy).actor); // 0x001408A0
         clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
         if (landed)
         {
-            strategy[0x1A] = 0;
+            strategy_base(strategy).attacking = 0;
         }
         if (state == 0x413)
         {
@@ -413,13 +413,13 @@ void enter_runtime_haunted_chair_state(u16 state, u16 previous, RuntimeHauntedCh
     {
     case 0x3EE:
         goals.entry.body[0x328] = 5;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         set(strategy, field::slides, 0);
         slide_at_target(context); // The tail jump to 0x000AE520.
         return;
     case 0x3EF:
         goals.entry.body[0x328] = 6;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_swing_kick, context);
         return;
     case 0x401:
@@ -429,13 +429,13 @@ void enter_runtime_haunted_chair_state(u16 state, u16 previous, RuntimeHauntedCh
     case 0x413:
         // 0x000AE5A0, ESI strategy.
         load_goal(context.goal_mimic, context);
-        strategy[0x1C] = u8(strategy[0x1C] + 1);
+        ++strategy_base(strategy).pause_count;
         return;
     case 0x417:
         load_goal(context.goal_wakeup, context);
         {
             const u16 next = 0x401;
-            std::memcpy(strategy.data() + 0x18, &next, 2);
+            strategy_base(strategy).unk_18 = next;
         }
         return;
     default:
@@ -457,7 +457,7 @@ void leave_runtime_haunted_chair_state(u16 state, u16 next, RuntimeHauntedChairS
     {
     case 0x3EE:
     case 0x3EF:
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x401:
         set(strategy, field::phase, 0u);
@@ -468,7 +468,7 @@ void leave_runtime_haunted_chair_state(u16 state, u16 next, RuntimeHauntedChairS
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

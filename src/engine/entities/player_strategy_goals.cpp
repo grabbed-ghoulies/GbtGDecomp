@@ -67,9 +67,9 @@ bool mind_requests_pending(const RuntimePlayerStrategyGoals& context)
 void move_strategy_state(RuntimePlayerStrategyGoals& context, u16 state)
 {
     std::span<u8> strategy = strategy_bytes(context);
-    context.setup.leaving(context.strategy, get(strategy, strategy_field::state), state);
-    const u16 previous = get(strategy, strategy_field::state);
-    set(strategy, strategy_field::state, state);
+    context.setup.leaving(context.strategy, strategy_base(strategy).state, state);
+    const u16 previous = strategy_base(strategy).state;
+    strategy_base(strategy).state = state;
     clear_runtime_player_mind_requests(*context.setup.mind);
     context.setup.entering(context.strategy, state, previous);
 }
@@ -744,7 +744,8 @@ u32 complete_runtime_player_goal_step(RuntimePlayerStrategyGoals& context)
     if (runtime_player_strategy_decay_enabled(actor, context.resume) != 0)
     {
         std::span<u8> strategy = strategy_bytes(context);
-        const u16 next = get(strategy, strategy_field::wait_timer) > 0.0f ? u16(0x415) : get(strategy, strategy_field::after_wait_state);
+        const StrategyBase& base = strategy_base(strategy);
+        const u16 next = base.wait_timer > 0.0f ? u16(0x415) : base.after_wait_state;
         move_strategy_state(context, next);
         return 1;
     }
@@ -802,7 +803,7 @@ void update_runtime_base_strategy(RuntimePlayerStrategyGoals& context)
 {
     std::span<u8> strategy = strategy_bytes(context);
     std::span<u8> actor = context.entry.actor_bytes;
-    switch (get(strategy, strategy_field::state))
+    switch (strategy_base(strategy).state)
     {
     case 1000:
         reset_runtime_input_device(context.input, context.input_release);
@@ -811,14 +812,14 @@ void update_runtime_base_strategy(RuntimePlayerStrategyGoals& context)
     case 0x3F4:
         if (!mind_requests_pending(context))
         {
-            change_runtime_player_strategy_state(context.strategy, get(strategy, strategy_field::unk_18), context.setup);
+            change_runtime_player_strategy_state(context.strategy, strategy_base(strategy).unk_18, context.setup);
         }
         return;
     case 0x3F2:
     case 0x418:
         if (!mind_requests_pending(context))
         {
-            change_runtime_player_strategy_state(context.strategy, get(strategy, strategy_field::unk_10), context.setup);
+            change_runtime_player_strategy_state(context.strategy, strategy_base(strategy).unk_10, context.setup);
         }
         return;
     case 0x3F3:
@@ -854,7 +855,7 @@ void update_runtime_base_strategy(RuntimePlayerStrategyGoals& context)
             record_runtime_player_free_position(context);
             if (runtime_player_can_resume_strategy(actor, context.resume) != 0)
             {
-                change_runtime_player_strategy_state(context.strategy, get(strategy, strategy_field::unk_18), context.setup);
+                change_runtime_player_strategy_state(context.strategy, strategy_base(strategy).unk_18, context.setup);
                 return;
             }
             change_runtime_player_strategy_state(context.strategy, 1000, context.setup);
@@ -863,12 +864,13 @@ void update_runtime_base_strategy(RuntimePlayerStrategyGoals& context)
     }
     case 0x415:
     {
-        float timer = get(strategy, strategy_field::wait_timer);
+        float timer = strategy_base(strategy).wait_timer;
         actor_tick_timer(context.entry.actor, timer, context.clock.freeze, context.clock.dt, context.clock.scale);
-        set(strategy, strategy_field::wait_timer, timer);
+        strategy_base(strategy).wait_timer = timer;
         if (timer == 0.0f)
         {
-            change_runtime_player_strategy_state(context.strategy, get(strategy, strategy_field::after_wait_state), context.setup);
+            change_runtime_player_strategy_state(context.strategy, strategy_base(strategy).after_wait_state,
+                context.setup);
         }
         return;
     }
@@ -884,7 +886,7 @@ namespace
 bool strategy_goal_gate(RuntimePlayerStrategyGoals& context)
 {
     std::span<const u8> actor = context.entry.actor_bytes;
-    if (context.entry.strategy[0x1C] != 0)
+    if (strategy_base(context.entry.strategy).pause_count != 0)
     {
         return false;
     }
@@ -980,7 +982,7 @@ u32 queue_runtime_player_goal(std::span<const u32> message, RuntimePlayerStrateg
 // Xbox 0x00138C80
 void resolve_runtime_goal_alert(RuntimePlayerStrategyGoals& context)
 {
-    put_float(context.entry.strategy, 0x34, 0.0f);
+    strategy_base(context.entry.strategy).wait_timer = 0.0f;
     if (context.entry.ring == nullptr || current_goal_kind(context) == 0)
     {
         return;
@@ -1199,7 +1201,8 @@ void dispatch_runtime_base_strategy_message(std::span<const u32> message, Runtim
         if (script_actor_current_mask(goals.entry.actor, context.query) != 0)
         {
             drain_runtime_player_goals(goals.cleanup);
-            const u16 state = get(strategy, strategy_field::wait_timer) > 0.0f ? u16(0x415) : get(strategy, strategy_field::after_wait_state);
+            const StrategyBase& base = strategy_base(strategy);
+            const u16 state = base.wait_timer > 0.0f ? u16(0x415) : base.after_wait_state;
             change_runtime_player_strategy_state(goals.strategy, state, goals.setup);
             return;
         }
@@ -1208,10 +1211,10 @@ void dispatch_runtime_base_strategy_message(std::span<const u32> message, Runtim
             change_runtime_player_strategy_state(goals.strategy, 0x3E9, goals.setup);
             return;
         }
-        change_runtime_player_strategy_state(goals.strategy, get(strategy, strategy_field::unk_18), goals.setup);
+        change_runtime_player_strategy_state(goals.strategy, strategy_base(strategy).unk_18, goals.setup);
         return;
     case 0x27:
-        if (script_actor_current_mask(goals.entry.actor, context.query) == 0 && get(strategy, strategy_field::state) != 0x3F3)
+        if (script_actor_current_mask(goals.entry.actor, context.query) == 0 && strategy_base(strategy).state != 0x3F3)
         {
             change_runtime_player_strategy_state(goals.strategy, 1000, goals.setup);
         }
@@ -1220,7 +1223,7 @@ void dispatch_runtime_base_strategy_message(std::span<const u32> message, Runtim
         complete_runtime_player_goal_step(goals);
         return;
     case 0x4B:
-        change_runtime_player_strategy_state(goals.strategy, get(strategy, strategy_field::unk_0C), goals.setup);
+        change_runtime_player_strategy_state(goals.strategy, strategy_base(strategy).unk_0C, goals.setup);
         return;
     case 0x4D:
         queue_runtime_player_goal(message, goals);
@@ -1234,7 +1237,8 @@ void dispatch_runtime_base_strategy_message(std::span<const u32> message, Runtim
     case 0x64:
         if (runtime_player_can_resume_strategy(actor, goals.resume) != 0 && strategy_goal_gate(goals))
         {
-            const u16 state = message[1] != 0 ? get(strategy, strategy_field::flagged_resume_state) : get(strategy, strategy_field::resume_state);
+            const StrategyBase& base = strategy_base(strategy);
+            const u16 state = message[1] != 0 ? base.flagged_resume_state : base.resume_state;
             change_runtime_player_strategy_state(goals.strategy, state, goals.setup);
         }
         return;

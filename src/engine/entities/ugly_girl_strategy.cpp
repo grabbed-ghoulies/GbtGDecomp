@@ -1,4 +1,5 @@
 #include "ugly_girl_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_goals.h"
 #include "player_strategy.h"
 #include "gbtg/entity.h"
@@ -64,7 +65,7 @@ bool initialize_runtime_ugly_girl_strategy(std::span<u8> strategy, std::span<con
 void update_runtime_ugly_girl_strategy(RuntimeUglyGirlStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u16 state = get(strategy_of(context), strategy_field::state);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     if (state == 0x3EC)
     {
@@ -139,7 +140,7 @@ void leave_runtime_ugly_girl_state(u16 state, RuntimeUglyGirlStrategy& context)
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
 }
 }

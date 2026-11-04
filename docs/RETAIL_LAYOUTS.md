@@ -192,6 +192,7 @@ For one object type:
 | Jump on state (`JumpOnState`, factory type 0x79, 0x0009A4C0): the leap (`LeapRecord`, 0x50: target, start and current euler, start, end and current point, length, time left), phase, switches, the ride (`JumpOnRide`, 0xC8: phase, strikes, animations found, wobble timer and wobble, hold and ride times, `InputTrackingRecord`, hold sound, hat intro), animations found, claim and target | 0x158 | `src/engine/entities/body_jump_on_state.h` |
 | Generate ghouly state (`GenerateGhoulyState`): phase, grow, animations found, the sound, model and effect names, two bolt rows (`GhoulyBoltRow`: pool, shape, angle), texture switches, the ghouly's name, variant and kind, attached actor, scales, beam, spawn point, light | 0x4A0 | `src/engine/entities/generate_ghouly_state.h` |
 | Grabbed hold state (factory type 0x71): the base and nothing else, so its functions take `BodyStateBase` | 0x18 | `src/engine/entities/body_grabbed_hold_state.h` |
+| Base strategy (`StrategyBase`, factory type 8): vtable address, type, unk_6, actor, the goals' next states and state, attacking, unk_1B, pause count, the target queue link (kept by `RuntimeStrategyLink`), wait timer. `strategy_base` views any strategy's bytes as it. | 0x38 | `src/engine/entities/strategy_fields.h` |
 | Scene-control base (`SceneControlBase`, type 3's instance): vtable address, type, unk_6, the list links (kept by `SceneControlInstance`), elapsed. `scene_control_view<T>` views a control's bytes as its struct. | 0x24 | `src/engine/scene/scene_control_fields.h` |
 | Walkabout music control (`WalkaboutControlState`, 0x00080570): the playlist word (kept by `SceneControlInstance`), position and count, track, start countdown, timer switch | 0x3C | `src/engine/scene/scene_control_fields.h` |
 | Chapter 2 scene 4 control (`Chapter2Scene4ControlState`, factory type 0x95): phase, wait, morph time | 0x38 | `src/engine/scene/chapter2_scene4_control.h` |
@@ -287,6 +288,10 @@ ever wrote the next key and now take `BodyStateBase&`. That ended `retail_bytes(
 `body_state_field`, which is gone. `retail_bytes` remains for the blocks handed to shared byte functions: bounded
 channels, input tracking, callout tokens and the wobble timer.
 
+The base strategy was read by literal offset almost everywhere (+8, +0xE, +0x1A, +0x1B and +0x1C, some 275 places in all),
+so it went straight to a struct rather than through descriptors. The `tests/*_checks.cpp` files keep their literal
+offsets, since checking the retail layout is their job. The derived strategies' own fields, from +0x38, are next.
+
 The scene controls come in two kinds. Those with no host pointers (walkabout, chapter 2 scene 4, chapter 5 countdown,
 scene fx, final score) are overlays like the body states, on `SceneControlBase`. Those whose retail words hold pointers can't lay
 them out in the factory bytes on a 64-bit host, so their fields join the host struct that already holds the pointers,
@@ -325,7 +330,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Walk-target and fly-alert parameters (factory types 0x8F and 0x6E; the states are structs, above) | parameters 0x60 | `walk_target_parameter`, `fly_alert_parameter` | `src/engine/entities/body_walk_target_state.h` |
 | Pick-up and lift state parameters (factory types 0x7C and 0x7D; the states are structs, above) | parameters 0x10 / 0x1C | `pickup_state_parameter`, `lift_state_parameter` | `src/engine/entities/body_pickup_state.h` |
 | Throw state parameters (factory type 0x8B; the state is a struct, above) | parameters 0x2C | `throw_state_parameter` | `src/engine/entities/body_throw_state.h` |
-| Skeleton strategy (factory type 0x51) | — | `skeleton_strategy_field`: no spawn in reach, fetch delay; and the base strategy's `strategy_field::state` (+0xE, `strategy_fields.h`) | `src/engine/entities/skeleton_strategy.h` |
+| Skeleton strategy (factory type 0x51) | — | `skeleton_strategy_field`: no spawn in reach, fetch delay; and the base strategy's `StrategyBase::state` (+0xE, `strategy_fields.h`) | `src/engine/entities/skeleton_strategy.h` |
 | Bob weapon (factory type 0xA0, 0x000C5B90), the bob's own part | 0xFE8, parameters 0x7FC | `bob_weapon_field`: holders, hits, the break animation and its events, state 7 timer, cutscene name, unk_FE4; `bob_weapon_parameter` | `src/engine/entities/bob_weapon.h` |
 | Swing state parameters (factory type 0x78; the state is a struct, above) | parameters 0x128 | `swing_state_parameter` | `src/engine/entities/body_swing_state.h` |
 | Large projectile (0x000CD620), its own part | 0xF08, parameters 0x604 | `large_projectile_field`: throw target, fall, heading, spin, shatter, bounces, hits, rest pose, catch, hold offset and rise, command attachments, trail; `large_projectile_parameter` | `src/engine/entities/projectile_weapon.h` |
@@ -373,7 +378,6 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Parent mind requests (0x000295E0) and the navigation request (0x2E, 0x00136620) | varies by kind | `named_request`, `value_request`, `reach_request`, `body_range_request`, `slot_action_request`, `flag_action_request`, `wait_request`, `flag_test_request`, `navigation_request`; the header's `started` byte | `src/engine/entities/mind_request_fields.h` |
 | Mind event (0x0002A190) | | `mind_event_field`: kind, time left, duration, cooldown, age, subject, other, count, payload | `src/engine/entities/player_mind_events.h` |
 | Body messages (0x00074080, 0x00075C60, 0x00075DD0) | varies by id | `body_message_field` (id), `control_message`, `point_message`, `collision_hit_message`, `impact_message`, `movement_message`; and the body's actor, action key, alert level, control tokens and saved energy | `src/engine/entities/player_body_messages.h` |
-| Base strategy (factory type 8), the goal states | | `strategy_field` gains the goals' next states (unk_0C, unk_10, after wait, resume, flagged resume) and the wait timer | `src/engine/entities/strategy_fields.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `camera_mind_field`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 
 The camera mind was checked with `--player-opening` and headless captures of `chapter1_scene1_2playcam` at 300 and
@@ -570,6 +574,9 @@ the offset, size and span length. All ten regular modes are byte-identical to th
 - The 0x30-byte screen texture (0x000533A0) is the engine's texture resource (width +8, height +0xA, header offset
   +4, data +0x14, size +0x18), which the widgets' `texture_width` helpers and the presenter also read. It belongs
   with the texture resource's own layout.
+- The derived strategies, on `StrategyBase`. `imp_fire_strategy`, `player_strategy`, `butler_strategy`,
+  `camera_director` and `camera_actor_classes` still read their own fields from +0x38 by literal offset; name those
+  first.
 - The entities. The body (`body_field`),
   base mind (`mind_field`), mind target records (`mind_target_field`), weapon base (`weapon_field`) and the player's
   part (`player_field`) are named now. The actor's own 0x934 bytes are mostly read through the native `Actor`; the

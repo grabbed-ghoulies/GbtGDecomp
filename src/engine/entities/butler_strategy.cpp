@@ -1,4 +1,5 @@
 #include "butler_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "player_mind_events.h"
 #include "player_mind_goals.h"
@@ -104,7 +105,7 @@ void update_runtime_butler_strategy(RuntimeButlerStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     update_runtime_base_strategy(goals);
-    switch (read_u16(strategy_of(context), 0xE))
+    switch (strategy_base(strategy_of(context)).state)
     {
     case 0x3FB:
         if (goals.goal_volume == nullptr)
@@ -148,10 +149,10 @@ void dispatch_runtime_butler_message(std::span<const u32> message, RuntimeButler
 void react_runtime_butler_hit(std::span<const u32> message, RuntimeButlerStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 self = read_u32(strategy_of(context), 8);
+    const u32 self = strategy_base(strategy_of(context)).actor;
     const u32 first = message[1];
     const u32 second = message[2];
-    if (first == self || second == 0 || strategy_of(context)[0x1C] != 0)
+    if (first == self || second == 0 || strategy_base(strategy_of(context)).pause_count != 0)
     {
         return;
     }
@@ -214,7 +215,7 @@ void leave_runtime_butler_state(u16 state, RuntimeButlerStrategy& context)
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy_of(context)[0x1C];
+        --strategy_base(strategy_of(context)).pause_count;
     }
 }
 }

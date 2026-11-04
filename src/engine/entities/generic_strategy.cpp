@@ -306,7 +306,7 @@ void dispatch_runtime_generic_message(std::span<const u32> message, RuntimeGener
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
     if (react_runtime_strategy_message(message, context.checks) != 0) // 0x001384F0, EAX strategy, ECX message
     {
@@ -358,7 +358,7 @@ void update_runtime_generic_strategy(RuntimeGenericStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     RuntimeMindTarget* target = nullptr;
     switch (state)
@@ -453,7 +453,7 @@ void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
     body[0x328] = 2;
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3EC:
@@ -468,7 +468,7 @@ void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
     }
     case 0x3EE:
         body[0x328] = 5;
-        strategy[0x1A] = context.attack_resource.data() != nullptr ? 1 : 0; // Body +0x5C.
+        strategy_base(strategy).attacking = context.attack_resource.data() != nullptr ? 1 : 0; // Body +0x5C.
         load_attack_goal(context); // The tail jump to 0x000ABA80.
         return;
     case 0x401:
@@ -499,7 +499,7 @@ void leave_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

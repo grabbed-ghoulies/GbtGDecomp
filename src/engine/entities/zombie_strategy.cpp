@@ -1,4 +1,5 @@
 #include "zombie_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -282,7 +283,7 @@ void begin_runtime_zombie_special(RuntimeZombieStrategy& context)
     std::span<u8> strategy = strategy_of(context);
     set(strategy, zombie_strategy_field::special_hit, 0u);
     load_runtime_mind_goal(context.goal_special, goals_of(context).entry.goals);
-    strategy[0x1A] = 1;
+    strategy_base(strategy).attacking = 1;
 }
 
 // Xbox 0x000C52C0
@@ -290,7 +291,7 @@ void end_runtime_zombie_special(RuntimeZombieStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     if (get(strategy, zombie_strategy_field::special_hit) != 0 || !body_settled(context))
     {
         return;
@@ -304,7 +305,7 @@ void update_runtime_zombie_special(RuntimeZombieStrategy& context)
 {
     if (get(strategy_of(context), zombie_strategy_field::special_hit) != 0)
     {
-        strategy_of(context)[0x1A] = 0;
+        strategy_base(strategy_of(context)).attacking = 0;
     }
     if (body_settled(context) && !requests_pending(context))
     {
@@ -325,7 +326,7 @@ void update_runtime_zombie_wait(RuntimeZombieStrategy& context)
 void react_runtime_zombie_message(std::span<const u32> message, RuntimeZombieStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 actor = read_u32(strategy_of(context), 8);
+    const u32 actor = strategy_base(strategy_of(context)).actor;
     switch (message[0])
     {
     case 0x36:
@@ -380,7 +381,7 @@ void react_runtime_zombie_message(std::span<const u32> message, RuntimeZombieStr
 // Xbox 0x000C5570
 void return_runtime_zombie_to_approach(RuntimeZombieStrategy& context)
 {
-    const u16 state = get(strategy_of(context), strategy_field::state);
+    const u16 state = strategy_base(strategy_of(context)).state;
     if ((state >= 0x3ED && state <= 0x3EF) || state == 0x401)
     {
         change_state(0x40C, context);
@@ -461,7 +462,7 @@ void update_runtime_zombie_strategy(RuntimeZombieStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals);
     switch (state)
     {
@@ -483,7 +484,7 @@ void update_runtime_zombie_strategy(RuntimeZombieStrategy& context)
         return;
     case 0x40C:
         selected_target(context);
-        if (state == get(strategy, strategy_field::state))
+        if (state == strategy_base(strategy).state)
         {
             approach_runtime_zombie_target(context);
         }
@@ -504,7 +505,7 @@ void dispatch_runtime_zombie_message(std::span<const u32> message, RuntimeZombie
         dispatch_runtime_base_strategy_message(message, context.base);
         return;
     }
-    if (get(strategy_of(context), strategy_field::state) == 0x3EF && message[0] == 0x3B)
+    if (strategy_base(strategy_of(context)).state == 0x3EF && message[0] == 0x3B)
     {
         set(strategy_of(context), zombie_strategy_field::special_hit, 1u);
         return;
@@ -575,7 +576,7 @@ void leave_runtime_zombie_state(u16 state, u16 next, RuntimeZombieStrategy& cont
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            --strategy_of(context)[0x1C];
+            --strategy_base(strategy_of(context)).pause_count;
         }
         return;
     }

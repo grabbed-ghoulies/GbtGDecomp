@@ -1,4 +1,5 @@
 #include "vampire_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
@@ -140,7 +141,7 @@ bool open_ends(RuntimeVampireStrategy& context)
     if (target->bytes[0x14] == 0)
     {
         const u32 holder = read_u32(context.views.body_of(target->actor).bytes, 0x718);
-        if (holder != 0 && holder != read_u32(strategy_of(context), 8))
+        if (holder != 0 && holder != strategy_base(strategy_of(context)).actor)
         {
             return true;
         }
@@ -437,7 +438,7 @@ bool runtime_vampire_reaches_target(RuntimeVampireStrategy& context)
     // 0x001381C0 / 0x001381F0: the target is held (+0x14 clear, its body's +0x718 set), and then by him.
     if (target->bytes[0x14] == 0 && read_u32(body.bytes, 0x718) != 0)
     {
-        return read_u32(body.bytes, 0x718) == read_u32(strategy_of(context), 8);
+        return read_u32(body.bytes, 0x718) == strategy_base(strategy_of(context)).actor;
     }
     return true;
 }
@@ -503,7 +504,7 @@ bool runtime_vampire_hit_from_behind(RuntimeVampireStrategy& context)
 void update_runtime_vampire_strategy(RuntimeVampireStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     set(strategy, field::shut, 0u);
     update_runtime_base_strategy(goals_of(context)); // 0x0002C130
     switch (state)
@@ -540,7 +541,7 @@ void dispatch_runtime_vampire_message(std::span<const u32> message, RuntimeVampi
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     switch (message[0])
     {
     case 0x1A:
@@ -566,7 +567,7 @@ void dispatch_runtime_vampire_message(std::span<const u32> message, RuntimeVampi
         {
             set(strategy, field::struck, 1u);
         }
-        if (message[1] != actor || strategy[0x1C] != 0)
+        if (message[1] != actor || strategy_base(strategy).pause_count != 0)
         {
             break;
         }
@@ -622,12 +623,12 @@ void enter_runtime_vampire_state(u16 state, u16 previous, RuntimeVampireStrategy
             set(strategy, field::struck, 0u);
             load_goal(context.goal_knockback, context);
         }
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         body[0x328] = 4;
         return;
     case 0x3EE:
         // Xbox 0x000C1C40, EAX strategy
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         body[0x328] = 5;
         if (get(strategy, field::knockdown_stage) != 1)
         {
@@ -643,7 +644,7 @@ void enter_runtime_vampire_state(u16 state, u16 previous, RuntimeVampireStrategy
             set(strategy, field::open_time, kOpenTime);
             load_goal(context.goal_special, context);
         }
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         body[0x328] = 6;
         return;
     case 0x401:
@@ -674,7 +675,7 @@ void leave_runtime_vampire_state(u16 state, RuntimeVampireStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
     }
     switch (state)
     {
@@ -684,7 +685,7 @@ void leave_runtime_vampire_state(u16 state, RuntimeVampireStrategy& context)
             set(strategy, field::knockback_stage, 0u);
         }
         detach_runtime_strategy_link(context.base.link); // 0x00112A20, EAX strategy +0x20.
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x3EE:
         if (get(strategy, field::knockdown_stage) != 0)
@@ -692,7 +693,7 @@ void leave_runtime_vampire_state(u16 state, RuntimeVampireStrategy& context)
             set(strategy, field::knockdown_stage, 0u);
         }
         detach_runtime_strategy_link(context.base.link);
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x3EF:
         if (get(strategy, field::open_stage) != 0)
@@ -700,7 +701,7 @@ void leave_runtime_vampire_state(u16 state, RuntimeVampireStrategy& context)
             set(strategy, field::open_stage, 0u);
         }
         detach_runtime_strategy_link(context.base.link);
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x406:
         if (get(strategy, field::knocked_stage) != 0)

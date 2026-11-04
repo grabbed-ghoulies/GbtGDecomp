@@ -1,4 +1,5 @@
 #include "player_parent_lifecycle.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "entity_heap.h"
 #include <bit>
@@ -202,17 +203,16 @@ bool sample_runtime_strategy_class_range(std::span<u8, 4> output, u16 actor_clas
 bool initialize_runtime_base_strategy(std::span<u8> strategy, std::span<const u8> parameters,
     u16 actor_class, const RuntimeStrategyClassRanges& ranges, u32& random)
 {
-    write_word(strategy, 8, read_u32(parameters, 8));
-    const u16 state = read_u16(parameters, 0xC);
-    std::memcpy(strategy.data() + 0xC, &state, 2);
-    for (size_t index = 0; index < 5; ++index)
-    {
-        const u16 value = read_u16(parameters, 0xE + index * 2);
-        std::memcpy(strategy.data() + 0x10 + index * 2, &value, 2);
-    }
+    StrategyBase& base = strategy_base(strategy);
+    base.actor = read_u32(parameters, 8);
+    base.unk_0C = read_u16(parameters, 0xC);
+    base.unk_10 = read_u16(parameters, 0xE);
+    base.after_wait_state = read_u16(parameters, 0x10);
+    base.resume_state = read_u16(parameters, 0x12);
+    base.flagged_resume_state = read_u16(parameters, 0x14);
+    base.unk_18 = read_u16(parameters, 0x16);
     // A miss preserves +0x34; the retail caller ignores the sampler's result.
-    sample_runtime_strategy_class_range(std::span<u8, 4>{strategy.data() + 0x34, 4},
-        actor_class, ranges, random);
+    sample_runtime_strategy_class_range(retail_bytes(base.wait_timer).first<4>(), actor_class, ranges, random);
     return true;
 }
 
@@ -270,7 +270,7 @@ void leave_runtime_base_strategy_state(std::span<u8> strategy, u16 state)
 {
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
 }
 }

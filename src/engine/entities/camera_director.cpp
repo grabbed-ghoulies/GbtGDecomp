@@ -1,4 +1,5 @@
 #include "camera_director.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_messages.h"
@@ -94,7 +95,7 @@ float director_planar_distance(const Vec3& origin, const Vec3& position)
 // Xbox 0x00028CC0
 bool runtime_actor_strategy_waiting(const RuntimeDirectorActor& actor)
 {
-    if (!actor.strategy.empty() && actor.strategy[0x1A] != 0)
+    if (!actor.strategy.empty() && strategy_base(actor.strategy).attacking != 0)
     {
         if ((read_u16(actor.body, 0x30) == 0 && read_f32(actor.body, 0x34) == 0.f) || actor.body[0x6A] != 0)
         {
@@ -257,8 +258,8 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
                     const u32 watched = get(candidate.mind, mind_field::target);
                     i32 last_cell = 0;
                     navigation_path_clear(origin, position, 0, 0, 0, 0, nullptr, &last_cell, 0);
-                    if (!candidate.strategy.empty() && candidate.strategy[0x1B] != 0 && watched == target
-                        && extended_range > distance)
+                    if (!candidate.strategy.empty() && strategy_base(candidate.strategy).unk_1B != 0
+                        && watched == target && extended_range > distance)
                     {
                         add_camera_director_entry(chosen.data(), chosen_count, candidate.address, 3, kEntryLimit,
                             distance, context);
@@ -488,7 +489,7 @@ void release_runtime_body_hold(std::span<u8> body, const std::function<void(std:
 void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
 {
     std::span<u8> strategy{context.strategy.bytes.get(), context.strategy.size};
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = strategy_base(strategy).state;
     const u32 target = get(context.mind, mind_field::target);
     RuntimeDirectorTargets& targets = context.targets;
     if (target == 0 && read_u32(strategy, 0x38) == 0)

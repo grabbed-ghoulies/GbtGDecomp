@@ -1,4 +1,5 @@
 #include "ghoulie_girl_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "player_children.h"
@@ -138,7 +139,7 @@ void set_mode(u32 mode, RuntimeGhoulieGirlStrategy& context)
         const auto name = get(strategy, field::object_name);
         // 0x00107720 clones the named template, +8 becomes the actor, 0x00107520 makes it and 0x000663E0 frees
         // the clone; with no template the object is 0.
-        set(strategy, field::object, context.create_object(name.data(), read_u32(strategy, 8)));
+        set(strategy, field::object, context.create_object(name.data(), strategy_base(strategy).actor));
         increment_runtime_body_latch_mask(body_of(context), 0x3F, actor_of(context), context.latches); // 0x0001F3F0
         return;
     }
@@ -271,7 +272,7 @@ void enter_knockdown(RuntimeGhoulieGirlStrategy& context)
     load_goal(context.goal_knockdown, context);
     set(strategy, field::knockdown_time, kKnockdownTime); // Record +8.
     body_of(context)[0x328] = 4;
-    strategy[0x1A] = 1;
+    strategy_base(strategy).attacking = 1;
 }
 
 // Xbox 0x000ABFA0, EAX actor, ESI strategy
@@ -333,7 +334,7 @@ bool initialize_runtime_ghoulie_girl_strategy(std::span<u8> strategy, std::span<
 void dispatch_runtime_ghoulie_girl_message(std::span<const u32> message, RuntimeGhoulieGirlStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 actor = read_u32(strategy_of(context), 8);
+    const u32 actor = strategy_base(strategy_of(context)).actor;
     dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
     switch (message[0])
     {
@@ -371,7 +372,7 @@ void dispatch_runtime_ghoulie_girl_message(std::span<const u32> message, Runtime
 // Xbox 0x000AC200
 void update_runtime_ghoulie_girl_strategy(RuntimeGhoulieGirlStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_runtime_base_strategy(goals_of(context)); // 0x0002C130
     switch (state)
     {
@@ -419,12 +420,12 @@ void leave_runtime_ghoulie_girl_state(u16 state, RuntimeGhoulieGirlStrategy& con
     const std::span<u8> strategy = strategy_of(context);
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
     }
     switch (state)
     {
     case 0x3EE:
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         detach_runtime_strategy_link(context.base.link); // The tail jump to 0x00112A20, EAX strategy +0x20.
         return;
     case 0x401:

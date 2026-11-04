@@ -494,7 +494,7 @@ void set_walk_mode(u32 mode, RuntimeMedusaStrategy& context)
     set(strategy, field::walk_mode, mode);
     if (mode == 1)
     {
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     }
     if (mode != 2)
@@ -506,7 +506,7 @@ void set_walk_mode(u32 mode, RuntimeMedusaStrategy& context)
     load_goal(context.goal_attack, context);
     goals.room = nullptr; // Actor +0xCA0.
     face_attack(context); // 0x000BAE60
-    strategy[0x1A] = 1;
+    strategy_base(strategy).attacking = 1;
 }
 
 // Xbox 0x000BAD30, ECX strategy: the gaze is due (always, or once the delay has run down).
@@ -717,7 +717,7 @@ void tick_walk(RuntimeMedusaStrategy& context)
         }
         set(strategy, field::attack_delay, parameter(context, 0x1C));
         set(strategy, field::walk_mode, 1u);
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     default:
         return;
@@ -785,7 +785,7 @@ bool initialize_runtime_medusa_strategy(std::span<u8> strategy, std::span<const 
 void update_runtime_medusa_strategy(RuntimeMedusaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     if (attributes_always_special(context))
     {
         set(strategy, field::always_special, 1u);
@@ -820,8 +820,8 @@ void dispatch_runtime_medusa_message(std::span<const u32> message, RuntimeMedusa
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     RuntimeSpiderStrategy& shared = context.shared;
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
-    const u16 state = get(strategy, strategy_field::state);
+    const u32 actor = strategy_base(strategy).actor;
+    const u16 state = strategy_base(strategy).state;
     const bool attacking = state >= 0x3ED && state <= 0x3EF; // 0x000B7120
     switch (message[0])
     {
@@ -858,7 +858,7 @@ void dispatch_runtime_medusa_message(std::span<const u32> message, RuntimeMedusa
         {
             return;
         }
-        if (strategy[0x1C] != 0)
+        if (strategy_base(strategy).pause_count != 0)
         {
             return;
         }
@@ -964,7 +964,7 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
         set(strategy, field::shocked, 0u);
         load_goal(context.goal_special_attack, context);
         body[0x328] = 6;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         if (get(strategy, field::gaze_phase) != 1)
         {
             set(strategy, field::gaze_phase, 1u);
@@ -1007,7 +1007,7 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
                 set(strategy, field::attack_delay, parameter(context, 0x1C));
             }
             set(strategy, field::walk_mode, 1u);
-            strategy[0x1A] = 0;
+            strategy_base(strategy).attacking = 0;
         }
         if (get(strategy, field::special_delay) > 60.f) // DAT_0032B28C.
         {
@@ -1052,7 +1052,7 @@ void leave_runtime_medusa_state(u16 state, RuntimeMedusaStrategy& context)
         {
             drop_attack(context); // 0x000BA050
         }
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         const std::span<u8> body = body_of(context);
         put_f32(body, 0x71C, 0.5585053563117981f); // DAT_0032B220.
         put_f32(body, 0x720, 12.566370964050293f); // DAT_0032B21C.
@@ -1090,7 +1090,7 @@ void leave_runtime_medusa_state(u16 state, RuntimeMedusaStrategy& context)
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

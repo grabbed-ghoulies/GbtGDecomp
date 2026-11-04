@@ -1,4 +1,5 @@
 #include "baron_plane_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
@@ -523,7 +524,7 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     alert_runtime_goal_listener(goals); // 0x0013D400
     update_runtime_base_strategy(goals); // 0x0002C130
     tick_runtime_baron_plane_effect(context); // 0x000A88C0
@@ -715,14 +716,14 @@ void dispatch_runtime_baron_plane_message(std::span<u32> message, RuntimeBaronPl
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     if (message[0] == 0x26 || message[0] == 0x27)
     {
         if (paused(context))
         {
             set(strategy, field::hit_pause, 1.f); // DAT_0032B0F8.
         }
-        const u16 state = get(strategy, strategy_field::state);
+        const u16 state = strategy_base(strategy).state;
         if (state == 0x404 || state == 0x409 || state == 0x414)
         {
             return;
@@ -784,7 +785,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
     body[0x328] = 2;
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     set(strategy, field::fly, 0u);
     set(strategy, field::sound, 0u);
     const auto fly_and_sound = [&]()
@@ -818,8 +819,8 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
             effect_when_low(context);
         }
         body[0x328] = 5;
-        strategy[0x1A] = 1;
-        set(strategy, strategy_field::unk_18, u16(0x401));
+        strategy_base(strategy).attacking = 1;
+        strategy_base(strategy).unk_18 = u16(0x401);
         load_goal(context.goal_attack, context);
         return;
     case 0x3FB:
@@ -845,7 +846,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         set(strategy, field::cutscene, 0u);
         effect_on(context);
         body[0x328] = 2;
-        strategy[0x1C] = u8(strategy[0x1C] + 1);
+        ++strategy_base(strategy).pause_count;
         land_runtime_baron_plane(context); // 0x000A9D40, EAX actor, EBX mind
         increment_runtime_body_latches(body, actor_of(context), context.latches); // 0x0001FC40, ECX body
         set(strategy, field::sound, 1u);
@@ -910,7 +911,7 @@ void leave_runtime_baron_plane_state(u16 state, RuntimeBaronPlaneStrategy& conte
         return;
     case 0x404:
         change_runtime_actor_pause(u8(0xFFFF), 1, context.pause); // 0x00117400
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
         decrement_runtime_body_latches(body, actor_of(context), context.latches); // The tail jump to 0x0001FD20.
         return;
     case 0x409:
@@ -925,7 +926,7 @@ void leave_runtime_baron_plane_state(u16 state, RuntimeBaronPlaneStrategy& conte
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

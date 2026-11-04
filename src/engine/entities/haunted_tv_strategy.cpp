@@ -222,7 +222,7 @@ void start_runtime_haunted_tv_attack(RuntimeHauntedTvStrategy& context)
     put_word(body, 0x74C, 1);
     // The inlined 0x0003DF40: the parameters' object, cloned with this actor at +8 and made.
     set(strategy, field::effect_object,
-        context.create_effect(field_data(strategy, field::effect), read_u32(strategy, 8)));
+        context.create_effect(field_data(strategy, field::effect), strategy_base(strategy).actor));
     set(strategy, field::attacking, 1);
 }
 
@@ -494,7 +494,7 @@ bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHaun
     {
         throw Error("0x00141530 reads a mind's +0x10 target record that has no view");
     }
-    return read_u32(aimed->bytes, 0x10) == read_u32(strategy_of(context), 8);
+    return read_u32(aimed->bytes, 0x10) == strategy_base(strategy_of(context)).actor;
 }
 
 // Xbox 0x000B29D0, EBX target, EAX actor: 1 near and free, 2 near (within 50, or 100 when busy), 3 far or none.
@@ -675,7 +675,7 @@ void update_runtime_haunted_tv_strategy(RuntimeHauntedTvStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = actor_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     const float frame = runtime_frame_step(goals.clock);
     const float rate = runtime_actor_rate(actor);
     const float recovery = get(strategy, field::recovery);
@@ -888,8 +888,8 @@ void dispatch_runtime_haunted_tv_message(std::span<const u32> message, RuntimeHa
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
-    const u32 actor = read_u32(strategy, 8);
+    const u16 state = strategy_base(strategy).state;
+    const u32 actor = strategy_base(strategy).actor;
     switch (message[0])
     {
     case 1:
@@ -941,10 +941,10 @@ void dispatch_runtime_haunted_tv_message(std::span<const u32> message, RuntimeHa
         set_runtime_haunted_tv_screen(2, context); // 0x000B1BA0
         return;
     case 0x3A:
-        set(strategy, strategy_field::after_wait_state, 0x3EF);
-        set(strategy, strategy_field::unk_18, 0x3EF);
-        set(strategy, strategy_field::resume_state, 0x416);
-        set(strategy, strategy_field::flagged_resume_state, 0x416);
+        strategy_base(strategy).after_wait_state = 0x3EF;
+        strategy_base(strategy).unk_18 = 0x3EF;
+        strategy_base(strategy).resume_state = 0x416;
+        strategy_base(strategy).flagged_resume_state = 0x416;
         return;
     case 0x3B:
     {
@@ -973,7 +973,7 @@ void dispatch_runtime_haunted_tv_message(std::span<const u32> message, RuntimeHa
             change_state(0x409, context);
             return;
         }
-        if (get(strategy, strategy_field::state) == 0x413)
+        if (strategy_base(strategy).state == 0x413)
         {
             change_state(0x416, context);
         }
@@ -993,24 +993,24 @@ void enter_runtime_haunted_tv_state(u16 state, u16 previous, RuntimeHauntedTvStr
     RuntimeMindGoalContext& mind = goals.entry.goals;
     (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
     set_body_mode(2, context);
-    strategy[0x1A] = 0;
-    strategy[0x1B] = 0;
+    strategy_base(strategy).attacking = 0;
+    strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3EE:
         set_body_mode(5, context);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         set(strategy, field::near_time, 0.f);
         set_runtime_haunted_tv_screen(3, context); // 0x000B1BA0
         begin_runtime_haunted_tv_timeline(0, context); // 0x000B1710, EBX 0
         return;
     case 0x3EF:
         set_body_mode(6, context);
-        set(strategy, strategy_field::after_wait_state, 0x416);
-        set(strategy, strategy_field::unk_18, 0x416);
-        set(strategy, strategy_field::resume_state, 0x416);
-        set(strategy, strategy_field::flagged_resume_state, 0x416);
-        strategy[0x1B] = 1;
+        strategy_base(strategy).after_wait_state = 0x416;
+        strategy_base(strategy).unk_18 = 0x416;
+        strategy_base(strategy).resume_state = 0x416;
+        strategy_base(strategy).flagged_resume_state = 0x416;
+        strategy_base(strategy).unk_1B = 1;
         load_runtime_mind_goal(context.goal_generate, mind); // 0x0002A8E0
         if (get(strategy, field::generated) == 0)
         {
@@ -1048,13 +1048,13 @@ void enter_runtime_haunted_tv_state(u16 state, u16 previous, RuntimeHauntedTvStr
         load_runtime_mind_goal(context.goal_knocked_down, mind); // 0x0002A8E0
         return;
     case 0x40F:
-        set(strategy, strategy_field::after_wait_state, 0x40F);
-        set(strategy, strategy_field::unk_18, 0x40F);
+        strategy_base(strategy).after_wait_state = 0x40F;
+        strategy_base(strategy).unk_18 = 0x40F;
         set_runtime_haunted_tv_screen(2, context); // 0x000B1BA0
         return;
     case 0x413:
         load_runtime_mind_goal(context.goal_sleep, mind); // 0x0002A8E0
-        strategy[0x1C] = u8(strategy[0x1C] + 1);
+        ++strategy_base(strategy).pause_count;
         set_runtime_haunted_tv_screen(0, context); // 0x000B1BA0
         return;
     case 0x416:
@@ -1064,9 +1064,9 @@ void enter_runtime_haunted_tv_state(u16 state, u16 previous, RuntimeHauntedTvStr
         return;
     case 0x417:
         // Story bit 0xE (**(DAT_00506C6C + 8) byte 1 bit 6) picks 0x416 over 0x40F as the state after waking.
-        set(strategy, strategy_field::unk_18, (context.story_bits()[1] & 0x40) != 0 ? 0x416 : 0x40F);
+        strategy_base(strategy).unk_18 = (context.story_bits()[1] & 0x40) != 0 ? 0x416 : 0x40F;
         set_runtime_haunted_tv_screen(3, context); // 0x000B1BA0
-        strategy[0x1B] = 1;
+        strategy_base(strategy).unk_1B = 1;
         load_runtime_mind_goal(context.goal_wakeup, mind); // 0x0002A8E0
         return;
     default:
@@ -1105,7 +1105,7 @@ void leave_runtime_haunted_tv_state(u16 state, u16 next, RuntimeHauntedTvStrateg
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

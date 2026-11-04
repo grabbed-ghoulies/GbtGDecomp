@@ -1,4 +1,5 @@
 #include "powerup_awards.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "../scripts/script_event_sequence.h"
 #include "../frontend/app_error_screen.h"
@@ -299,11 +300,11 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
             bool frozen = true;
             if (!view.strategy.empty() && script_actor_current_mask(view.actor, actors.query) == 0) // 0x00028360
             {
-                if (view.strategy[0x1C] != 0)
+                if (strategy_base(view.strategy).pause_count != 0)
                 {
                     continue;
                 }
-                RuntimePowerupActor owner = actors.actor_at(read_u32(view.strategy, 8));
+                RuntimePowerupActor owner = actors.actor_at(strategy_base(view.strategy).actor);
                 const u32 group =
                     (get(owner.bytes, player_field::mode) == 2 || get(owner.bytes, player_field::case_link) != 0) ? 1u
                                                                                                                   : 0u;

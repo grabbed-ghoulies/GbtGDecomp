@@ -527,7 +527,7 @@ void step_special(u32 step, RuntimeJessieClydeStrategy& context)
         set(strategy, field::unk_D4, 0u);
         set(strategy, field::special_effect, 0u);
         body_of(context)[0x328] = 6;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         return;
     }
     if (step != 2)
@@ -546,7 +546,7 @@ void step_special(u32 step, RuntimeJessieClydeStrategy& context)
 void special_struck(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::special_step) != 2 || get(strategy, strategy_field::state) != 0x3EF)
+    if (get(strategy, field::special_step) != 2 || strategy_base(strategy).state != 0x3EF)
     {
         return;
     }
@@ -575,7 +575,7 @@ void special_struck(RuntimeJessieClydeStrategy& context)
 bool special_retarget(u32 actor, RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::special_step) != 2 || get(strategy, strategy_field::state) != 0x3EF)
+    if (get(strategy, field::special_step) != 2 || strategy_base(strategy).state != 0x3EF)
     {
         return false;
     }
@@ -610,7 +610,7 @@ void target_called(u32 actor, RuntimeJessieClydeStrategy& context)
     {
         return;
     }
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     if (state == 0x3ED || state == 0x3EF)
     {
         if (requests_pending(context))
@@ -680,7 +680,7 @@ void update_runtime_jessie_clyde_strategy(RuntimeJessieClydeStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     const RuntimeMindTarget* target = mind_target(context);
     u32 open = 0;
     if (target == nullptr)
@@ -719,10 +719,10 @@ void dispatch_runtime_jessie_clyde_message(std::span<const u32> message, Runtime
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     RuntimeSpiderStrategy& shared = context.shared;
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     react_runtime_strategy_message(message, shared.checks); // 0x001384F0; its result is not read.
     dispatch_runtime_base_strategy_message(message, shared.base); // 0x0002BC10
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     const bool calm = get(strategy, field::calm) != 0;
     switch (message[0])
     {
@@ -780,7 +780,7 @@ void dispatch_runtime_jessie_clyde_message(std::span<const u32> message, Runtime
             set(strategy, field::struck, 1u);
         }
         retaliate_runtime_strategy_contact(message, -1, shared.checks, shared.views); // 0x00139390
-        if (strategy[0x1C] != 0)
+        if (strategy_base(strategy).pause_count != 0)
         {
             return;
         }
@@ -840,7 +840,7 @@ void enter_runtime_jessie_clyde_state(u16 state, u16 previous, RuntimeJessieClyd
             load_goal(context.goal_shout, context);
         }
         body[0x328] = 4;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         return;
     case 0x3EE:
     {
@@ -849,7 +849,7 @@ void enter_runtime_jessie_clyde_state(u16 state, u16 previous, RuntimeJessieClyd
         set(strategy, field::follow_up, 0u);
         set(strategy, field::knockdown_effect, 0u);
         body[0x328] = 5;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         const EntityBitBlock& bits = body_bits(context, "0x000B8B90");
         if ((bits.bytes[3] & 0x80) != 0 || (bits.bytes[4] & 0x10) != 0)
         {
@@ -893,13 +893,13 @@ void leave_runtime_jessie_clyde_state(u16 state, RuntimeJessieClydeStrategy& con
         }
         EntityBitBlock& bits = body_bits(context, "0x000B8930");
         bits.bytes[2] = u8(bits.bytes[2] & 0x7F);
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     }
     case 0x3EE:
     {
         // 0x000B8D00.
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         if (get(strategy, field::knockdown_effect) != 0)
         {
             end_effect(context);
@@ -921,7 +921,7 @@ void leave_runtime_jessie_clyde_state(u16 state, RuntimeJessieClydeStrategy& con
             decrement_runtime_body_latches(body_of(context), actor_of(context), context.latches); // Inlined 0x0001FD20.
             set(strategy, field::special_effect, 0u);
         }
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         if (get(strategy, field::special_step) != 0)
         {
             set(strategy, field::special_step, 0u);
@@ -933,7 +933,7 @@ void leave_runtime_jessie_clyde_state(u16 state, RuntimeJessieClydeStrategy& con
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

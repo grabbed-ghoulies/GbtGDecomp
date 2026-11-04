@@ -1,4 +1,5 @@
 #include "body_walk_state.h"
+#include "strategy_fields.h"
 #include "actor_bind_tree.h"
 #include "actor_trail_requests.h"
 #include "actor_transform.h"
@@ -229,7 +230,7 @@ void destroy_runtime_walk_state(WalkState& state, RuntimeWalkStateContext& conte
 void tick_runtime_walk_state(WalkState& state, RuntimeWalkStateContext& context)
 {
     Actor& actor = context.actor;
-    if (context.strategy.empty() || read_u16(context.strategy, 0xE) == 1000)
+    if (context.strategy.empty() || strategy_base(context.strategy).state == 1000)
     {
         end_runtime_walk_state(state, context); // 0x000A5340
         return;

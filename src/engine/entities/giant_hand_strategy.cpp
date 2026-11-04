@@ -1,4 +1,5 @@
 #include "giant_hand_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "actor_model_anchors.h"
@@ -287,9 +288,9 @@ void return_to_waiting(RuntimeGiantHandStrategy& context)
     {
         return;
     }
-    const u16 previous = get(strategy, strategy_field::state);
+    const u16 previous = strategy_base(strategy).state;
     goals.setup.leaving(goals.strategy, previous, 0x401); // Vtable +0x18.
-    set(strategy, strategy_field::state, u16(0x401));
+    strategy_base(strategy).state = u16(0x401);
     if (goals.setup.mind == nullptr)
     {
         throw Error("0x000AC870 clears the requests of a mind it does not have");
@@ -345,7 +346,7 @@ bool initialize_runtime_giant_hand_strategy(std::span<u8> strategy, std::span<co
 void update_runtime_giant_hand_strategy(RuntimeGiantHandStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     EntityBitBlock& bits = body_bits(context);
     const bool bit_23 = (bits.bytes[4] & 8) != 0;
     if (bit_23 && get(strategy, field::latched) == 0)
@@ -427,7 +428,7 @@ void leave_runtime_giant_hand_state(u16 state, RuntimeGiantHandStrategy& context
     const std::span<u8> strategy = strategy_of(context);
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
     if (state == 0x3EF)
     {

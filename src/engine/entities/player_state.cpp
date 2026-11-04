@@ -1,4 +1,5 @@
 #include "player_state.h"
+#include "strategy_fields.h"
 #include "entity_heap.h"
 #include "body_fields.h"
 #include "player_fields.h"
@@ -101,9 +102,9 @@ void leave_runtime_player_strategy(std::span<u8> strategy, u16 old_state, u16 ne
     case 0x3F1:
     {
         const u16 state = 0x408;
-        std::memcpy(strategy.data() + 0x18, &state, 2);
-        std::memcpy(strategy.data() + 0x12, &state, 2);
-        --strategy[0x1C];
+        strategy_base(strategy).unk_18 = state;
+        strategy_base(strategy).after_wait_state = state;
+        --strategy_base(strategy).pause_count;
         --active_count;
         break;
     }

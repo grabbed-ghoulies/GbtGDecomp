@@ -63,7 +63,7 @@ u16 front_goal_kind(const RuntimePlayerGoalRing* ring, std::span<const u8> addre
 // 0x0002B840, EAX strategy, ECX force.
 bool reactions_enabled(RuntimePlayerStrategyGoals& context, u32 force = 0)
 {
-    if (force == 0 && strategy_of(context)[0x1C] != 0)
+    if (force == 0 && strategy_base(strategy_of(context)).pause_count != 0)
     {
         return false;
     }
@@ -547,11 +547,11 @@ u32 resume_runtime_strategy_for_target(std::span<const u32> message, RuntimeStra
     }
     const RuntimeMindTarget* target = context.goals.target_at(get(mind, mind_field::target_record));
     std::span<const u8> strategy = strategy_of(context.goals);
-    if (get(target->bytes, mind_target_field::actor) != message[1] || get(strategy, strategy_field::state) != 0x3F4)
+    if (get(target->bytes, mind_target_field::actor) != message[1] || strategy_base(strategy).state != 0x3F4)
     {
         return 0;
     }
-    change_state(get(strategy, strategy_field::unk_18), context.goals);
+    change_state(strategy_base(strategy).unk_18, context.goals);
     return 1;
 }
 
@@ -565,7 +565,7 @@ u32 retreat_runtime_strategy_from_target(std::span<const u32> message, RuntimeSt
     }
     const RuntimeMindTarget* target = context.goals.target_at(get(mind, mind_field::target_record));
     if (get(target->bytes, mind_target_field::actor) != message[1] || runtime_strategy_abandons_target(*target, context) == 0
-        || read_u16(strategy_of(context.goals), 0xE) == 0x3F4)
+        || strategy_base(strategy_of(context.goals)).state == 0x3F4)
     {
         return 0;
     }
@@ -585,13 +585,13 @@ u32 review_runtime_strategy_target(RuntimeStrategyTargetChecks& context)
     const RuntimeMindTarget* target = context.goals.target_at(get(mind, mind_field::target_record));
     const u32 abandon = runtime_strategy_abandons_target(*target, context);
     std::span<const u8> strategy = strategy_of(context.goals);
-    if (get(strategy, strategy_field::state) == 0x3F4)
+    if (strategy_base(strategy).state == 0x3F4)
     {
         if (abandon != 0)
         {
             return 0;
         }
-        change_state(get(strategy, strategy_field::unk_18), context.goals);
+        change_state(strategy_base(strategy).unk_18, context.goals);
         return 1;
     }
     if (abandon == 0)
@@ -959,7 +959,7 @@ u32 adopt_runtime_strategy_message_attacker(std::span<const u32> message, u32 fo
 {
     RuntimePlayerStrategyGoals& goals = context.goals;
     RuntimeMindEvents& events = goals.entry.events;
-    const u32 actor = read_u32(goals.entry.strategy, 8);
+    const u32 actor = strategy_base(goals.entry.strategy).actor;
     if (!reactions_enabled(goals, force) || message[1] != actor || message[2] == 0) // 0x0002B840
     {
         return 0;
@@ -1053,7 +1053,7 @@ u32 retaliate_runtime_strategy_contact(std::span<const u32> message, i32 minimum
 {
     RuntimePlayerStrategyGoals& goals = context.goals;
     RuntimeMindEvents& events = goals.entry.events;
-    const u32 actor = read_u32(goals.entry.strategy, 8);
+    const u32 actor = strategy_base(goals.entry.strategy).actor;
     if ((views.story_flags & 0x100) != 0 || message[1] != actor)
     {
         return 0;
@@ -1097,7 +1097,7 @@ u32 runtime_strategy_target_hit_lands(std::span<const u32> message, RuntimeStrat
 {
     RuntimePlayerStrategyGoals& goals = context.goals;
     const std::span<const u8> mind = goals.entry.events.mind;
-    const u32 actor = read_u32(goals.entry.strategy, 8);
+    const u32 actor = strategy_base(goals.entry.strategy).actor;
     if (mind.data() == nullptr || get(mind, mind_field::target_record) == 0)
     {
         return 0;
@@ -1146,7 +1146,7 @@ u32 take_runtime_strategy_hit_sender(std::span<const u32> message, RuntimeStrate
 {
     RuntimePlayerStrategyGoals& goals = context.goals;
     RuntimeMindEvents& events = goals.entry.events;
-    if ((views.story_flags & 0x100) != 0 || message[1] != read_u32(goals.entry.strategy, 8))
+    if ((views.story_flags & 0x100) != 0 || message[1] != strategy_base(goals.entry.strategy).actor)
     {
         return 0;
     }

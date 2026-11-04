@@ -1,4 +1,5 @@
 #include "skeleton_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
@@ -87,7 +88,7 @@ bool runtime_skeleton_delay_runs(RuntimeSkeletonStrategy& context)
     {
         return false;
     }
-    return get(strategy_of(context), strategy_field::state) != 0x405;
+    return strategy_base(strategy_of(context)).state != 0x405;
 }
 
 // Xbox 0x000C0170
@@ -228,7 +229,7 @@ void dispatch_runtime_skeleton_message(std::span<const u32> message, RuntimeSkel
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(goals.entry.strategy, 8);
+    const u32 actor = strategy_base(goals.entry.strategy).actor;
     if (react_runtime_strategy_message(message, context.checks) != 0 || message[0] - 0x31 > 0x53)
     {
         dispatch_runtime_base_strategy_message(message, context.base);
@@ -254,7 +255,7 @@ void dispatch_runtime_skeleton_message(std::span<const u32> message, RuntimeSkel
         {
             clear_runtime_player_mind_requests(*goals.setup.mind);
         }
-        if (retaliated != 0 || get(strategy, strategy_field::state) == 0x405)
+        if (retaliated != 0 || strategy_base(strategy).state == 0x405)
         {
             return;
         }
@@ -278,7 +279,7 @@ void update_runtime_skeleton_strategy(RuntimeSkeletonStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals);
     if (runtime_skeleton_delay_runs(context))
     {
@@ -432,7 +433,7 @@ void enter_runtime_skeleton_state(u16 state, u16 previous, RuntimeSkeletonStrate
     std::span<u8> strategy = strategy_of(context);
     RuntimeMindGoalContext& mind = goals.entry.goals;
     body_of_actor(context)[0x328] = 2;
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3EC:
@@ -441,18 +442,18 @@ void enter_runtime_skeleton_state(u16 state, u16 previous, RuntimeSkeletonStrate
         return;
     case 0x3ED:
         set_runtime_skeleton_stance(4, context);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_runtime_mind_goal(context.goal_attack, mind);
         return;
     case 0x3EE:
         set_runtime_skeleton_stance(5, context);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_runtime_mind_goal(context.goal_knockdown, mind);
         return;
     case 0x3EF:
     {
         set_runtime_skeleton_stance(6, context);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         const u32 held = held_actor(context);
         if (held != 0)
         {
@@ -499,7 +500,7 @@ void leave_runtime_skeleton_state(u16 state, RuntimeSkeletonStrategy& context)
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy_of(context)[0x1C];
+        --strategy_base(strategy_of(context)).pause_count;
     }
 }
 }

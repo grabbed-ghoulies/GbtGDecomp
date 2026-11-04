@@ -1,4 +1,5 @@
 #include "spider_strategy.h"
+#include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
@@ -313,7 +314,7 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     const float delay = get(strategy, spider_strategy_field::web_delay);
     if (0.f < delay)
     {
@@ -465,7 +466,7 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
 void dispatch_runtime_spider_message(std::span<const u32> message, RuntimeSpiderStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 actor = read_u32(goals.entry.strategy, 8);
+    const u32 actor = strategy_base(goals.entry.strategy).actor;
     if (react_runtime_strategy_message(message, context.checks) != 0)
     {
         dispatch_runtime_base_strategy_message(message, context.base);
@@ -517,8 +518,8 @@ void enter_runtime_spider_state(u16 state, u16 previous, RuntimeSpiderStrategy& 
     std::span<u8> body = body_of_actor(context);
     const u32 target_address = get(mind_of(context), mind_field::target_record);
     body[0x328] = 2;
-    strategy[0x1A] = 0;
-    strategy[0x1B] = 0;
+    strategy_base(strategy).attacking = 0;
+    strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3EC:
@@ -528,12 +529,12 @@ void enter_runtime_spider_state(u16 state, u16 previous, RuntimeSpiderStrategy& 
     case 0x3ED:
         body[0x328] = 4;
         set(strategy, spider_strategy_field::reached, 0u);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         return;
     case 0x3EF:
         body[0x328] = 6;
         set(strategy, spider_strategy_field::reached, 0u);
-        strategy[0x1B] = 1;
+        strategy_base(strategy).unk_1B = 1;
         return;
     case 0x40D:
     {
@@ -560,7 +561,7 @@ void leave_runtime_spider_state(u16 state, RuntimeSpiderStrategy& context)
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy_of(context)[0x1C];
+        --strategy_base(strategy_of(context)).pause_count;
     }
 }
 }

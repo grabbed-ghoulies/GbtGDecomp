@@ -1,4 +1,5 @@
 #include "hunchback_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_live_attachments.h"
@@ -281,9 +282,9 @@ void set_runtime_hunchback_special_phase(u32 phase, RuntimeHunchbackStrategy& co
         put_u32(body, 0x74C, 1);
         increment_runtime_body_latches(body, actor, context.latches); // 0x0001FC40, ECX body
         const char* effect = reinterpret_cast<const char*>(strategy.data() + field::charge_effect.offset);
-        set(strategy, field::effect, context.create_effect(effect, read_u32(strategy, 8))); // 0x0003DF40
+        set(strategy, field::effect, context.create_effect(effect, strategy_base(strategy).actor)); // 0x0003DF40
         const float time = roll_between(context, 0x2C);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         set(strategy, field::armed, 1u);
         set(strategy, field::special_time, time);
         set(strategy, field::saved_334, read_u32(body, 0x334));
@@ -331,7 +332,7 @@ void disarm_runtime_hunchback(RuntimeHunchbackStrategy& context)
     context.object_message(effect, expire); // Effect vtable +0xC.
     set(strategy, field::effect, 0u);
     put_u32(body, 0x334, get(strategy, field::saved_334));
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     set(strategy, field::armed, 0u);
 }
 
@@ -340,7 +341,7 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     bool found;
     RuntimeMindTarget* target = nullptr;
@@ -567,8 +568,8 @@ void dispatch_runtime_hunchback_message(std::span<const u32> message, RuntimeHun
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
-    const u32 actor = read_u32(strategy, 8);
+    const u16 state = strategy_base(strategy).state;
+    const u32 actor = strategy_base(strategy).actor;
     switch (message[0])
     {
     case 0x82:
@@ -753,7 +754,7 @@ void leave_runtime_hunchback_state(u16 state, RuntimeHunchbackStrategy& context)
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

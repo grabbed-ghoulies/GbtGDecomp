@@ -1,4 +1,5 @@
 #include "mummy_cursed_strategy.h"
+#include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -169,7 +170,7 @@ float phase_four_time(RuntimeMummyCursedStrategy& context)
 // Xbox 0x000B7120, EAX strategy: an attack state (0x3ED..0x3EF).
 bool attacking(RuntimeMummyCursedStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     return state > 0x3EC && state < 0x3F0;
 }
 
@@ -284,7 +285,7 @@ void release_mount(RuntimeMummyCursedStrategy& context)
     }
     const std::span<u8> body = context.body_at(get(strategy, field::mount));
     const u32 holder = read_u32(body, 0x718);
-    if (holder != 0 && holder == read_u32(strategy, 8))
+    if (holder != 0 && holder == strategy_base(strategy).actor)
     {
         const u32 none = 0;
         std::memcpy(body.data() + 0x718, &none, 4);
@@ -828,7 +829,7 @@ void start_grab(RuntimeMummyCursedStrategy& context)
         && (read_u16(victim, 0xCDC) == 2 || read_u32(victim, 0x93C) != 0);
     set_phase(player ? 1u : 5u, context); // 0x000BD450
     body_of(context)[0x328] = 5;
-    strategy[0x1A] = 1;
+    strategy_base(strategy).attacking = 1;
 }
 
 // Xbox 0x000BCE80, ESI strategy: the grab ends: its phase, the victim's hold, the rider claim, the queue and the
@@ -847,7 +848,7 @@ void end_grab(RuntimeMummyCursedStrategy& context)
     {
         const std::span<u8> body = context.body_at(get(strategy, field::mount));
         const u32 holder = read_u32(body, 0x718);
-        if (holder != 0 && holder == read_u32(strategy, 8))
+        if (holder != 0 && holder == strategy_base(strategy).actor)
         {
             const u32 none = 0;
             std::memcpy(body.data() + 0x718, &none, 4);
@@ -856,7 +857,7 @@ void end_grab(RuntimeMummyCursedStrategy& context)
         }
     }
     detach_runtime_strategy_link(context.shared.base.link); // 0x00112A20, EAX strategy +0x20
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     remove_events(field::grab_events.offset, context); // 0x0003CFD0 over +0x15C, EAX actor
     set(strategy, field::grab_callout, 0u);
 }
@@ -949,7 +950,7 @@ void end_curse_state(RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     detach_runtime_strategy_link(context.shared.base.link); // 0x00112A20
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     remove_events(field::curse_events.offset, context); // 0x0003CFD0 over +0x2A8
     if (get(strategy, field::curse_step) != 0)
     {
@@ -1025,13 +1026,13 @@ bool initialize_runtime_mummy_cursed_strategy(std::span<const u8> parameters, Ru
 void destroy_runtime_mummy_cursed_strategy(RuntimeMummyCursedStrategy& context)
 {
     release_mount(context); // The inlined 0x000BE070.
-    end_curse(read_u32(strategy_of(context), 8), context); // 0x000BC770
+    end_curse(strategy_base(strategy_of(context)).actor, context); // 0x000BC770
 }
 
 // Xbox 0x000BDB80
 void update_runtime_mummy_cursed_strategy(RuntimeMummyCursedStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     check_curse(context); // 0x000BC8A0, ECX actor, EDX strategy
     update_runtime_base_strategy(goals_of(context)); // 0x0002C130
     switch (state)
@@ -1056,7 +1057,7 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
     RuntimeSpiderStrategy& shared = context.shared;
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     dispatch_runtime_base_strategy_message(message, shared.base); // 0x0002BC10
     switch (message[0])
     {
@@ -1130,7 +1131,7 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
             }
             return;
         }
-        if (strategy[0x1C] != 0 || !decay_running(context))
+        if (strategy_base(strategy).pause_count != 0 || !decay_running(context))
         {
             return;
         }
@@ -1192,7 +1193,7 @@ void enter_runtime_mummy_cursed_state(u16 state, RuntimeMummyCursedStrategy& con
     case 0x3EF:
         set_curse_step(1, context); // 0x000BD8B0, EAX 1
         body_of(context)[0x328] = 6;
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         return;
     case 0x401:
         set(strategy, field::evading, 0u);
@@ -1221,7 +1222,7 @@ void leave_runtime_mummy_cursed_state(u16 state, RuntimeMummyCursedStrategy& con
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

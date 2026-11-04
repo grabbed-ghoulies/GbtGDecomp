@@ -325,7 +325,7 @@ void start_grab(RuntimeGrimReaperStrategy& context)
             *context.attack_tables.at(context.attack_resource.data()), 0xD2); // 0x0001C5A0, EBX 0xD2
         row = found == nullptr ? 0u : context.address_of(found);
     }
-    strategy[0x1A] = 1;
+    strategy_base(strategy).attacking = 1;
     set(body, body_field::hit_record, row);
     body[0x6A] = u8(body[0x6A] + 1);
     if (context.collision != nullptr)
@@ -355,7 +355,7 @@ void end_grab(RuntimeGrimReaperStrategy& context)
         return;
     }
     const std::span<u8> body = body_of(context);
-    strategy[0x1A] = 0;
+    strategy_base(strategy).attacking = 0;
     set(body, body_field::hit_record, 0);
     put_word(body, 0x88, 0);
     body[0x6A] = u8(body[0x6A] - 1);
@@ -485,7 +485,7 @@ void tick_pace(RuntimeGrimReaperStrategy& context)
     }
     if (target_valid(context)) // 0x000AE0A0
     {
-        const u16 state = get(strategy, strategy_field::state);
+        const u16 state = strategy_base(strategy).state;
         if (state == 0x401 || state == 0x40C)
         {
             clear_requests(context); // 0x00029E80
@@ -699,7 +699,7 @@ void destroy_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
 void update_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     const i32 slot = get(strategy, field::shadow);
     if (slot >= 0)
     {
@@ -753,11 +753,11 @@ void dispatch_runtime_grim_reaper_message(std::span<const u32> message, RuntimeG
 {
     const std::span<u8> strategy = strategy_of(context);
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 self = read_u32(strategy, 8);
+    const u32 self = strategy_base(strategy).actor;
     switch (message[0])
     {
     case 0x27:
-        if (get(strategy, strategy_field::state) == 0x3F2)
+        if (strategy_base(strategy).state == 0x3F2)
         {
             return;
         }
@@ -807,7 +807,7 @@ void dispatch_runtime_grim_reaper_message(std::span<const u32> message, RuntimeG
             const float slow = block(context, 0x30) * get(strategy, field::held_speed);
             set(strategy, field::slow, slow);
             set(strategy, field::slow_length, slow);
-            if (strategy[0x1C] == 0 && kind_running(context)
+            if (strategy_base(strategy).pause_count == 0 && kind_running(context)
                 && (goals.entry.ring == nullptr || first_goal_kind(context) == 0))
             {
                 change_state(0x401, context);
@@ -898,7 +898,7 @@ void leave_runtime_grim_reaper_state(u16 state, u16 next, RuntimeGrimReaperStrat
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

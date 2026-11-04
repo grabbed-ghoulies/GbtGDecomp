@@ -50,7 +50,7 @@ bool initialize_runtime_ribs_strategy(RuntimeRibsStrategy& context)
 void update_runtime_ribs_strategy(RuntimeRibsStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u16 state = get(strategy_of(context), strategy_field::state);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     if (state == 0x401)
     {
@@ -82,7 +82,7 @@ void update_runtime_ribs_strategy(RuntimeRibsStrategy& context)
 void dispatch_runtime_ribs_message(std::span<const u32> message, RuntimeRibsStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 actor = read_u32(strategy_of(context), 8);
+    const u32 actor = strategy_base(strategy_of(context)).actor;
     if (react_runtime_strategy_message(message, context.checks) == 0 && message[0] == 0x6E) // 0x001384F0
     {
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
@@ -103,8 +103,8 @@ void enter_runtime_ribs_state(u16 state, u16 previous, RuntimeRibsStrategy& cont
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = goals.entry.body; // Actor +0x95C.
     body[0x328] = 2;
-    strategy[0x1A] = 0;
-    strategy[0x1B] = 0;
+    strategy_base(strategy).attacking = 0;
+    strategy_base(strategy).unk_1B = 0;
     if (state == 0x401)
     {
         load_runtime_mind_goal(context.goal_far, goals.entry.goals); // 0x0002A8E0

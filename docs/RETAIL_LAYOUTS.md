@@ -186,6 +186,7 @@ For one object type:
 | Input tracking as a struct (`InputTrackingRecord`, the layout of `input_tracking_field`): axes, activity, accumulation, hold timer, state. 0x00109810 takes its `retail_bytes`. | 0x18 | `src/engine/entities/input_tracking_record.h` |
 | Dizzy state (`DizzyState`, factory type 0x64, 0x0008C9A0): two `InputTrackingRecord`s, player input, animation wait, settle switch, star scale, time left, star names, three stars (`DizzyStar`: orbit, bob, actor), body bit | 0x184 | `src/engine/entities/body_dizzy_state.h` |
 | Spin dizzy state (`SpinDizzyState`, factory type 0x86 over 0x64, 0x000A21D0): the whole `DizzyState`, then turn and reach rates, speed, three body words, the circle's centre, sounding | 0x1AC | `src/engine/entities/body_spin_dizzy_state.h` |
+| Knockdown state (`KnockdownState`, factory type 0x7A, 0x0009C5D0): phase and its clock, end timer, the seven animations' found flags (`KnockdownAnimation` slots), the end keys, the sweep point, callout tokens (`KnockdownCalloutTokens`), the pose and flight values, contact pool, landing point, switches | 0xF4 | `src/engine/entities/body_knockdown_state.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -253,6 +254,9 @@ The spin dizzy state is type 0x86 over the dizzy state, so `SpinDizzyState` embe
 +0xC, +0x58, +0x164, +0x170 and +0x17C were the dizzy state's next key, time left and three star actors, and are now
 reached through `state.dizzy`.
 
+The knockdown state followed. Its callout tokens had been named both as a whole and as a count and ids, so they are a
+small struct handed to the attachment functions through `retail_bytes`. +0x24 and +0xDC are `unk_`.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -284,7 +288,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Save record, one field | — | `save_record_field::unk_184` (0x0010DC20 / 0x0010E2C0) | `src/engine/saves/save_scan.h` |
 | Base mind (0x00029D10), shared by every mind type | 0x7C, parameters 0xA0 | `mind_field`: actor, target, target record, action record, action actor, path search, target mode, gaze anchor and point, alert mode and timer, last request result, target flags, categories and range, goal point; unk_2C, unk_34, unk_38 | `src/engine/entities/mind_fields.h` |
 | Body record (actor +0x95C, built by 0x00024C50), two passes | not settled | `body_field`: position, move holds and move hold time, focus point, attached actor, unk_70, reach, hit record, energy and its maximum, stagger, ground point and has-ground, motion, holds, attacker, unk_274, contact count, velocity, gravity, step speed, heading, ease rate (and its saved value and swap count), turn rates, euler (and `level_body_euler`), surface (and its override and frames), scaled surfaces, height and radius scales | `src/engine/entities/body_fields.h` |
-| Knockdown state (factory type 0x7A, 0x0009C5D0) | 0xF4, parameters 0x50 | `knockdown_state_field`: phase and its clock, end timer, the seven animations' found flags (`KnockdownAnimation` slots), the end keys, the sweep point, callout tokens, start and landing points, saved gravity and shape mode, yaw, pitch, flight time, pose marks, rise height, bounce scale, attacker, contact pool, latch and body-bit words; `knockdown_state_parameter` | `src/engine/entities/body_knockdown_state.h` |
+| Knockdown state parameters (factory type 0x7A; the state is a struct, above) | parameters 0x50 | `knockdown_state_parameter` | `src/engine/entities/body_knockdown_state.h` |
 | Hit and furnace-hit state parameters (factory types 0x73 and 0x74; the states are structs, above) | parameters 0x28 / 0x14 | `hit_state_parameter`, `hit_furnace_state_parameter` | `src/engine/entities/body_hit_state.h` |
 | Struggle state parameters (factory type 0x88; the state is a struct, above) | parameters 0x34 | `struggle_state_parameter` | `src/engine/entities/body_struggle_state.h` |
 | Dizzy state parameters (factory type 0x64; the state is a struct, above) | parameters 0x11C | `dizzy_state_parameter` | `src/engine/entities/body_dizzy_state.h` |

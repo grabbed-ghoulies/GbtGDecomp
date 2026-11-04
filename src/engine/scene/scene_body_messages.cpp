@@ -242,7 +242,8 @@ void SceneBodyMessages::bind_action_children()
                 knockdown = std::make_unique<RuntimeBodyMessageChild>();
                 knockdown->message = [this, child](std::span<u8> message)
                 {
-                    message_runtime_knockdown_state({child->bytes.get(), child->size}, message,
+                    message_runtime_knockdown_state(body_state_view<KnockdownState>({child->bytes.get(), child->size}),
+                        message,
                         knockdown_context()); // 0x0009D0E0
                 };
             }
@@ -1343,7 +1344,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         return;
     }
     case 0x7A:
-        tick_runtime_knockdown_state({action.bytes.get(), action.size}, knockdown_context());
+        tick_runtime_knockdown_state(body_state_view<KnockdownState>({action.bytes.get(), action.size}),
+            knockdown_context());
         return;
     case 0x70:
     case 0x7C:
@@ -3055,7 +3057,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             {
                 // 0x0009D0E0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
-                message_runtime_knockdown_state({second.bytes.get(), second.size}, reply, knockdown_context());
+                message_runtime_knockdown_state(body_state_view<KnockdownState>({second.bytes.get(), second.size}),
+                    reply, knockdown_context());
                 return;
             }
             if (type == 0x8B)

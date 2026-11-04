@@ -232,14 +232,14 @@ const ObjectFactoryVtable* die_state_lifecycle()
 
 bool construct_knockdown_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_knockdown_state(state, parameters, knockdown_context_of(word(state, 8)));
+    KnockdownState& state = body_state_view<KnockdownState>({object.bytes.get(), object.size});
+    return initialize_runtime_knockdown_state(state, parameters, knockdown_context_of(state.base.body));
 }
 
 void destroy_knockdown_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_knockdown_state(state, knockdown_context_of(word(state, 8)));
+    KnockdownState& state = body_state_view<KnockdownState>({object.bytes.get(), object.size});
+    destroy_runtime_knockdown_state(state, knockdown_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* knockdown_state_lifecycle()

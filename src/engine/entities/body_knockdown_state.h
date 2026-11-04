@@ -21,7 +21,7 @@ struct Game;
 
 // Factory type 0x7A (getter 0x0009C570, vtable 0x00505A20; named entityStateLookForWeapon in the type table): the
 // body's knockdown, entered from the death row. State +8 is the body, +0xC the next key and +0x10 the state clock
-// (`body_state_field`). +0x14/+0x18 are the empty 0x001628B0 and +0x1C is 0x0002B620. The phases (+0x18): 1 flying,
+// (`BodyStateBase`). +0x14/+0x18 are the empty 0x001628B0 and +0x1C is 0x0002B620. The phases (+0x18): 1 flying,
 // 2 bounce-landing, 3 landed, 4 bounce, 5 bounce recovery, 6 down, 7 getting up, 8 the timed end.
 
 // The seven animations the parameters name (+0xC..+0x24) and the state's found flags (+0x38..+0x50) index.

@@ -660,7 +660,7 @@ void start_runtime_swing_phase(SwingState& state, u32 phase, RuntimeSwingStateCo
         start_runtime_body_animation_record(record_at(state, kDropNegativeAnimation), actions);
         return;
     case 8:
-        select_runtime_body_next_action(retail_bytes(state), 0, context.next); // 0x00134180, EAX body
+        select_runtime_body_next_action(state.base, 0, context.next); // 0x00134180, EAX body
         return;
     default:
         return;
@@ -823,7 +823,7 @@ void tick_runtime_swing_state(SwingState& state, RuntimeSwingStateContext& conte
         }
         if (!attach_runtime_swing_weapon(state, context)) // 0x00098E00
         {
-            select_runtime_body_next_action(retail_bytes(state), 0, context.next); // 0x00134180, EAX body
+            select_runtime_body_next_action(state.base, 0, context.next); // 0x00134180, EAX body
             return;
         }
         start_runtime_swing_phase(state, pick_runtime_swing_side(context), context); // 0x00098980, 0x00098680
@@ -867,7 +867,7 @@ void tick_runtime_swing_state(SwingState& state, RuntimeSwingStateContext& conte
         if (runtime_actor_animation_slot_complete(animation, 0))
         {
             state.phase = 8;
-            select_runtime_body_next_action(retail_bytes(state), 0, context.next); // 0x00134180, EAX body
+            select_runtime_body_next_action(state.base, 0, context.next); // 0x00134180, EAX body
         }
         return;
     default:

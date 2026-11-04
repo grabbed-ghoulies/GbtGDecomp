@@ -10,7 +10,7 @@ namespace gbtg
 // entityStateGrabbed (factory type 0x70, getter 0x000942F0, vtable 0x005058E0) over actorMove (type 9). +0xC and
 // +0x14/+0x18 are the empty 0x000D4179 case and +0x1C is 0x0002B620. The body holds still (+0x30, +0x309..+0x30C,
 // its live records' +0x15, +0x6D) until its animation passes the release mark (+0x18) or ends and the stick moves.
-// State +0x10 is the state clock (`body_state_field`).
+// State +0x10 is the state clock (`BodyStateBase`).
 namespace grabbed_state_parameter
 {
 constexpr RetailField<float, 0x0C> release_mark{};

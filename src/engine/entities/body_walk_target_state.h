@@ -52,7 +52,7 @@ constexpr u32 kSize = 0x60;
 static_assert(retail_fits(kSize, stopped_key));
 } // namespace walk_target_parameter
 // The walk-target state's own fields at their retail offsets (0x7C bytes), after the body-state base
-// (body_state_field).
+// (BodyStateBase).
 struct WalkTargetState
 {
     BodyStateBase base{}; // +0

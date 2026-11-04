@@ -26,7 +26,7 @@ constexpr RetailField<u32, 0x24> keep_latches{}; // set: the landing leaves the 
 constexpr u32 kSize = 0x28;
 static_assert(retail_fits(kSize, keep_latches));
 } // namespace arc_state_parameter
-// The arc state's own fields at their retail offsets (0x90 bytes), after the body-state base (body_state_field).
+// The arc state's own fields at their retail offsets (0x90 bytes), after the body-state base (BodyStateBase).
 struct ArcState
 {
     BodyStateBase base{}; // +0

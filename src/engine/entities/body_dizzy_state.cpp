@@ -372,6 +372,6 @@ void tick_runtime_dizzy_state(DizzyState& state, RuntimeDizzyStateContext& conte
     put_word(body, 0x174, read_u32(body, 0x170));
     const std::array<u32, 2> notice{0x75, context.actor_address};
     broadcast_actor_pulse_message(reinterpret_cast<const i32*>(notice.data()));
-    select_runtime_body_goal_action(retail_bytes(state), recovery);
+    select_runtime_body_goal_action(state.base, recovery);
 }
 }

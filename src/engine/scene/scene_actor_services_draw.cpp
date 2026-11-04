@@ -196,7 +196,9 @@ void SceneActorServices::State::draw_player(FactoryObject& object, NativePlayerI
                 {
                     graph = std::make_unique<SceneBodyMessages>(*body_services, player);
                 }
-                draw_runtime_generate_ghouly_state({player.second_action.bytes.get(), player.second_action.size}, kind,
+                draw_runtime_generate_ghouly_state(
+                    body_state_view<GenerateGhoulyState>({player.second_action.bytes.get(), player.second_action.size}),
+                    kind,
                     graph->generate_ghouly_context());
                 return;
             }

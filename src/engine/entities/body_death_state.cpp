@@ -20,11 +20,6 @@ namespace parameter = death_state_parameter;
 
 std::function<RuntimeDeathStateContext&(u32)> death_context_of;
 
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);

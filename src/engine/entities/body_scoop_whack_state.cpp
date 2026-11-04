@@ -22,11 +22,6 @@ std::function<RuntimeScoopWhackStateContext&(u32)> scoop_whack_context_of;
 constexpr float kStrikeStart = 0.22f; // DAT_0032B500.
 constexpr float kStrikeEnd = 0.32f; // DAT_0032B4FC.
 
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 void step_byte(std::span<u8> bytes, size_t offset, i32 step)
 {
     bytes[offset] = u8(bytes[offset] + step);
@@ -84,8 +79,8 @@ bool construct_scoop_whack_state_view(FactoryObject& object, std::span<const u8>
 
 void destroy_scoop_whack_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_scoop_whack_state(scoop_whack_context_of(body_address_of(state)));
+    ScoopWhackState& state = body_state_view<ScoopWhackState>({object.bytes.get(), object.size});
+    destroy_runtime_scoop_whack_state(scoop_whack_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* scoop_whack_state_lifecycle()

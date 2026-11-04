@@ -16,11 +16,6 @@ constexpr float kLatchHold = std::bit_cast<float>(0x3E99999Au); // 0.3 s.
 
 std::function<RuntimeShockedStateContext&(u32)> shocked_context_of;
 
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 void step_counters(std::span<u8> body, i32 step)
 {
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
@@ -114,11 +109,10 @@ void destroy_runtime_shocked_state(ShockedState& state, RuntimeShockedStateConte
 }
 
 // Xbox 0x0009F5F0
-void tick_runtime_shocked_state(std::span<u8> state, RuntimeShockedStateContext& context)
+void tick_runtime_shocked_state(ShockedState& state, RuntimeShockedStateContext& context)
 {
     const auto body = context.body;
-    set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
-        + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     hold_runtime_body_latch_timer(body, kLatchHold, context.actor, context.latches); // 0x0001F4F0, ESI body
     level_body_euler(body);
     const MinaPlayer* player = first_player(context.animation); // Actor +0x50 -> +0x58 -> [0].
@@ -143,7 +137,7 @@ void tick_runtime_shocked_state(std::span<u8> state, RuntimeShockedStateContext&
             return;
         }
     }
-    select_runtime_body_recovery_action(state, 0, context.recovery); // 0x00133F50
+    select_runtime_body_recovery_action(state.base, 0, context.recovery); // 0x00133F50
 }
 
 void install_runtime_shocked_state_class(std::span<ObjectFactoryType> types,

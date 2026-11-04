@@ -164,7 +164,7 @@ void tick_runtime_grabbed_state(GrabbedState& state, RuntimeGrabbedStateContext&
     }
     if (player == nullptr)
     {
-        select_runtime_body_goal_action(retail_bytes(state), context.recovery); // 0x00134060
+        select_runtime_body_goal_action(state.base, context.recovery); // 0x00134060
         return;
     }
     if (crossed(*player, state.release_mark) && state.move_hold != 0)
@@ -186,6 +186,6 @@ void tick_runtime_grabbed_state(GrabbedState& state, RuntimeGrabbedStateContext&
             return;
         }
     }
-    select_runtime_body_goal_action(retail_bytes(state), context.recovery); // 0x00134060
+    select_runtime_body_goal_action(state.base, context.recovery); // 0x00134060
 }
 }

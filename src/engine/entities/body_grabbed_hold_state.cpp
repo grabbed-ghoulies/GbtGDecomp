@@ -12,11 +12,6 @@ namespace
 {
 std::function<RuntimeGrabbedHoldStateContext&(u32)> grabbed_hold_context_of;
 
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 // The body's +0x309..+0x30C counts move by `step`.
 void step_counters(std::span<u8> body, i32 step)
 {
@@ -28,14 +23,14 @@ void step_counters(std::span<u8> body, i32 step)
 
 bool construct_grabbed_hold_state_view(FactoryObject& object, std::span<const u8>)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_grabbed_hold_state(state, grabbed_hold_context_of(body_address_of(state)));
+    BodyStateBase& state = body_state_view<BodyStateBase>({object.bytes.get(), object.size});
+    return initialize_runtime_grabbed_hold_state(state, grabbed_hold_context_of(state.body));
 }
 
 void destroy_grabbed_hold_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_grabbed_hold_state(state, grabbed_hold_context_of(body_address_of(state)));
+    BodyStateBase& state = body_state_view<BodyStateBase>({object.bytes.get(), object.size});
+    destroy_runtime_grabbed_hold_state(state, grabbed_hold_context_of(state.body));
 }
 
 const ObjectFactoryVtable* grabbed_hold_state_lifecycle()
@@ -47,7 +42,7 @@ const ObjectFactoryVtable* grabbed_hold_state_lifecycle()
 }
 
 // Xbox 0x000955B0
-bool initialize_runtime_grabbed_hold_state(std::span<u8> state, RuntimeGrabbedHoldStateContext& context)
+bool initialize_runtime_grabbed_hold_state(BodyStateBase& state, RuntimeGrabbedHoldStateContext& context)
 {
     (void)state;
     const auto body = context.body;
@@ -65,7 +60,7 @@ bool initialize_runtime_grabbed_hold_state(std::span<u8> state, RuntimeGrabbedHo
 }
 
 // Xbox 0x00095640
-void destroy_runtime_grabbed_hold_state(std::span<u8> state, RuntimeGrabbedHoldStateContext& context)
+void destroy_runtime_grabbed_hold_state(BodyStateBase& state, RuntimeGrabbedHoldStateContext& context)
 {
     (void)state;
     const auto body = context.body;
@@ -84,11 +79,11 @@ void destroy_runtime_grabbed_hold_state(std::span<u8> state, RuntimeGrabbedHoldS
 }
 
 // Xbox 0x000956C0
-void tick_runtime_grabbed_hold_state(std::span<u8> state, RuntimeGrabbedHoldStateContext& context)
+void tick_runtime_grabbed_hold_state(BodyStateBase& state, RuntimeGrabbedHoldStateContext& context)
 {
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.actor);
-    set(state, body_state_field::elapsed, rate * step + get(state, body_state_field::elapsed));
+    state.elapsed = rate * step + state.elapsed;
 }
 
 void install_runtime_grabbed_hold_state_class(std::span<ObjectFactoryType> types,

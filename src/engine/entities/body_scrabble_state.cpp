@@ -15,11 +15,6 @@ namespace
 
 std::function<RuntimeScrabbleStateContext&(u32)> scrabble_context_of;
 
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -79,8 +74,8 @@ bool construct_scrabble_state_view(FactoryObject& object, std::span<const u8>)
 
 void destroy_scrabble_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_scrabble_state(scrabble_context_of(body_address_of(state)));
+    ScrabbleState& state = body_state_view<ScrabbleState>({object.bytes.get(), object.size});
+    destroy_runtime_scrabble_state(scrabble_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* scrabble_state_lifecycle()

@@ -25,11 +25,11 @@ struct RuntimeGrabbedHoldStateContext
     const RuntimeActorClock& clock;
     std::function<void(std::span<const u32>)> body_message; // Body vtable +0xC.
 };
-bool initialize_runtime_grabbed_hold_state(std::span<u8> state,
+bool initialize_runtime_grabbed_hold_state(BodyStateBase& state,
     RuntimeGrabbedHoldStateContext& context); // Xbox 0x000955B0
-void destroy_runtime_grabbed_hold_state(std::span<u8> state,
+void destroy_runtime_grabbed_hold_state(BodyStateBase& state,
     RuntimeGrabbedHoldStateContext& context); // Xbox 0x00095640
-void tick_runtime_grabbed_hold_state(std::span<u8> state,
+void tick_runtime_grabbed_hold_state(BodyStateBase& state,
     RuntimeGrabbedHoldStateContext& context); // Xbox 0x000956C0
 // Type 0x71 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_grabbed_hold_state_class(std::span<ObjectFactoryType> types,

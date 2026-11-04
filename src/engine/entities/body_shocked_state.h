@@ -46,7 +46,7 @@ void shocked_state_object_sizes(ObjectSizes& output); // Xbox 0x0009F400
 bool initialize_runtime_shocked_state(ShockedState& state, std::span<const u8> parameters,
     RuntimeShockedStateContext& context); // Xbox 0x0009F480
 void destroy_runtime_shocked_state(ShockedState& state, RuntimeShockedStateContext& context); // Xbox 0x0009F550
-void tick_runtime_shocked_state(std::span<u8> state, RuntimeShockedStateContext& context); // Xbox 0x0009F5F0
+void tick_runtime_shocked_state(ShockedState& state, RuntimeShockedStateContext& context); // Xbox 0x0009F5F0
 // Type 0x80 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_shocked_state_class(std::span<ObjectFactoryType> types,
     std::function<RuntimeShockedStateContext&(u32 body_address)> context_of);

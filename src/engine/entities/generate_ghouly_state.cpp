@@ -33,7 +33,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = generate_ghouly_field;
 namespace parameter = generate_ghouly_parameter;
 
 constexpr float kTurn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
@@ -55,13 +54,10 @@ struct GenerateGhoulyInstance
 std::unordered_map<const u8*, GenerateGhoulyInstance> generate_ghouly_instances;
 std::function<RuntimeGenerateGhoulyContext&(u32)> generate_ghouly_context_of;
 
-constexpr std::array<size_t, 2> kPoolOffsets{0x32C, 0x338};
-constexpr std::array<size_t, 2> kShapeOffsets{0x330, 0x33C};
-constexpr std::array<size_t, 2> kAngleOffsets{0x334, 0x340};
 
-GenerateGhoulyInstance& instance_of(std::span<const u8> state)
+GenerateGhoulyInstance& instance_of(const GenerateGhoulyState& state)
 {
-    return generate_ghouly_instances[state.data()];
+    return generate_ghouly_instances[body_state_key(state)];
 }
 
 u32& deferred(RuntimeDialogueDrawContext& c, u32 address)
@@ -79,11 +75,6 @@ void put_half(std::span<u8> bytes, size_t offset, u16 value)
     std::memcpy(bytes.data() + offset, &value, 2);
 }
 
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 float random_fraction(u32 value)
 {
     return std::bit_cast<float>((value & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
@@ -94,10 +85,9 @@ u32 next_random(u32 value)
     return value * 0x19660Du + 0x3C6EF35Fu;
 }
 
-template <typename To, typename From>
-void copy_name(std::span<u8> state, To to, std::span<const u8> parameters, From from)
+template <typename From>
+void copy_name(char* target, std::span<const u8> parameters, From from)
 {
-    char* target = field_data(state, to);
     const char* source = field_data(parameters, from);
     size_t index = 0;
     do
@@ -135,9 +125,9 @@ void adjust_live_attachment_holds(entity_detail::ListHead& live_attachments, i32
 }
 
 // Phase 2's holds, which 0x000941A0 (and the destructor and 0x00093EC0's inline copy) drop when phase 2 ends.
-void drop_release_holds(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void drop_release_holds(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
-    if (get(state, field::phase) == 2)
+    if (state.phase == 2)
     {
         adjust_live_attachment_holds(context.live_attachments, -1);
         context.body[0x6D] = u8(context.body[0x6D] - 1);
@@ -146,15 +136,16 @@ void drop_release_holds(std::span<u8> state, RuntimeGenerateGhoulyContext& conte
 }
 
 // 0x0003AAA0 with the attached actor's +0xDB0 variant, inlined as 0x0001AED0 does.
-void find_animation(std::span<u8> state, size_t index, size_t offset, u32 name, RuntimeGenerateGhoulyContext& context)
+void find_animation(GenerateGhoulyState& state, size_t index, u32& found_word, u32 name,
+    RuntimeGenerateGhoulyContext& context)
 {
     const AnimationRecord* record = find_runtime_body_animation(context.image_string(name), context.actions);
     instance_of(state).animations[index] = record;
-    put_word(state, offset, record != nullptr ? 1u : 0u);
+    found_word = record != nullptr ? 1u : 0u;
 }
 
 // 0x0001AFA0 (ESI body, ECX the record word).
-void start_animation(std::span<u8> state, size_t index, RuntimeGenerateGhoulyContext& context)
+void start_animation(GenerateGhoulyState& state, size_t index, RuntimeGenerateGhoulyContext& context)
 {
     const AnimationRecord* record = instance_of(state).animations[index];
     if (record == nullptr)
@@ -241,7 +232,7 @@ void split_bolt(GhoulySpawnPool*& pool, const Vec3& from, const Vec3& to, float 
 
 // Xbox 0x000925C0: the two bolt rows (each the next kind-2 record of the actor's model block 2 and a pool of
 // 10 points) and the bolt and spark textures.
-void start_bolts(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void start_bolts(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
     GenerateGhoulyInstance& instance = instance_of(state);
     const u8* previous = nullptr;
@@ -277,11 +268,11 @@ void start_bolts(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
         pool->grow = 10;
         instance.pools[row] = pool;
         instance.shapes[row] = found;
-        put_word(state, kPoolOffsets[row], 1);
-        put_word(state, kShapeOffsets[row], found != nullptr ? 1u : 0u);
-        std::memcpy(state.data() + kAngleOffsets[row], &kBoltAngles[row], 4);
+        state.bolt_rows[row].pool = 1;
+        state.bolt_rows[row].shape = found != nullptr ? 1u : 0u;
+        state.bolt_rows[row].angle = kBoltAngles[row];
     }
-    const char* bolt = field_data(state, field::bolt_texture_name);
+    const char* bolt = state.bolt_texture_name.data();
     instance.bolt_texture = {};
     if (aid_name(bolt))
     {
@@ -291,8 +282,8 @@ void start_bolts(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
             resource_error(context.scene.error, 2); // 0x00032700
         }
     }
-    set(state, field::bolt_texture, instance.bolt_texture.data() != nullptr ? 1u : 0u);
-    const char* spark = field_data(state, field::spark_texture_name);
+    state.bolt_texture = instance.bolt_texture.data() != nullptr ? 1u : 0u;
+    const char* spark = state.spark_texture_name.data();
     instance.spark_texture = {};
     if (aid_name(spark))
     {
@@ -302,42 +293,42 @@ void start_bolts(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
             resource_error(context.scene.error, 2); // 0x00032700
         }
     }
-    set(state, field::spark_texture, instance.spark_texture.data() != nullptr ? 1u : 0u);
+    state.spark_texture = instance.spark_texture.data() != nullptr ? 1u : 0u;
 }
 
 // Xbox 0x00092790: the pools (0x000663E0 inlined: the block's heap by 0x000F7100, then HeapFree) and the textures.
-void release_bolts(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void release_bolts(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
     GenerateGhoulyInstance& instance = instance_of(state);
     for (size_t row = 0; row < 2; ++row)
     {
-        if (read_u32(state, kPoolOffsets[row]) != 0)
+        if (state.bolt_rows[row].pool != 0)
         {
             engine_heap_free(instance.pools[row]);
             instance.pools[row] = nullptr;
-            put_word(state, kPoolOffsets[row], 0);
+            state.bolt_rows[row].pool = 0;
         }
     }
-    if (get(state, field::bolt_texture) != 0)
+    if (state.bolt_texture != 0)
     {
         release_animation_resource(context.scene.registry, instance.bolt_texture); // 0x00035C00
         instance.bolt_texture = {};
-        set(state, field::bolt_texture, 0u);
+        state.bolt_texture = 0u;
     }
-    if (get(state, field::spark_texture) != 0)
+    if (state.spark_texture != 0)
     {
         release_animation_resource(context.scene.registry, instance.spark_texture); // 0x00035C00
         instance.spark_texture = {};
-        set(state, field::spark_texture, 0u);
+        state.spark_texture = 0u;
     }
 }
 
 // Xbox 0x00092840: each bolt starts again at its shape record's point (through its bone and the actor's +0x2AC
 // matrix); unless `idle`, it then forks down to a point on the beam's rim.
-void update_bolts(std::span<u8> state, u32 idle, RuntimeGenerateGhoulyContext& context)
+void update_bolts(GenerateGhoulyState& state, u32 idle, RuntimeGenerateGhoulyContext& context)
 {
     GenerateGhoulyInstance& instance = instance_of(state);
-    set(state, field::bolts, 1u);
+    state.bolts = 1u;
     const Actor& actor = context.actor;
     const float heading = actor.euler.y; // Actor +0x18.
     for (size_t row = 0; row < 2; ++row)
@@ -382,9 +373,9 @@ void update_bolts(std::span<u8> state, u32 idle, RuntimeGenerateGhoulyContext& c
         push_bolt_point(pool, origin, context.random);
         if (idle == 0)
         {
-            const float angle = heading + read_f32(state, kAngleOffsets[row]);
-            Vec3 target = get(state, field::spawn_point);
-            const float radius = get(state, field::beam_radius);
+            const float angle = heading + state.bolt_rows[row].angle;
+            Vec3 target = state.spawn_point;
+            const float radius = state.beam_radius;
             target.x = float(retail_sin(angle)) * radius + target.x; // 0x00153320
             target.z = float(retail_cos(angle)) * radius + target.z; // 0x00153230
             split_bolt(pool, origin, target, actor.euler.y, context.random); // 0x00092D50
@@ -453,31 +444,31 @@ void draw_bolt(const GhoulySpawnPool& pool, u8* bolt_texture, const u8* spark_te
 }
 
 // Xbox 0x00093AD0, ESI state: the light follows the spawn point, its radii three and six times the beam's height.
-void move_beam_light(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void move_beam_light(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
-    const std::int8_t slot = std::bit_cast<std::int8_t>(get(state, field::light));
+    const std::int8_t slot = std::bit_cast<std::int8_t>(state.light);
     if (slot == -1)
     {
         return;
     }
-    move_runtime_light(slot, get(state, field::spawn_point), context.scene.lights); // 0x000FE0F0
+    move_runtime_light(slot, state.spawn_point, context.scene.lights); // 0x000FE0F0
     u8* record = context.scene.lights.records.at(size_t(slot));
-    const float near = get(state, field::beam_height) * 3.f; // DAT_0032B260.
+    const float near = state.beam_height * 3.f; // DAT_0032B260.
     std::memcpy(record + 0x6C, &near, 4);
     record[0x66] |= 1;
     record = context.scene.lights.records.at(size_t(slot));
-    const float far = get(state, field::beam_height) * 6.f; // DAT_0032B218.
+    const float far = state.beam_height * 6.f; // DAT_0032B218.
     std::memcpy(record + 0x70, &far, 4);
     record[0x66] |= 1;
 }
 
 // Xbox 0x00093A60, EDI state: a yellow kind-2 light at the spawn point.
-void start_beam_light(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void start_beam_light(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
     GenerateGhoulyInstance& instance = instance_of(state);
     instance.light = std::make_unique<std::array<u8, 0x98>>(); // 0x000FE080's 0x000F72D0(0x98)
     u8* record = instance.light->data();
-    const std::int8_t slot = allocate_runtime_light(2, get(state, field::spawn_point), record,
+    const std::int8_t slot = allocate_runtime_light(2, state.spawn_point, record,
         context.scene.lights); // 0x000FE080, ESI state +0x480
     record = context.scene.lights.records.at(size_t(slot));
     record[0x66] |= 0x48;
@@ -488,13 +479,13 @@ void start_beam_light(std::span<u8> state, RuntimeGenerateGhoulyContext& context
     const float falloff = 2.f; // DAT_0032B110.
     std::memcpy(record + 0x88, &falloff, 4);
     move_beam_light(state, context); // 0x00093AD0
-    set(state, field::light, std::bit_cast<u8>(slot));
+    state.light = std::bit_cast<u8>(slot);
 }
 
 // The light's release shared by 0x00093780 and 0x000936A0.
-void release_beam_light(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void release_beam_light(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
-    const std::int8_t slot = std::bit_cast<std::int8_t>(get(state, field::light));
+    const std::int8_t slot = std::bit_cast<std::int8_t>(state.light);
     if (slot == -1)
     {
         return;
@@ -507,57 +498,57 @@ void release_beam_light(std::span<u8> state, RuntimeGenerateGhoulyContext& conte
     }
     record = nullptr;
     --context.scene.lights.count;
-    set(state, field::light, u8(0xFF));
+    state.light = u8(0xFF);
 }
 
 // Xbox 0x00093780, EBX state: the beam fades out over 0.2 s and goes, with the light.
-void fade_beam(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void fade_beam(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
-    const u32 beam = get(state, field::beam);
+    const u32 beam = state.beam;
     if (beam != 0)
     {
         context.scene.fade(beam, std::bit_cast<float>(0x3E4CCCCDu), kBeamFadeTint.data()); // 0x0013AF80, EDI 0x003028F8
         context.scene.retire(beam); // 0x00112CC0, ESI beam
-        set(state, field::beam, 0u);
+        state.beam = 0u;
     }
-    set(state, field::beam_on, 0u);
+    state.beam_on = 0u;
     release_beam_light(state, context);
 }
 
 // Xbox 0x000936A0, EDI state: the beam and the light go at once.
-void release_beam(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void release_beam(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
-    const u32 beam = get(state, field::beam);
+    const u32 beam = state.beam;
     if (beam != 0)
     {
         context.scene.retire(beam); // 0x00112CC0, ESI beam
-        set(state, field::beam, 0u);
+        state.beam = 0u;
     }
     release_beam_light(state, context);
 }
 
 // Xbox 0x00093800, EBX state: the spawn point (first found in front of the actor, 0x0013AA50, else straight ahead),
 // then the beam stood there, its scale fitted to the ghouly's cylinder (or 5 wide and tall without one).
-void place_beam(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void place_beam(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
     Actor& actor = context.actor;
-    if (get(state, field::spawn_found) == 0)
+    if (state.spawn_found == 0)
     {
         const Vec3 origin = actor_world_position(actor); // 0x000412A0
         const float reach = actor.radius_xz * get(context.body, body_field::radius_scale) * 3.f; // DAT_0032B260.
-        Vec3 point = get(state, field::spawn_point);
+        Vec3 point = state.spawn_point;
         RuntimeNavigationHeadingSearch search{origin, i32(get(context.actor_bytes, player_field::floor)), reach,
             reach + 5.f, nullptr, nullptr, &point, 1, 0, 0, context.random, context.occupancy_initial};
         const bool found = search_runtime_navigation_headings(search, actor.euler.y,
             std::bit_cast<float>(0x3F490FDBu), 3); // 0x0013AA50
-        set(state, field::spawn_found, found ? 1u : 0u);
+        state.spawn_found = found ? 1u : 0u;
         if (!found)
         {
             offset_runtime_horizontal_point(point, origin, actor.euler.y, reach); // 0x001060F0, ESI state +0x480
         }
-        set(state, field::spawn_point, point);
+        state.spawn_point = point;
     }
-    const u32 beam_address = get(state, field::beam);
+    const u32 beam_address = state.beam;
     if (beam_address == 0)
     {
         return;
@@ -567,7 +558,7 @@ void place_beam(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
     const float height = float(actor_model_height(beam)); // 0x0003DB90, EDI beam
     const float radius = float(actor_model_bound_radius(beam)); // 0x0003DB30, EDI beam
     float width = 5.f; // DAT_0032B184.
-    const u32 ghouly_address = get(state, field::ghouly);
+    const u32 ghouly_address = state.ghouly;
     if (ghouly_address != 0)
     {
         Vec3 position;
@@ -589,21 +580,21 @@ void place_beam(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
     }
     const float across = width / radius;
     const float up = tall / (height * 0.5f); // DAT_0032B0F4.
-    set(state, field::beam_height, up * height);
-    set(state, field::beam_radius, across * radius);
+    state.beam_height = up * height;
+    state.beam_radius = across * radius;
     set_scale(beam, across * 2.5f, up * 2.5f, across * 2.5f); // DAT_0032B20C.
-    actor_set_world_position(beam, get(state, field::spawn_point)); // 0x00041730, ESI state +0x480
+    actor_set_world_position(beam, state.spawn_point); // 0x00041730, ESI state +0x480
 }
 
 // Xbox 0x00093700, EAX state: the beam actor (0x000411A0's parameters with the +0x12C model at the spawn point),
 // then its light.
-void start_beam(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void start_beam(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
     std::array<u8, 0x334> parameters{};
     initialize_actor_effect_parameters(parameters.data(), context.default_name); // 0x000411A0
-    const Vec3 point = get(state, field::spawn_point);
+    const Vec3 point = state.spawn_point;
     std::memcpy(parameters.data() + 8, &point, 12);
-    const char* model = field_data(state, field::beam_model);
+    const char* model = state.beam_model.data();
     char* name = reinterpret_cast<char*>(parameters.data() + 0x28);
     size_t index = 0;
     do
@@ -611,16 +602,16 @@ void start_beam(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
         name[index] = model[index];
     }
     while (model[index++] != 0);
-    set(state, field::beam, context.scene.keep(create_factory_object(context.factory, parameters))); // 0x00107520
+    state.beam = context.scene.keep(create_factory_object(context.factory, parameters)); // 0x00107520
     start_beam_light(state, context); // 0x00093A60
 }
 
 // Xbox 0x00093190, ESI state: the ghouly the actor's box names (refilled from its spawn record when empty) is
 // made at the spawn point, hidden from the live list and kept at its scale.
-void create_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void create_ghouly(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
-    char* name = field_data(state, field::ghouly_name);
-    char* variant = field_data(state, field::ghouly_variant);
+    char* name = state.ghouly_name.data();
+    char* variant = state.ghouly_variant.data();
     if (!take_runtime_body_drop_names(context.actor_bytes, name, variant)) // 0x000286B0, EDI actor
     {
         GhoulySpawnRecord* record = context.spawn_record; // Actor +0xB98.
@@ -639,13 +630,13 @@ void create_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
         }
     }
     const i32 kind = std::bit_cast<i16>(get(context.actor_bytes, player_field::ghouly_kind));
-    set(state, field::ghouly_kind, kind);
+    state.ghouly_kind = kind;
     if (!aid_name(name))
     {
         return;
     }
     const Vec3 euler{0.f, context.actor.euler.y, 0.f};
-    const Vec3 point = get(state, field::spawn_point);
+    const Vec3 point = state.spawn_point;
     if (kind == 0)
     {
         const char* override = aid_name(variant) ? variant : nullptr;
@@ -675,20 +666,20 @@ void create_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
                 clone.bytes.reset(); // 0x000663E0
             }
         }
-        set(state, field::ghouly, ghouly);
+        state.ghouly = ghouly;
         if (ghouly == 0)
         {
             return;
         }
         Actor& actor = actor_at(ghouly, context);
         unlink_actor_view(context.scene.live_link(ghouly)); // 0x0003EE70, EAX ghouly
-        set(state, field::ghouly_scale, scale_of(actor));
+        state.ghouly_scale = scale_of(actor);
         const u32 attached = context.scene.attached_of(ghouly); // Ghouly +0x95C -> +0x48.
-        set(state, field::attached, attached);
+        state.attached = attached;
         if (attached != 0)
         {
             unlink_actor_view(context.scene.live_link(attached)); // 0x0003EE70
-            set(state, field::attached_scale, scale_of(actor)); // EDI is still the ghouly.
+            state.attached_scale = scale_of(actor); // EDI is still the ghouly.
         }
         return;
     }
@@ -696,27 +687,27 @@ void create_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
     {
         const u32 ghouly = context.scene.keep(create_runtime_actor_at(name, &point, &euler, 1.f, context.resources,
             context.factory, context.default_position, context.default_euler)); // 0x00112C50
-        set(state, field::ghouly, ghouly);
+        state.ghouly = ghouly;
         if (ghouly != 0)
         {
             unlink_actor_view(context.scene.live_link(ghouly)); // 0x0003EE70
-            set(state, field::ghouly_scale, scale_of(actor_at(ghouly, context)));
+            state.ghouly_scale = scale_of(actor_at(ghouly, context));
         }
     }
 }
 
 // Xbox 0x00093540, ECX state: over phase 2's half second the ghouly (and its attachment) grows from 0.01 tall.
-void grow_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void grow_ghouly(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
     const float flat = std::bit_cast<float>(0x3C23D70Au); // DAT_0032B124.
-    const Vec3 scale = get(state, field::ghouly_scale);
-    const float t = 1.f - get(state, field::grow) * 2.f; // DAT_0032B0F8, DAT_0032B110.
-    Actor& ghouly = actor_at(get(state, field::ghouly), context);
+    const Vec3 scale = state.ghouly_scale;
+    const float t = 1.f - state.grow * 2.f; // DAT_0032B0F8, DAT_0032B110.
+    Actor& ghouly = actor_at(state.ghouly, context);
     set_scale(ghouly, (scale.x - scale.x) * t + scale.x, (scale.y - flat) * t + flat, (scale.z - scale.z) * t + scale.z);
-    const u32 attached_address = get(state, field::attached);
+    const u32 attached_address = state.attached;
     if (attached_address != 0)
     {
-        const Vec3 attached_scale = get(state, field::attached_scale);
+        const Vec3 attached_scale = state.attached_scale;
         Actor& attached = actor_at(attached_address, context);
         set_scale(attached, (attached_scale.x - scale.x) * t + scale.x, (attached_scale.y - flat) * t + flat,
             (attached_scale.z - scale.z) * t + scale.z);
@@ -725,18 +716,18 @@ void grow_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
 
 // Xbox 0x000933C0, EBX state: the hidden ghouly is placed where it stands (message 0x4D for a template clone),
 // the actor is told 0x38, the ghouly (and its attachment) rejoins the live list with the release effect.
-u32 release_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+u32 release_ghouly(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
-    if (get(state, field::released) != 0)
+    if (state.released != 0)
     {
         return 0;
     }
-    const u32 ghouly = get(state, field::ghouly);
-    if (ghouly == 0 || get(state, field::spawn_found) == 0)
+    const u32 ghouly = state.ghouly;
+    if (ghouly == 0 || state.spawn_found == 0)
     {
         return 0;
     }
-    if (get(state, field::ghouly_kind) == 0)
+    if (state.ghouly_kind == 0)
     {
         Actor& actor = actor_at(ghouly, context);
         const Vec3 position = actor_world_position(actor); // 0x000412A0
@@ -749,69 +740,69 @@ u32 release_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
     const std::array<u32, 2> notice{0x38, ghouly};
     context.message(read_u32(context.body, 8), notice); // Actor vtable +0xC.
     link_actor_view(context.scene.live_actors, context.scene.live_link(ghouly)); // 0x0003EE30, EDX ghouly
-    const u32 attached = get(state, field::attached);
+    const u32 attached = state.attached;
     if (attached != 0)
     {
         link_actor_view(context.scene.live_actors, context.scene.live_link(attached)); // 0x0003EE30
-        context.scene.create_effect(field_data(state, field::release_effect), attached); // 0x0003DF40
+        context.scene.create_effect(state.release_effect.data(), attached); // 0x0003DF40
     }
-    context.scene.create_effect(field_data(state, field::release_effect), ghouly); // 0x0003DF40
-    set(state, field::released, 1u);
+    context.scene.create_effect(state.release_effect.data(), ghouly); // 0x0003DF40
+    state.released = 1u;
     grow_ghouly(state, context); // 0x00093540
     return 1;
 }
 
 // Xbox 0x00093660, EDI state: once released, a template clone's goals are drained (0x00028210) the first time.
-u32 settle_ghouly(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+u32 settle_ghouly(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
-    const u32 ghouly = get(state, field::ghouly);
-    if (ghouly == 0 || get(state, field::released) == 0 || get(state, field::goals_drained) != 0)
+    const u32 ghouly = state.ghouly;
+    if (ghouly == 0 || state.released == 0 || state.goals_drained != 0)
     {
         return 0;
     }
-    if (get(state, field::ghouly_kind) == 0)
+    if (state.ghouly_kind == 0)
     {
         context.scene.drain_goals(ghouly); // 0x00028210, ESI ghouly
     }
-    set(state, field::goals_drained, 1u);
+    state.goals_drained = 1u;
     return 1;
 }
 
 // Xbox 0x000941A0, EAX state, ECX phase.
-void change_phase(std::span<u8> state, u32 phase, RuntimeGenerateGhoulyContext& context)
+void change_phase(GenerateGhoulyState& state, u32 phase, RuntimeGenerateGhoulyContext& context)
 {
     drop_release_holds(state, context);
-    set(state, field::phase, phase);
+    state.phase = phase;
     Actor& actor = context.actor;
     switch (phase)
     {
     case 1:
         start_animation(state, 0, context); // 0x0001AFA0, state +0x20
-        if (field_data(state, field::intro_sound)[0] != 0)
+        if (state.intro_sound.data()[0] != 0)
         {
             queue_actor_sound(actor.sound_slots[4], 0, &actor, 4, nullptr, nullptr, 1.f,
-                field_data(state, field::intro_sound), context.sounds); // 0x0012A260, actor +0x614
+                state.intro_sound.data(), context.sounds); // 0x0012A260, actor +0x614
         }
         return;
     case 2:
-        if (field_data(state, field::intro_sound)[0] != 0)
+        if (state.intro_sound.data()[0] != 0)
         {
             release_actor_sound(actor.sound_slots[4], context.sounds); // 0x0012A3D0, actor +0x614
         }
-        if (field_data(state, field::release_sound)[0] != 0)
+        if (state.release_sound.data()[0] != 0)
         {
             queue_actor_sound(actor.sound_slots[2], 0, &actor, 2, nullptr, nullptr, 1.f,
-                field_data(state, field::release_sound), context.sounds); // 0x0012A260, actor +0x4A4
+                state.release_sound.data(), context.sounds); // 0x0012A260, actor +0x4A4
         }
         adjust_live_attachment_holds(context.live_attachments, 1);
         context.body[0x6D] = u8(context.body[0x6D] + 1);
         hold_runtime_body_latches(context.body, context.hold); // 0x00027BE0, ESI body
-        set(state, field::grow, 0.5f); // DAT_0032B0F4.
+        state.grow = 0.5f; // DAT_0032B0F4.
         release_ghouly(state, context); // 0x000933C0
         start_animation(state, 1, context); // 0x0001AFA0, state +0x24
         return;
     case 3:
-        set(state, field::bolts, 0u);
+        state.bolts = 0u;
         fade_beam(state, context); // 0x00093780
         settle_ghouly(state, context); // 0x00093660
         start_animation(state, 2, context); // 0x0001AFA0, state +0x28
@@ -823,15 +814,15 @@ void change_phase(std::span<u8> state, u32 phase, RuntimeGenerateGhoulyContext& 
 
 bool construct_generate_ghouly_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
+    GenerateGhoulyState& state = body_state_view<GenerateGhoulyState>({object.bytes.get(), object.size});
     return initialize_runtime_generate_ghouly_state(state, parameters,
-        generate_ghouly_context_of(body_address_of(state)));
+        generate_ghouly_context_of(state.base.body));
 }
 
 void destroy_generate_ghouly_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_generate_ghouly_state(state, generate_ghouly_context_of(body_address_of(state)));
+    GenerateGhoulyState& state = body_state_view<GenerateGhoulyState>({object.bytes.get(), object.size});
+    destroy_runtime_generate_ghouly_state(state, generate_ghouly_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* generate_ghouly_state_lifecycle()
@@ -845,29 +836,29 @@ const ObjectFactoryVtable* generate_ghouly_state_lifecycle()
 // Xbox 0x00093B40
 void generate_ghouly_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(GenerateGhoulyState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x00093BC0
-bool initialize_runtime_generate_ghouly_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_generate_ghouly_state(GenerateGhoulyState& state, std::span<const u8> parameters,
     RuntimeGenerateGhoulyContext& context)
 {
-    generate_ghouly_instances[state.data()] = GenerateGhoulyInstance{};
-    find_animation(state, 0, field::intro_animation.offset, get(parameters, parameter::intro_animation), context);
-    find_animation(state, 1, field::release_animation.offset, get(parameters, parameter::release_animation), context);
-    find_animation(state, 2, field::end_animation.offset, get(parameters, parameter::end_animation), context);
-    copy_name(state, field::intro_sound, parameters, parameter::intro_sound);
-    copy_name(state, field::release_sound, parameters, parameter::release_sound);
+    generate_ghouly_instances[body_state_key(state)] = GenerateGhoulyInstance{};
+    find_animation(state, 0, state.intro_animation, get(parameters, parameter::intro_animation), context);
+    find_animation(state, 1, state.release_animation, get(parameters, parameter::release_animation), context);
+    find_animation(state, 2, state.end_animation, get(parameters, parameter::end_animation), context);
+    copy_name(state.intro_sound.data(), parameters, parameter::intro_sound);
+    copy_name(state.release_sound.data(), parameters, parameter::release_sound);
     const ActorSoundSlot& slot = context.actor.sound_slots[4]; // Actor +0x614.
     if (actor_sound_is_active(slot, context.sounds) && slot.previous_bone != 0xFFFF) // 0x0012A970, +0x61C
     {
-        field_data(state, field::intro_sound)[0] = 0;
+        state.intro_sound.data()[0] = 0;
     }
-    copy_name(state, field::beam_model, parameters, parameter::beam_model);
-    copy_name(state, field::release_effect, parameters, parameter::release_effect);
-    copy_name(state, field::bolt_texture_name, parameters, parameter::bolt_texture);
-    copy_name(state, field::spark_texture_name, parameters, parameter::spark_texture);
+    copy_name(state.beam_model.data(), parameters, parameter::beam_model);
+    copy_name(state.release_effect.data(), parameters, parameter::release_effect);
+    copy_name(state.bolt_texture_name.data(), parameters, parameter::bolt_texture);
+    copy_name(state.spark_texture_name.data(), parameters, parameter::spark_texture);
     const auto body = context.body;
     set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
     for (size_t offset : {size_t(0x30B), size_t(0x309), size_t(0x30A), size_t(0x30C)})
@@ -877,7 +868,7 @@ bool initialize_runtime_generate_ghouly_state(std::span<u8> state, std::span<con
     body[0x38] = 1;
     body[0x39] = 1;
     set(context.actor_bytes, player_field::ghouly_count, u16(get(context.actor_bytes, player_field::ghouly_count) + 1));
-    set(state, field::light, u8(0xFF));
+    state.light = u8(0xFF);
     place_beam(state, context); // 0x00093800, EBX state
     start_bolts(state, context); // 0x000925C0
     create_ghouly(state, context); // 0x00093190, ESI state
@@ -886,47 +877,46 @@ bool initialize_runtime_generate_ghouly_state(std::span<u8> state, std::span<con
 }
 
 // Xbox 0x00093DF0
-void destroy_runtime_generate_ghouly_state(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void destroy_runtime_generate_ghouly_state(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
     drop_release_holds(state, context);
-    set(state, field::phase, 0u);
+    state.phase = 0u;
     release_bolts(state, context); // 0x00092790
     release_beam(state, context); // 0x000936A0, EDI state
-    const u32 ghouly = get(state, field::ghouly);
-    if (ghouly != 0 && get(state, field::released) == 0)
+    const u32 ghouly = state.ghouly;
+    if (ghouly != 0 && state.released == 0)
     {
         context.scene.release(ghouly); // 0x001075C0, EAX ghouly
-        const u32 attached = get(state, field::attached);
+        const u32 attached = state.attached;
         if (attached != 0)
         {
             context.scene.release(attached); // 0x001075C0
         }
     }
-    set(state, field::ghouly, 0u);
-    set(state, field::attached, 0u);
+    state.ghouly = 0u;
+    state.attached = 0u;
     adjust_body_counters(context.body, -1);
     set(context.actor_bytes, player_field::ghouly_count, u16(get(context.actor_bytes, player_field::ghouly_count) - 1));
-    generate_ghouly_instances.erase(state.data());
+    generate_ghouly_instances.erase(body_state_key(state));
 }
 
 // Xbox 0x00093EC0
-void tick_runtime_generate_ghouly_state(std::span<u8> state, RuntimeGenerateGhoulyContext& context)
+void tick_runtime_generate_ghouly_state(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& context)
 {
     Actor& actor = context.actor;
     const auto body = context.body;
-    set(state, field::seconds, runtime_actor_rate(actor) * runtime_frame_step(context.clock)
-        + get(state, field::seconds));
+    state.base.elapsed = runtime_actor_rate(actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     const float zero = 0.f;
     std::memcpy(body.data() + 0x734, &zero, 4);
     std::memcpy(body.data() + 0x72C, &zero, 4);
-    switch (get(state, field::phase))
+    switch (state.phase)
     {
     case 1:
-        set(state, field::beam_on, 0u);
+        state.beam_on = 0u;
         place_beam(state, context); // 0x00093800
         move_beam_light(state, context); // 0x00093AD0
         update_bolts(state, 1, context); // 0x00092840
-        face_runtime_body_point(body, actor, get(state, field::spawn_point)); // 0x00134510
+        face_runtime_body_point(body, actor, state.spawn_point); // 0x00134510
         if (runtime_actor_animation_slot_complete(context.animation, 0)) // 0x0003B290, EAX actor, ECX 0
         {
             start_beam(state, context); // 0x00093700
@@ -936,30 +926,30 @@ void tick_runtime_generate_ghouly_state(std::span<u8> state, RuntimeGenerateGhou
     case 2:
     {
         const float step = runtime_actor_rate(actor) * runtime_frame_step(context.clock);
-        if (0.f < get(state, field::grow))
+        if (0.f < state.grow)
         {
-            const float left = get(state, field::grow) - step;
-            set(state, field::grow, left);
+            const float left = state.grow - step;
+            state.grow = left;
             if (!(0.f < left)) // COMISS; JC keeps a positive time.
             {
-                set(state, field::grow, 0.f);
+                state.grow = 0.f;
             }
         }
-        set(state, field::beam_on, 1u);
+        state.beam_on = 1u;
         place_beam(state, context); // 0x00093800
         move_beam_light(state, context); // 0x00093AD0
         update_bolts(state, 0, context); // 0x00092840
-        if (get(state, field::released) != 0 && get(state, field::ghouly) != 0)
+        if (state.released != 0 && state.ghouly != 0)
         {
             grow_ghouly(state, context); // 0x00093540
         }
-        face_runtime_body_point(body, actor, get(state, field::spawn_point)); // 0x00134510
-        if (get(state, field::grow) == 0.f) // DAT_0032B100.
+        face_runtime_body_point(body, actor, state.spawn_point); // 0x00134510
+        if (state.grow == 0.f) // DAT_0032B100.
         {
             // 0x000941A0's phase 3, inlined.
             drop_release_holds(state, context);
-            set(state, field::phase, 3u);
-            set(state, field::bolts, 0u);
+            state.phase = 3u;
+            state.bolts = 0u;
             fade_beam(state, context); // 0x00093780
             settle_ghouly(state, context); // 0x00093660
             start_animation(state, 2, context); // 0x0001AFA0, state +0x28
@@ -969,7 +959,7 @@ void tick_runtime_generate_ghouly_state(std::span<u8> state, RuntimeGenerateGhou
     case 3:
         if (runtime_actor_animation_slot_complete(context.animation, 0)) // 0x0003B290
         {
-            set(state, field::next_key, context.body_slot_key(0x20)); // Body vtable +0x20.
+            state.base.next_key = context.body_slot_key(0x20); // Body vtable +0x20.
         }
         return;
     default:
@@ -978,33 +968,33 @@ void tick_runtime_generate_ghouly_state(std::span<u8> state, RuntimeGenerateGhou
 }
 
 // Xbox 0x00094150
-void message_runtime_generate_ghouly_state(std::span<u8> state, std::span<const u32> message)
+void message_runtime_generate_ghouly_state(GenerateGhoulyState& state, std::span<const u32> message)
 {
     if (message[0] != 0x7C)
     {
         return;
     }
     const u32 actor = message[1];
-    if (get(state, field::ghouly) == actor)
+    if (state.ghouly == actor)
     {
-        set(state, field::ghouly, 0u);
-        set(state, field::released, 0u);
-        set(state, field::goals_drained, 0u);
+        state.ghouly = 0u;
+        state.released = 0u;
+        state.goals_drained = 0u;
     }
-    if (get(state, field::attached) == actor)
+    if (state.attached == actor)
     {
-        set(state, field::attached, 0u);
+        state.attached = 0u;
     }
-    if (get(state, field::beam) == actor)
+    if (state.beam == actor)
     {
-        set(state, field::beam, 0u);
+        state.beam = 0u;
     }
 }
 
 // Xbox 0x00094130
-void draw_runtime_generate_ghouly_state(std::span<u8> state, i32 kind, RuntimeGenerateGhoulyContext& context)
+void draw_runtime_generate_ghouly_state(GenerateGhoulyState& state, i32 kind, RuntimeGenerateGhoulyContext& context)
 {
-    if (kind != 2 || get(state, field::bolts) == 0)
+    if (kind != 2 || state.bolts == 0)
     {
         return;
     }

@@ -440,7 +440,9 @@ void SceneBodyMessages::bind_action_children()
                 generate->message = [child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_generate_ghouly_state({child->bytes.get(), child->size}, words); // 0x00094150
+                    message_runtime_generate_ghouly_state(
+                        body_state_view<GenerateGhoulyState>({child->bytes.get(), child->size}),
+                        words); // 0x00094150
                 };
             }
             children_[child->bytes.get()] = generate.get();
@@ -1040,10 +1042,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             arc_attack_context()); // 0x00089060
         return;
     case 0x6F:
-        tick_runtime_generate_ghouly_state({action.bytes.get(), action.size}, generate_ghouly_context()); // 0x00093EC0
+        tick_runtime_generate_ghouly_state(body_state_view<GenerateGhoulyState>({action.bytes.get(), action.size}),
+            generate_ghouly_context()); // 0x00093EC0
         return;
     case 0x80:
-        tick_runtime_shocked_state({action.bytes.get(), action.size}, shocked_context()); // 0x0009F5F0
+        tick_runtime_shocked_state(body_state_view<ShockedState>({action.bytes.get(), action.size}),
+            shocked_context()); // 0x0009F5F0
         return;
     case 0x82:
         tick_runtime_slam_smash_state(body_state_view<SlamSmashState>({action.bytes.get(), action.size}),
@@ -1076,7 +1080,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             grab_throw_context()); // 0x00094B00
         return;
     case 0x71:
-        tick_runtime_grabbed_hold_state({action.bytes.get(), action.size}, grabbed_hold_context()); // 0x000956C0
+        tick_runtime_grabbed_hold_state(body_state_view<BodyStateBase>({action.bytes.get(), action.size}),
+            grabbed_hold_context()); // 0x000956C0
         return;
     case 0x68:
         tick_runtime_explode_state(body_state_view<ExplodeState>({action.bytes.get(), action.size}),

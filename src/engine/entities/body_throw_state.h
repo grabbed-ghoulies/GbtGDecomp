@@ -49,7 +49,7 @@ constexpr RetailField<u32, 0x28> settle_turn{};
 constexpr u32 kSize = 0x2C;
 static_assert(retail_fits(kSize, settle_turn));
 } // namespace throw_state_parameter
-// The throw state's own fields at their retail offsets (0x68 bytes), after the body-state base (body_state_field).
+// The throw state's own fields at their retail offsets (0x68 bytes), after the body-state base (BodyStateBase).
 struct ThrowState
 {
     BodyStateBase base{}; // +0
@@ -74,7 +74,7 @@ static_assert(sizeof(ThrowState) == 0x68);
 void throw_state_object_sizes(ObjectSizes& output); // Xbox 0x000A37D0
 bool initialize_runtime_throw_state(ThrowState& state, std::span<const u8> parameters,
     RuntimeThrowStateContext& context); // Xbox 0x000A3850
-void destroy_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& context); // Xbox 0x000A3910
+void destroy_runtime_throw_state(ThrowState& state, RuntimeThrowStateContext& context); // Xbox 0x000A3910
 // Turns the actor toward the launch point, easing +0x30 toward +0x24 when +0x4C is set (EAX state).
 void turn_runtime_throw_state(ThrowState& state, RuntimeThrowStateContext& context); // Xbox 0x000A3D50
 // The aim 20 ahead of the actor along the right stick, or along its yaw (ECX actor, EAX body, EBX the aim).

@@ -20,7 +20,7 @@ constexpr RetailField<u32, 0x0C> appear{}; // set: the ghoulie appears; clear: i
 constexpr u32 kSize = 0x10;
 static_assert(retail_fits(kSize, appear));
 } // namespace drone_appear_state_parameter
-// The state's own fields at their retail offsets (0x28 bytes), after the body-state base (body_state_field).
+// The state's own fields at their retail offsets (0x28 bytes), after the body-state base (BodyStateBase).
 struct DroneAppearState
 {
     BodyStateBase base{}; // +0

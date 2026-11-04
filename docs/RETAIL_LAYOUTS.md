@@ -190,6 +190,8 @@ For one object type:
 | Walk target and fly alert states (`WalkTargetState`, `FlyAlertState`): the rows block (`WalkTargetRows`: four `WalkTargetRow`s and the band limits), arrival delay and arrived, the keys, direction and band | 0x7C | `src/engine/entities/body_walk_target_state.h` |
 | Walk alert and fly states (`WalkAlertState`, `FlyState`): keys, switches, stick limit, row count and band, four `WalkAlertRow`s, sound | 0x88 / 0x78 | `src/engine/entities/body_state_actions.h` |
 | Jump on state (`JumpOnState`, factory type 0x79, 0x0009A4C0): the leap (`LeapRecord`, 0x50: target, start and current euler, start, end and current point, length, time left), phase, switches, the ride (`JumpOnRide`, 0xC8: phase, strikes, animations found, wobble timer and wobble, hold and ride times, `InputTrackingRecord`, hold sound, hat intro), animations found, claim and target | 0x158 | `src/engine/entities/body_jump_on_state.h` |
+| Generate ghouly state (`GenerateGhoulyState`): phase, grow, animations found, the sound, model and effect names, two bolt rows (`GhoulyBoltRow`: pool, shape, angle), texture switches, the ghouly's name, variant and kind, attached actor, scales, beam, spawn point, light | 0x4A0 | `src/engine/entities/generate_ghouly_state.h` |
+| Grabbed hold state (factory type 0x71): the base and nothing else, so its functions take `BodyStateBase` | 0x18 | `src/engine/entities/body_grabbed_hold_state.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -269,6 +271,12 @@ The jump on state's unnamed stretches were its two records. +0x18 is the leap 0x
 which the state had reached by raw offset (+0x30, +0x3C, +0x54..). +0x80 is the ride; its `shaken` and `shake_state`
 were its `InputTrackingRecord`'s accumulation and state.
 
+The family was closed out with the leftovers of the first passes (the shocked tick, a few destroy functions), the
+grabbed hold and generate ghouly states, and the shared selectors 0x00133F50, 0x00134060 and 0x00134180, which only
+ever wrote the next key and now take `BodyStateBase&`. That ended `retail_bytes(state)` at their call sites and
+`body_state_field`, which is gone. `retail_bytes` remains for the blocks handed to shared byte functions: bounded
+channels, input tracking, callout tokens and the wobble timer.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -285,7 +293,6 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Scene-control base (factory type 3) | — | `scene_control_field::elapsed` (+0x20) only; the list links at +8, +0x10 and +0x18 are SceneControlInstance members | `src/engine/scene/scene_control_fields.h` |
 | Trophy heads (factory type 0x92, 0x000816A0) | 0x188, parameters 0x108 | `trophy_heads_field`: player, attacks, health, seek time, phase, chosen heads, per-head attacked and roaring flags, attacking head, pause hold, head events name, challenge won; `trophy_heads_parameter`: the clip and events names; `cutscene_event_field`: the two event-record words 0x00082440 reads | `src/engine/scene/trophy_heads_control.h` |
 | Factory parameter header | — | `object_parameter_field`: size, unk_2, type | `include/gbtg/object_factory.h` |
-| Body-state base (type 9, 0x00095530) | 0x18 | `body_state_field`: next key (+0xC), unk_E, elapsed (+0x10), for the states still on their bytes; `BodyStateBase` is the whole base as a struct (below) | `src/engine/entities/body_state_fields.h` |
 | Walk-target and fly-alert parameters (factory types 0x8F and 0x6E; the states are structs, above) | parameters 0x60 | `walk_target_parameter`, `fly_alert_parameter` | `src/engine/entities/body_walk_target_state.h` |
 | Pick-up and lift state parameters (factory types 0x7C and 0x7D; the states are structs, above) | parameters 0x10 / 0x1C | `pickup_state_parameter`, `lift_state_parameter` | `src/engine/entities/body_pickup_state.h` |
 | Throw state parameters (factory type 0x8B; the state is a struct, above) | parameters 0x2C | `throw_state_parameter` | `src/engine/entities/body_throw_state.h` |

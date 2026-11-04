@@ -11,7 +11,7 @@ namespace gbtg
 {
 // entityStateStruggle (factory type 0x88, getter 0x000A2B30, vtable 0x00505BE0) over actorMove (type 9). +0xC and
 // +0x14/+0x18 are the empty 0x000D4179 case and +0x1C is 0x0002B620. State +0xC is the next key and +0x10 the
-// state clock (`body_state_field`). The in-band and out-of-band animation records stay on the host; the state only
+// state clock (`BodyStateBase`). The in-band and out-of-band animation records stay on the host; the state only
 // says whether each was found.
 namespace struggle_state_parameter
 {

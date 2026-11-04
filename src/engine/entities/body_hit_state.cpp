@@ -23,7 +23,6 @@ namespace gbtg
 {
 namespace parameter = hit_state_parameter;
 namespace furnace_parameter = hit_furnace_state_parameter;
-namespace base = body_state_field;
 
 namespace
 {
@@ -324,7 +323,7 @@ RuntimeBodyNextAction runtime_body_next_action(const RuntimeHitStateTick& contex
 }
 
 // Xbox 0x00134180
-void select_runtime_body_next_action(std::span<u8> state, u32 secondary, RuntimeBodyNextAction& context)
+void select_runtime_body_next_action(BodyStateBase& base, u32 secondary, RuntimeBodyNextAction& context)
 {
     const auto body = context.body;
     if (get(body, body_field::energy) == 0 && context.table != nullptr) // Body +0x73C, held as its native view.
@@ -332,14 +331,14 @@ void select_runtime_body_next_action(std::span<u8> state, u32 secondary, Runtime
         u32 output;
         if (find_runtime_script_table_row(context.table, 0x6A, output) != nullptr)
         {
-            set(state, base::next_key, 0x6A);
+            base.next_key = 0x6A;
             return;
         }
     }
     const auto settings = context.settings;
     const u32 brake = settings.data() == nullptr ? 1 : (settings[0x1A4] == 0 ? 1 : 0);
     reset_runtime_body_turn(brake, body, context.first_timer);
-    set(state, base::next_key, secondary != 0 ? context.secondary_key() : context.primary_key());
+    base.next_key = secondary != 0 ? context.secondary_key() : context.primary_key();
 }
 
 // Xbox 0x00096260
@@ -585,7 +584,7 @@ void finish_runtime_hit_state(HitState& state, u32 secondary, RuntimeHitStateTic
         return;
     }
     RuntimeBodyNextAction pick = runtime_body_next_action(context);
-    select_runtime_body_next_action(retail_bytes(state), secondary, pick);
+    select_runtime_body_next_action(state.base, secondary, pick);
 }
 
 // Xbox 0x00095940
@@ -698,7 +697,7 @@ void tick_runtime_hit_state(HitState& state, RuntimeHitStateTick& context)
         return;
     }
     RuntimeBodyNextAction pick = runtime_body_next_action(context);
-    select_runtime_body_next_action(retail_bytes(state), 0, pick);
+    select_runtime_body_next_action(state.base, 0, pick);
 }
 
 // Xbox 0x00090410
@@ -752,7 +751,7 @@ void destroy_runtime_hit_furnace_state(const HitFurnaceState& state, std::span<u
 }
 
 // Xbox 0x00134060
-void select_runtime_body_goal_action(std::span<u8> state, RuntimeBodyRecoveryAction& context)
+void select_runtime_body_goal_action(BodyStateBase& base, RuntimeBodyRecoveryAction& context)
 {
     const RuntimePlayerGoalRing* ring = context.ring;
     if (ring != nullptr)
@@ -784,11 +783,11 @@ void select_runtime_body_goal_action(std::span<u8> state, RuntimeBodyRecoveryAct
     const auto settings = context.settings;
     const u32 brake = settings.data() == nullptr ? 1 : (settings[0x1A4] == 0 ? 1 : 0);
     reset_runtime_body_turn(brake, context.body, context.first_timer);
-    set(state, base::next_key, context.primary_key());
+    base.next_key = context.primary_key();
 }
 
 // Xbox 0x00133F50
-void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBodyRecoveryAction& context)
+void select_runtime_body_recovery_action(BodyStateBase& base, u16 key, RuntimeBodyRecoveryAction& context)
 {
     const auto body = context.body;
     const u16 level = get(body, body_field::energy);
@@ -812,24 +811,24 @@ void select_runtime_body_recovery_action(std::span<u8> state, u16 key, RuntimeBo
     }
     if (key != 0)
     {
-        set(state, base::next_key, key);
+        base.next_key = key;
     }
     if (table_row)
     {
-        set(state, base::next_key, 0x6A);
+        base.next_key = 0x6A;
         return;
     }
     if (secondary)
     {
-        set(state, base::next_key, context.secondary_id());
+        base.next_key = context.secondary_id();
         return;
     }
     if (get(body, body_field::unk_240) != 0.f)
     {
-        set(state, base::next_key, context.primary_id());
+        base.next_key = context.primary_id();
         return;
     }
-    select_runtime_body_goal_action(state, context);
+    select_runtime_body_goal_action(base, context);
 }
 
 // Xbox 0x000965C0
@@ -904,6 +903,6 @@ void tick_runtime_hit_furnace_state(HitFurnaceState& state, RuntimeHitFurnaceTic
             return;
         }
     }
-    select_runtime_body_recovery_action(retail_bytes(state), state.next_key, context.recovery);
+    select_runtime_body_recovery_action(state.base, state.next_key, context.recovery);
 }
 }

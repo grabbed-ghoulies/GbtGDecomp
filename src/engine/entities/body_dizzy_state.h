@@ -9,7 +9,7 @@
 namespace gbtg
 {
 // Factory type 0x64's state (see RuntimeDizzyStateContext). +0xC is the next key and +0x10 the state clock
-// (`body_state_field`).
+// (`BodyStateBase`).
 namespace dizzy_state_parameter
 {
 constexpr RetailField<u32, 0x0C> settles{};

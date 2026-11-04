@@ -46,11 +46,6 @@ std::unordered_map<const u8*, std::vector<const AnimationRecord*>> walk_alert_re
 // The fly state's looping animation record (`loop_found`), by the state's bytes.
 std::unordered_map<const u8*, const AnimationRecord*> fly_loop_records;
 
-u32 word(std::span<const u8> bytes, size_t offset)
-{
-    return read_u32(bytes, offset);
-}
-
 // Actor +0x50 controller: the first slot's player pause count (+0x58 -> +0 -> +0x125) and dirty flag (+0x5C).
 void adjust_animation_pause(AnimationController* controller, i32 step)
 {
@@ -394,8 +389,8 @@ bool construct_throw_state_view(FactoryObject& object, std::span<const u8> param
 
 void destroy_throw_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_throw_state(state, throw_context_of(word(state, 8)));
+    ThrowState& state = body_state_view<ThrowState>({object.bytes.get(), object.size});
+    destroy_runtime_throw_state(state, throw_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* throw_state_lifecycle()
@@ -407,16 +402,14 @@ const ObjectFactoryVtable* throw_state_lifecycle()
 
 bool construct_hold_state_view(FactoryObject& object, std::span<const u8>)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    HoldState& hold = body_state_view<HoldState>(state);
+    HoldState& hold = body_state_view<HoldState>({object.bytes.get(), object.size});
     auto context = body_context_of(hold.base.body);
     return initialize_runtime_hold_state(hold, context);
 }
 
 void destroy_hold_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    HoldState& hold = body_state_view<HoldState>(state);
+    HoldState& hold = body_state_view<HoldState>({object.bytes.get(), object.size});
     auto context = body_context_of(hold.base.body);
     destroy_runtime_hold_state(hold, context);
 }

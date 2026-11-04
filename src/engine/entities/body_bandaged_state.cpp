@@ -275,7 +275,7 @@ void tick_runtime_bandaged_state(BandagedState& state, RuntimeBandagedStateConte
         {
             if (get(body, body_field::energy) == 0)
             {
-                select_runtime_body_recovery_action(retail_bytes(state), 0, context.recovery); // 0x00133F50, EAX body
+                select_runtime_body_recovery_action(state.base, 0, context.recovery); // 0x00133F50, EAX body
                 return;
             }
             state.base.next_key = context.body_slot_key(0x20); // Body vtable +0x20.

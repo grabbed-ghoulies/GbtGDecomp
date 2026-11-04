@@ -14,7 +14,7 @@ struct LiveScript;
 // and +0x30, shape mode 2), drops what it holds, plays the dying animation (+0x34) then the dead one (+0x38) and starts
 // the scene's transition; a live player whose run allows it is offered a brew (state 4), every other way restarts the
 // scene (0x0008F650, 0x00134AE0). +0xC and +0x14/+0x18 are the empty 0x000D4179 case and +0x1C is 0x0002B620.
-// State +0xC is the next key and +0x10 the state clock (`body_state_field`).
+// State +0xC is the next key and +0x10 the state clock (`BodyStateBase`).
 namespace player_death_state_parameter
 {
 constexpr RetailField<u32, 0x0C> dying{}; // the animation's name, an XBE string, or 0 to start dead

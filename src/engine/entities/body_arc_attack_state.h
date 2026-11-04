@@ -60,7 +60,7 @@ constexpr u32 kSize = 0x214;
 static_assert(retail_fits(kSize, latch));
 } // namespace arc_attack_state_parameter
 // The arc attack state's own fields at their retail offsets (0x268 bytes), after the body-state base
-// (body_state_field).
+// (BodyStateBase).
 struct ArcAttackState
 {
     BodyStateBase base{}; // +0

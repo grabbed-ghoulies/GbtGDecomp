@@ -39,7 +39,7 @@ void actor_move_object_sizes(ObjectSizes& output); // Xbox 0x00095530
 
 // Type 0x87, entityStateStandAlert: the body stands, optionally holding still, pausing its animation, showing a model
 // node or playing a sound, and takes its next key from the stick, the mind's alert or its own movement. State +0xC
-// is the next key and +0x10 the state clock (`body_state_field`).
+// is the next key and +0x10 the state clock (`BodyStateBase`).
 namespace stand_alert_parameter
 {
 constexpr RetailField<u16, 0x0C> input_key{};
@@ -103,7 +103,7 @@ struct WalkAlertRow
 static_assert(sizeof(WalkAlertRow) == walk_alert_row_field::kSize);
 
 // Type 0x8E, entityStateWalkAlert: the stick walks the body through its speed bands. State +0xC is the next key and
-// +0x10 the state clock (`body_state_field`).
+// +0x10 the state clock (`BodyStateBase`).
 namespace walk_alert_parameter
 {
 constexpr RetailField<i16, 0x0C> row_count{};
@@ -145,7 +145,7 @@ struct WalkAlertState
 static_assert(sizeof(WalkAlertState) == 0x88);
 
 // Type 0x6D, entityStateFly: the walk alert's rows steered in the air. State +0xC is the next key and +0x10 the
-// state clock (`body_state_field`).
+// state clock (`BodyStateBase`).
 namespace fly_state_parameter
 {
 constexpr RetailField<i16, 0x0C> row_count{};

@@ -98,6 +98,6 @@ void tick_runtime_hold_state(HoldState& state, RuntimeHoldStateTick& context)
     }
     const std::array<u32, 2> notice{0x75, context.actor_address};
     broadcast_actor_pulse_message(reinterpret_cast<const i32*>(notice.data())); // 0x00122C70, EDI notice.
-    select_runtime_body_goal_action(retail_bytes(state), recovery); // 0x00134060, EBX body.
+    select_runtime_body_goal_action(state.base, recovery); // 0x00134060, EBX body.
 }
 }

@@ -17,7 +17,7 @@ namespace gbtg
 // Factory type 0x5E (getter 0x00088520, vtable 0x005056A0): a body state that plays an optional animation and
 // sound, can turn the body toward the mind's target, and takes its next key on a timer, at the animation's end, or
 // once the animation passes a point and the stick is pushed. +0x14/+0x18 are the empty 0x001628B0 and +0x1C is
-// 0x0002B620. State +8 is the body, +0xC the next key and +0x10 the state clock (`body_state_field`).
+// 0x0002B620. State +8 is the body, +0xC the next key and +0x10 the state clock (`BodyStateBase`).
 namespace anim_state_parameter
 {
 constexpr RetailField<u16, 0x0C> next_key{};

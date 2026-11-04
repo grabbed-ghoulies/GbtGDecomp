@@ -31,7 +31,7 @@ struct RuntimeFurnaceHitStateContext
 void furnace_hit_state_object_sizes(ObjectSizes& output); // Xbox 0x00096A30
 bool initialize_runtime_furnace_hit_state(FurnaceHitState& state,
     RuntimeFurnaceHitStateContext& context); // Xbox 0x00096AB0
-void destroy_runtime_furnace_hit_state(std::span<u8> state,
+void destroy_runtime_furnace_hit_state(FurnaceHitState& state,
     RuntimeFurnaceHitStateContext& context); // Xbox 0x00096E60
 void tick_runtime_furnace_hit_state(FurnaceHitState& state,
     RuntimeFurnaceHitStateContext& context); // Xbox 0x00096FC0

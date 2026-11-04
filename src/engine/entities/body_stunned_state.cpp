@@ -17,11 +17,6 @@ namespace parameter = stunned_state_parameter;
 
 std::function<RuntimeStunnedStateContext&(u32)> stunned_context_of;
 
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 // The four input counters (+0x309 .. +0x30C) and the half at +0x30 move together.
 void step_holds(std::span<u8> body, i32 step)
 {

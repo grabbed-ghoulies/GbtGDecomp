@@ -19,7 +19,7 @@ namespace gbtg
 struct RuntimePlayerGoalRing;
 
 // Factory type 0x73 entityStateHit (getter 0x00095740, vtable 0x00505940): +0x14/+0x18 are the empty 0x001628B0
-// and +0x1C is 0x0002B620. State +8 is the body, +0xC the next key and +0x10 the state clock (`body_state_field`).
+// and +0x1C is 0x0002B620. State +8 is the body, +0xC the next key and +0x10 the state clock (`BodyStateBase`).
 namespace hit_state_parameter
 {
 constexpr RetailField<float, 0x0C> trail_rate{};
@@ -129,7 +129,7 @@ struct RuntimeBodyNextAction
     std::function<u16()> secondary_key; // Body vtable +0x2C.
 };
 // Picks the body's next action into state +0xC (EAX body, EBX state).
-void select_runtime_body_next_action(std::span<u8> state, u32 secondary,
+void select_runtime_body_next_action(BodyStateBase& base, u32 secondary,
     RuntimeBodyNextAction& context); // Xbox 0x00134180
 RuntimeBodyNextAction runtime_body_next_action(const RuntimeHitStateTick& context);
 void reset_runtime_body_turn(u32 brake, std::span<u8> body,
@@ -189,9 +189,9 @@ struct RuntimeBodyRecoveryAction
     std::function<u16()> primary_id; // Body vtable +0x30.
     std::function<u16()> secondary_id; // Body vtable +0x34.
 };
-void select_runtime_body_recovery_action(std::span<u8> state, u16 key,
+void select_runtime_body_recovery_action(BodyStateBase& base, u16 key,
     RuntimeBodyRecoveryAction& context); // Xbox 0x00133F50
-void select_runtime_body_goal_action(std::span<u8> state,
+void select_runtime_body_goal_action(BodyStateBase& base,
     RuntimeBodyRecoveryAction& context); // Xbox 0x00134060, EBX body
 
 struct RuntimeHitFurnaceTick

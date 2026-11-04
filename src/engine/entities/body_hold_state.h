@@ -11,7 +11,7 @@ namespace gbtg
 // the +0x14 / +0x18 slots are the empty 0x001628B0 and +0x1C is 0x0002B620. State +0x18 is the timer, +0x1C the
 // settle flag (the state's own +0xC word at construction) and +0x20 an optional body bit.
 // The hold state's own fields at their retail offsets (0x24 bytes, 0x000A34A0), after the body-state base
-// (body_state_field).
+// (BodyStateBase).
 struct HoldState
 {
     BodyStateBase base{}; // +0

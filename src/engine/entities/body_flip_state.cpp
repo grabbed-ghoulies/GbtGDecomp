@@ -189,7 +189,7 @@ void tick_runtime_flip_state(FlipState& state, RuntimeFlipStateContext& context)
             return;
         }
     }
-    select_runtime_body_recovery_action(retail_bytes(state), 0, context.recovery); // 0x00133F50, EAX body
+    select_runtime_body_recovery_action(state.base, 0, context.recovery); // 0x00133F50, EAX body
 }
 
 void install_runtime_flip_state_class(std::span<ObjectFactoryType> types,

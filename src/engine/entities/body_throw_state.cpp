@@ -92,7 +92,7 @@ bool initialize_runtime_throw_state(ThrowState& state, std::span<const u8> param
 }
 
 // Xbox 0x000A3910
-void destroy_runtime_throw_state(std::span<u8>, RuntimeThrowStateContext& context)
+void destroy_runtime_throw_state(ThrowState&, RuntimeThrowStateContext& context)
 {
     const auto body = context.body;
     adjust_body_counters(body, -1);

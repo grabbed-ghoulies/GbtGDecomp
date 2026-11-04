@@ -21,11 +21,6 @@ namespace
 
 std::function<RuntimeFurnaceHitStateContext&(u32)> furnace_hit_context_of;
 
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 bool construct_furnace_hit_state_view(FactoryObject& object, std::span<const u8>)
 {
     FurnaceHitState& state = body_state_view<FurnaceHitState>({object.bytes.get(), object.size});
@@ -34,8 +29,8 @@ bool construct_furnace_hit_state_view(FactoryObject& object, std::span<const u8>
 
 void destroy_furnace_hit_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_furnace_hit_state(state, furnace_hit_context_of(body_address_of(state)));
+    FurnaceHitState& state = body_state_view<FurnaceHitState>({object.bytes.get(), object.size});
+    destroy_runtime_furnace_hit_state(state, furnace_hit_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* furnace_hit_state_lifecycle()
@@ -121,7 +116,7 @@ bool initialize_runtime_furnace_hit_state(FurnaceHitState& state, RuntimeFurnace
 }
 
 // Xbox 0x00096E60
-void destroy_runtime_furnace_hit_state(std::span<u8> state, RuntimeFurnaceHitStateContext& context)
+void destroy_runtime_furnace_hit_state(FurnaceHitState& state, RuntimeFurnaceHitStateContext& context)
 {
     (void)state;
     RuntimeKnockdownContext& knockdown = context.knockdown;

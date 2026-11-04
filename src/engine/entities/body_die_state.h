@@ -15,7 +15,7 @@ namespace gbtg
 // Factory type 0x62 (getter 0x0008C1E0, vtable 0x00505720; named entityStateDie in the type table): the body plays
 // a named animation from a random point near its end, optionally facing the view or the mind's target, and takes
 // the next key when the animation slot finishes. +0x14/+0x18 are the empty 0x001628B0 and +0x1C is 0x0002B620.
-// State +8 is the body, +0xC the next key and +0x10 the state clock (`body_state_field`).
+// State +8 is the body, +0xC the next key and +0x10 the state clock (`BodyStateBase`).
 namespace die_state_parameter
 {
 constexpr RetailField<u32, 0x0C> body_bit{};

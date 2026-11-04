@@ -33,7 +33,7 @@ constexpr RetailField<std::array<char, 0x80>, 0xA8> trail_effect{}; // the effec
 constexpr u32 kSize = 0x128;
 static_assert(retail_fits(kSize, trail_effect));
 } // namespace swing_state_parameter
-// The swing state's own fields at their retail offsets (0x1AC bytes), after the body-state base (body_state_field).
+// The swing state's own fields at their retail offsets (0x1AC bytes), after the body-state base (BodyStateBase).
 // A trail effect on one of the weapon's shapes (0x00098F40).
 struct SwingEffectPair
 {

@@ -172,6 +172,10 @@ For one object type:
 | Hit-furnace state (`HitFurnaceState`, factory type 0x74, 0x00096710): next key, bit 0x38 switch, sweep and its point | 0x30 | `src/engine/entities/body_hit_state.h` |
 | Scoop-whack, shocked, stunned and scrabble states (`ScoopWhackState`, `ShockedState`, `StunnedState`, `ScrabbleState`) | 0x20 / 0x1C / 0x20 / 0x28 | `body_scoop_whack_state.h`, `body_shocked_state.h`, `body_stunned_state.h`, `body_scrabble_state.h` |
 | Throw state (`ThrowState`, factory type 0x8B, 0x000A37D0): entry euler, aim and launch, switches, near range, aim angle and mode, spread, end key, ended | 0x68 | `src/engine/entities/body_throw_state.h` |
+| Struggle state (`StruggleState`, factory type 0x88, 0x000A2B90): input, idle and moving keys, settle switch, animations found, band timer and mode, started, turn limit, heading offset, turn rates | 0x4C | `src/engine/entities/body_struggle_state.h` |
+| Player death state (`PlayerDeathState`, factory type 0x69, 0x0008EF30): phase, wait timer, saved shape mode, death word, contacts raised, fail stream, saved body +0x717, animations found | 0x3C | `src/engine/entities/body_player_death_state.h` |
+| Hover, flip, explode, spawn-ghouly, slide and look-for-weapon states (`HoverState`, `FlipState`, `ExplodeState`, `SpawnGhoulyState`, `SlideState`, `LookForWeaponState`) | 0x24 / 0x30 / 0x28 / 0x20 / 0x3C / 0x34 | `body_hover_state.h`, `body_flip_state.h`, `body_explode_state.h`, `body_spawn_ghouly_state.h`, `body_slide_state.h`, `body_look_for_weapon_state.h` |
+| Endure, flamethrower, shoot, transform, drone-appear and drone-dance states (`EndureState`, `FlamethrowerState`, `ShootState`, `TransformState`, `DroneAppearState`, `DroneDanceState`) | 0x1BC / 0x144 / 0xD0 / 0x3BC / 0x28 / 0xD0 | `body_endure_state.h`, `body_flamethrower_state.h`, `body_shoot_state.h`, `body_transform_state.h`, `body_drone_appear_state.h`, `body_drone_dance_state.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -217,6 +221,12 @@ this pass froze Cooper in the hit-furnace state: two callers whose state was sti
 `retail_bytes(state)`, which views the span object's own pointer and length, so the next key never reached the
 state. `retail_bytes` now refuses a span at compile time.
 
+Fourteen more followed: the hover, flip, struggle, explode, spawn-ghouly, player death, slide, look-for-weapon, endure,
+flamethrower, shoot, transform, drone-appear and drone-dance states. Most keep host side tables of the animation
+records and contact overrides retail holds as pointers; those stay keyed by the state's address, now through
+`body_state_key`. The explode and drone-dance namespaces' own +0x10 floats were the base's `elapsed`. These passes
+compare captures only, and whether the tests reach every one of these states wasn't checked.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -250,11 +260,11 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Body record (actor +0x95C, built by 0x00024C50), two passes | not settled | `body_field`: position, move holds and move hold time, focus point, attached actor, unk_70, reach, hit record, energy and its maximum, stagger, ground point and has-ground, motion, holds, attacker, unk_274, contact count, velocity, gravity, step speed, heading, ease rate (and its saved value and swap count), turn rates, euler (and `level_body_euler`), surface (and its override and frames), scaled surfaces, height and radius scales | `src/engine/entities/body_fields.h` |
 | Knockdown state (factory type 0x7A, 0x0009C5D0) | 0xF4, parameters 0x50 | `knockdown_state_field`: phase and its clock, end timer, the seven animations' found flags (`KnockdownAnimation` slots), the end keys, the sweep point, callout tokens, start and landing points, saved gravity and shape mode, yaw, pitch, flight time, pose marks, rise height, bounce scale, attacker, contact pool, latch and body-bit words; `knockdown_state_parameter` | `src/engine/entities/body_knockdown_state.h` |
 | Hit and furnace-hit state parameters (factory types 0x73 and 0x74; the states are structs, above) | parameters 0x28 / 0x14 | `hit_state_parameter`, `hit_furnace_state_parameter` | `src/engine/entities/body_hit_state.h` |
-| Struggle state (factory type 0x88, 0x000A2B90) | 0x4C, parameters 0x34 | `struggle_state_field`: input, idle and moving keys, settle switch, animations found, band timer and mode, started, turn limit, heading offset, turn rates; `struggle_state_parameter` | `src/engine/entities/body_struggle_state.h` |
+| Struggle state parameters (factory type 0x88; the state is a struct, above) | parameters 0x34 | `struggle_state_parameter` | `src/engine/entities/body_struggle_state.h` |
 | Dizzy state (factory type 0x64, 0x0008C9A0) | 0x184, parameters 0x11C | `dizzy_state_field`: the two input trackers and their states, player input, animation wait, settle switch, star scale, time left, star names, the three stars (`dizzy_star_field`: orbit, bob, actor), body bit; `dizzy_state_parameter` | `src/engine/entities/body_dizzy_state.h` |
 | Anim state parameters (factory type 0x5E; the state is a struct, above) | parameters 0xB0 | `anim_state_parameter` (with the inline sound name) | `src/engine/entities/body_anim_state.h` |
 | Die state parameters (factory type 0x62; the state is a struct, above) | parameters 0x20 | `die_state_parameter` | `src/engine/entities/body_die_state.h` |
-| Player death state (factory type 0x69, 0x0008EF30) | 0x3C, parameters 0x18 | `player_death_state_field`: phase, wait timer, saved shape mode, death word, contacts raised, fail stream, saved body +0x717, animations found; `player_death_state_parameter` | `src/engine/entities/body_player_death_state.h` |
+| Player death state parameters (factory type 0x69; the state is a struct, above) | parameters 0x18 | `player_death_state_parameter` | `src/engine/entities/body_player_death_state.h` |
 | Grabbed state parameters (factory type 0x70; the state is a struct, above) | parameters 0x18 | `grabbed_state_parameter` | `src/engine/entities/body_grabbed_state.h` |
 | Stand alert (factory type 0x87, 0x000A2590) | 0x50, parameters 0xBC | `stand_alert_field`: input, alert and moving keys, counter, pause and hold switches, model node slot and keep switch, secondary detach and mode switches with the saved mode, settle switch, sound started, body bit, saved shape mode; `stand_alert_parameter` | `src/engine/entities/body_state_actions.h` |
 | Walk alert and fly states (factory types 0x8E, 0x000A5650, and 0x6D, 0x00090D90) | 0x88 / 0x78, parameters 0xB8 / 0xA8 | `walk_alert_field` / `fly_state_field`: stop and alert keys, stick limit, heading hold, row count, band, the four speed-band rows (`walk_alert_row_field`: animation, lower and upper durations, top speed), sound started; the walk alert's settle, stop-at-once, alert-when-calm, fixed-ratio and body-bit words; the fly state's loop; and their parameters | `src/engine/entities/body_state_actions.h` |

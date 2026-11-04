@@ -12,7 +12,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = hover_state_field;
 namespace parameter = hover_state_parameter;
 
 std::function<RuntimeHoverStateContext&(u32)> hover_context_of;
@@ -20,11 +19,6 @@ std::function<RuntimeHoverStateContext&(u32)> hover_context_of;
 std::unordered_map<const u8*, const AnimationRecord*> hover_animations;
 
 constexpr float kTau = 6.2831854820251465f; // DAT_0032B298.
-
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -47,15 +41,15 @@ const RuntimeDialogueInputDevice& input_of(RuntimeHoverStateContext& context)
 
 bool construct_hover_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_hover_state(state, parameters, hover_context_of(body_address_of(state)));
+    HoverState& state = body_state_view<HoverState>({object.bytes.get(), object.size});
+    return initialize_runtime_hover_state(state, parameters, hover_context_of(state.base.body));
 }
 
 void destroy_hover_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_hover_state(state, hover_context_of(body_address_of(state)));
-    hover_animations.erase(state.data());
+    HoverState& state = body_state_view<HoverState>({object.bytes.get(), object.size});
+    destroy_runtime_hover_state(state, hover_context_of(state.base.body));
+    hover_animations.erase(body_state_key(state));
 }
 
 const ObjectFactoryVtable* hover_state_lifecycle()
@@ -69,12 +63,12 @@ const ObjectFactoryVtable* hover_state_lifecycle()
 // Xbox 0x00097B00
 void hover_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(HoverState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x00097B80
-bool initialize_runtime_hover_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_hover_state(HoverState& state, std::span<const u8> parameters,
     RuntimeHoverStateContext& context)
 {
     const auto body = context.body;
@@ -84,14 +78,14 @@ bool initialize_runtime_hover_state(std::span<u8> state, std::span<const u8> par
     body[0x38] = 1;
     body[0x39] = 1;
     put_u16(body, 0x160, 0);
-    set(state, field::next, get(parameters, parameter::next));
-    set(state, field::next_with_target, get(parameters, parameter::next_with_target));
-    set(state, field::turns, get(parameters, parameter::turns));
+    state.next = get(parameters, parameter::next);
+    state.next_with_target = get(parameters, parameter::next_with_target);
+    state.turns = get(parameters, parameter::turns);
     // The inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
     const AnimationRecord* record = find_runtime_body_animation(context.image_string(get(parameters,
         parameter::animation)), context.actions);
-    hover_animations[state.data()] = record;
-    set(state, field::animation, record != nullptr ? 1u : 0u);
+    hover_animations[body_state_key(state)] = record;
+    state.animation = record != nullptr ? 1u : 0u;
     if (record != nullptr)
     {
         start_runtime_body_animation_record(*record, context.actions); // 0x0001AFA0, ECX the record
@@ -100,17 +94,17 @@ bool initialize_runtime_hover_state(std::span<u8> state, std::span<const u8> par
 }
 
 // Xbox 0x00097C60
-void destroy_runtime_hover_state(std::span<const u8> state, RuntimeHoverStateContext& context)
+void destroy_runtime_hover_state(const HoverState& state, RuntimeHoverStateContext& context)
 {
     const auto body = context.body;
     // DAT_0032B220, DAT_0032B21C, DAT_0032B218.
     set(body, body_field::turn_rates, {0.5585053563117981f, 12.566370964050293f, 6.f});
     context.bits.bytes[6] &= 0xFE;
-    if (get(state, field::animation) == 0)
+    if (state.animation == 0)
     {
         return;
     }
-    const AnimationRecord* record = hover_animations[state.data()];
+    const AnimationRecord* record = hover_animations[body_state_key(state)];
     AnimationController* controller = context.animation.controller.get(); // Actor +0x50.
     const i32 slot = record == nullptr ? 0 : i32(record->slot); // Record +0x117.
     if (controller == nullptr || slot == 0)
@@ -127,11 +121,10 @@ void destroy_runtime_hover_state(std::span<const u8> state, RuntimeHoverStateCon
 }
 
 // Xbox 0x00097CF0
-void tick_runtime_hover_state(std::span<u8> state, RuntimeHoverStateContext& context)
+void tick_runtime_hover_state(HoverState& state, RuntimeHoverStateContext& context)
 {
     const auto body = context.body;
-    set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
-        + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     const auto mind = context.mind;
     if (mind.data() != nullptr && get(mind, mind_field::target_mode) != 0 && get(mind, mind_field::target) != 0)
     {
@@ -146,7 +139,7 @@ void tick_runtime_hover_state(std::span<u8> state, RuntimeHoverStateContext& con
         put_float(body, 0x44, point.z);
     }
     if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f &&
-        get(state, field::turns) != 0)
+        state.turns != 0)
     {
         turn_runtime_hover_state(context); // 0x00097E60, EAX actor
     }
@@ -154,7 +147,7 @@ void tick_runtime_hover_state(std::span<u8> state, RuntimeHoverStateContext& con
 }
 
 // Xbox 0x00097DC0, ESI input, EBX state
-void check_runtime_hover_stick(std::span<u8> state, RuntimeHoverStateContext& context)
+void check_runtime_hover_stick(HoverState& state, RuntimeHoverStateContext& context)
 {
     std::array<float, 2> axes{};
     runtime_input_axes(input_of(context), axes, context.input_state); // 0x001085F0
@@ -166,13 +159,13 @@ void check_runtime_hover_stick(std::span<u8> state, RuntimeHoverStateContext& co
             return;
         }
     }
-    const u16 with_target = get(state, field::next_with_target);
+    const u16 with_target = state.next_with_target;
     if (with_target != 0 && context.mind.data() != nullptr && get(context.mind, mind_field::target_mode) != 0)
     {
-        set(state, body_state_field::next_key, with_target);
+        state.base.next_key = with_target;
         return;
     }
-    set(state, body_state_field::next_key, get(state, field::next));
+    state.base.next_key = state.next;
 }
 
 // Xbox 0x00097E60, EAX actor

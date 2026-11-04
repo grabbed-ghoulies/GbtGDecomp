@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "body_state_fields.h"
 
 #include "body_contacts.h"
 #include "body_knockdown_state.h"
@@ -16,15 +18,15 @@ struct RuntimeActorSoundQueues;
 // actor is hidden and taken out of collision with callout 0x17 (phase 1); for 0.3 seconds the blast, shrinking from
 // 25 to 8, sends each actor in reach message 0x21 and, unanswered, a contact (phase 2); once its sounds end it dies
 // (0x00134AE0). State +8 is the body.
-namespace explode_state_field
+struct ExplodeState
 {
-constexpr RetailField<float, 0x10> elapsed{}; // Seconds at the actor's rate; nothing reads it back.
-constexpr RetailField<u32, 0x18> phase{}; // 0 waiting on the animation, 1 the blast, 2 waiting on the sounds
-constexpr RetailField<float, 0x1C> blast_time{}; // DAT_0032B268 (0.3) on the blast's start, down to 0
-constexpr RetailField<u32, 0x20> overrides{}; // The blasted actors' contact overrides (0x0013EBE0), or 0
-constexpr u32 kSize = 0x28;
-static_assert(retail_fits(kSize, overrides));
-} // namespace explode_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 0 waiting on the animation, 1 the blast, 2 waiting on the sounds
+    float blast_time = 0.f; // +0x1C, DAT_0032B268 (0.3) on the blast's start, down to 0
+    u32 overrides = 0; // +0x20, the blasted actors' contact overrides (0x0013EBE0), or 0
+    std::array<u8, 4> unk_24{}; // +0x24, never read or written by translated code
+};
+static_assert(sizeof(ExplodeState) == 0x28);
 struct RuntimeExplodeStateContext
 {
     RuntimeKnockdownContext& knockdown; // Body, actor, bits, animation, clock, callouts and death views.
@@ -40,17 +42,17 @@ struct RuntimeExplodeStateContext
         const Vec3& velocity, u16 word)> report;
 };
 void explode_state_object_sizes(ObjectSizes& output); // Xbox 0x0008E740
-bool initialize_runtime_explode_state(std::span<u8> state,
+bool initialize_runtime_explode_state(ExplodeState& state,
     RuntimeExplodeStateContext& context); // Xbox 0x0008E7C0
-void destroy_runtime_explode_state(std::span<u8> state,
+void destroy_runtime_explode_state(ExplodeState& state,
     RuntimeExplodeStateContext& context); // Xbox 0x0008E930
-void tick_runtime_explode_state(std::span<u8> state,
+void tick_runtime_explode_state(ExplodeState& state,
     RuntimeExplodeStateContext& context); // Xbox 0x0008EA90
 // The actor goes: hidden, out of collision, callout 0x17; the blast runs 0.3 seconds.
-void start_runtime_explode_blast(std::span<u8> state,
+void start_runtime_explode_blast(ExplodeState& state,
     RuntimeExplodeStateContext& context); // Xbox 0x0008EB80, EAX actor
 // One frame of the blast around the actor's middle; true once its time has run out.
-bool blast_runtime_explode_contacts(std::span<u8> state, Actor& actor,
+bool blast_runtime_explode_contacts(ExplodeState& state, Actor& actor,
     RuntimeExplodeStateContext& context); // Xbox 0x0008EBD0, EAX body
 // Type 0x68 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_explode_state_class(std::span<ObjectFactoryType> types,

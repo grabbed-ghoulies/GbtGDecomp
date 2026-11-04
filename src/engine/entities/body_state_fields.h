@@ -46,4 +46,11 @@ State& body_state_view(std::span<u8> bytes)
     detail::check_retail_range(bytes.size(), 0, sizeof(State));
     return *reinterpret_cast<State*>(bytes.data());
 }
+
+// A state's address, the key of the host's side tables (the records and overrides retail keeps as pointers).
+template <typename State>
+const u8* body_state_key(const State& state)
+{
+    return reinterpret_cast<const u8*>(&state);
+}
 } // namespace gbtg

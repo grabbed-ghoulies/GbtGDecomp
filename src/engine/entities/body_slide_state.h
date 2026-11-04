@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "actor_trail_requests.h"
@@ -30,20 +31,21 @@ constexpr RetailField<u32, 0x18> recover{}; // and the recovery's
 constexpr u32 kSize = 0x1C;
 static_assert(retail_fits(kSize, recover));
 } // namespace slide_state_parameter
-namespace slide_state_field
+struct SlideState
 {
-constexpr RetailField<u32, 0x18> phase{}; // 1 the slide, 2 the hold, 3 the recovery
-constexpr RetailField<u32, 0x1C> slide_animation{}; // 0x0003AAA0's record; set when it was found
-constexpr RetailField<u32, 0x20> recover_animation{};
-constexpr RetailField<u16, 0x24> shape_tag{};
-constexpr RetailField<u32, 0x28> sounding{}; // set by the slide callout, cleared when actor +0x614 is released
-constexpr RetailField<u32, 0x2C> shapes_active{};
-constexpr RetailField<u32, 0x30> event{};
-constexpr RetailField<float, 0x34> hold_timer{}; // 0.2 s (DAT_0032B1AC)
-constexpr RetailField<float, 0x38> trail_timer{}; // 0x0013B030's clock while the shapes are live
-constexpr u32 kSize = 0x3C;
-static_assert(retail_fits(kSize, trail_timer));
-} // namespace slide_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 1 the slide, 2 the hold, 3 the recovery
+    u32 slide_animation = 0; // +0x1C, 0x0003AAA0's record; set when it was found
+    u32 recover_animation = 0; // +0x20
+    u16 shape_tag = 0; // +0x24
+    std::array<u8, 2> unk_26{}; // +0x26, padding
+    u32 sounding = 0; // +0x28, set by the slide callout, cleared when actor +0x614 is released
+    u32 shapes_active = 0; // +0x2C
+    u32 event = 0; // +0x30
+    float hold_timer = 0.f; // +0x34, 0.2 s (DAT_0032B1AC)
+    float trail_timer = 0.f; // +0x38, 0x0013B030's clock while the shapes are live
+};
+static_assert(sizeof(SlideState) == 0x3C);
 struct RuntimeSlideStateContext
 {
     std::span<u8> body;
@@ -65,11 +67,11 @@ struct RuntimeSlideStateContext
     std::function<u16(u32 slot)> body_slot_key; // Body vtable +0x20.
 };
 void slide_state_object_sizes(ObjectSizes& output); // Xbox 0x000A0C10
-bool initialize_runtime_slide_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_slide_state(SlideState& state, std::span<const u8> parameters,
     RuntimeSlideStateContext& context); // Xbox 0x000A0C90
-void destroy_runtime_slide_state(std::span<u8> state, RuntimeSlideStateContext& context); // Xbox 0x000A0E80
-void tick_runtime_slide_state(std::span<u8> state, RuntimeSlideStateContext& context); // Xbox 0x000A0F90
-void message_runtime_slide_state(std::span<const u8> state, std::span<const u8> message,
+void destroy_runtime_slide_state(SlideState& state, RuntimeSlideStateContext& context); // Xbox 0x000A0E80
+void tick_runtime_slide_state(SlideState& state, RuntimeSlideStateContext& context); // Xbox 0x000A0F90
+void message_runtime_slide_state(const SlideState& state, std::span<const u8> message,
     RuntimeSlideStateContext& context); // Xbox 0x000A1070
 // Type 0x83 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_slide_state_class(std::span<ObjectFactoryType> types,

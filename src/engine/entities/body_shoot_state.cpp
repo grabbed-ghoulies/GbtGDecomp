@@ -19,7 +19,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = shoot_state_field;
 namespace parameter = shoot_state_parameter;
 
 std::function<RuntimeShootStateContext&(u32)> shoot_context_of;
@@ -27,11 +26,6 @@ std::function<RuntimeShootStateContext&(u32)> shoot_context_of;
 std::unordered_map<const u8*, std::array<const AnimationRecord*, 4>> shoot_animations;
 
 constexpr float kDegree = 0.01745329238474369f; // DAT_0032B0FC.
-
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
 
 // The inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
 const AnimationRecord* find_animation(std::span<const u8> parameters, u32 offset, RuntimeShootStateContext& context)
@@ -50,7 +44,7 @@ void start_animation(const AnimationRecord* record, RuntimeShootStateContext& co
 }
 
 // Actor +0x50's controller: slot 2's weight follows +0x40 when it plays, and the controller is marked.
-void weigh_aim_slot(std::span<const u8> state, u32 dirty, RuntimeShootStateContext& context)
+void weigh_aim_slot(const ShootState& state, u32 dirty, RuntimeShootStateContext& context)
 {
     AnimationController* controller = context.actions.animation.controller.get();
     if (controller == nullptr)
@@ -59,7 +53,7 @@ void weigh_aim_slot(std::span<const u8> state, u32 dirty, RuntimeShootStateConte
     }
     if (controller->slots.size() > 2 && controller->slots[2].player != nullptr)
     {
-        controller->slots[2].weight = get(state, field::weight); // Slot 2 +0x20.
+        controller->slots[2].weight = state.weight; // Slot 2 +0x20.
     }
     controller->dirty = dirty != 0; // +0x5C.
 }
@@ -84,16 +78,16 @@ float pitch_fraction(float pitch, float lowest, float highest)
 }
 
 // The inlined 0x00042360 over +0x24.
-void count_down(std::span<u8> state, RuntimeShootStateContext& context)
+void count_down(ShootState& state, RuntimeShootStateContext& context)
 {
-    const float timer = get(state, field::timer);
+    const float timer = state.timer;
     if (0.f < timer)
     {
         const float left = timer - runtime_actor_step(context.actor, context.clock);
-        set(state, field::timer, left);
+        state.timer = left;
         if (!(0.f < left))
         {
-            set(state, field::timer, 0.f);
+            state.timer = 0.f;
         }
     }
 }
@@ -120,15 +114,15 @@ std::array<u32, 8> ask_weapon(u32 id, RuntimeShootStateContext& context)
 
 bool construct_shoot_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_shoot_state(state, parameters, shoot_context_of(body_address_of(state)));
+    ShootState& state = body_state_view<ShootState>({object.bytes.get(), object.size});
+    return initialize_runtime_shoot_state(state, parameters, shoot_context_of(state.base.body));
 }
 
 void destroy_shoot_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_shoot_state(state, shoot_context_of(body_address_of(state)));
-    shoot_animations.erase(state.data());
+    ShootState& state = body_state_view<ShootState>({object.bytes.get(), object.size});
+    destroy_runtime_shoot_state(state, shoot_context_of(state.base.body));
+    shoot_animations.erase(body_state_key(state));
 }
 
 const ObjectFactoryVtable* shoot_state_lifecycle()
@@ -142,38 +136,38 @@ const ObjectFactoryVtable* shoot_state_lifecycle()
 // Xbox 0x0009F6C0
 void shoot_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(ShootState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0009F740
-bool initialize_runtime_shoot_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_shoot_state(ShootState& state, std::span<const u8> parameters,
     RuntimeShootStateContext& context)
 {
     const auto body = context.body;
-    auto& records = shoot_animations[state.data()];
+    auto& records = shoot_animations[body_state_key(state)];
     records[0] = find_animation(parameters, parameter::aim.offset, context);
-    set(state, field::aim, records[0] != nullptr ? 1u : 0u);
+    state.aim = records[0] != nullptr ? 1u : 0u;
     records[1] = find_animation(parameters, parameter::aim_blend.offset, context);
-    set(state, field::aim_blend, records[1] != nullptr ? 1u : 0u);
+    state.aim_blend = records[1] != nullptr ? 1u : 0u;
     records[2] = find_animation(parameters, parameter::second.offset, context);
-    set(state, field::second, records[2] != nullptr ? 1u : 0u);
+    state.second = records[2] != nullptr ? 1u : 0u;
     records[3] = find_animation(parameters, parameter::second_blend.offset, context);
-    set(state, field::second_blend, records[3] != nullptr ? 1u : 0u);
-    set(state, field::lowest_pitch, get(parameters, parameter::lowest_pitch) * kDegree);
-    set(state, field::highest_pitch, get(parameters, parameter::highest_pitch) * kDegree);
-    const float fraction = pitch_fraction(0.f, get(state, field::lowest_pitch), get(state, field::highest_pitch));
-    set(state, field::weight, fraction);
-    set(state, field::aimed_weight, fraction);
+    state.second_blend = records[3] != nullptr ? 1u : 0u;
+    state.lowest_pitch = get(parameters, parameter::lowest_pitch) * kDegree;
+    state.highest_pitch = get(parameters, parameter::highest_pitch) * kDegree;
+    const float fraction = pitch_fraction(0.f, state.lowest_pitch, state.highest_pitch);
+    state.weight = fraction;
+    state.aimed_weight = fraction;
     const char* sound = field_data(parameters, parameter::empty_sound);
-    char* copy = field_data(state, field::empty_sound);
+    char* copy = state.empty_sound.data();
     size_t index = 0;
     do
     {
         copy[index] = sound[index];
     }
     while (sound[index++] != 0);
-    set(state, field::last_target, context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::action_record));
+    state.last_target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::action_record);
     body[0x38] = 1;
     body[0x39] = 1;
     ++body[0x6A];
@@ -186,26 +180,26 @@ bool initialize_runtime_shoot_state(std::span<u8> state, std::span<const u8> par
     }
     context.bits.bytes[5] |= 0x80;
     const auto reply = ask_weapon(0x9A, context); // Vtable +0xC of body +0x48.
-    set(state, field::answered, reply[1] != 0 ? 1u : 0u);
+    state.answered = reply[1] != 0 ? 1u : 0u;
     set_runtime_shoot_phase(state, 1, context); // 0x0009FED0
     return true;
 }
 
 // Xbox 0x0009F9B0
-void destroy_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& context)
+void destroy_runtime_shoot_state(ShootState& state, RuntimeShootStateContext& context)
 {
     const auto body = context.body;
-    if (get(state, field::phase) == 1)
+    if (state.phase == 1)
     {
-        if (context.weapon != 0 && get(state, field::firing) != 0)
+        if (context.weapon != 0 && state.firing != 0)
         {
             const std::array<u32, 1> stop{0xA3};
             context.message(context.weapon, stop); // Vtable +0xC.
         }
-        set(state, field::firing, 0u);
-        set(state, field::aimed, 0u);
+        state.firing = 0u;
+        state.aimed = 0u;
     }
-    set(state, field::phase, 0u);
+    state.phase = 0u;
     --body[0x6A];
     --body[0x309];
     --body[0x30A];
@@ -226,26 +220,26 @@ void destroy_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& 
 }
 
 // Xbox 0x0009FED0, EDI state
-void set_runtime_shoot_phase(std::span<u8> state, u32 phase, RuntimeShootStateContext& context)
+void set_runtime_shoot_phase(ShootState& state, u32 phase, RuntimeShootStateContext& context)
 {
-    if (get(state, field::phase) == 1)
+    if (state.phase == 1)
     {
-        if (context.weapon != 0 && get(state, field::firing) != 0)
+        if (context.weapon != 0 && state.firing != 0)
         {
             const std::array<u32, 1> stop{0xA3};
             context.message(context.weapon, stop); // Vtable +0xC.
         }
-        set(state, field::firing, 0u);
-        set(state, field::aimed, 0u);
+        state.firing = 0u;
+        state.aimed = 0u;
     }
-    set(state, field::phase, phase);
-    const auto& records = shoot_animations.at(state.data());
+    state.phase = phase;
+    const auto& records = shoot_animations.at(body_state_key(state));
     if (phase == 1)
     {
         start_animation(records[0], context); // +0x28
         start_animation(records[1], context); // +0x2C
         weigh_aim_slot(state, 1, context);
-        set(state, field::timer, 0.3499999940395355f); // DAT_0032B354.
+        state.timer = 0.3499999940395355f; // DAT_0032B354.
     }
     else if (phase == 2)
     {
@@ -256,16 +250,15 @@ void set_runtime_shoot_phase(std::span<u8> state, u32 phase, RuntimeShootStateCo
 }
 
 // Xbox 0x0009FA80
-void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& context)
+void tick_runtime_shoot_state(ShootState& state, RuntimeShootStateContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    set(state, body_state_field::elapsed, runtime_actor_step(actor, context.clock)
-        + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
     const u32 target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::action_record);
     ask_weapon(0x9F, context); // The muzzle; this tick does not read the reply.
     count_down(state, context);
-    const u32 phase = get(state, field::phase);
+    const u32 phase = state.phase;
     if (phase == 2)
     {
         if (target != 0)
@@ -278,22 +271,22 @@ void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& con
         }
         if (!runtime_actor_animation_slot_complete(context.actions.animation, 0)) // The inlined 0x0003B290.
         {
-            set(state, field::last_target, target);
+            state.last_target = target;
             return;
         }
         if (context.attacker() != 0) // 0x00028C50
         {
             set_runtime_shoot_phase(state, 1, context); // 0x0009FED0
-            set(state, field::last_target, target);
+            state.last_target = target;
             return;
         }
-        set(state, body_state_field::next_key, context.next_key()); // Body vtable +0x20.
-        set(state, field::last_target, target);
+        state.base.next_key = context.next_key(); // Body vtable +0x20.
+        state.last_target = target;
         return;
     }
     if (phase != 1)
     {
-        set(state, field::last_target, target);
+        state.last_target = target;
         return;
     }
     bool stop;
@@ -306,7 +299,7 @@ void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& con
         fire_runtime_shoot_state(state, target, read_f32(record, 0x38), point, context); // 0x0009FF90
         set(body, body_field::euler, runtime_shoot_turn(record, context)); // 0x000A0320
         bool changed = false;
-        if (target != get(state, field::last_target))
+        if (target != state.last_target)
         {
             const u32 side = runtime_body_target_direction(actor, record, actor.euler.y); // 0x0001CC10
             const u32 hit_side = context.hit.data() == nullptr ? 1u : u32(context.hit[6]);
@@ -319,7 +312,7 @@ void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& con
         else
         {
             stop = target != context.attacker(); // 0x00028C50
-            if (get(state, field::timer) > 0.f && context.attacker() == 0)
+            if (state.timer > 0.f && context.attacker() == 0)
             {
                 stop = false;
             }
@@ -338,48 +331,48 @@ void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& con
     std::array<float, 2> axes{};
     runtime_input_secondary_axes(*context.input, axes, context.input_state); // 0x001088D0
     const bool released = !(axes[1] * axes[1] + axes[0] * axes[0] > 0.010000000707805157f) // DAT_0032B22C.
-        && get(state, field::timer) == 0.f;
+        && state.timer == 0.f;
     if (!stop)
     {
         // An empty gun (+0x93C clear) plays the empty sound as the state ends.
         const u8 charged = context.bytes_at(context.weapon)[0x93C];
         if (charged == 0)
         {
-            request_actor_sound(actor, 1, field_data(state, field::empty_sound), context.sounds); // 0x00041D00
+            request_actor_sound(actor, 1, state.empty_sound.data(), context.sounds); // 0x00041D00
         }
         else if (!released)
         {
-            if (get(state, field::firing) == 0)
+            if (state.firing == 0)
             {
-                set(state, field::last_target, target);
+                state.last_target = target;
                 return;
             }
-            const u32 answered = get(state, field::answered);
+            const u32 answered = state.answered;
             if (answered == 0)
             {
                 const std::array<u32, 2> strength{0xA1,
                     std::bit_cast<u32>(runtime_input_stick_strength(*context.input, context.input_state))}; // 0x00140A60
                 context.message(context.weapon, strength); // Vtable +0xC.
-                set(state, field::last_target, target);
+                state.last_target = target;
                 return;
             }
             if (answered == 1)
             {
                 set_runtime_shoot_phase(state, 2, context); // 0x0009FED0
             }
-            set(state, field::last_target, target);
+            state.last_target = target;
             return;
         }
     }
-    set(state, body_state_field::next_key, context.next_key()); // Body vtable +0x20.
-    set(state, field::last_target, target);
+    state.base.next_key = context.next_key(); // Body vtable +0x20.
+    state.last_target = target;
 }
 
 // Xbox 0x0009FF90, EDI state, ESI point
-bool fire_runtime_shoot_state(std::span<u8> state, u32 target, float radius, const Vec3& point,
+bool fire_runtime_shoot_state(ShootState& state, u32 target, float radius, const Vec3& point,
     RuntimeShootStateContext& context)
 {
-    if (get(state, field::firing) != 0)
+    if (state.firing != 0)
     {
         return true;
     }
@@ -395,15 +388,15 @@ bool fire_runtime_shoot_state(std::span<u8> state, u32 target, float radius, con
     // Near: within the target's radius and 5 (DAT_0032B184) of the muzzle, with the aim settled within 0.05
     // (DAT_0032B250) of its pitch.
     bool near = false;
-    if (get(state, field::aimed) != 0)
+    if (state.aimed != 0)
     {
         const float reach = radius + 5.f;
         const float dx = from.x - point.x;
         const float dz = from.z - point.z;
         if (reach * reach >= dz * dz + dx * dx)
         {
-            const float weight = get(state, field::weight);
-            const float aimed = get(state, field::aimed_weight);
+            const float weight = state.weight;
+            const float aimed = state.aimed_weight;
             near = aimed >= weight - 0.05f && weight + 0.05f >= aimed;
         }
     }
@@ -419,20 +412,20 @@ bool fire_runtime_shoot_state(std::span<u8> state, u32 target, float radius, con
         if (!runtime_angle_within(yaw_facing, yaw_to, kThirty) // 0x001014E0
             || !runtime_angle_within(pitch_facing, pitch_to, kThirty))
         {
-            return get(state, field::firing) != 0;
+            return state.firing != 0;
         }
     }
     const std::array<u32, 5> fire{0xA2, target, std::bit_cast<u32>(point.x), std::bit_cast<u32>(point.y),
         std::bit_cast<u32>(point.z)};
     context.message(context.weapon, fire); // Vtable +0xC.
-    set(state, field::firing, 1u);
+    state.firing = 1u;
     return true;
 }
 
 // Xbox 0x000A0160, EAX target, ECX actor, EBX state
-void aim_runtime_shoot_state(std::span<u8> state, std::span<const u8> target, RuntimeShootStateContext& context)
+void aim_runtime_shoot_state(ShootState& state, std::span<const u8> target, RuntimeShootStateContext& context)
 {
-    if (target.data() == nullptr || get(state, field::aim_blend) == 0)
+    if (target.data() == nullptr || state.aim_blend == 0)
     {
         return;
     }
@@ -444,26 +437,26 @@ void aim_runtime_shoot_state(std::span<u8> state, std::span<const u8> target, Ru
     const Vec3 direction{point.x - position.x, point.y - eye, point.z - position.z};
     float pitch = 0.f;
     runtime_direction_pitch(direction, pitch); // 0x00106000
-    const float aimed = pitch_fraction(pitch, get(state, field::lowest_pitch), get(state, field::highest_pitch));
-    set(state, field::aimed_weight, aimed);
-    set(state, field::aimed, 1u);
-    const float weight = get(state, field::weight);
+    const float aimed = pitch_fraction(pitch, state.lowest_pitch, state.highest_pitch);
+    state.aimed_weight = aimed;
+    state.aimed = 1u;
+    const float weight = state.weight;
     if (aimed > weight)
     {
         const float raised = runtime_actor_step(actor, context.clock) * 2.f + weight; // DAT_0032B110.
-        set(state, field::weight, raised);
+        state.weight = raised;
         if (raised > aimed)
         {
-            set(state, field::weight, aimed);
+            state.weight = aimed;
         }
     }
     else if (weight > aimed)
     {
         const float lowered = weight - runtime_actor_step(actor, context.clock) * 2.f; // 0x00042320
-        set(state, field::weight, lowered);
+        state.weight = lowered;
         if (aimed > lowered)
         {
-            set(state, field::weight, aimed);
+            state.weight = aimed;
         }
     }
     weigh_aim_slot(state, 1, context);

@@ -20,17 +20,11 @@ namespace gbtg
 {
 namespace
 {
-namespace field = spawn_ghouly_state_field;
 namespace parameter = spawn_ghouly_state_parameter;
 
 std::function<RuntimeSpawnGhoulyStateContext&(u32)> spawn_ghouly_context_of;
 // The host half of state +0x1C: the spawn animation's record, by the state's bytes.
 std::unordered_map<const u8*, const AnimationRecord*> spawn_animations;
-
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
 
 // The four input counters (+0x309 .. +0x30C) move together.
 void step_inputs(std::span<u8> body, i32 step)
@@ -100,14 +94,14 @@ bool place_runtime_spawned_ghouly(std::span<u32> message, const Vec3& spawn, Run
 
 bool construct_spawn_ghouly_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_spawn_ghouly_state(state, parameters, spawn_ghouly_context_of(body_address_of(state)));
+    SpawnGhoulyState& state = body_state_view<SpawnGhoulyState>({object.bytes.get(), object.size});
+    return initialize_runtime_spawn_ghouly_state(state, parameters, spawn_ghouly_context_of(state.base.body));
 }
 
 void destroy_spawn_ghouly_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_spawn_ghouly_state(state, spawn_ghouly_context_of(body_address_of(state)));
+    SpawnGhoulyState& state = body_state_view<SpawnGhoulyState>({object.bytes.get(), object.size});
+    destroy_runtime_spawn_ghouly_state(state, spawn_ghouly_context_of(state.base.body));
 }
 
 // Getter 0x000A1A10: sizes are 0x0009EB20; +0xC / +0x14 / +0x18 are the empty 0x001628B0 and +0x1C is 0x0002B620.
@@ -120,7 +114,7 @@ const ObjectFactoryVtable* spawn_ghouly_state_lifecycle()
 }
 
 // Xbox 0x000A1A70
-bool initialize_runtime_spawn_ghouly_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_spawn_ghouly_state(SpawnGhoulyState& state, std::span<const u8> parameters,
     RuntimeSpawnGhoulyStateContext& context)
 {
     const std::span<u8> body = context.body;
@@ -132,12 +126,12 @@ bool initialize_runtime_spawn_ghouly_state(std::span<u8> state, std::span<const 
     body[0x38] = 1;
     body[0x39] = 1;
     RuntimeBodyStateContext shape = context.state();
-    set(state, field::shape_mode, set_runtime_body_shape_mode(2, shape)); // 0x0001FEB0, BL 2, EDI body
+    state.shape_mode = set_runtime_body_shape_mode(2, shape); // 0x0001FEB0, BL 2, EDI body
     // The inlined 0x0003AAA0 pair over the body's held actor (+0x48) +0xDB0 variant.
     const AnimationRecord* record = find_runtime_body_animation(context.image_string(get(parameters,
         parameter::animation)), context.actions);
-    spawn_animations[state.data()] = record;
-    set(state, field::animation, record != nullptr ? 1u : 0u);
+    spawn_animations[body_state_key(state)] = record;
+    state.animation = record != nullptr ? 1u : 0u;
     if (get(context.actor_bytes, player_field::spawn_record) == 0)
     {
         finish_runtime_body_death(1, context.scene_flags, context.restart_requested, context.death); // 0x00134AE0
@@ -146,7 +140,7 @@ bool initialize_runtime_spawn_ghouly_state(std::span<u8> state, std::span<const 
 }
 
 // Xbox 0x000A1B60
-void destroy_runtime_spawn_ghouly_state(std::span<u8> state, RuntimeSpawnGhoulyStateContext& context)
+void destroy_runtime_spawn_ghouly_state(SpawnGhoulyState& state, RuntimeSpawnGhoulyStateContext& context)
 {
     const std::span<u8> body = context.body;
     step_inputs(body, -1);
@@ -155,17 +149,16 @@ void destroy_runtime_spawn_ghouly_state(std::span<u8> state, RuntimeSpawnGhoulyS
     decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
     set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
     RuntimeBodyStateContext shape = context.state();
-    set_runtime_body_shape_mode(get(state, field::shape_mode), shape); // 0x0001FEB0, BL state +0x18
-    spawn_animations.erase(state.data());
+    set_runtime_body_shape_mode(state.shape_mode, shape); // 0x0001FEB0, BL state +0x18
+    spawn_animations.erase(body_state_key(state));
 }
 
 // Xbox 0x000A1BE0
-void tick_runtime_spawn_ghouly_state(std::span<u8> state, RuntimeSpawnGhoulyStateContext& context)
+void tick_runtime_spawn_ghouly_state(SpawnGhoulyState& state, RuntimeSpawnGhoulyStateContext& context)
 {
     const std::span<u8> body = context.body;
     Actor& actor = context.actor;
-    set(state, body_state_field::elapsed, runtime_actor_rate(actor) * runtime_frame_step(context.clock)
-        + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_rate(actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     level_body_euler(body);
     if ((context.bits.bytes[0] & 4) != 0) // Body +0x15C -> +8, bit 2: the animation's spawn moment.
     {
@@ -304,7 +297,7 @@ void tick_runtime_spawn_ghouly_state(std::span<u8> state, RuntimeSpawnGhoulyStat
     const GhoulySpawnRecord* record = context.spawn_record; // Actor +0xB98.
     if (read_u32(context.actor_bytes, 0xBA0) == 0x5F646961 || (record != nullptr && record->remaining_c != 0))
     {
-        const AnimationRecord* animation = spawn_animations.at(state.data());
+        const AnimationRecord* animation = spawn_animations.at(body_state_key(state));
         if (animation == nullptr)
         {
             throw Error("0x000A1BE0 replays the spawn animation (0x0001AFA0) that 0x0003AAA0 did not find");

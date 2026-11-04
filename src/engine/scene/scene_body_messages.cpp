@@ -227,7 +227,8 @@ void SceneBodyMessages::bind_action_children()
                     RuntimeHitStateMessages context{player_.body, read_u32(player_.body, 8), mind_target(),
                         id == 7 ? services_.event_at(read_u32(message, 0xC)) : std::span<const u8>(), contact,
                         read_u32(player_.body, 0x48), services_.actor_callouts};
-                    message_runtime_hit_state(body_state_view<HitState>({child->bytes.get(), child->size}), message, context);
+                    message_runtime_hit_state(body_state_view<HitState>({child->bytes.get(), child->size}),
+                        message, context);
                 };
             }
             children_[child->bytes.get()] = hit.get();
@@ -461,7 +462,9 @@ void SceneBodyMessages::bind_action_children()
                 scoop->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_scoop_whack_state(body_state_view<ScoopWhackState>({child->bytes.get(), child->size}), words,
+                    message_runtime_scoop_whack_state(
+                        body_state_view<ScoopWhackState>({child->bytes.get(), child->size}),
+                        words,
                         scoop_whack_context()); // 0x0009EED0
                 };
             }
@@ -477,7 +480,9 @@ void SceneBodyMessages::bind_action_children()
                 dance->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_drone_dance_state({child->bytes.get(), child->size}, words,
+                    message_runtime_drone_dance_state(
+                        body_state_view<DroneDanceState>({child->bytes.get(), child->size}),
+                        words,
                         drone_dance_context()); // 0x0008E480
                 };
             }
@@ -525,7 +530,8 @@ void SceneBodyMessages::bind_action_children()
                 endure->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_endure_state({child->bytes.get(), child->size}, words, endure_context()); // 0x000A1850
+                    message_runtime_endure_state(body_state_view<EndureState>({child->bytes.get(), child->size}),
+                        words, endure_context()); // 0x000A1850
                 };
             }
             children_[child->bytes.get()] = endure.get();
@@ -539,7 +545,8 @@ void SceneBodyMessages::bind_action_children()
                 stunned = std::make_unique<RuntimeBodyMessageChild>();
                 stunned->message = [this, child](std::span<u8> message)
                 {
-                    message_runtime_stunned_state(body_state_view<StunnedState>({child->bytes.get(), child->size}), message,
+                    message_runtime_stunned_state(body_state_view<StunnedState>({child->bytes.get(), child->size}),
+                        message,
                         stunned_context()); // 0x000A3460
                 };
             }
@@ -571,7 +578,9 @@ void SceneBodyMessages::bind_action_children()
                 flame->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_flamethrower_state({child->bytes.get(), child->size}, words,
+                    message_runtime_flamethrower_state(
+                        body_state_view<FlamethrowerState>({child->bytes.get(), child->size}),
+                        words,
                         flamethrower_context()); // 0x0008FBF0
                 };
             }
@@ -586,7 +595,7 @@ void SceneBodyMessages::bind_action_children()
                 slide = std::make_unique<RuntimeBodyMessageChild>();
                 slide->message = [this, child](std::span<u8> message)
                 {
-                    message_runtime_slide_state({child->bytes.get(), child->size}, message,
+                    message_runtime_slide_state(body_state_view<SlideState>({child->bytes.get(), child->size}), message,
                         slide_context()); // 0x000A1070
                 };
             }
@@ -602,7 +611,8 @@ void SceneBodyMessages::bind_action_children()
                 transform->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_transform_state({child->bytes.get(), child->size}, words,
+                    message_runtime_transform_state(body_state_view<TransformState>({child->bytes.get(), child->size}),
+                        words,
                         transform_context()); // 0x000A49D0
                 };
             }
@@ -922,7 +932,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         return;
     }
     case 0x69:
-        tick_runtime_player_death_state({action.bytes.get(), action.size}, player_death_context()); // 0x0008F290
+        tick_runtime_player_death_state(body_state_view<PlayerDeathState>({action.bytes.get(), action.size}),
+            player_death_context()); // 0x0008F290
         return;
     case 0x88:
     {
@@ -943,7 +954,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
                 }
                 return actor_world_position(*target);
             }};
-        tick_runtime_struggle_state({action.bytes.get(), action.size}, tick);
+        tick_runtime_struggle_state(body_state_view<StruggleState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x5D:
@@ -993,13 +1004,15 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         return;
     }
     case 0x8B:
-        tick_runtime_throw_state(body_state_view<ThrowState>({action.bytes.get(), action.size}), throw_context()); // 0x000A3990
+        tick_runtime_throw_state(body_state_view<ThrowState>({action.bytes.get(), action.size}),
+            throw_context()); // 0x000A3990
         return;
     case 0x66:
         tick_runtime_arc_state({action.bytes.get(), action.size}, arc_context()); // 0x0008DC70
         return;
     case 0x65:
-        tick_runtime_drone_appear_state({action.bytes.get(), action.size}, drone_appear_context()); // 0x0008D4D0
+        tick_runtime_drone_appear_state(body_state_view<DroneAppearState>({action.bytes.get(), action.size}),
+            drone_appear_context()); // 0x0008D4D0
         return;
     case 0x79:
         tick_runtime_jump_on_state({action.bytes.get(), action.size}, jump_on_context()); // 0x0009AB00
@@ -1046,55 +1059,70 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         tick_runtime_grabbed_hold_state({action.bytes.get(), action.size}, grabbed_hold_context()); // 0x000956C0
         return;
     case 0x68:
-        tick_runtime_explode_state({action.bytes.get(), action.size}, explode_context()); // 0x0008EA90
+        tick_runtime_explode_state(body_state_view<ExplodeState>({action.bytes.get(), action.size}),
+            explode_context()); // 0x0008EA90
         return;
     case 0x8C:
-        tick_runtime_transform_state({action.bytes.get(), action.size}, transform_context()); // 0x000A46D0
+        tick_runtime_transform_state(body_state_view<TransformState>({action.bytes.get(), action.size}),
+            transform_context()); // 0x000A46D0
         return;
     case 0x85:
-        tick_runtime_spawn_ghouly_state({action.bytes.get(), action.size}, spawn_ghouly_context()); // 0x000A1BE0
+        tick_runtime_spawn_ghouly_state(body_state_view<SpawnGhoulyState>({action.bytes.get(), action.size}),
+            spawn_ghouly_context()); // 0x000A1BE0
         return;
     case 0x90:
         tick_runtime_yoyo_spin_state({action.bytes.get(), action.size}, yoyo_spin_context()); // 0x000A6CC0
         return;
     case 0x75:
-        tick_runtime_furnace_hit_state(body_state_view<FurnaceHitState>({action.bytes.get(), action.size}), furnace_hit_context()); // 0x00096FC0
+        tick_runtime_furnace_hit_state(body_state_view<FurnaceHitState>({action.bytes.get(), action.size}),
+            furnace_hit_context()); // 0x00096FC0
         return;
     case 0x63:
-        tick_runtime_death_state(body_state_view<DeathState>({action.bytes.get(), action.size}), death_context()); // 0x0008C7E0
+        tick_runtime_death_state(body_state_view<DeathState>({action.bytes.get(), action.size}),
+            death_context()); // 0x0008C7E0
         return;
     case 0x7F:
-        tick_runtime_scrabble_state(body_state_view<ScrabbleState>({action.bytes.get(), action.size}), scrabble_context()); // 0x0009F170
+        tick_runtime_scrabble_state(body_state_view<ScrabbleState>({action.bytes.get(), action.size}),
+            scrabble_context()); // 0x0009F170
         return;
     case 0x7E:
-        tick_runtime_scoop_whack_state(body_state_view<ScoopWhackState>({action.bytes.get(), action.size}), scoop_whack_context()); // 0x0009EC90
+        tick_runtime_scoop_whack_state(body_state_view<ScoopWhackState>({action.bytes.get(), action.size}),
+            scoop_whack_context()); // 0x0009EC90
         return;
     case 0x6B:
-        tick_runtime_flip_state({action.bytes.get(), action.size}, flip_context(input)); // 0x00090760
+        tick_runtime_flip_state(body_state_view<FlipState>({action.bytes.get(), action.size}),
+            flip_context(input)); // 0x00090760
         return;
     case 0x77:
-        tick_runtime_hover_state({action.bytes.get(), action.size}, hover_context(input)); // 0x00097CF0
+        tick_runtime_hover_state(body_state_view<HoverState>({action.bytes.get(), action.size}),
+            hover_context(input)); // 0x00097CF0
         return;
     case 0x6A:
-        tick_runtime_flamethrower_state({action.bytes.get(), action.size}, flamethrower_context()); // 0x0008F8F0
+        tick_runtime_flamethrower_state(body_state_view<FlamethrowerState>({action.bytes.get(), action.size}),
+            flamethrower_context()); // 0x0008F8F0
         return;
     case 0x81:
-        tick_runtime_shoot_state({action.bytes.get(), action.size}, shoot_context(input)); // 0x0009FA80
+        tick_runtime_shoot_state(body_state_view<ShootState>({action.bytes.get(), action.size}),
+            shoot_context(input)); // 0x0009FA80
         return;
     case 0x76:
         tick_runtime_hit_stream_state({action.bytes.get(), action.size}, hit_stream_context()); // 0x00097500
         return;
     case 0x84:
-        tick_runtime_endure_state({action.bytes.get(), action.size}, endure_context()); // 0x000A1710
+        tick_runtime_endure_state(body_state_view<EndureState>({action.bytes.get(), action.size}),
+            endure_context()); // 0x000A1710
         return;
     case 0x89:
-        tick_runtime_stunned_state(body_state_view<StunnedState>({action.bytes.get(), action.size}), stunned_context()); // 0x000A3380
+        tick_runtime_stunned_state(body_state_view<StunnedState>({action.bytes.get(), action.size}),
+            stunned_context()); // 0x000A3380
         return;
     case 0x67:
-        tick_runtime_drone_dance_state({action.bytes.get(), action.size}, drone_dance_context()); // 0x0008E130
+        tick_runtime_drone_dance_state(body_state_view<DroneDanceState>({action.bytes.get(), action.size}),
+            drone_dance_context()); // 0x0008E130
         return;
     case 0x7B:
-        tick_runtime_look_for_weapon_state({action.bytes.get(), action.size}, look_for_weapon_context()); // 0x0009DB30
+        tick_runtime_look_for_weapon_state(body_state_view<LookForWeaponState>({action.bytes.get(), action.size}),
+            look_for_weapon_context()); // 0x0009DB30
         return;
     case 0x6E:
     {
@@ -1128,7 +1156,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         return;
     }
     case 0x83:
-        tick_runtime_slide_state({action.bytes.get(), action.size}, slide_context()); // 0x000A0F90
+        tick_runtime_slide_state(body_state_view<SlideState>({action.bytes.get(), action.size}),
+            slide_context()); // 0x000A0F90
         return;
     case 0x78:
         tick_runtime_swing_state({action.bytes.get(), action.size}, swing_context()); // 0x00098460
@@ -3052,7 +3081,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 // 0x000A1850 reads the reply's id and its next word.
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 2> words{reply.id, read_u32({reinterpret_cast<const u8*>(&reply.id), 8}, 4)};
-                message_runtime_endure_state({second.bytes.get(), second.size}, words, endure_context());
+                message_runtime_endure_state(body_state_view<EndureState>({second.bytes.get(), second.size}),
+                    words, endure_context());
                 return;
             }
             if (type == 0x90)
@@ -3216,7 +3246,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_transform_state({second.bytes.get(), second.size}, words, transform_context());
+                message_runtime_transform_state(body_state_view<TransformState>({second.bytes.get(), second.size}),
+                    words, transform_context());
                 return;
             }
             if (type == 0x6A)

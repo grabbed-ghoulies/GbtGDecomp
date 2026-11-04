@@ -1,4 +1,5 @@
 #pragma once
+#include "body_state_fields.h"
 #include "body_state_actions.h"
 #include "actor_clock.h"
 #include "../frontend/dialogue_input.h"
@@ -27,27 +28,27 @@ constexpr RetailField<std::array<float, 3>, 0x28> turn_rates{};
 constexpr u32 kSize = 0x34;
 static_assert(retail_fits(kSize, turn_rates));
 } // namespace struggle_state_parameter
-namespace struggle_state_field
+struct StruggleState
 {
-constexpr RetailField<u16, 0x18> input_key{}; // the next key while the stick is pushed
-constexpr RetailField<u16, 0x1A> idle_key{}; // the next key while the mind has no target
-constexpr RetailField<u32, 0x1C> moving_key{}; // the body's moving action (vtable +0x40) is the next key while it moves
-constexpr RetailField<u32, 0x20> settles{}; // the body's turn settles each tick (0x00134720)
-constexpr RetailField<u32, 0x24> in_band_found{};
-constexpr RetailField<u32, 0x28> out_of_band_found{};
-constexpr RetailField<float, 0x2C> band_timer{}; // seconds before the in-band animation may return
-constexpr RetailField<u32, 0x30> started{}; // the in-band animation has played
-constexpr RetailField<u32, 0x34> band_mode{}; // 1 facing within 5 degrees of the heading, 2 outside it
-constexpr RetailField<float, 0x38> turn_limit{}; // degrees; a larger turn toward the target snaps the heading
-constexpr RetailField<float, 0x3C> heading_offset{}; // radians, added to the heading toward the body's point
-constexpr RetailField<std::array<float, 3>, 0x40> turn_rates{}; // copied into body +0x71C..+0x724
-constexpr u32 kSize = 0x4C;
-static_assert(retail_fits(kSize, turn_rates));
-} // namespace struggle_state_field
+    BodyStateBase base{}; // +0
+    u16 input_key = 0; // +0x18, the next key while the stick is pushed
+    u16 idle_key = 0; // +0x1A, the next key while the mind has no target
+    u32 moving_key = 0; // +0x1C, the body's moving action (vtable +0x40) is the next key while it moves
+    u32 settles = 0; // +0x20, the body's turn settles each tick (0x00134720)
+    u32 in_band_found = 0; // +0x24
+    u32 out_of_band_found = 0; // +0x28
+    float band_timer = 0.f; // +0x2C, seconds before the in-band animation may return
+    u32 started = 0; // +0x30, the in-band animation has played
+    u32 band_mode = 0; // +0x34, 1 facing within 5 degrees of the heading, 2 outside it
+    float turn_limit = 0.f; // +0x38, degrees; a larger turn toward the target snaps the heading
+    float heading_offset = 0.f; // +0x3C, radians, added to the heading toward the body's point
+    std::array<float, 3> turn_rates{}; // +0x40, copied into body +0x71C..+0x724
+};
+static_assert(sizeof(StruggleState) == 0x4C);
 void struggle_state_object_sizes(ObjectSizes& output); // Xbox 0x000A2B10
-bool initialize_runtime_struggle_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_struggle_state(StruggleState& state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x000A2B90
-void destroy_runtime_struggle_state(std::span<u8> state, RuntimeBodyStateContext& context); // Xbox 0x000A2D60
+void destroy_runtime_struggle_state(StruggleState& state, RuntimeBodyStateContext& context); // Xbox 0x000A2D60
 
 struct RuntimeStruggleTick
 {
@@ -63,10 +64,10 @@ struct RuntimeStruggleTick
     std::function<u16()> moving_action; // Body vtable +0x40.
     std::function<Vec3(u32)> target_position; // 0x000412A0 on the actor at a retail address.
 };
-void turn_runtime_struggle_body(bool targeted, std::span<u8> state,
+void turn_runtime_struggle_body(bool targeted, StruggleState& state,
     RuntimeStruggleTick& context); // Xbox 0x000A2F90, EAX targeted, ESI body, EDI state
-void update_runtime_struggle_animation(std::span<u8> state,
+void update_runtime_struggle_animation(StruggleState& state,
     RuntimeStruggleTick& context); // Xbox 0x000A3070, EAX actor, ECX body, EDI state
-void select_runtime_struggle_key(std::span<u8> state, RuntimeStruggleTick& context); // Xbox 0x000A2EB0, EBX state
-void tick_runtime_struggle_state(std::span<u8> state, RuntimeStruggleTick& context); // Xbox 0x000A2DB0
+void select_runtime_struggle_key(StruggleState& state, RuntimeStruggleTick& context); // Xbox 0x000A2EB0, EBX state
+void tick_runtime_struggle_state(StruggleState& state, RuntimeStruggleTick& context); // Xbox 0x000A2DB0
 }

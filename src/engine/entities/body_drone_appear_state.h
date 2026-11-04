@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "body_state_actions.h"
 #include "actor_clock.h"
@@ -20,15 +21,15 @@ constexpr u32 kSize = 0x10;
 static_assert(retail_fits(kSize, appear));
 } // namespace drone_appear_state_parameter
 // The state's own fields at their retail offsets (0x28 bytes), after the body-state base (body_state_field).
-namespace drone_appear_state_field
+struct DroneAppearState
 {
-constexpr RetailField<u32, 0x18> appear{};
-constexpr RetailField<u32, 0x1C> activated{}; // The bind tree was activated
-constexpr RetailField<float, 0x20> time{}; // Seconds left, from 0.5 (DAT_0032B0F4)
-constexpr RetailField<float, 0x24> scale{}; // The actor's scale (+0x38) at the start
-constexpr u32 kSize = 0x28;
-static_assert(retail_fits(kSize, scale));
-} // namespace drone_appear_state_field
+    BodyStateBase base{}; // +0
+    u32 appear = 0; // +0x18
+    u32 activated = 0; // +0x1C, the bind tree was activated
+    float time = 0.f; // +0x20, seconds left, from 0.5 (DAT_0032B0F4)
+    float scale = 0.f; // +0x24, the actor's scale (+0x38) at the start
+};
+static_assert(sizeof(DroneAppearState) == 0x28);
 struct RuntimeDroneAppearStateContext
 {
     std::span<u8> body;
@@ -44,15 +45,17 @@ struct RuntimeDroneAppearStateContext
     std::function<u16(u32 slot)> body_slot_key; // Body vtable +0x20.
 };
 void drone_appear_state_object_sizes(ObjectSizes& output); // Xbox 0x0008D330
-bool initialize_runtime_drone_appear_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_drone_appear_state(DroneAppearState& state, std::span<const u8> parameters,
     RuntimeDroneAppearStateContext& context); // Xbox 0x0008D3B0
-void destroy_runtime_drone_appear_state(std::span<u8> state,
+void destroy_runtime_drone_appear_state(DroneAppearState& state,
     RuntimeDroneAppearStateContext& context); // Xbox 0x0008D440
-void tick_runtime_drone_appear_state(std::span<u8> state, RuntimeDroneAppearStateContext& context); // Xbox 0x0008D4D0
+void tick_runtime_drone_appear_state(DroneAppearState& state,
+    RuntimeDroneAppearStateContext& context); // Xbox 0x0008D4D0
 // The actor's alpha (+0x19B) from the time left: rising to 255 while appearing, falling while vanishing.
-void fade_runtime_drone_appear(std::span<const u8> state, RuntimeDroneAppearStateContext& context); // Xbox 0x0008D5F0, EAX state, ESI actor
+void fade_runtime_drone_appear(const DroneAppearState& state,
+    RuntimeDroneAppearStateContext& context); // Xbox 0x0008D5F0, EAX state, ESI actor
 // The actor's scale (+0x30 / +0x38 across, +0x34 up) from the time left; a change marks the transform stale (+0x2A8).
-void scale_runtime_drone_appear(std::span<const u8> state, Actor& actor); // Xbox 0x0008D690, EAX state, ECX actor
+void scale_runtime_drone_appear(const DroneAppearState& state, Actor& actor); // Xbox 0x0008D690, EAX state, ECX actor
 // Type 0x65 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_drone_appear_state_class(std::span<ObjectFactoryType> types,
     std::function<RuntimeDroneAppearStateContext&(u32 body_address)> context_of);

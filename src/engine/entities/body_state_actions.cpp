@@ -323,14 +323,14 @@ const ObjectFactoryVtable* grabbed_state_lifecycle()
 
 bool construct_player_death_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_player_death_state(state, parameters, player_death_context_of(word(state, 8)));
+    PlayerDeathState& state = body_state_view<PlayerDeathState>({object.bytes.get(), object.size});
+    return initialize_runtime_player_death_state(state, parameters, player_death_context_of(state.base.body));
 }
 
 void destroy_player_death_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_player_death_state(state, player_death_context_of(word(state, 8)));
+    PlayerDeathState& state = body_state_view<PlayerDeathState>({object.bytes.get(), object.size});
+    destroy_runtime_player_death_state(state, player_death_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* player_death_state_lifecycle()
@@ -342,15 +342,15 @@ const ObjectFactoryVtable* player_death_state_lifecycle()
 
 bool construct_struggle_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    StruggleState& state = body_state_view<StruggleState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     return initialize_runtime_struggle_state(state, parameters, context);
 }
 
 void destroy_struggle_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    StruggleState& state = body_state_view<StruggleState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     destroy_runtime_struggle_state(state, context);
 }
 

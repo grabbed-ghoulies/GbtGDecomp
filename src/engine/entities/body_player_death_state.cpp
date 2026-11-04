@@ -18,9 +18,7 @@
 
 namespace gbtg
 {
-namespace field = player_death_state_field;
 namespace parameter = player_death_state_parameter;
-namespace base = body_state_field;
 
 namespace
 {
@@ -32,9 +30,9 @@ struct PlayerDeathRecords
 };
 std::unordered_map<const u8*, PlayerDeathRecords> player_death_records;
 
-const PlayerDeathRecords& records_of(std::span<const u8> state)
+const PlayerDeathRecords& records_of(const PlayerDeathState& state)
 {
-    const auto found = player_death_records.find(state.data());
+    const auto found = player_death_records.find(body_state_key(state));
     if (found == player_death_records.end())
     {
         throw Error("player death state has no animation records");
@@ -58,13 +56,13 @@ bool live_player(RuntimePlayerDeathContext& context)
 }
 
 // Body +0x715 / +0x717 back to what they were when the state began.
-void release_contacts(std::span<u8> state, RuntimePlayerDeathContext& context)
+void release_contacts(PlayerDeathState& state, RuntimePlayerDeathContext& context)
 {
-    if (get(state, field::contacts_raised) != 0)
+    if (state.contacts_raised != 0)
     {
         clear_runtime_body_contacts(context.knockdown); // 0x00025FA0, EDX body
-        context.knockdown.body[0x717] = u8(get(state, field::saved_717));
-        set(state, field::contacts_raised, 0);
+        context.knockdown.body[0x717] = u8(state.saved_717);
+        state.contacts_raised = 0;
     }
 }
 
@@ -82,12 +80,12 @@ void offer_brew(RuntimePlayerDeathContext& context)
 // Xbox 0x0008EEB0
 void player_death_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(PlayerDeathState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0008EF30
-bool initialize_runtime_player_death_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_player_death_state(PlayerDeathState& state, std::span<const u8> parameters,
     RuntimePlayerDeathContext& context)
 {
     auto& knockdown = context.knockdown;
@@ -105,10 +103,10 @@ bool initialize_runtime_player_death_state(std::span<u8> state, std::span<const 
     body[0x715] = 1;
     const u8 saved = body[0x717];
     body[0x717] = 1;
-    set(state, field::contacts_raised, 1);
-    set(state, field::saved_717, saved);
-    set(state, field::death_word, get(parameters, parameter::death_word));
-    set(state, field::fail_stream, 0);
+    state.contacts_raised = 1;
+    state.saved_717 = saved;
+    state.death_word = get(parameters, parameter::death_word);
+    state.fail_stream = 0;
     const RuntimeBodyAttachedActor* attached = knockdown.attachment.ownership.attached; // Body +0x48.
     if (attached == nullptr || runtime_attachment_available(attached->bytes, attached->host))
     {
@@ -134,8 +132,8 @@ bool initialize_runtime_player_death_state(std::span<u8> state, std::span<const 
             }
         }
     }
-    set(state, field::saved_shape_mode, set_runtime_body_shape_mode(2, knockdown.shape)); // 0x0001FEB0, BL 2
-    auto& records = player_death_records[state.data()];
+    state.saved_shape_mode = set_runtime_body_shape_mode(2, knockdown.shape); // 0x0001FEB0, BL 2
+    auto& records = player_death_records[body_state_key(state)];
     const auto name_at = [&knockdown](u32 address) -> const char*
     {
         return knockdown.string_at(address);
@@ -144,12 +142,12 @@ bool initialize_runtime_player_death_state(std::span<u8> state, std::span<const 
     records.dying = get(parameters, parameter::dying) == 0
         ? nullptr
         : find_runtime_body_animation(name_at(get(parameters, parameter::dying)), knockdown.actions);
-    set(state, field::dying_found, records.dying != nullptr ? 1 : 0);
+    state.dying_found = records.dying != nullptr ? 1 : 0;
     records.dead = find_runtime_body_animation(name_at(get(parameters, parameter::dead)), knockdown.actions);
-    set(state, field::dead_found, records.dead != nullptr ? 1 : 0);
-    if (get(state, field::dying_found) != 0)
+    state.dead_found = records.dead != nullptr ? 1 : 0;
+    if (state.dying_found != 0)
     {
-        set(state, field::phase, 0);
+        state.phase = 0;
         start_record(records.dying, knockdown.actions); // 0x0001AFA0
     }
     else
@@ -165,7 +163,7 @@ bool initialize_runtime_player_death_state(std::span<u8> state, std::span<const 
 }
 
 // Xbox 0x0008F1A0
-void destroy_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathContext& context)
+void destroy_runtime_player_death_state(PlayerDeathState& state, RuntimePlayerDeathContext& context)
 {
     auto& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
@@ -174,7 +172,7 @@ void destroy_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathC
     --body[0x30A];
     --body[0x30B];
     --body[0x30C];
-    set_runtime_body_shape_mode(get(state, field::saved_shape_mode), knockdown.shape); // 0x0001FEB0, BL the saved mode
+    set_runtime_body_shape_mode(state.saved_shape_mode, knockdown.shape); // 0x0001FEB0, BL the saved mode
     release_contacts(state, context);
     decrement_runtime_body_latches(body, knockdown.actor, context.latches); // 0x0001FD20, ECX body
     knockdown.bits.bytes[3] &= 0xEF;
@@ -183,19 +181,19 @@ void destroy_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathC
         --context.active_strategies;
         --context.scene_counter;
     }
-    if (get(state, field::fail_stream) != 0)
+    if (state.fail_stream != 0)
     {
         release_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_FAILPITCHBEND", context.streams); // 0x00038780
-        set(state, field::fail_stream, 0);
+        state.fail_stream = 0;
     }
-    player_death_records.erase(state.data());
+    player_death_records.erase(body_state_key(state));
 }
 
 // Xbox 0x0008F4D0
-void enter_runtime_player_death_phase(std::span<u8> state, u32 phase, RuntimePlayerDeathContext& context)
+void enter_runtime_player_death_phase(PlayerDeathState& state, u32 phase, RuntimePlayerDeathContext& context)
 {
     auto& knockdown = context.knockdown;
-    set(state, field::phase, phase);
+    state.phase = phase;
     switch (phase)
     {
     case 0:
@@ -203,7 +201,7 @@ void enter_runtime_player_death_phase(std::span<u8> state, u32 phase, RuntimePla
         return;
     case 1:
     {
-        const std::array<u32, 2> message{0x34, get(state, field::death_word)};
+        const std::array<u32, 2> message{0x34, state.death_word};
         knockdown.actor_message(message); // Actor vtable +0xC.
         start_record(records_of(state).dead, knockdown.actions); // 0x0001AFA0
         const RuntimeBodyAttachedActor* attached = knockdown.attachment.ownership.attached; // Body +0x48.
@@ -232,7 +230,7 @@ void enter_runtime_player_death_phase(std::span<u8> state, u32 phase, RuntimePla
     }
     case 2:
         release_contacts(state, context);
-        set(state, field::wait_timer, 1.f); // DAT_0032B0F8
+        state.wait_timer = 1.f; // DAT_0032B0F8
         if (live_player(context) && (knockdown.scene_flags & 0x8000) == 0)
         {
             context.begin_transition(); // 0x0012C5D0
@@ -247,7 +245,7 @@ void enter_runtime_player_death_phase(std::span<u8> state, u32 phase, RuntimePla
 }
 
 // Xbox 0x0008F650
-void restart_runtime_player_death(std::span<u8> state, RuntimePlayerDeathContext& context)
+void restart_runtime_player_death(PlayerDeathState& state, RuntimePlayerDeathContext& context)
 {
     auto& knockdown = context.knockdown;
     if (live_player(context))
@@ -255,13 +253,13 @@ void restart_runtime_player_death(std::span<u8> state, RuntimePlayerDeathContext
         context.restart_pending = 1;
     }
     finish_runtime_body_death(0, knockdown.scene_flags, knockdown.restart_requested, knockdown.death); // 0x00134AE0
-    set(state, field::phase, 3);
+    state.phase = 3;
 }
 
 // Xbox 0x0008F6A0
-void start_runtime_player_fail_stream(std::span<u8> state, RuntimePlayerDeathContext& context)
+void start_runtime_player_fail_stream(PlayerDeathState& state, RuntimePlayerDeathContext& context)
 {
-    set(state, field::fail_stream, 1);
+    state.fail_stream = 1;
     request_audio_stream("XACT_SOUNDBANK_GSTREAMSDITTIES_FAILPITCHBEND", 0xE, context.streams); // 0x00038720
     hold_lower_priority_audio_banks(0xE, context.streams); // 0x00038A10, EBX 0xE
 }
@@ -284,13 +282,13 @@ bool count_runtime_state_timer(float& timer, const Actor& actor, const RuntimeAc
 }
 
 // Xbox 0x0008F290
-void tick_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathContext& context)
+void tick_runtime_player_death_state(PlayerDeathState& state, RuntimePlayerDeathContext& context)
 {
     auto& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
     const float elapsed = runtime_actor_rate(knockdown.actor) * runtime_frame_step(knockdown.clock)
-        + get(state, base::elapsed);
-    set(state, base::elapsed, elapsed);
+        + state.base.elapsed;
+    state.base.elapsed = elapsed;
     const auto* controller = knockdown.animation.controller.get(); // Actor +0x50.
     const MinaPlayer* slot = controller == nullptr ? nullptr : controller->slots[0].player.get();
     if (slot != nullptr && slot->position > 0.5f) // DAT_0032B0F4
@@ -303,7 +301,7 @@ void tick_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathCont
     {
         level_body_euler(body);
     }
-    switch (get(state, field::phase))
+    switch (state.phase)
     {
     case 0:
         if (runtime_actor_animation_slot_complete(knockdown.animation, 0)) // 0x0003B290, ECX 0
@@ -314,9 +312,9 @@ void tick_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathCont
     case 1:
         if (runtime_actor_animation_slot_complete(knockdown.animation, 0)) // 0x0003B290, ECX 0
         {
-            set(state, field::phase, 2);
+            state.phase = 2;
             release_contacts(state, context);
-            set(state, field::wait_timer, 1.f); // DAT_0032B0F8
+            state.wait_timer = 1.f; // DAT_0032B0F8
             if (live_player(context) && (knockdown.scene_flags & 0x8000) == 0)
             {
                 context.begin_transition(); // 0x0012C5D0
@@ -326,9 +324,9 @@ void tick_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathCont
     case 2:
         if (!live_player(context))
         {
-            float timer = get(state, field::wait_timer);
+            float timer = state.wait_timer;
             const bool done = count_runtime_state_timer(timer, knockdown.actor, knockdown.clock); // 0x0002B630
-            set(state, field::wait_timer, timer);
+            state.wait_timer = timer;
             if (done)
             {
                 restart_runtime_player_death(state, context);
@@ -342,7 +340,7 @@ void tick_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathCont
         if (test_runtime_unlock_bit(context.unlock_bits, 3) && context.scene_kills >= context.brew_kills_required
             && script_chapter_index(context.scene_name) < 8 && context.frontend_state != 3) // 0x000F2B30, 0x0004B4D0
         {
-            set(state, field::phase, 4);
+            state.phase = 4;
             offer_brew(context);
             return;
         }

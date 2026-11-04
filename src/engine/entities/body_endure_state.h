@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "body_action_selection.h"
@@ -31,23 +32,23 @@ constexpr RetailField<float, 0x19C> hold{}; // seconds
 constexpr u32 kSize = 0x1A0;
 static_assert(retail_fits(kSize, hold));
 } // namespace endure_state_parameter
-namespace endure_state_field
+struct EndureState
 {
-constexpr RetailField<u32, 0x18> phase{}; // 1 entry, 2 taking hits, 3 holding
-constexpr RetailField<u32, 0x1C> sounding{}; // the held sound plays on slot 1
-constexpr RetailField<std::array<char, 0x80>, 0x20> held_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0xA0> object{};
-constexpr RetailField<float, 0x120> hold{};
-constexpr RetailField<u32, 0x124> entry_animation{}; // 0x0003AAA0's record (its host half kept beside the state)
-constexpr RetailField<u32, 0x128> held_animation{};
-constexpr RetailField<u32, 0x12C> saved_890{}; // body +0x890 at entry
-constexpr RetailField<i32, 0x130> hits{};
-constexpr RetailField<i32, 0x134> needed_hits{};
-constexpr RetailField<u32, 0x138> made{}; // the object made at phase 3, or 0
-constexpr RetailField<std::array<char, 0x80>, 0x13C> end_sound{};
-constexpr u32 kSize = 0x1BC;
-static_assert(retail_fits(kSize, end_sound));
-} // namespace endure_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 1 entry, 2 taking hits, 3 holding
+    u32 sounding = 0; // +0x1C, the held sound plays on slot 1
+    std::array<char, 0x80> held_sound{}; // +0x20
+    std::array<char, 0x80> object{}; // +0xA0
+    float hold = 0.f; // +0x120
+    u32 entry_animation = 0; // +0x124, 0x0003AAA0's record (its host half kept beside the state)
+    u32 held_animation = 0; // +0x128
+    u32 saved_890 = 0; // +0x12C, body +0x890 at entry
+    i32 hits = 0; // +0x130
+    i32 needed_hits = 0; // +0x134
+    u32 made = 0; // +0x138, the object made at phase 3, or 0
+    std::array<char, 0x80> end_sound{}; // +0x13C
+};
+static_assert(sizeof(EndureState) == 0x1BC);
 struct RuntimeEndureStateContext
 {
     std::span<u8> body;
@@ -67,15 +68,15 @@ struct RuntimeEndureStateContext
     u32& random; // DAT_0054DD7C.
 };
 void endure_state_object_sizes(ObjectSizes& output); // Xbox 0x000A1430
-bool initialize_runtime_endure_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_endure_state(EndureState& state, std::span<const u8> parameters,
     RuntimeEndureStateContext& context); // Xbox 0x000A14B0
-void destroy_runtime_endure_state(std::span<u8> state, RuntimeEndureStateContext& context); // Xbox 0x000A1670
-void tick_runtime_endure_state(std::span<u8> state, RuntimeEndureStateContext& context); // Xbox 0x000A1710
-void message_runtime_endure_state(std::span<u8> state, std::span<const u32> message,
+void destroy_runtime_endure_state(EndureState& state, RuntimeEndureStateContext& context); // Xbox 0x000A1670
+void tick_runtime_endure_state(EndureState& state, RuntimeEndureStateContext& context); // Xbox 0x000A1710
+void message_runtime_endure_state(EndureState& state, std::span<const u32> message,
     RuntimeEndureStateContext& context); // Xbox 0x000A1850
 // The phase's entry: 1 the entry animation (body +0x890 to 0x20000), 2 the held animation and its sound, 3 the object
 // and the end sound.
-void enter_runtime_endure_phase(std::span<u8> state, u32 phase,
+void enter_runtime_endure_phase(EndureState& state, u32 phase,
     RuntimeEndureStateContext& context); // Xbox 0x000A1930, EDI state
 // Type 0x84 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_endure_state_class(std::span<ObjectFactoryType> types,

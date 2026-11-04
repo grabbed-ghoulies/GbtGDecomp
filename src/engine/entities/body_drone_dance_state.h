@@ -1,4 +1,5 @@
 #pragma once
+#include "body_state_fields.h"
 
 #include "actor_clock.h"
 #include "body_action_selection.h"
@@ -24,22 +25,21 @@ constexpr RetailField<u32, 0x10> reaction{}; // An XBE string: the animation mes
 constexpr u32 kSize = 0x14;
 static_assert(retail_fits(kSize, reaction));
 } // namespace drone_dance_state_parameter
-namespace drone_dance_state_field
+struct DroneDanceState
 {
-constexpr RetailField<float, 0x10> clock{}; // Seconds in the state at the actor's rate.
-constexpr RetailField<u32, 0x18> phase{}; // 1 idle, 2 glide, 3 reaction.
-constexpr RetailField<float, 0x1C> left{}; // Seconds left in the idle or glide.
-constexpr RetailField<float, 0x20> reaction_wait{}; // Five seconds after a reaction (DAT_0032B184).
-constexpr RetailField<float, 0x24> glide_time{}; // The glide's whole length.
-constexpr RetailField<Vec3, 0x28> velocity{}; // Copied to body +0x318 each tick.
-constexpr RetailField<Vec3, 0x34> start_euler{}; // The actor's world euler at the glide's start.
-constexpr RetailField<Vec3, 0x40> target_euler{}; // {0, random yaw, 0}.
-constexpr RetailField<u32, 0x4C> facing{}; // The actor message 0x2D came from, or 0.
-constexpr RetailField<std::array<char, 0x40>, 0x50> dance{}; // Parameters +0xC's name.
-constexpr RetailField<std::array<char, 0x40>, 0x90> reaction{}; // Parameters +0x10's name.
-constexpr u32 kSize = 0xD0;
-static_assert(retail_fits(kSize, reaction));
-} // namespace drone_dance_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 1 idle, 2 glide, 3 reaction
+    float left = 0.f; // +0x1C, seconds left in the idle or glide
+    float reaction_wait = 0.f; // +0x20, five seconds after a reaction (DAT_0032B184)
+    float glide_time = 0.f; // +0x24, the glide's whole length
+    Vec3 velocity{}; // +0x28, copied to body +0x318 each tick
+    Vec3 start_euler{}; // +0x34, the actor's world euler at the glide's start
+    Vec3 target_euler{}; // +0x40, {0, random yaw, 0}
+    u32 facing = 0; // +0x4C, the actor message 0x2D came from, or 0
+    std::array<char, 0x40> dance{}; // +0x50, parameters +0xC's name
+    std::array<char, 0x40> reaction{}; // +0x90, parameters +0x10's name
+};
+static_assert(sizeof(DroneDanceState) == 0xD0);
 struct RuntimeDroneDanceStateContext
 {
     std::span<u8> body;
@@ -53,14 +53,15 @@ struct RuntimeDroneDanceStateContext
     std::function<const Actor*(u32 address)> actor_at; // State +0x4C's actor.
 };
 void drone_dance_state_object_sizes(ObjectSizes& output); // Xbox 0x0008DFF0
-bool initialize_runtime_drone_dance_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_drone_dance_state(DroneDanceState& state, std::span<const u8> parameters,
     RuntimeDroneDanceStateContext& context); // Xbox 0x0008E070
-void destroy_runtime_drone_dance_state(std::span<u8> state, RuntimeDroneDanceStateContext& context); // Xbox 0x0008E120
-void tick_runtime_drone_dance_state(std::span<u8> state, RuntimeDroneDanceStateContext& context); // Xbox 0x0008E130
-void message_runtime_drone_dance_state(std::span<u8> state, std::span<const u32> message,
+void destroy_runtime_drone_dance_state(DroneDanceState& state,
+    RuntimeDroneDanceStateContext& context); // Xbox 0x0008E120
+void tick_runtime_drone_dance_state(DroneDanceState& state, RuntimeDroneDanceStateContext& context); // Xbox 0x0008E130
+void message_runtime_drone_dance_state(DroneDanceState& state, std::span<const u32> message,
     RuntimeDroneDanceStateContext& context); // Xbox 0x0008E480
 // Enters a phase: 1 idles for one to two seconds, 2 glides to a room point (or idles without one), 3 reacts.
-void set_runtime_drone_dance_phase(std::span<u8> state, u32 phase,
+void set_runtime_drone_dance_phase(DroneDanceState& state, u32 phase,
     RuntimeDroneDanceStateContext& context); // Xbox 0x0008E500, ECX state, EAX phase
 // Type 0x67 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_drone_dance_state_class(std::span<ObjectFactoryType> types,

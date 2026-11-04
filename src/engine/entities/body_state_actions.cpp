@@ -24,7 +24,6 @@
 
 namespace gbtg
 {
-namespace stand = stand_alert_field;
 namespace stand_parameter = stand_alert_parameter;
 namespace walk = walk_alert_field;
 namespace walk_parameter = walk_alert_parameter;
@@ -82,15 +81,15 @@ void destroy_empty_state(FactoryObject&)
 
 bool construct_stand_alert_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    StandAlertState& state = body_state_view<StandAlertState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     return initialize_runtime_stand_alert(state, parameters, context);
 }
 
 void destroy_stand_alert_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    StandAlertState& state = body_state_view<StandAlertState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     destroy_runtime_stand_alert(state, context);
 }
 
@@ -498,37 +497,37 @@ void actor_move_object_sizes(ObjectSizes& output)
 // Xbox 0x000A2510
 void stand_alert_object_sizes(ObjectSizes& output)
 {
-    output.instance = stand::kSize;
+    output.instance = sizeof(StandAlertState);
     output.parameters = stand_parameter::kSize;
 }
 
 // Xbox 0x000A2590
-bool initialize_runtime_stand_alert(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_stand_alert(StandAlertState& state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context)
 {
     const auto body = context.body;
-    set(state, stand::input_key, get(parameters, stand_parameter::input_key));
-    set(state, stand::alert_key, get(parameters, stand_parameter::alert_key));
-    set(state, stand::moving_key, get(parameters, stand_parameter::moving_key));
-    set(state, stand::raises_counters, get(parameters, stand_parameter::raises_counters));
-    set(state, stand::pauses_animation, get(parameters, stand_parameter::pauses_animation));
-    set(state, stand::holds, get(parameters, stand_parameter::holds));
-    set(state, stand::body_bit, get(parameters, stand_parameter::body_bit));
-    set(state, stand::node_slot, get(parameters, stand_parameter::node_slot));
-    set(state, stand::keeps_node, get(parameters, stand_parameter::keeps_node));
-    set(state, stand::detaches_secondary, get(parameters, stand_parameter::detaches_secondary));
-    set(state, stand::settles, get(parameters, stand_parameter::settles));
-    set(state, stand::clears_secondary_mode, get(parameters, stand_parameter::clears_secondary_mode));
-    set(state, stand::saved_secondary_mode, context.secondary_mode);
+    state.input_key = get(parameters, stand_parameter::input_key);
+    state.alert_key = get(parameters, stand_parameter::alert_key);
+    state.moving_key = get(parameters, stand_parameter::moving_key);
+    state.raises_counters = get(parameters, stand_parameter::raises_counters);
+    state.pauses_animation = get(parameters, stand_parameter::pauses_animation);
+    state.holds = get(parameters, stand_parameter::holds);
+    state.body_bit = get(parameters, stand_parameter::body_bit);
+    state.node_slot = get(parameters, stand_parameter::node_slot);
+    state.keeps_node = get(parameters, stand_parameter::keeps_node);
+    state.detaches_secondary = get(parameters, stand_parameter::detaches_secondary);
+    state.settles = get(parameters, stand_parameter::settles);
+    state.clears_secondary_mode = get(parameters, stand_parameter::clears_secondary_mode);
+    state.saved_secondary_mode = context.secondary_mode;
     context.bits->bytes[6] |= 1;
     body[0x38] = 1;
     body[0x39] = 1;
     std::memset(body.data() + 0x160, 0, 2);
-    if (get(state, stand::pauses_animation) != 0)
+    if (state.pauses_animation != 0)
     {
         adjust_animation_pause(context.animation, 1);
     }
-    if (get(state, stand::raises_counters) != 0)
+    if (state.raises_counters != 0)
     {
         adjust_body_counters(body, 1);
     }
@@ -540,16 +539,16 @@ bool initialize_runtime_stand_alert(std::span<u8> state, std::span<const u8> par
             queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f, sound,
                 context.sounds);
         }
-        set(state, stand::sound_started, 1);
+        state.sound_started = 1;
     }
-    const u32 bit = get(state, stand::body_bit);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] |= u8(1u << (bit & 7));
     }
-    if (get(state, stand::node_slot) != 0xFFFFFFFF)
+    if (state.node_slot != 0xFFFFFFFF)
     {
-        const u8 slot = u8(get(state, stand::node_slot));
+        const u8 slot = u8(state.node_slot);
         if (context.actor.model != nullptr && context.actor.model->runtime != nullptr)
         {
             set_runtime_model_node_state(*context.actor.model->runtime, slot, 1, context.node_states);
@@ -561,18 +560,17 @@ bool initialize_runtime_stand_alert(std::span<u8> state, std::span<const u8> par
     }
     if (get(parameters, stand_parameter::shape_mode) == 0)
     {
-        set(state, stand::saved_shape_mode, body[0x244]);
+        state.saved_shape_mode = body[0x244];
     }
     else
     {
-        set(state, stand::saved_shape_mode,
-            set_runtime_body_shape_mode(u8(get(parameters, stand_parameter::shape_mode)), context));
+        state.saved_shape_mode = set_runtime_body_shape_mode(u8(get(parameters, stand_parameter::shape_mode)), context);
     }
-    if (get(state, stand::holds) != 0)
+    if (state.holds != 0)
     {
         set(body, body_field::holds, get(body, body_field::holds) + 1);
     }
-    if (get(state, stand::clears_secondary_mode) != 0 && context.secondary != nullptr)
+    if (state.clears_secondary_mode != 0 && context.secondary != nullptr)
     {
         context.secondary_mode = 0;
     }
@@ -580,30 +578,30 @@ bool initialize_runtime_stand_alert(std::span<u8> state, std::span<const u8> par
 }
 
 // Xbox 0x000A2790
-void destroy_runtime_stand_alert(std::span<u8> state, RuntimeBodyStateContext& context)
+void destroy_runtime_stand_alert(StandAlertState& state, RuntimeBodyStateContext& context)
 {
     const auto body = context.body;
     context.bits->bytes[6] &= 0xFE;
-    if (get(state, stand::raises_counters) != 0)
+    if (state.raises_counters != 0)
     {
         adjust_body_counters(body, -1);
     }
-    if (get(state, stand::pauses_animation) != 0)
+    if (state.pauses_animation != 0)
     {
         adjust_animation_pause(context.animation, -1);
     }
-    if (get(state, stand::sound_started) != 0)
+    if (state.sound_started != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds);
     }
-    const u32 bit = get(state, stand::body_bit);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
     }
-    if (get(state, stand::node_slot) != 0xFFFFFFFF && get(state, stand::keeps_node) == 0)
+    if (state.node_slot != 0xFFFFFFFF && state.keeps_node == 0)
     {
-        const u8 slot = u8(get(state, stand::node_slot));
+        const u8 slot = u8(state.node_slot);
         if (context.actor.model != nullptr && context.actor.model->runtime != nullptr)
         {
             set_runtime_model_node_state(*context.actor.model->runtime, slot, 0, context.node_states);
@@ -613,8 +611,8 @@ void destroy_runtime_stand_alert(std::span<u8> state, RuntimeBodyStateContext& c
             set_runtime_model_node_state(*context.secondary, slot, 0, context.node_states);
         }
     }
-    set_runtime_body_shape_mode(u8(get(state, stand::saved_shape_mode)), context);
-    if (get(state, stand::holds) != 0)
+    set_runtime_body_shape_mode(u8(state.saved_shape_mode), context);
+    if (state.holds != 0)
     {
         const u32 count = get(body, body_field::holds) - 1;
         set(body, body_field::holds, count);
@@ -624,16 +622,16 @@ void destroy_runtime_stand_alert(std::span<u8> state, RuntimeBodyStateContext& c
             context.body_message(message);
         }
     }
-    if (get(state, stand::detaches_secondary) != 0 && context.attached != nullptr)
+    if (state.detaches_secondary != 0 && context.attached != nullptr)
     {
         auto* attached = context.attached;
         detach_runtime_body_secondary(body, context.attached, context.receiver);
         const u32 message[]{0x97, 0};
         attached->message(message);
     }
-    if (get(state, stand::clears_secondary_mode) != 0 && context.secondary != nullptr)
+    if (state.clears_secondary_mode != 0 && context.secondary != nullptr)
     {
-        context.secondary_mode = get(state, stand::saved_secondary_mode);
+        context.secondary_mode = state.saved_secondary_mode;
     }
 }
 

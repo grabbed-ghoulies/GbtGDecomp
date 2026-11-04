@@ -9,8 +9,6 @@
 
 namespace gbtg
 {
-namespace field = stand_alert_field;
-namespace base = body_state_field;
 
 // Xbox 0x000A2A90
 void repeat_runtime_stand_alert_animation(RuntimeStandAlertTick& context)
@@ -42,12 +40,12 @@ void repeat_runtime_stand_alert_animation(RuntimeStandAlertTick& context)
 }
 
 // Xbox 0x000A2930
-void tick_runtime_stand_alert(std::span<u8> action, RuntimeStandAlertTick& context)
+void tick_runtime_stand_alert(StandAlertState& state, RuntimeStandAlertTick& context)
 {
     const float elapsed =
-        runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + get(action, base::elapsed);
-    set(action, base::elapsed, elapsed);
-    if (get(action, field::moving_key) != 0)
+        runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
+    state.base.elapsed = elapsed;
+    if (state.moving_key != 0)
     {
         const float z = get(context.body, body_field::motion).z;
         const float y = get(context.body, body_field::motion).y;
@@ -57,11 +55,11 @@ void tick_runtime_stand_alert(std::span<u8> action, RuntimeStandAlertTick& conte
         {
             key = context.moving_action();
         }
-        set(action, base::next_key, key);
+        state.base.next_key = key;
     }
-    if (get(action, field::holds) == 0)
+    if (state.holds == 0)
     {
-        if (get(action, field::settles) == 0)
+        if (state.settles == 0)
         {
             const u32 zero = 0;
             std::memcpy(context.body.data() + 0x734, &zero, 4);
@@ -72,11 +70,11 @@ void tick_runtime_stand_alert(std::span<u8> action, RuntimeStandAlertTick& conte
             context.orient();
         }
     }
-    u16 key = get(action, field::alert_key);
+    u16 key = state.alert_key;
     if ((context.flags.bytes[7] & 8) != 0 || key == 0 || !context.mind_present || context.mind_alert == 0)
     {
         repeat_runtime_stand_alert_animation(context);
-        key = get(action, field::input_key);
+        key = state.input_key;
         if (key == 0)
         {
             return;
@@ -88,6 +86,6 @@ void tick_runtime_stand_alert(std::span<u8> action, RuntimeStandAlertTick& conte
             return;
         }
     }
-    set(action, base::next_key, key);
+    state.base.next_key = key;
 }
 }

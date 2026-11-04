@@ -1,4 +1,5 @@
 #pragma once
+#include "body_state_actions.h"
 
 #include "body_action_selection.h"
 #include "actor_clock.h"
@@ -23,5 +24,5 @@ struct RuntimeStandAlertTick
     std::function<void()> orient; // 0x00134720, ESI body.
 };
 void repeat_runtime_stand_alert_animation(RuntimeStandAlertTick& context); // Xbox 0x000A2A90
-void tick_runtime_stand_alert(std::span<u8> action, RuntimeStandAlertTick& context); // Xbox 0x000A2930
+void tick_runtime_stand_alert(StandAlertState& state, RuntimeStandAlertTick& context); // Xbox 0x000A2930
 }

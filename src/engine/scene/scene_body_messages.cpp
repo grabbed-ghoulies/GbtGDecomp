@@ -347,7 +347,8 @@ void SceneBodyMessages::bind_action_children()
                 grab_throw->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_grab_throw_state({child->bytes.get(), child->size}, words,
+                    message_runtime_grab_throw_state(body_state_view<GrabThrowState>({child->bytes.get(), child->size}),
+                        words,
                         grab_throw_context()); // 0x00094FA0
                 };
             }
@@ -415,7 +416,8 @@ void SceneBodyMessages::bind_action_children()
                     {
                         unbound("arc attack state word message 0x62 without the collision reply's contact record");
                     }
-                    message_runtime_arc_attack_state({child->bytes.get(), child->size}, words, {},
+                    message_runtime_arc_attack_state(body_state_view<ArcAttackState>({child->bytes.get(), child->size}),
+                        words, {},
                         arc_attack_context()); // 0x00089530
                 };
             }
@@ -498,7 +500,8 @@ void SceneBodyMessages::bind_action_children()
                 yoyo->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_yoyo_spin_state({child->bytes.get(), child->size}, words,
+                    message_runtime_yoyo_spin_state(body_state_view<YoyoSpinState>({child->bytes.get(), child->size}),
+                        words,
                         yoyo_spin_context()); // 0x000A7030
                 };
             }
@@ -928,7 +931,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             {
                 settle_runtime_body_turn(player_.body, player_.actor); // 0x00134720, ESI body
             }};
-        tick_runtime_stand_alert({action.bytes.get(), action.size}, tick);
+        tick_runtime_stand_alert(body_state_view<StandAlertState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x69:
@@ -1021,7 +1024,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         tick_runtime_walk_state({action.bytes.get(), action.size}, walk_context()); // 0x000A5100
         return;
     case 0x5F:
-        tick_runtime_arc_attack_state({action.bytes.get(), action.size}, arc_attack_context()); // 0x00089060
+        tick_runtime_arc_attack_state(body_state_view<ArcAttackState>({action.bytes.get(), action.size}),
+            arc_attack_context()); // 0x00089060
         return;
     case 0x6F:
         tick_runtime_generate_ghouly_state({action.bytes.get(), action.size}, generate_ghouly_context()); // 0x00093EC0
@@ -1030,7 +1034,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         tick_runtime_shocked_state({action.bytes.get(), action.size}, shocked_context()); // 0x0009F5F0
         return;
     case 0x82:
-        tick_runtime_slam_smash_state({action.bytes.get(), action.size}, slam_smash_context()); // 0x000A0630
+        tick_runtime_slam_smash_state(body_state_view<SlamSmashState>({action.bytes.get(), action.size}),
+            slam_smash_context()); // 0x000A0630
         return;
     case 0x60:
     {
@@ -1053,7 +1058,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         tick_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B6C0
         return;
     case 0x72:
-        tick_runtime_grab_throw_state({action.bytes.get(), action.size}, grab_throw_context()); // 0x00094B00
+        tick_runtime_grab_throw_state(body_state_view<GrabThrowState>({action.bytes.get(), action.size}),
+            grab_throw_context()); // 0x00094B00
         return;
     case 0x71:
         tick_runtime_grabbed_hold_state({action.bytes.get(), action.size}, grabbed_hold_context()); // 0x000956C0
@@ -1071,7 +1077,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             spawn_ghouly_context()); // 0x000A1BE0
         return;
     case 0x90:
-        tick_runtime_yoyo_spin_state({action.bytes.get(), action.size}, yoyo_spin_context()); // 0x000A6CC0
+        tick_runtime_yoyo_spin_state(body_state_view<YoyoSpinState>({action.bytes.get(), action.size}),
+            yoyo_spin_context()); // 0x000A6CC0
         return;
     case 0x75:
         tick_runtime_furnace_hit_state(body_state_view<FurnaceHitState>({action.bytes.get(), action.size}),
@@ -1369,7 +1376,8 @@ void SceneBodyMessages::action_step(FactoryObject& action)
         step_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B9C0
         return;
     case 0x72:
-        step_runtime_grab_throw_state({action.bytes.get(), action.size}, grab_throw_context()); // 0x00094F10
+        step_runtime_grab_throw_state(body_state_view<GrabThrowState>({action.bytes.get(), action.size}),
+            grab_throw_context()); // 0x00094F10
         return;
     case 0x5A:
         // Type 0x5A's +0x14 is 0x0002AD30 itself.
@@ -3094,7 +3102,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_yoyo_spin_state({second.bytes.get(), second.size}, words, yoyo_spin_context());
+                message_runtime_yoyo_spin_state(body_state_view<YoyoSpinState>({second.bytes.get(), second.size}),
+                    words, yoyo_spin_context());
                 return;
             }
             if (type == 0x86)
@@ -3157,7 +3166,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 std::array<u32, 3> words{reply.id, reply.accepted, reply.handled};
                 const std::span<const u8> contact = reply.contact == nullptr ? std::span<const u8>()
                                                                              : std::span<const u8>(reply.contact, 0x18);
-                message_runtime_arc_attack_state({second.bytes.get(), second.size}, words, contact,
+                message_runtime_arc_attack_state(body_state_view<ArcAttackState>({second.bytes.get(), second.size}),
+                    words, contact,
                     arc_attack_context());
                 reply.accepted = words[1];
                 reply.handled = words[2];
@@ -3180,7 +3190,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_grab_throw_state({second.bytes.get(), second.size}, words, grab_throw_context());
+                message_runtime_grab_throw_state(body_state_view<GrabThrowState>({second.bytes.get(), second.size}),
+                    words, grab_throw_context());
                 return;
             }
             if (type == 0x60)

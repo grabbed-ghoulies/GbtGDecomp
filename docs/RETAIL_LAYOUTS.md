@@ -176,6 +176,8 @@ For one object type:
 | Player death state (`PlayerDeathState`, factory type 0x69, 0x0008EF30): phase, wait timer, saved shape mode, death word, contacts raised, fail stream, saved body +0x717, animations found | 0x3C | `src/engine/entities/body_player_death_state.h` |
 | Hover, flip, explode, spawn-ghouly, slide and look-for-weapon states (`HoverState`, `FlipState`, `ExplodeState`, `SpawnGhoulyState`, `SlideState`, `LookForWeaponState`) | 0x24 / 0x30 / 0x28 / 0x20 / 0x3C / 0x34 | `body_hover_state.h`, `body_flip_state.h`, `body_explode_state.h`, `body_spawn_ghouly_state.h`, `body_slide_state.h`, `body_look_for_weapon_state.h` |
 | Endure, flamethrower, shoot, transform, drone-appear and drone-dance states (`EndureState`, `FlamethrowerState`, `ShootState`, `TransformState`, `DroneAppearState`, `DroneDanceState`) | 0x1BC / 0x144 / 0xD0 / 0x3BC / 0x28 / 0xD0 | `body_endure_state.h`, `body_flamethrower_state.h`, `body_shoot_state.h`, `body_transform_state.h`, `body_drone_appear_state.h`, `body_drone_dance_state.h` |
+| Stand alert (`StandAlertState`, factory type 0x87, 0x000A2590): input, alert and moving keys, counter, pause and hold switches, model node slot and keep switch, secondary detach and mode switches with the saved mode, sound started, body bit, saved shape mode | 0x50 | `src/engine/entities/body_state_actions.h` |
+| Slam smash, yoyo spin, grab throw and arc attack states (`SlamSmashState`, `YoyoSpinState`, `GrabThrowState`, `ArcAttackState`) | 0xD8 / 0x1DC / 0x5C / 0x268 | `body_slam_smash_state.h`, `body_yoyo_spin_state.h`, `body_grab_throw_state.h`, `body_arc_attack_state.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -227,6 +229,10 @@ records and contact overrides retail holds as pointers; those stay keyed by the 
 `body_state_key`. The explode and drone-dance namespaces' own +0x10 floats were the base's `elapsed`. These passes
 compare captures only, and whether the tests reach every one of these states wasn't checked.
 
+The stand alert, slam smash, yoyo spin, grab throw and arc attack states followed. Their last offset uses were found
+words picked by byte offset: the arc attack's animations now go by `ArcAttackAnimation`, and the slam smash's start
+takes the found word. `arc_attack_state`'s +0x28 is the one word here no translated code touches (`unk_28`).
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -266,7 +272,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Die state parameters (factory type 0x62; the state is a struct, above) | parameters 0x20 | `die_state_parameter` | `src/engine/entities/body_die_state.h` |
 | Player death state parameters (factory type 0x69; the state is a struct, above) | parameters 0x18 | `player_death_state_parameter` | `src/engine/entities/body_player_death_state.h` |
 | Grabbed state parameters (factory type 0x70; the state is a struct, above) | parameters 0x18 | `grabbed_state_parameter` | `src/engine/entities/body_grabbed_state.h` |
-| Stand alert (factory type 0x87, 0x000A2590) | 0x50, parameters 0xBC | `stand_alert_field`: input, alert and moving keys, counter, pause and hold switches, model node slot and keep switch, secondary detach and mode switches with the saved mode, settle switch, sound started, body bit, saved shape mode; `stand_alert_parameter` | `src/engine/entities/body_state_actions.h` |
+| Stand alert parameters (factory type 0x87; the state is a struct, above) | parameters 0xBC | `stand_alert_parameter` | `src/engine/entities/body_state_actions.h` |
 | Walk alert and fly states (factory types 0x8E, 0x000A5650, and 0x6D, 0x00090D90) | 0x88 / 0x78, parameters 0xB8 / 0xA8 | `walk_alert_field` / `fly_state_field`: stop and alert keys, stick limit, heading hold, row count, band, the four speed-band rows (`walk_alert_row_field`: animation, lower and upper durations, top speed), sound started; the walk alert's settle, stop-at-once, alert-when-calm, fixed-ratio and body-bit words; the fly state's loop; and their parameters | `src/engine/entities/body_state_actions.h` |
 | fxCustom and its effects (factory types 0xC, 0x2E, 0x30, 0x31, 0x32, 0x33) | 0x18 base; 0xA8, 0x28, 0xD0, 0x54, 0x28 | `fx_custom_field` (seconds alive, actor); `fx_electric_field` (sound, texture loaded, spark count and rows, light slot); `fx_fade_field` (the fade-to-grey's and fade-out's level, target, speed and their +0x24 word); `fx_outline_field` (phase, hold end, time left, the three times, sound, texture loaded, scale, colour, level, shape group, rows, light slot); `fx_solid_fade_in_field` (phase, time left, level, the four times, colour, strength, hold end); and their parameters | `src/engine/entities/fx_custom_electric.h` |
 | Weapon base (factory type 0xB over the actor, 0x00145C80), its own part | 0xE54 (0x934 onward), parameters 0x5F8 | `weapon_parameter` (the block 0x00145C80 copies from); `weapon_field`: mask and its neighbours, firing, accepted classes, contact test, spawn-model block, names, break category, grab prompt (pulse, phase, alpha, fade), shape and point counts, pick-up count, variant name and attributes, spawn trigger, group owner, state and its next and initial values and time, scene start, thrown and follow motion, floor, voice, spawn owner, broken pieces, hit kind/strength/style, animation, target record | `src/engine/entities/weapon_fields.h` |

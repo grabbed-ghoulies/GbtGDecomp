@@ -1,4 +1,5 @@
 #pragma once
+#include "body_state_fields.h"
 #include "gbtg/object_factory.h"
 #include "gbtg/model_runtime.h"
 #include "gbtg/sound_runtime.h"
@@ -58,26 +59,26 @@ constexpr RetailField<u32, 0xB8> shape_mode{}; // 0 keeps the body's; otherwise 
 constexpr u32 kSize = 0xBC;
 static_assert(retail_fits(kSize, shape_mode));
 } // namespace stand_alert_parameter
-namespace stand_alert_field
+struct StandAlertState
 {
-constexpr RetailField<u16, 0x18> input_key{}; // the next key once the stick is pushed
-constexpr RetailField<u16, 0x1A> alert_key{}; // the next key while the mind is alert
-constexpr RetailField<u32, 0x1C> moving_key{}; // the body's moving action (vtable +0x40) is the next key while it moves
-constexpr RetailField<u32, 0x20> raises_counters{}; // body +0x309..+0x30C are raised
-constexpr RetailField<u32, 0x24> pauses_animation{}; // the actor's animation is paused
-constexpr RetailField<u32, 0x28> holds{}; // body +0x258 is raised; the turn is left alone
-constexpr RetailField<u32, 0x2C> node_slot{}; // a model node shown while the state lasts, or 0xFFFFFFFF
-constexpr RetailField<u32, 0x30> keeps_node{}; // the node stays shown afterwards
-constexpr RetailField<u32, 0x34> detaches_secondary{}; // the body's secondary attachment is let go at the end
-constexpr RetailField<u32, 0x38> settles{}; // the body's turn settles each tick (0x00134720)
-constexpr RetailField<u32, 0x3C> clears_secondary_mode{}; // actor +0x30C is 0 while the state lasts
-constexpr RetailField<i32, 0x40> saved_secondary_mode{};
-constexpr RetailField<u32, 0x44> sound_started{};
-constexpr RetailField<u32, 0x48> body_bit{}; // raised while the state lasts
-constexpr RetailField<u32, 0x4C> saved_shape_mode{}; // the body's shape mode at entry, in the low byte
-constexpr u32 kSize = 0x50;
-static_assert(retail_fits(kSize, saved_shape_mode));
-} // namespace stand_alert_field
+    BodyStateBase base{}; // +0
+    u16 input_key = 0; // +0x18, the next key once the stick is pushed
+    u16 alert_key = 0; // +0x1A, the next key while the mind is alert
+    u32 moving_key = 0; // +0x1C, the body's moving action (vtable +0x40) is the next key while it moves
+    u32 raises_counters = 0; // +0x20, body +0x309..+0x30C are raised
+    u32 pauses_animation = 0; // +0x24, the actor's animation is paused
+    u32 holds = 0; // +0x28, body +0x258 is raised; the turn is left alone
+    u32 node_slot = 0; // +0x2C, a model node shown while the state lasts, or 0xFFFFFFFF
+    u32 keeps_node = 0; // +0x30, the node stays shown afterwards
+    u32 detaches_secondary = 0; // +0x34, the body's secondary attachment is let go at the end
+    u32 settles = 0; // +0x38, the body's turn settles each tick (0x00134720)
+    u32 clears_secondary_mode = 0; // +0x3C, actor +0x30C is 0 while the state lasts
+    i32 saved_secondary_mode = 0; // +0x40
+    u32 sound_started = 0; // +0x44
+    u32 body_bit = 0; // +0x48, raised while the state lasts
+    u32 saved_shape_mode = 0; // +0x4C, the body's shape mode at entry, in the low byte
+};
+static_assert(sizeof(StandAlertState) == 0x50);
 
 // One of the walk alert's and the fly state's speed bands (0x10 bytes): the animation for the band, its durations at
 // the band's slowest and fastest, and the band's top speed (over the body's step speed). The parameters' rows hold
@@ -169,9 +170,9 @@ static_assert(fly_state_field::row_count.offset == walk_alert_field::row_count.o
     && fly_state_field::rows.offset == walk_alert_field::rows.offset);
 
 void stand_alert_object_sizes(ObjectSizes& output); // Xbox 0x000A2510
-bool initialize_runtime_stand_alert(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_stand_alert(StandAlertState& state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x000A2590
-void destroy_runtime_stand_alert(std::span<u8> state, RuntimeBodyStateContext& context); // Xbox 0x000A2790
+void destroy_runtime_stand_alert(StandAlertState& state, RuntimeBodyStateContext& context); // Xbox 0x000A2790
 void walk_alert_object_sizes(ObjectSizes& output); // Xbox 0x000A55D0
 bool initialize_runtime_walk_alert(std::span<u8> state, std::span<const u8> parameters,
     RuntimeBodyStateContext& context); // Xbox 0x000A5650

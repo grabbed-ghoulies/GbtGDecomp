@@ -161,6 +161,17 @@ For one object type:
 | Trail record (`EffectTrailRecord`, 50 in DAT_005068D8): position and rotation (the billboard's, from 0x000EBCB0), colour channels (a byte block the channel functions take), scale, size and its target and rate, frames (`BoundedChannel`), phase, type, phase time, life, next free | 0x84 | `src/engine/graphics/effect_trails.h` |
 | Body-state base (`BodyStateBase`, the factory header and type 9's instance): vtable address, type, unk_6 (the parameters' +2), body (the parameters' +8), next key, unk_E, elapsed, unk_14. `body_state_view<T>` views a factory state's bytes as its struct. | 0x18 | `src/engine/entities/body_state_fields.h` |
 | Hold state (`HoldState`, factory type 0x8A, 0x000A34A0): the base, timer, settle turn, body bit | 0x24 | `src/engine/entities/body_hold_state.h` |
+| Grabbed state (`GrabbedState`, factory type 0x70, 0x00094350): the base, release mark, move hold, latch hold, body bit | 0x28 | `src/engine/entities/body_grabbed_state.h` |
+| Pick-up state (`PickupState`, factory type 0x7C, 0x0009DE00): the base, taken, start position, release point | 0x2C | `src/engine/entities/body_pickup_state.h` |
+| Lift state (`LiftState`, factory type 0x7D, 0x0009E4B0): the base, ask, hands and release points, hold height, weapon, stage | 0x30 | `src/engine/entities/body_pickup_state.h` |
+| Die state (`DieState`, factory type 0x62, 0x0008C240): the base, animation name, body bit, moving-key, face-view and settle switches, target | 0x6C | `src/engine/entities/body_die_state.h` |
+| Anim state (`AnimState`, factory type 0x5E, 0x00088580): next key, body bit, time left and timed switch, sound started, face-target switch and heading offset, stick point, carry and settle switches | 0x40 | `src/engine/entities/body_anim_state.h` |
+| Death state (`DeathState`): waiting, delay, saved shape mode; +0x21 unk | 0x28 | `src/engine/entities/body_death_state.h` |
+| Furnace hit state (`FurnaceHitState`): start position and euler, furnace position, facing, remaining | 0x4C | `src/engine/entities/body_furnace_hit_state.h` |
+| Hit state (`HitState`, factory type 0x73, 0x000957A0): lunge velocity, target hit, open windows, hit callout, start euler, attached actor, trail rate and timers, face and carry switches, next key, event mark, body bit | 0x70 | `src/engine/entities/body_hit_state.h` |
+| Hit-furnace state (`HitFurnaceState`, factory type 0x74, 0x00096710): next key, bit 0x38 switch, sweep and its point | 0x30 | `src/engine/entities/body_hit_state.h` |
+| Scoop-whack, shocked, stunned and scrabble states (`ScoopWhackState`, `ShockedState`, `StunnedState`, `ScrabbleState`) | 0x20 / 0x1C / 0x20 / 0x28 | `body_scoop_whack_state.h`, `body_shocked_state.h`, `body_stunned_state.h`, `body_scrabble_state.h` |
+| Throw state (`ThrowState`, factory type 0x8B, 0x000A37D0): entry euler, aim and launch, switches, near range, aim angle and mode, spread, end key, ended | 0x68 | `src/engine/entities/body_throw_state.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -194,6 +205,18 @@ functions there). Its parameters are never copied in, so `settle_turn` and `body
 them later; that is the dump's behaviour, kept as it is. The shared goal-action selector (0x00134060) still takes
 the state's bytes.
 
+The grabbed, pick-up, lift and die states followed on the same base. Their own fields were already all named, so
+only their functions, the factory views and the body-message calls changed. Their parameter blocks are script data
+and stay on descriptors.
+
+Ten more followed: the anim, death, furnace hit, hit, hit-furnace, scoop-whack, shocked, stunned, throw and scrabble
+states. Their own sources never read them by offset, and their only unnamed bytes are padding or words no translated
+code touches (`unk_`). The furnace hit's own `elapsed` (+0x10) was the base's, so it is `base.elapsed` now. The shared
+next-, recovery- and goal-action selectors still take the states' bytes through `retail_bytes`. A first run of
+this pass froze Cooper in the hit-furnace state: two callers whose state was still a byte span had been given
+`retail_bytes(state)`, which views the span object's own pointer and length, so the next key never reached the
+state. `retail_bytes` now refuses a span at compile time.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -212,8 +235,8 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Factory parameter header | — | `object_parameter_field`: size, unk_2, type | `include/gbtg/object_factory.h` |
 | Body-state base (type 9, 0x00095530) | 0x18 | `body_state_field`: next key (+0xC), unk_E, elapsed (+0x10), for the states still on their bytes; `BodyStateBase` is the whole base as a struct (below) | `src/engine/entities/body_state_fields.h` |
 | Walk-target state (factory type 0x8F, 0x00091A90) | 0x7C, parameters 0x60 | `walk_target_field`, `walk_target_parameter`; the rows block (`walk_target_rows_field`, 0x4C bytes: four `walk_target_row_field` rows and the band limits) | `src/engine/entities/body_walk_target_state.h` |
-| Pick-up and lift states (factory types 0x7C and 0x7D) | 0x2C / 0x30, parameters 0x10 / 0x1C | `pickup_state_field`, `pickup_state_parameter`, `lift_state_field`, `lift_state_parameter` | `src/engine/entities/body_pickup_state.h` |
-| Throw state (factory type 0x8B, 0x000A37D0) | 0x68, parameters 0x2C | `throw_state_field`, `throw_state_parameter` | `src/engine/entities/body_throw_state.h` |
+| Pick-up and lift state parameters (factory types 0x7C and 0x7D; the states are structs, above) | parameters 0x10 / 0x1C | `pickup_state_parameter`, `lift_state_parameter` | `src/engine/entities/body_pickup_state.h` |
+| Throw state parameters (factory type 0x8B; the state is a struct, above) | parameters 0x2C | `throw_state_parameter` | `src/engine/entities/body_throw_state.h` |
 | Skeleton strategy (factory type 0x51) | — | `skeleton_strategy_field`: no spawn in reach, fetch delay; and the base strategy's `strategy_field::state` (+0xE, `strategy_fields.h`) | `src/engine/entities/skeleton_strategy.h` |
 | Bob weapon (factory type 0xA0, 0x000C5B90), the bob's own part | 0xFE8, parameters 0x7FC | `bob_weapon_field`: holders, hits, the break animation and its events, state 7 timer, cutscene name, unk_FE4; `bob_weapon_parameter` | `src/engine/entities/bob_weapon.h` |
 | Swing state (factory type 0x78, 0x00097F90) | 0x1AC, parameters 0x128 | `swing_state_field`: phase, the weapon's pose when taken, trail and spin timers, direction, spin and grab poses, four effect slots, the effect and hit-sound names, seven animation records, shape mode, count, cutscene; `swing_state_parameter` | `src/engine/entities/body_swing_state.h` |
@@ -226,13 +249,13 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Base mind (0x00029D10), shared by every mind type | 0x7C, parameters 0xA0 | `mind_field`: actor, target, target record, action record, action actor, path search, target mode, gaze anchor and point, alert mode and timer, last request result, target flags, categories and range, goal point; unk_2C, unk_34, unk_38 | `src/engine/entities/mind_fields.h` |
 | Body record (actor +0x95C, built by 0x00024C50), two passes | not settled | `body_field`: position, move holds and move hold time, focus point, attached actor, unk_70, reach, hit record, energy and its maximum, stagger, ground point and has-ground, motion, holds, attacker, unk_274, contact count, velocity, gravity, step speed, heading, ease rate (and its saved value and swap count), turn rates, euler (and `level_body_euler`), surface (and its override and frames), scaled surfaces, height and radius scales | `src/engine/entities/body_fields.h` |
 | Knockdown state (factory type 0x7A, 0x0009C5D0) | 0xF4, parameters 0x50 | `knockdown_state_field`: phase and its clock, end timer, the seven animations' found flags (`KnockdownAnimation` slots), the end keys, the sweep point, callout tokens, start and landing points, saved gravity and shape mode, yaw, pitch, flight time, pose marks, rise height, bounce scale, attacker, contact pool, latch and body-bit words; `knockdown_state_parameter` | `src/engine/entities/body_knockdown_state.h` |
-| Hit and furnace-hit states (factory types 0x73, 0x000957A0, and 0x74, 0x00096710) | 0x70 / 0x30, parameters 0x28 / 0x14 | `hit_state_field`: lunge velocity, target hit, open windows, hit callout, start euler, attached actor, trail rate and timers, face and carry switches, next key, event mark, body bit; `hit_furnace_state_field`: next key, bit 0x38 switch, sweep point; and their parameters | `src/engine/entities/body_hit_state.h` |
+| Hit and furnace-hit state parameters (factory types 0x73 and 0x74; the states are structs, above) | parameters 0x28 / 0x14 | `hit_state_parameter`, `hit_furnace_state_parameter` | `src/engine/entities/body_hit_state.h` |
 | Struggle state (factory type 0x88, 0x000A2B90) | 0x4C, parameters 0x34 | `struggle_state_field`: input, idle and moving keys, settle switch, animations found, band timer and mode, started, turn limit, heading offset, turn rates; `struggle_state_parameter` | `src/engine/entities/body_struggle_state.h` |
 | Dizzy state (factory type 0x64, 0x0008C9A0) | 0x184, parameters 0x11C | `dizzy_state_field`: the two input trackers and their states, player input, animation wait, settle switch, star scale, time left, star names, the three stars (`dizzy_star_field`: orbit, bob, actor), body bit; `dizzy_state_parameter` | `src/engine/entities/body_dizzy_state.h` |
-| Anim state (factory type 0x5E, 0x00088580) | 0x40, parameters 0xB0 | `anim_state_field`: next key, body bit, time left and timed switch, sound started, face-target switch and heading offset, stick point, carry and settle switches; `anim_state_parameter` (with the inline sound name) | `src/engine/entities/body_anim_state.h` |
-| Die state (factory type 0x62, 0x0008C240) | 0x6C, parameters 0x20 | `die_state_field`: animation name, body bit, moving-key, face-view and settle switches, target; `die_state_parameter` | `src/engine/entities/body_die_state.h` |
+| Anim state parameters (factory type 0x5E; the state is a struct, above) | parameters 0xB0 | `anim_state_parameter` (with the inline sound name) | `src/engine/entities/body_anim_state.h` |
+| Die state parameters (factory type 0x62; the state is a struct, above) | parameters 0x20 | `die_state_parameter` | `src/engine/entities/body_die_state.h` |
 | Player death state (factory type 0x69, 0x0008EF30) | 0x3C, parameters 0x18 | `player_death_state_field`: phase, wait timer, saved shape mode, death word, contacts raised, fail stream, saved body +0x717, animations found; `player_death_state_parameter` | `src/engine/entities/body_player_death_state.h` |
-| Grabbed state (factory type 0x70, 0x00094350) | 0x28, parameters 0x18 | `grabbed_state_field`: release mark, move hold, latch hold, body bit; `grabbed_state_parameter` | `src/engine/entities/body_grabbed_state.h` |
+| Grabbed state parameters (factory type 0x70; the state is a struct, above) | parameters 0x18 | `grabbed_state_parameter` | `src/engine/entities/body_grabbed_state.h` |
 | Stand alert (factory type 0x87, 0x000A2590) | 0x50, parameters 0xBC | `stand_alert_field`: input, alert and moving keys, counter, pause and hold switches, model node slot and keep switch, secondary detach and mode switches with the saved mode, settle switch, sound started, body bit, saved shape mode; `stand_alert_parameter` | `src/engine/entities/body_state_actions.h` |
 | Walk alert and fly states (factory types 0x8E, 0x000A5650, and 0x6D, 0x00090D90) | 0x88 / 0x78, parameters 0xB8 / 0xA8 | `walk_alert_field` / `fly_state_field`: stop and alert keys, stick limit, heading hold, row count, band, the four speed-band rows (`walk_alert_row_field`: animation, lower and upper durations, top speed), sound started; the walk alert's settle, stop-at-once, alert-when-calm, fixed-ratio and body-bit words; the fly state's loop; and their parameters | `src/engine/entities/body_state_actions.h` |
 | fxCustom and its effects (factory types 0xC, 0x2E, 0x30, 0x31, 0x32, 0x33) | 0x18 base; 0xA8, 0x28, 0xD0, 0x54, 0x28 | `fx_custom_field` (seconds alive, actor); `fx_electric_field` (sound, texture loaded, spark count and rows, light slot); `fx_fade_field` (the fade-to-grey's and fade-out's level, target, speed and their +0x24 word); `fx_outline_field` (phase, hold end, time left, the three times, sound, texture loaded, scale, colour, level, shape group, rows, light slot); `fx_solid_fade_in_field` (phase, time left, level, the four times, colour, strength, hold end); and their parameters | `src/engine/entities/fx_custom_electric.h` |

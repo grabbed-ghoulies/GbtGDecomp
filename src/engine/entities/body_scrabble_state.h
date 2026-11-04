@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "body_damage_tables.h"
@@ -15,13 +16,15 @@ namespace gbtg
 // as the time runs out, then hands over its next action. The constructor swaps body +0x334 for 0.2 (kept at +0x330
 // and restored by the destructor) and raises body +0x338. The sizes are 0x0008E740's (0x28 / 0xC). The message and
 // the +0x14 / +0x18 slots are the empty 0x001628B0 and +0x1C is 0x0002B620. State +8 is the body.
-namespace scrabble_state_field
+struct ScrabbleState
 {
-constexpr RetailField<float, 0x1C> time_left{};
-constexpr RetailField<float, 0x20> duration{}; // 2 s (a random fraction of the 0 at DAT_0032B100, plus 2)
-constexpr u32 kSize = 0x28;
-static_assert(retail_fits(kSize, duration));
-} // namespace scrabble_state_field
+    BodyStateBase base{}; // +0
+    std::array<u8, 4> unk_18{}; // +0x18, never read or written by translated code
+    float time_left = 0.f; // +0x1C
+    float duration = 0.f; // +0x20, 2 s (a random fraction of the 0 at DAT_0032B100, plus 2)
+    std::array<u8, 4> unk_24{}; // +0x24, never read or written by translated code
+};
+static_assert(sizeof(ScrabbleState) == 0x28);
 struct RuntimeScrabbleStateContext
 {
     std::span<u8> body;
@@ -36,9 +39,9 @@ struct RuntimeScrabbleStateContext
     std::function<u16(u32 slot)> body_slot_key; // Body vtable +0x20.
 };
 void scrabble_state_object_sizes(ObjectSizes& output); // Xbox 0x0008E740
-bool initialize_runtime_scrabble_state(std::span<u8> state, RuntimeScrabbleStateContext& context); // Xbox 0x0009F0C0
+bool initialize_runtime_scrabble_state(ScrabbleState& state, RuntimeScrabbleStateContext& context); // Xbox 0x0009F0C0
 void destroy_runtime_scrabble_state(RuntimeScrabbleStateContext& context); // Xbox 0x0009F150
-void tick_runtime_scrabble_state(std::span<u8> state, RuntimeScrabbleStateContext& context); // Xbox 0x0009F170
+void tick_runtime_scrabble_state(ScrabbleState& state, RuntimeScrabbleStateContext& context); // Xbox 0x0009F170
 // Type 0x7F (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_scrabble_state_class(std::span<ObjectFactoryType> types,
     std::function<RuntimeScrabbleStateContext&(u32 body_address)> context_of);

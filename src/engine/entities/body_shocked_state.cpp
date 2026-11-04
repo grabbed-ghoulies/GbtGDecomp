@@ -10,7 +10,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = shocked_state_field;
 namespace parameter = shocked_state_parameter;
 
 constexpr float kLatchHold = std::bit_cast<float>(0x3E99999Au); // 0.3 s.
@@ -44,14 +43,14 @@ const MinaPlayer* first_player(const ActorAnimationState& animation)
 
 bool construct_shocked_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_shocked_state(state, parameters, shocked_context_of(body_address_of(state)));
+    ShockedState& state = body_state_view<ShockedState>({object.bytes.get(), object.size});
+    return initialize_runtime_shocked_state(state, parameters, shocked_context_of(state.base.body));
 }
 
 void destroy_shocked_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_shocked_state(state, shocked_context_of(body_address_of(state)));
+    ShockedState& state = body_state_view<ShockedState>({object.bytes.get(), object.size});
+    destroy_runtime_shocked_state(state, shocked_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* shocked_state_lifecycle()
@@ -65,12 +64,12 @@ const ObjectFactoryVtable* shocked_state_lifecycle()
 // Xbox 0x0009F400
 void shocked_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(ShockedState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0009F480
-bool initialize_runtime_shocked_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_shocked_state(ShockedState& state, std::span<const u8> parameters,
     RuntimeShockedStateContext& context)
 {
     const auto body = context.body;
@@ -86,18 +85,18 @@ bool initialize_runtime_shocked_state(std::span<u8> state, std::span<const u8> p
         field_data(parameters, parameter::effect)); // 0x00107720, EAX parameters +0xC
     if (clone.bytes == nullptr)
     {
-        set(state, field::effect, 0u);
+        state.effect = 0u;
         return true;
     }
     std::memcpy(clone.bytes.get() + 8, &context.actor_address, 4);
     const u32 effect = context.create_object({clone.bytes.get(), clone.size}); // 0x00107520
     clone.bytes.reset(); // 0x000663E0
-    set(state, field::effect, effect);
+    state.effect = effect;
     return true;
 }
 
 // Xbox 0x0009F550
-void destroy_runtime_shocked_state(std::span<u8> state, RuntimeShockedStateContext& context)
+void destroy_runtime_shocked_state(ShockedState& state, RuntimeShockedStateContext& context)
 {
     const auto body = context.body;
     step_half(body, 0x30, -1);
@@ -106,11 +105,11 @@ void destroy_runtime_shocked_state(std::span<u8> state, RuntimeShockedStateConte
     hold_runtime_body_latch_timer(body, kLatchHold, context.actor, context.latches); // 0x0001F4F0, ESI body
     step_counters(body, -1);
     context.bits.bytes[2] &= 0xFB;
-    const u32 effect = get(state, field::effect);
+    const u32 effect = state.effect;
     if (effect != 0)
     {
         context.release_frame_object(context.actor, effect); // 0x0003DE30, ECX actor, ESI effect
-        set(state, field::effect, 0u);
+        state.effect = 0u;
     }
 }
 

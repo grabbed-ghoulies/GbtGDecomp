@@ -134,15 +134,15 @@ RuntimeBodyBitStorage& bits_of(const RuntimeBodyStateContext& context)
 
 bool construct_hit_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = hit_context_of(word(state, 8));
+    HitState& state = body_state_view<HitState>({object.bytes.get(), object.size});
+    auto context = hit_context_of(state.base.body);
     return initialize_runtime_hit_state(state, parameters, context);
 }
 
 void destroy_hit_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = hit_context_of(word(state, 8));
+    HitState& state = body_state_view<HitState>({object.bytes.get(), object.size});
+    auto context = hit_context_of(state.base.body);
     destroy_runtime_hit_state(state, context);
 }
 
@@ -155,15 +155,15 @@ const ObjectFactoryVtable* hit_state_lifecycle()
 
 bool construct_hit_furnace_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    HitFurnaceState& state = body_state_view<HitFurnaceState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     return initialize_runtime_hit_furnace_state(state, parameters, context.body, bits_of(context));
 }
 
 void destroy_hit_furnace_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    auto context = body_context_of(word(state, 8));
+    HitFurnaceState& state = body_state_view<HitFurnaceState>({object.bytes.get(), object.size});
+    auto context = body_context_of(state.base.body);
     destroy_runtime_hit_furnace_state(state, context.body, bits_of(context));
 }
 
@@ -195,14 +195,14 @@ const ObjectFactoryVtable* dizzy_state_lifecycle()
 
 bool construct_anim_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_anim_state(state, parameters, anim_context_of(word(state, 8)));
+    AnimState& state = body_state_view<AnimState>({object.bytes.get(), object.size});
+    return initialize_runtime_anim_state(state, parameters, anim_context_of(state.base.body));
 }
 
 void destroy_anim_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_anim_state(state, anim_context_of(word(state, 8)));
+    AnimState& state = body_state_view<AnimState>({object.bytes.get(), object.size});
+    destroy_runtime_anim_state(state, anim_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* anim_state_lifecycle()
@@ -214,14 +214,14 @@ const ObjectFactoryVtable* anim_state_lifecycle()
 
 bool construct_die_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_die_state(state, parameters, die_context_of(word(state, 8)));
+    DieState& state = body_state_view<DieState>({object.bytes.get(), object.size});
+    return initialize_runtime_die_state(state, parameters, die_context_of(state.base.body));
 }
 
 void destroy_die_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_die_state(state, die_context_of(word(state, 8)));
+    DieState& state = body_state_view<DieState>({object.bytes.get(), object.size});
+    destroy_runtime_die_state(state, die_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* die_state_lifecycle()
@@ -252,14 +252,14 @@ const ObjectFactoryVtable* knockdown_state_lifecycle()
 
 bool construct_pickup_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_pickup_state(state, parameters, pickup_context_of(word(state, 8)));
+    PickupState& state = body_state_view<PickupState>({object.bytes.get(), object.size});
+    return initialize_runtime_pickup_state(state, parameters, pickup_context_of(state.base.body));
 }
 
 void destroy_pickup_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_pickup_state(state, pickup_context_of(word(state, 8)));
+    PickupState& state = body_state_view<PickupState>({object.bytes.get(), object.size});
+    destroy_runtime_pickup_state(state, pickup_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* pickup_state_lifecycle()
@@ -271,14 +271,14 @@ const ObjectFactoryVtable* pickup_state_lifecycle()
 
 bool construct_lift_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_lift_state(state, parameters, pickup_context_of(word(state, 8)));
+    LiftState& state = body_state_view<LiftState>({object.bytes.get(), object.size});
+    return initialize_runtime_lift_state(state, parameters, pickup_context_of(state.base.body));
 }
 
 void destroy_lift_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_lift_state(state, pickup_context_of(word(state, 8)));
+    LiftState& state = body_state_view<LiftState>({object.bytes.get(), object.size});
+    destroy_runtime_lift_state(state, pickup_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* lift_state_lifecycle()
@@ -304,14 +304,14 @@ const ObjectFactoryVtable* stand_alert_lifecycle()
 
 bool construct_grabbed_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_grabbed_state(state, parameters, grabbed_context_of(word(state, 8)));
+    GrabbedState& state = body_state_view<GrabbedState>({object.bytes.get(), object.size});
+    return initialize_runtime_grabbed_state(state, parameters, grabbed_context_of(state.base.body));
 }
 
 void destroy_grabbed_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_grabbed_state(state, grabbed_context_of(word(state, 8)));
+    GrabbedState& state = body_state_view<GrabbedState>({object.bytes.get(), object.size});
+    destroy_runtime_grabbed_state(state, grabbed_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* grabbed_state_lifecycle()
@@ -391,8 +391,8 @@ void destroy_fly_alert_view(FactoryObject& object)
 
 bool construct_throw_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_throw_state(state, parameters, throw_context_of(word(state, 8)));
+    ThrowState& state = body_state_view<ThrowState>({object.bytes.get(), object.size});
+    return initialize_runtime_throw_state(state, parameters, throw_context_of(state.base.body));
 }
 
 void destroy_throw_state_view(FactoryObject& object)

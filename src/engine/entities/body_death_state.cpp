@@ -16,7 +16,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = death_state_field;
 namespace parameter = death_state_parameter;
 
 std::function<RuntimeDeathStateContext&(u32)> death_context_of;
@@ -53,14 +52,14 @@ const MinaPlayer* first_player(const ActorAnimationState& animation)
 
 bool construct_death_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_death_state(state, parameters, death_context_of(body_address_of(state)));
+    DeathState& state = body_state_view<DeathState>({object.bytes.get(), object.size});
+    return initialize_runtime_death_state(state, parameters, death_context_of(state.base.body));
 }
 
 void destroy_death_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_death_state(state, death_context_of(body_address_of(state)));
+    DeathState& state = body_state_view<DeathState>({object.bytes.get(), object.size});
+    destroy_runtime_death_state(state, death_context_of(state.base.body));
 }
 
 // Getter 0x0008C5A0: +0x14 / +0x18 / +0xC are the empty 0x001628B0 and +0x1C is 0x0002B620.
@@ -75,12 +74,12 @@ const ObjectFactoryVtable* death_state_lifecycle()
 // Xbox 0x00076BC0
 void death_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(DeathState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0008C600
-bool initialize_runtime_death_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_death_state(DeathState& state, std::span<const u8> parameters,
     RuntimeDeathStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
@@ -128,21 +127,20 @@ bool initialize_runtime_death_state(std::span<u8> state, std::span<const u8> par
             }
         }
     }
-    set(state, field::waiting, 0u);
-    set(state, field::shape_mode,
-        set_runtime_body_shape_mode(get(parameters, parameter::shape_mode), knockdown.shape)); // 0x0001FEB0, BL
+    state.waiting = 0u;
+    state.shape_mode = set_runtime_body_shape_mode(get(parameters, parameter::shape_mode), knockdown.shape); // 0x0001FEB0, BL
     notify_runtime_body_death_once(body, knockdown.actor_address, knockdown.game); // 0x00024910, ESI body
     return true;
 }
 
 // Xbox 0x0008C750
-void destroy_runtime_death_state(std::span<u8> state, RuntimeDeathStateContext& context)
+void destroy_runtime_death_state(DeathState& state, RuntimeDeathStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const auto body = knockdown.body;
     step_half(body, 0x30, -1);
     step_counters(body, -1);
-    set_runtime_body_shape_mode(get(state, field::shape_mode), knockdown.shape); // 0x0001FEB0, BL state +0x20
+    set_runtime_body_shape_mode(state.shape_mode, knockdown.shape); // 0x0001FEB0, BL state +0x20
     if (knockdown.spheres != nullptr) // Body +0x710.
     {
         RuntimeBodyCollisionSphere* end = knockdown.spheres + body[0x714];
@@ -157,14 +155,13 @@ void destroy_runtime_death_state(std::span<u8> state, RuntimeDeathStateContext& 
 }
 
 // Xbox 0x0008C7E0
-void tick_runtime_death_state(std::span<u8> state, RuntimeDeathStateContext& context)
+void tick_runtime_death_state(DeathState& state, RuntimeDeathStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const auto body = knockdown.body;
-    set(state, body_state_field::elapsed, runtime_actor_rate(knockdown.actor) * runtime_frame_step(knockdown.clock)
-        + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_rate(knockdown.actor) * runtime_frame_step(knockdown.clock) + state.base.elapsed;
     level_body_euler(body);
-    switch (get(state, field::waiting))
+    switch (state.waiting)
     {
     case 0:
     {
@@ -190,24 +187,24 @@ void tick_runtime_death_state(std::span<u8> state, RuntimeDeathStateContext& con
                 return;
             }
         }
-        set(state, field::waiting, 1u);
-        set(state, field::delay, 1.f); // DAT_0032B0F8.
+        state.waiting = 1u;
+        state.delay = 1.f; // DAT_0032B0F8.
         return;
     }
     case 1:
     {
-        const float delay = get(state, field::delay);
+        const float delay = state.delay;
         if (!(delay > 0.f))
         {
             return;
         }
         const float left = delay - runtime_actor_rate(knockdown.actor) * runtime_frame_step(knockdown.clock);
-        set(state, field::delay, left);
+        state.delay = left;
         if (0.f < left)
         {
             return;
         }
-        set(state, field::delay, 0.f);
+        state.delay = 0.f;
         finish_runtime_body_death(1, knockdown.scene_flags, knockdown.restart_requested,
             knockdown.death); // 0x00134AE0, EAX actor
         return;

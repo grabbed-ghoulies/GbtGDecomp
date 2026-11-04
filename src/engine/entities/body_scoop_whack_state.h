@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "body_state_fields.h"
@@ -23,13 +24,13 @@ constexpr RetailField<u32, 0x0C> callout{};
 constexpr u32 kSize = 0x10;
 static_assert(retail_fits(kSize, callout));
 } // namespace scoop_whack_state_parameter
-namespace scoop_whack_state_field
+struct ScoopWhackState
 {
-constexpr RetailField<u32, 0x18> callout{}; // parameters +0xC
-constexpr RetailField<u32, 0x1C> struck{}; // message 0x4C went to the target
-constexpr u32 kSize = 0x20;
-static_assert(retail_fits(kSize, struck));
-} // namespace scoop_whack_state_field
+    BodyStateBase base{}; // +0
+    u32 callout = 0; // +0x18, parameters +0xC
+    u32 struck = 0; // +0x1C, message 0x4C went to the target
+};
+static_assert(sizeof(ScoopWhackState) == 0x20);
 struct RuntimeScoopWhackStateContext
 {
     std::span<u8> body;
@@ -47,11 +48,11 @@ struct RuntimeScoopWhackStateContext
     std::function<u16(u32 slot)> body_slot_key; // Body vtable +0x20.
 };
 void scoop_whack_state_object_sizes(ObjectSizes& output); // Xbox 0x0009EB20
-bool initialize_runtime_scoop_whack_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_scoop_whack_state(ScoopWhackState& state, std::span<const u8> parameters,
     RuntimeScoopWhackStateContext& context); // Xbox 0x0009EBA0
 void destroy_runtime_scoop_whack_state(RuntimeScoopWhackStateContext& context); // Xbox 0x0009EC40
-void tick_runtime_scoop_whack_state(std::span<u8> state, RuntimeScoopWhackStateContext& context); // Xbox 0x0009EC90
-void message_runtime_scoop_whack_state(std::span<const u8> state, std::span<const u32> message,
+void tick_runtime_scoop_whack_state(ScoopWhackState& state, RuntimeScoopWhackStateContext& context); // Xbox 0x0009EC90
+void message_runtime_scoop_whack_state(const ScoopWhackState& state, std::span<const u32> message,
     RuntimeScoopWhackStateContext& context); // Xbox 0x0009EED0
 // The first of the actor's shapes (flags 0x20002) whose sphere meets the target actor's bound: its centre.
 bool find_runtime_scoop_whack_contact(const Actor& actor, const Actor& target,

@@ -15,7 +15,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = scoop_whack_state_field;
 namespace parameter = scoop_whack_state_parameter;
 
 std::function<RuntimeScoopWhackStateContext&(u32)> scoop_whack_context_of;
@@ -79,8 +78,8 @@ const EntityBonePose* shape_pose(const Actor& actor)
 
 bool construct_scoop_whack_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_scoop_whack_state(state, parameters, scoop_whack_context_of(body_address_of(state)));
+    ScoopWhackState& state = body_state_view<ScoopWhackState>({object.bytes.get(), object.size});
+    return initialize_runtime_scoop_whack_state(state, parameters, scoop_whack_context_of(state.base.body));
 }
 
 void destroy_scoop_whack_state_view(FactoryObject& object)
@@ -100,16 +99,16 @@ const ObjectFactoryVtable* scoop_whack_state_lifecycle()
 // Xbox 0x0009EB20
 void scoop_whack_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(ScoopWhackState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0009EBA0
-bool initialize_runtime_scoop_whack_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_scoop_whack_state(ScoopWhackState& state, std::span<const u8> parameters,
     RuntimeScoopWhackStateContext& context)
 {
     const auto body = context.body;
-    set(state, field::callout, get(parameters, parameter::callout));
+    state.callout = get(parameters, parameter::callout);
     body[0x38] = 1;
     body[0x39] = 1;
     hold_body(1, context);
@@ -139,14 +138,13 @@ void destroy_runtime_scoop_whack_state(RuntimeScoopWhackStateContext& context)
 }
 
 // Xbox 0x0009EC90
-void tick_runtime_scoop_whack_state(std::span<u8> state, RuntimeScoopWhackStateContext& context)
+void tick_runtime_scoop_whack_state(ScoopWhackState& state, RuntimeScoopWhackStateContext& context)
 {
     const auto body = context.body;
     const u32 target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::target_record);
-    set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
-        + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     level_body_euler(body);
-    if (get(state, field::struck) == 0 && target != 0)
+    if (state.struck == 0 && target != 0)
     {
         const MinaPlayer* player = slot_player(context);
         if (player != nullptr && player->position >= kStrikeStart && !(kStrikeEnd < player->position))
@@ -163,7 +161,7 @@ void tick_runtime_scoop_whack_state(std::span<u8> state, RuntimeScoopWhackStateC
                 const std::array<u32, 5> message{0x4C, context.actor_address, std::bit_cast<u32>(point.x),
                     std::bit_cast<u32>(point.y), std::bit_cast<u32>(point.z)};
                 context.message(target_actor, message); // Vtable +0xC.
-                set(state, field::struck, 1u);
+                state.struck = 1u;
             }
         }
     }
@@ -210,23 +208,23 @@ void tick_runtime_scoop_whack_state(std::span<u8> state, RuntimeScoopWhackStateC
             return;
         }
     }
-    set(state, body_state_field::next_key, context.body_slot_key(0x20)); // Body vtable +0x20.
+    state.base.next_key = context.body_slot_key(0x20); // Body vtable +0x20.
 }
 
 // Xbox 0x0009EED0
-void message_runtime_scoop_whack_state(std::span<const u8> state, std::span<const u32> message,
+void message_runtime_scoop_whack_state(const ScoopWhackState& state, std::span<const u32> message,
     RuntimeScoopWhackStateContext& context)
 {
     if (message[0] == 0x41)
     {
         const Vec3 point{std::bit_cast<float>(message[7]), std::bit_cast<float>(message[8]),
             std::bit_cast<float>(message[9])};
-        call_out_runtime_hit_point(point, message[5], get(state, field::callout), context.actor_callout); // 0x0013AD60
+        call_out_runtime_hit_point(point, message[5], state.callout, context.actor_callout); // 0x0013AD60
         return;
     }
     if (message[0] == 0x70 && message[2] == context.actor_address && message[1] + 0x8Cu != 0)
     {
-        context.actor_callout(message[1], get(state, field::callout), nullptr); // 0x0003BE20
+        context.actor_callout(message[1], state.callout, nullptr); // 0x0003BE20
     }
 }
 

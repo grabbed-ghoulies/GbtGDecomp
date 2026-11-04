@@ -10,9 +10,7 @@
 
 namespace gbtg
 {
-namespace field = anim_state_field;
 namespace parameter = anim_state_parameter;
-namespace base = body_state_field;
 
 namespace
 {
@@ -21,40 +19,40 @@ namespace
 // Xbox 0x00088500
 void anim_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(AnimState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x00088580
-bool initialize_runtime_anim_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_anim_state(AnimState& state, std::span<const u8> parameters,
     RuntimeAnimStateContext& context)
 {
     const auto body = context.body;
-    set(state, field::next_key, get(parameters, parameter::next_key));
-    set(state, field::faces_target, get(parameters, parameter::faces_target));
-    set(state, field::heading_offset, get(parameters, parameter::heading_offset));
-    set(state, field::stick_point, get(parameters, parameter::stick_point));
-    set(state, field::carries_velocity, get(parameters, parameter::carries_velocity));
-    set(state, field::settles, get(parameters, parameter::settles));
-    set(state, field::body_bit, get(parameters, parameter::body_bit));
+    state.next_key = get(parameters, parameter::next_key);
+    state.faces_target = get(parameters, parameter::faces_target);
+    state.heading_offset = get(parameters, parameter::heading_offset);
+    state.stick_point = get(parameters, parameter::stick_point);
+    state.carries_velocity = get(parameters, parameter::carries_velocity);
+    state.settles = get(parameters, parameter::settles);
+    state.body_bit = get(parameters, parameter::body_bit);
     if (get(parameters, parameter::time) <= 0.f) // DAT_0032B100.
     {
-        set(state, field::timed, 0);
+        state.timed = 0;
     }
     else
     {
-        set(state, field::time_left, get(parameters, parameter::time));
-        set(state, field::timed, 1);
+        state.time_left = get(parameters, parameter::time);
+        state.timed = 1;
     }
     const char* sound = field_data(parameters, parameter::sound);
     if (sound[0] != 0)
     {
-        set(state, field::sound_started, 1);
+        state.sound_started = 1;
         // Actor +0x614 is sound slot 4.
         queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f, sound,
             context.sounds);
     }
-    const u32 bit = get(state, field::body_bit);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] |= u8(1u << (bit & 7));
@@ -75,28 +73,28 @@ bool initialize_runtime_anim_state(std::span<u8> state, std::span<const u8> para
 }
 
 // Xbox 0x00088660
-void destroy_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& context)
+void destroy_runtime_anim_state(AnimState& state, RuntimeAnimStateContext& context)
 {
-    const u32 bit = get(state, field::body_bit);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
     }
-    if (get(state, field::sound_started) != 0)
+    if (state.sound_started != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds); // Actor +0x614.
     }
 }
 
 // Xbox 0x00088960
-void message_runtime_anim_state(std::span<u8> state, std::span<const u8> message,
+void message_runtime_anim_state(AnimState& state, std::span<const u8> message,
     RuntimeAnimStateContext& context)
 {
     if (read_u32(message, 0) != 0x25)
     {
         return;
     }
-    u16 key = get(state, field::next_key);
+    u16 key = state.next_key;
     if (key == 0)
     {
         key = context.body_slot_key(0x20);
@@ -105,12 +103,12 @@ void message_runtime_anim_state(std::span<u8> state, std::span<const u8> message
 }
 
 // Xbox 0x000886B0
-void tick_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& context)
+void tick_runtime_anim_state(AnimState& state, RuntimeAnimStateContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    set(state, base::elapsed, runtime_actor_step(actor, context.clock) + get(state, base::elapsed));
-    const u32 target = get(state, field::faces_target) == 0 ? 0 : context.mind_target();
+    state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
+    const u32 target = state.faces_target == 0 ? 0 : context.mind_target();
     if (target != 0)
     {
         const Actor* other = context.actor_at(target);
@@ -123,17 +121,17 @@ void tick_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& conte
         const Vec3 direction{to.x - from.x, to.y - from.y, to.z - from.z};
         float angle = 0.f;
         runtime_direction_angle(direction, angle);
-        set(body, body_field::euler, Vec3{0.f, get(state, field::heading_offset) + angle, 0.f});
+        set(body, body_field::euler, Vec3{0.f, state.heading_offset + angle, 0.f});
     }
     else
     {
         level_body_euler(body);
     }
-    if (get(state, field::settles) != 0)
+    if (state.settles != 0)
     {
         settle_runtime_body_turn(body, actor);
     }
-    if (get(state, field::carries_velocity) != 0)
+    if (state.carries_velocity != 0)
     {
         set(body, body_field::velocity, actor.anchor); // Actor +0x3C.
     }
@@ -141,7 +139,7 @@ void tick_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& conte
     const MinaPlayer* player = controller == nullptr ? nullptr : controller->slots.at(0).player.get();
     const float position = player == nullptr ? 0.f : player->position;
     bool pushed = false;
-    if (position > get(state, field::stick_point))
+    if (position > state.stick_point)
     {
         if (context.input == nullptr || context.input_state == nullptr)
         {
@@ -152,7 +150,7 @@ void tick_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& conte
         pushed = axes[1] * axes[1] + axes[0] * axes[0] > context.stick_threshold;
     }
     bool done = false;
-    if (get(state, field::timed) == 0)
+    if (state.timed == 0)
     {
         if (controller == nullptr)
         {
@@ -176,14 +174,14 @@ void tick_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& conte
     }
     else
     {
-        const float left = get(state, field::time_left);
+        const float left = state.time_left;
         if (left > 0.f)
         {
             const float next = left - runtime_actor_rate(actor) * runtime_frame_step(context.clock);
-            set(state, field::time_left, next);
+            state.time_left = next;
             if (!(0.f < next))
             {
-                set(state, field::time_left, 0.f);
+                state.time_left = 0.f;
                 done = true;
             }
         }
@@ -192,7 +190,7 @@ void tick_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& conte
     {
         return;
     }
-    const u16 key = get(state, field::next_key);
-    set(state, base::next_key, key != 0 ? key : context.body_slot_key(0x20));
+    const u16 key = state.next_key;
+    state.base.next_key = key != 0 ? key : context.body_slot_key(0x20);
 }
 }

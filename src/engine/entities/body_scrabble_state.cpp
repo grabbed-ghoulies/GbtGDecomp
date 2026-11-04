@@ -12,7 +12,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = scrabble_state_field;
 
 std::function<RuntimeScrabbleStateContext&(u32)> scrabble_context_of;
 
@@ -74,8 +73,8 @@ void run_along_heading(RuntimeScrabbleStateContext& context)
 
 bool construct_scrabble_state_view(FactoryObject& object, std::span<const u8>)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_scrabble_state(state, scrabble_context_of(body_address_of(state)));
+    ScrabbleState& state = body_state_view<ScrabbleState>({object.bytes.get(), object.size});
+    return initialize_runtime_scrabble_state(state, scrabble_context_of(state.base.body));
 }
 
 void destroy_scrabble_state_view(FactoryObject& object)
@@ -95,12 +94,12 @@ const ObjectFactoryVtable* scrabble_state_lifecycle()
 // Xbox 0x0008E740
 void scrabble_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(ScrabbleState);
     output.parameters = 0xC;
 }
 
 // Xbox 0x0009F0C0
-bool initialize_runtime_scrabble_state(std::span<u8> state, RuntimeScrabbleStateContext& context)
+bool initialize_runtime_scrabble_state(ScrabbleState& state, RuntimeScrabbleStateContext& context)
 {
     const auto body = context.body;
     put_word(body, 0x330, read_u32(body, 0x334));
@@ -109,8 +108,8 @@ bool initialize_runtime_scrabble_state(std::span<u8> state, RuntimeScrabbleState
     context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
     const float roll = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
     const float duration = roll * 0.f + 2.f; // DAT_0032B100, DAT_0032B110.
-    set(state, field::duration, duration);
-    set(state, field::time_left, duration);
+    state.duration = duration;
+    state.time_left = duration;
     return true;
 }
 
@@ -123,14 +122,13 @@ void destroy_runtime_scrabble_state(RuntimeScrabbleStateContext& context)
 }
 
 // Xbox 0x0009F170
-void tick_runtime_scrabble_state(std::span<u8> state, RuntimeScrabbleStateContext& context)
+void tick_runtime_scrabble_state(ScrabbleState& state, RuntimeScrabbleStateContext& context)
 {
     Actor& actor = context.actor;
-    set(state, body_state_field::elapsed, runtime_actor_rate(actor) * runtime_frame_step(context.clock)
-        + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_rate(actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     face_goal_point(context); // 0x0009F370, EAX actor
     run_along_heading(context); // 0x0009F2D0, EAX body
-    const float duration = get(state, field::duration);
+    const float duration = state.duration;
     const float quarter = duration * 0.25f; // DAT_0032B104.
     float rate;
     if (duration == quarter) // UCOMISS; an ordered equality takes the 0.7.
@@ -139,7 +137,7 @@ void tick_runtime_scrabble_state(std::span<u8> state, RuntimeScrabbleStateContex
     }
     else
     {
-        rate = (get(state, field::time_left) - quarter) / (duration - quarter) * std::bit_cast<float>(0x3EE66666u)
+        rate = (state.time_left - quarter) / (duration - quarter) * std::bit_cast<float>(0x3EE66666u)
             + 0.25f; // DAT_0032B4F8.
         if (rate > std::bit_cast<float>(0x3F333333u))
         {
@@ -155,15 +153,15 @@ void tick_runtime_scrabble_state(std::span<u8> state, RuntimeScrabbleStateContex
     {
         retime_mina_playback(controller->slots.at(0).player.get(), rate, controller->dirty); // 0x00030DB0, EAX 0
     }
-    const float left = get(state, field::time_left);
+    const float left = state.time_left;
     if (0.f < left)
     {
         const float next = left - runtime_actor_rate(actor) * runtime_frame_step(context.clock);
-        set(state, field::time_left, next);
+        state.time_left = next;
         if (!(0.f < next)) // COMISS; JC keeps a positive time.
         {
-            set(state, field::time_left, 0.f);
-            set(state, body_state_field::next_key, context.body_slot_key(0x20)); // Body vtable +0x20.
+            state.time_left = 0.f;
+            state.base.next_key = context.body_slot_key(0x20); // Body vtable +0x20.
         }
     }
 }

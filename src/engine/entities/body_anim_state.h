@@ -1,4 +1,5 @@
 #pragma once
+#include "body_state_fields.h"
 
 #include "body_action_selection.h"
 #include "body_animation_setup.h"
@@ -32,21 +33,22 @@ constexpr RetailField<u32, 0xAC> carries_velocity{};
 constexpr u32 kSize = 0xB0;
 static_assert(retail_fits(kSize, carries_velocity));
 } // namespace anim_state_parameter
-namespace anim_state_field
+struct AnimState
 {
-constexpr RetailField<u16, 0x18> next_key{}; // 0 takes body vtable +0x20's key
-constexpr RetailField<u32, 0x1C> body_bit{}; // raised while the state lasts
-constexpr RetailField<float, 0x20> time_left{};
-constexpr RetailField<u32, 0x24> timed{}; // the state ends when time_left runs out, not with the animation
-constexpr RetailField<u32, 0x28> sound_started{};
-constexpr RetailField<u32, 0x2C> faces_target{}; // the body turns toward the mind's target
-constexpr RetailField<float, 0x30> heading_offset{}; // added to the angle toward the target
-constexpr RetailField<float, 0x34> stick_point{}; // past this animation position a pushed stick ends the state
-constexpr RetailField<u32, 0x38> carries_velocity{}; // body +0x318 takes the actor's velocity (+0x3C)
-constexpr RetailField<u32, 0x3C> settles{}; // the body's turn settles each tick (0x00134720)
-constexpr u32 kSize = 0x40;
-static_assert(retail_fits(kSize, settles));
-} // namespace anim_state_field
+    BodyStateBase base{}; // +0
+    u16 next_key = 0; // +0x18, 0 takes body vtable +0x20's key
+    std::array<u8, 2> unk_1A{}; // +0x1A, padding
+    u32 body_bit = 0; // +0x1C, raised while the state lasts
+    float time_left = 0.f; // +0x20
+    u32 timed = 0; // +0x24, the state ends when time_left runs out, not with the animation
+    u32 sound_started = 0; // +0x28
+    u32 faces_target = 0; // +0x2C, the body turns toward the mind's target
+    float heading_offset = 0.f; // +0x30, added to the angle toward the target
+    float stick_point = 0.f; // +0x34, past this animation position a pushed stick ends the state
+    u32 carries_velocity = 0; // +0x38, body +0x318 takes the actor's velocity (+0x3C)
+    u32 settles = 0; // +0x3C, the body's turn settles each tick (0x00134720)
+};
+static_assert(sizeof(AnimState) == 0x40);
 struct RuntimeAnimStateContext
 {
     std::span<u8> body;
@@ -66,10 +68,10 @@ struct RuntimeAnimStateContext
 };
 
 void anim_state_object_sizes(ObjectSizes& output); // Xbox 0x00088500
-bool initialize_runtime_anim_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_anim_state(AnimState& state, std::span<const u8> parameters,
     RuntimeAnimStateContext& context); // Xbox 0x00088580
-void destroy_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& context); // Xbox 0x00088660
-void message_runtime_anim_state(std::span<u8> state, std::span<const u8> message,
+void destroy_runtime_anim_state(AnimState& state, RuntimeAnimStateContext& context); // Xbox 0x00088660
+void message_runtime_anim_state(AnimState& state, std::span<const u8> message,
     RuntimeAnimStateContext& context); // Xbox 0x00088960
-void tick_runtime_anim_state(std::span<u8> state, RuntimeAnimStateContext& context); // Xbox 0x000886B0
+void tick_runtime_anim_state(AnimState& state, RuntimeAnimStateContext& context); // Xbox 0x000886B0
 }

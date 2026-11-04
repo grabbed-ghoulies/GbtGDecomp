@@ -125,10 +125,24 @@ auto record(Bytes&& bytes, RetailRecord<Offset, Stride, Count>, size_t index = 0
     return std::span<Byte>(view.data() + Offset + index * Stride, Stride);
 }
 
-// The bytes of a record kept as a struct, for the functions that still take a retail byte span.
+namespace detail
+{
+template <typename T>
+struct IsSpan : std::false_type
+{
+};
+template <typename E, size_t N>
+struct IsSpan<std::span<E, N>> : std::true_type
+{
+};
+} // namespace detail
+
+// The bytes of a record kept as a struct, for the functions that still take a retail byte span. A span is already
+// the bytes: passing one would give the span object's own pointer and length.
 template <typename T>
 std::span<u8> retail_bytes(T& object)
 {
+    static_assert(!detail::IsSpan<std::remove_cv_t<T>>::value, "retail_bytes takes a struct, not a span");
     static_assert(std::is_trivially_copyable_v<T>);
     return std::span<u8>(reinterpret_cast<u8*>(&object), sizeof(T));
 }

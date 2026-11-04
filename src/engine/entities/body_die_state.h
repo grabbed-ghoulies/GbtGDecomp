@@ -1,4 +1,5 @@
 #pragma once
+#include "body_state_fields.h"
 
 #include "body_action_selection.h"
 #include "actor_clock.h"
@@ -25,17 +26,17 @@ constexpr RetailField<u32, 0x1C> settles{};
 constexpr u32 kSize = 0x20;
 static_assert(retail_fits(kSize, settles));
 } // namespace die_state_parameter
-namespace die_state_field
+struct DieState
 {
-constexpr RetailField<std::array<char, 0x40>, 0x18> animation{}; // the animation's name, copied in
-constexpr RetailField<u32, 0x58> body_bit{}; // raised while the state lasts
-constexpr RetailField<u32, 0x5C> moving_key{}; // the body's moving action (vtable +0x40) is the next key while it moves
-constexpr RetailField<u32, 0x60> faces_view{}; // the body turns toward the view
-constexpr RetailField<u32, 0x64> settles{}; // the body's turn settles each tick (0x00134720)
-constexpr RetailField<u32, 0x68> target{}; // the mind's target at entry; message 0x7C for it clears it
-constexpr u32 kSize = 0x6C;
-static_assert(retail_fits(kSize, target));
-} // namespace die_state_field
+    BodyStateBase base{}; // +0
+    std::array<char, 0x40> animation{}; // +0x18, the animation's name, copied in
+    u32 body_bit = 0; // +0x58, raised while the state lasts
+    u32 moving_key = 0; // +0x5C, the body's moving action (vtable +0x40) is the next key while it moves
+    u32 faces_view = 0; // +0x60, the body turns toward the view
+    u32 settles = 0; // +0x64, the body's turn settles each tick (0x00134720)
+    u32 target = 0; // +0x68, the mind's target at entry; message 0x7C for it clears it
+};
+static_assert(sizeof(DieState) == 0x6C);
 struct RuntimeDieStateContext
 {
     std::span<u8> body;
@@ -53,11 +54,11 @@ struct RuntimeDieStateContext
 };
 
 void die_state_object_sizes(ObjectSizes& output); // Xbox 0x0008C1C0
-bool initialize_runtime_die_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_die_state(DieState& state, std::span<const u8> parameters,
     RuntimeDieStateContext& context); // Xbox 0x0008C240
 // Starts the state's animation (ECX body, EAX state) at a random 0.9..1.1 of its slot's duration.
-void start_runtime_die_animation(std::span<u8> state, RuntimeDieStateContext& context); // Xbox 0x0008C4F0
-void destroy_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context); // Xbox 0x0008C2D0
-void message_runtime_die_state(std::span<u8> state, std::span<const u8> message); // Xbox 0x0008C4D0
-void tick_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context); // Xbox 0x0008C310
+void start_runtime_die_animation(DieState& state, RuntimeDieStateContext& context); // Xbox 0x0008C4F0
+void destroy_runtime_die_state(DieState& state, RuntimeDieStateContext& context); // Xbox 0x0008C2D0
+void message_runtime_die_state(DieState& state, std::span<const u8> message); // Xbox 0x0008C4D0
+void tick_runtime_die_state(DieState& state, RuntimeDieStateContext& context); // Xbox 0x0008C310
 }

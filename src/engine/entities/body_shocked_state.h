@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "body_hit_state.h"
@@ -20,12 +21,12 @@ constexpr RetailField<std::array<char, 0x80>, 0x0C> effect{};
 constexpr u32 kSize = 0x8C;
 static_assert(retail_fits(kSize, effect));
 } // namespace shocked_state_parameter
-namespace shocked_state_field
+struct ShockedState
 {
-constexpr RetailField<u32, 0x18> effect{}; // the effect object, or 0 when its template was not found
-constexpr u32 kSize = 0x1C;
-static_assert(retail_fits(kSize, effect));
-} // namespace shocked_state_field
+    BodyStateBase base{}; // +0
+    u32 effect = 0; // +0x18, the effect object, or 0 when its template was not found
+};
+static_assert(sizeof(ShockedState) == 0x1C);
 struct RuntimeShockedStateContext
 {
     std::span<u8> body;
@@ -42,9 +43,9 @@ struct RuntimeShockedStateContext
     RuntimeBodyRecoveryAction& recovery; // 0x00133F50's views.
 };
 void shocked_state_object_sizes(ObjectSizes& output); // Xbox 0x0009F400
-bool initialize_runtime_shocked_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_shocked_state(ShockedState& state, std::span<const u8> parameters,
     RuntimeShockedStateContext& context); // Xbox 0x0009F480
-void destroy_runtime_shocked_state(std::span<u8> state, RuntimeShockedStateContext& context); // Xbox 0x0009F550
+void destroy_runtime_shocked_state(ShockedState& state, RuntimeShockedStateContext& context); // Xbox 0x0009F550
 void tick_runtime_shocked_state(std::span<u8> state, RuntimeShockedStateContext& context); // Xbox 0x0009F5F0
 // Type 0x80 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_shocked_state_class(std::span<ObjectFactoryType> types,

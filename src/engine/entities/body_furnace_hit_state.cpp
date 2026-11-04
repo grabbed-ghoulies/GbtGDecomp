@@ -18,7 +18,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = furnace_hit_state_field;
 
 std::function<RuntimeFurnaceHitStateContext&(u32)> furnace_hit_context_of;
 
@@ -29,8 +28,8 @@ u32 body_address_of(std::span<const u8> state)
 
 bool construct_furnace_hit_state_view(FactoryObject& object, std::span<const u8>)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_furnace_hit_state(state, furnace_hit_context_of(body_address_of(state)));
+    FurnaceHitState& state = body_state_view<FurnaceHitState>({object.bytes.get(), object.size});
+    return initialize_runtime_furnace_hit_state(state, furnace_hit_context_of(state.base.body));
 }
 
 void destroy_furnace_hit_state_view(FactoryObject& object)
@@ -50,12 +49,12 @@ const ObjectFactoryVtable* furnace_hit_state_lifecycle()
 // Xbox 0x00096A30
 void furnace_hit_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(FurnaceHitState);
     output.parameters = 0xC;
 }
 
 // Xbox 0x00096AB0
-bool initialize_runtime_furnace_hit_state(std::span<u8> state, RuntimeFurnaceHitStateContext& context)
+bool initialize_runtime_furnace_hit_state(FurnaceHitState& state, RuntimeFurnaceHitStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
@@ -84,17 +83,17 @@ bool initialize_runtime_furnace_hit_state(std::span<u8> state, RuntimeFurnaceHit
     {
         context.state.secondary_mode = 0; // Actor +0x30C.
     }
-    set(state, field::start, actor_world_position(actor)); // 0x000412A0
-    set(state, field::start_euler, actor_world_euler(actor)); // 0x00041820
+    state.start = actor_world_position(actor); // 0x000412A0
+    state.start_euler = actor_world_euler(actor); // 0x00041820
     const u32 furnace = read_u32(body, 0x26C);
-    set(state, field::furnace, knockdown.actor_position(furnace)); // 0x000412A0, ESI body +0x26C
+    state.furnace = knockdown.actor_position(furnace); // 0x000412A0, ESI body +0x26C
     const Vec3 toward = knockdown.actor_position(furnace);
     const Vec3 at = actor_world_position(actor);
     float yaw = 0.f;
     runtime_direction_angle(Vec3{toward.x - at.x, toward.y - at.y, toward.z - at.z}, yaw); // 0x00105F90
-    set(state, field::facing, Vec3{0.f, yaw + 3.1415927f, 0.f}); // DAT_0032B148.
-    const Vec3 start = get(state, field::start);
-    const Vec3 end = get(state, field::furnace);
+    state.facing = Vec3{0.f, yaw + 3.1415927f, 0.f}; // DAT_0032B148.
+    const Vec3 start = state.start;
+    const Vec3 end = state.furnace;
     float heading = 0.f;
     runtime_direction_angle(Vec3{end.x - start.x, end.y - start.y, end.z - start.z}, heading); // 0x00105F90
     // x87: the remainder stays on the stack for the first test; the float stored beside it is what moves.
@@ -110,11 +109,11 @@ bool initialize_runtime_furnace_hit_state(std::span<u8> state, RuntimeFurnaceHit
     }
     if (1.5707964f > engine_absolute(turn)) // 0x00152BB0, DAT_0032B140
     {
-        Vec3 facing = get(state, field::facing);
+        Vec3 facing = state.facing;
         facing.y = facing.y - 3.1415927f;
-        set(state, field::facing, facing);
+        state.facing = facing;
     }
-    set(state, field::remaining, 1.f); // DAT_0032B0F8.
+    state.remaining = 1.f; // DAT_0032B0F8.
     actor.anchor = knockdown.default_position; // Actor +0x3C, DAT_0050DD80.
     set(body, body_field::velocity, knockdown.default_position);
     knockdown.callouts(0x2C, nullptr); // 0x0003BE20 over actor +0x8C, options 0
@@ -146,26 +145,26 @@ void destroy_runtime_furnace_hit_state(std::span<u8> state, RuntimeFurnaceHitSta
 }
 
 // Xbox 0x00096FC0
-void tick_runtime_furnace_hit_state(std::span<u8> state, RuntimeFurnaceHitStateContext& context)
+void tick_runtime_furnace_hit_state(FurnaceHitState& state, RuntimeFurnaceHitStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
     Actor& actor = knockdown.actor;
-    set(state, field::elapsed, runtime_actor_step(actor, knockdown.clock) + get(state, field::elapsed));
+    state.base.elapsed = runtime_actor_step(actor, knockdown.clock) + state.base.elapsed;
     level_body_euler(body);
     const float step = runtime_actor_step(actor, knockdown.clock);
     bool done = false;
-    if (get(state, field::remaining) > 0.f)
+    if (state.remaining > 0.f)
     {
-        const float left = get(state, field::remaining) - step;
-        set(state, field::remaining, left);
+        const float left = state.remaining - step;
+        state.remaining = left;
         if (!(0.f < left))
         {
-            set(state, field::remaining, 0.f);
+            state.remaining = 0.f;
             done = true;
         }
     }
-    const float behind = get(state, field::remaining) - 1.f; // DAT_0032B0F8.
+    const float behind = state.remaining - 1.f; // DAT_0032B0F8.
     float slide = behind * -1.f; // DAT_0032B120.
     if (slide > 1.f)
     {
@@ -175,8 +174,8 @@ void tick_runtime_furnace_hit_state(std::span<u8> state, RuntimeFurnaceHitStateC
     {
         slide = 0.f;
     }
-    const Vec3 start = get(state, field::start);
-    const Vec3 end = get(state, field::furnace);
+    const Vec3 start = state.start;
+    const Vec3 end = state.furnace;
     const Vec3 position{(end.x - start.x) * slide + start.x, (end.y - start.y) * slide + start.y,
         (end.z - start.z) * slide + start.z};
     float turn = behind * -2.f; // DAT_0032B14C.
@@ -188,8 +187,8 @@ void tick_runtime_furnace_hit_state(std::span<u8> state, RuntimeFurnaceHitStateC
     {
         turn = 0.f;
     }
-    const Vec3 from = get(state, field::start_euler);
-    const Vec3 to = get(state, field::facing);
+    const Vec3 from = state.start_euler;
+    const Vec3 to = state.facing;
     const Vec3 euler{step_runtime_angle_toward(to.x, from.x, turn), step_runtime_angle_toward(to.y, from.y, turn),
         step_runtime_angle_toward(to.z, from.z, turn)}; // 0x001013A0
     actor_set_world_position(actor, position); // 0x00041730, ESI the position, EDI actor

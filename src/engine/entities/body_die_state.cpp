@@ -9,9 +9,7 @@
 
 namespace gbtg
 {
-namespace field = die_state_field;
 namespace parameter = die_state_parameter;
-namespace base = body_state_field;
 
 namespace
 {
@@ -20,26 +18,26 @@ namespace
 // Xbox 0x0008C1C0
 void die_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(DieState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0008C240
-bool initialize_runtime_die_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_die_state(DieState& state, std::span<const u8> parameters,
     RuntimeDieStateContext& context)
 {
     const auto body = context.body;
-    set(state, field::body_bit, get(parameters, parameter::body_bit));
-    set(state, field::moving_key, get(parameters, parameter::moving_key));
-    set(state, field::faces_view, get(parameters, parameter::faces_view));
-    set(state, field::settles, get(parameters, parameter::settles));
-    set(state, field::target, context.mind_target());
+    state.body_bit = get(parameters, parameter::body_bit);
+    state.moving_key = get(parameters, parameter::moving_key);
+    state.faces_view = get(parameters, parameter::faces_view);
+    state.settles = get(parameters, parameter::settles);
+    state.target = context.mind_target();
     const char* name = context.string_at(get(parameters, parameter::animation));
     if (name == nullptr)
     {
         throw Error("die state parameters name no animation string");
     }
-    char* output = field_data(state, field::animation);
+    char* output = state.animation.data();
     char character;
     do
     {
@@ -48,7 +46,7 @@ bool initialize_runtime_die_state(std::span<u8> state, std::span<const u8> param
     } while (character != '\0');
     body[0x38] = 1;
     body[0x39] = 1;
-    const u32 bit = get(state, field::body_bit);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] |= u8(1u << (bit & 7));
@@ -58,10 +56,10 @@ bool initialize_runtime_die_state(std::span<u8> state, std::span<const u8> param
 }
 
 // Xbox 0x0008C4F0
-void start_runtime_die_animation(std::span<u8> state, RuntimeDieStateContext& context)
+void start_runtime_die_animation(DieState& state, RuntimeDieStateContext& context)
 {
     const AnimationRecord* record = select_runtime_body_animation(
-        field_data(state, field::animation), context.actions);
+        state.animation.data(), context.actions);
     if (record == nullptr)
     {
         return;
@@ -88,9 +86,9 @@ void start_runtime_die_animation(std::span<u8> state, RuntimeDieStateContext& co
 }
 
 // Xbox 0x0008C2D0
-void destroy_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context)
+void destroy_runtime_die_state(DieState& state, RuntimeDieStateContext& context)
 {
-    const u32 bit = get(state, field::body_bit);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
@@ -98,21 +96,21 @@ void destroy_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& cont
 }
 
 // Xbox 0x0008C4D0
-void message_runtime_die_state(std::span<u8> state, std::span<const u8> message)
+void message_runtime_die_state(DieState& state, std::span<const u8> message)
 {
-    if (read_u32(message, 0) == 0x7C && read_u32(message, 4) == get(state, field::target))
+    if (read_u32(message, 0) == 0x7C && read_u32(message, 4) == state.target)
     {
-        set(state, field::target, 0);
+        state.target = 0;
     }
 }
 
 // Xbox 0x0008C310
-void tick_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context)
+void tick_runtime_die_state(DieState& state, RuntimeDieStateContext& context)
 {
     const auto body = context.body;
     const Actor& actor = context.actor;
-    set(state, base::elapsed, runtime_actor_step(actor, context.clock) + get(state, base::elapsed));
-    if (get(state, field::moving_key) != 0)
+    state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
+    if (state.moving_key != 0)
     {
         const float x = get(body, body_field::motion).x;
         const float y = get(body, body_field::motion).y;
@@ -122,16 +120,16 @@ void tick_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context
         {
             key = context.body_slot_key(0x40);
         }
-        set(state, base::next_key, key);
+        state.base.next_key = key;
     }
-    if (get(state, field::faces_view) != 0)
+    if (state.faces_view != 0)
     {
         const Vec3 point = context.view_position;
         face_runtime_body_point(body, actor, point);
     }
     else
     {
-        const u32 target = get(state, field::target);
+        const u32 target = state.target;
         if (target == 0)
         {
             level_body_euler(body);
@@ -146,7 +144,7 @@ void tick_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context
             face_runtime_body_point(body, actor, actor_world_position(*other));
         }
     }
-    if (get(state, field::settles) != 0)
+    if (state.settles != 0)
     {
         settle_runtime_body_turn(body, actor);
     }
@@ -174,6 +172,6 @@ void tick_runtime_die_state(std::span<u8> state, RuntimeDieStateContext& context
             }
         }
     }
-    set(state, base::next_key, context.body_slot_key(0x20));
+    state.base.next_key = context.body_slot_key(0x20);
 }
 }

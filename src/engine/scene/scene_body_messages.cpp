@@ -317,7 +317,8 @@ void SceneBodyMessages::bind_action_children()
                 arc->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_arc_state({child->bytes.get(), child->size}, words, arc_context()); // 0x0008DD30
+                    message_runtime_arc_state(body_state_view<ArcState>({child->bytes.get(), child->size}),
+                        words, arc_context()); // 0x0008DD30
                 };
             }
             children_[child->bytes.get()] = arc.get();
@@ -365,7 +366,8 @@ void SceneBodyMessages::bind_action_children()
                 bandaged->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_bandaged_state({child->bytes.get(), child->size}, words,
+                    message_runtime_bandaged_state(body_state_view<BandagedState>({child->bytes.get(), child->size}),
+                        words,
                         bandaged_context()); // 0x0008A8E0
                 };
             }
@@ -381,7 +383,8 @@ void SceneBodyMessages::bind_action_children()
                 blood_suck->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_blood_suck_state({child->bytes.get(), child->size}, words,
+                    message_runtime_blood_suck_state(body_state_view<BloodSuckState>({child->bytes.get(), child->size}),
+                        words,
                         blood_suck_context()); // 0x0008BB90
                 };
             }
@@ -449,7 +452,7 @@ void SceneBodyMessages::bind_action_children()
                 swing->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_swing_state({child->bytes.get(), child->size}, words,
+                    message_runtime_swing_state(body_state_view<SwingState>({child->bytes.get(), child->size}), words,
                         swing_context()); // 0x00098620
                 };
             }
@@ -1013,7 +1016,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             throw_context()); // 0x000A3990
         return;
     case 0x66:
-        tick_runtime_arc_state({action.bytes.get(), action.size}, arc_context()); // 0x0008DC70
+        tick_runtime_arc_state(body_state_view<ArcState>({action.bytes.get(), action.size}),
+            arc_context()); // 0x0008DC70
         return;
     case 0x65:
         tick_runtime_drone_appear_state(body_state_view<DroneAppearState>({action.bytes.get(), action.size}),
@@ -1054,11 +1058,13 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         auto& context = bandaged_context();
         context.input = device;
-        tick_runtime_bandaged_state({action.bytes.get(), action.size}, context); // 0x0008A5F0
+        tick_runtime_bandaged_state(body_state_view<BandagedState>({action.bytes.get(), action.size}),
+            context); // 0x0008A5F0
         return;
     }
     case 0x61:
-        tick_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B6C0
+        tick_runtime_blood_suck_state(body_state_view<BloodSuckState>({action.bytes.get(), action.size}),
+            blood_suck_context()); // 0x0008B6C0
         return;
     case 0x72:
         tick_runtime_grab_throw_state(body_state_view<GrabThrowState>({action.bytes.get(), action.size}),
@@ -1171,7 +1177,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             slide_context()); // 0x000A0F90
         return;
     case 0x78:
-        tick_runtime_swing_state({action.bytes.get(), action.size}, swing_context()); // 0x00098460
+        tick_runtime_swing_state(body_state_view<SwingState>({action.bytes.get(), action.size}),
+            swing_context()); // 0x00098460
         return;
     case 0x8A:
     {
@@ -1377,7 +1384,8 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     switch (action.type)
     {
     case 0x61:
-        step_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B9C0
+        step_runtime_blood_suck_state(body_state_view<BloodSuckState>({action.bytes.get(), action.size}),
+            blood_suck_context()); // 0x0008B9C0
         return;
     case 0x72:
         step_runtime_grab_throw_state(body_state_view<GrabThrowState>({action.bytes.get(), action.size}),
@@ -3182,7 +3190,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 // 0x0008DD30 reads the reply's id: only 0x51 acts.
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_arc_state({second.bytes.get(), second.size}, words, arc_context());
+                message_runtime_arc_state(body_state_view<ArcState>({second.bytes.get(), second.size}),
+                    words, arc_context());
                 return;
             }
             if (type == 0x72)
@@ -3207,7 +3216,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_bandaged_state({second.bytes.get(), second.size}, words, bandaged_context());
+                message_runtime_bandaged_state(body_state_view<BandagedState>({second.bytes.get(), second.size}),
+                    words, bandaged_context());
                 return;
             }
             if (type == 0x61)
@@ -3219,7 +3229,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_blood_suck_state({second.bytes.get(), second.size}, words, blood_suck_context());
+                message_runtime_blood_suck_state(body_state_view<BloodSuckState>({second.bytes.get(), second.size}),
+                    words, blood_suck_context());
                 return;
             }
             if (type == 0x79)

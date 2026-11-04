@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "input_tracking_record.h"
 
 #include "actor_clock.h"
 #include "actor_factory_owner.h"
@@ -34,35 +36,36 @@ constexpr RetailField<std::array<char, 0x80>, 0xA4> struggle_sound{};
 constexpr u32 kSize = 0x124;
 static_assert(retail_fits(kSize, struggle_sound));
 } // namespace blood_suck_state_parameter
-namespace blood_suck_state_field
+struct BloodSuckState
 {
-constexpr RetailField<u32, 0x18> grab_callout{};
-constexpr RetailField<u16, 0x1C> grab_shape{};
-constexpr RetailField<u32, 0x20> target{}; // the target's actor; message 0x7C from it clears it
-constexpr RetailField<u32, 0x24> grabbed{}; // the target accepted message 0x3C
-constexpr RetailField<u32, 0x28> unk_28{}; // cleared by the constructor only
-constexpr RetailField<u32, 0x2C> latched{}; // the body's latches are raised (0x0001FC40)
-constexpr RetailField<u32, 0x30> hidden{}; // the target's render bins (and its held weapon's) are off
-constexpr RetailField<u32, 0x34> held{}; // the target body's holds, live holds and bit 0x3A are raised
-constexpr RetailField<u32, 0x38> thrown{}; // the throw (0x0008BF90) has hit the target
-// Four animation records (0x0003AAA0); set when the record was found.
-constexpr RetailField<u32, 0x3C> reach_animation{};
-constexpr RetailField<u32, 0x40> bite_animation{};
-constexpr RetailField<u32, 0x44> struggle_animation{};
-constexpr RetailField<u32, 0x48> throw_animation{};
-constexpr RetailField<u32, 0x4C> phase{};
-constexpr RetailField<float, 0x50> drain_timer{}; // a second between bites
-constexpr u32 kTracking = 0x54; // 0x00109810's record over the target's pad: +0x14 (state +0x68) 1 bite, 2 struggle
-constexpr RetailField<float, 0x60> struggle{}; // the tracking's +0xC; 30 (DAT_0032B108) throws
-constexpr RetailField<u32, 0x68> tracking_state{};
-constexpr RetailField<Vec3, 0x6C> grab_start{}; // where the target was grabbed, its height under the bound centre
-constexpr RetailField<float, 0x78> grab_position{}; // slot 0's animation position when grabbed (0x0003B1B0)
-constexpr RetailField<std::array<char, 0x80>, 0x7C> bite_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0xFC> struggle_sound{};
-constexpr RetailField<u32, 0x17C> sound_playing{}; // actor sound slot 1
-constexpr u32 kSize = 0x180;
-static_assert(retail_fits(kSize, sound_playing));
-} // namespace blood_suck_state_field
+    BodyStateBase base{}; // +0
+    u32 grab_callout = 0; // +0x18
+    u16 grab_shape = 0; // +0x1C
+    std::array<u8, 2> unk_1E{}; // +0x1E, padding
+    u32 target = 0; // +0x20, the target's actor; message 0x7C from it clears it
+    u32 grabbed = 0; // +0x24, the target accepted message 0x3C
+    u32 unk_28 = 0; // +0x28, cleared by the constructor only
+    u32 latched = 0; // +0x2C, the body's latches are raised (0x0001FC40)
+    u32 hidden = 0; // +0x30, the target's render bins (and its held weapon's) are off
+    u32 held = 0; // +0x34, the target body's holds, live holds and bit 0x3A are raised
+    u32 thrown = 0; // +0x38, the throw (0x0008BF90) has hit the target
+    // +0x3C: Four animation records (0x0003AAA0); set when the record was found.
+    u32 reach_animation = 0;
+    u32 bite_animation = 0; // +0x40
+    u32 struggle_animation = 0; // +0x44
+    u32 throw_animation = 0; // +0x48
+    u32 phase = 0; // +0x4C
+    float drain_timer = 0.f; // +0x50, a second between bites
+    // +0x54: 0x00109810's record over the target's pad: its state is 1 bite, 2 struggle; its accumulation at 30
+    // (DAT_0032B108) throws.
+    InputTrackingRecord tracking{};
+    Vec3 grab_start{}; // +0x6C, where the target was grabbed, its height under the bound centre
+    float grab_position = 0.f; // +0x78, slot 0's animation position when grabbed (0x0003B1B0)
+    std::array<char, 0x80> bite_sound{}; // +0x7C
+    std::array<char, 0x80> struggle_sound{}; // +0xFC
+    u32 sound_playing = 0; // +0x17C, actor sound slot 1
+};
+static_assert(sizeof(BloodSuckState) == 0x180);
 // The target the state reads: a player, with its scene views.
 struct RuntimeBloodSuckTarget
 {
@@ -100,27 +103,29 @@ struct RuntimeBloodSuckStateContext
     std::function<RuntimeBloodSuckTarget(u32 actor_address)> target_at;
 };
 void blood_suck_state_object_sizes(ObjectSizes& output); // Xbox 0x0008B1E0
-bool initialize_runtime_blood_suck_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_blood_suck_state(BloodSuckState& state, std::span<const u8> parameters,
     RuntimeBloodSuckStateContext& context); // Xbox 0x0008B260
-void destroy_runtime_blood_suck_state(std::span<u8> state, RuntimeBloodSuckStateContext& context); // Xbox 0x0008B530
-void tick_runtime_blood_suck_state(std::span<u8> state, RuntimeBloodSuckStateContext& context); // Xbox 0x0008B6C0
+void destroy_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckStateContext& context); // Xbox 0x0008B530
+void tick_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckStateContext& context); // Xbox 0x0008B6C0
 // The target held in front of the actor, facing it: pulled in over the grab (phase 1), then kept there (2, 3).
-void step_runtime_blood_suck_state(std::span<u8> state, RuntimeBloodSuckStateContext& context); // Xbox 0x0008B9C0
-void message_runtime_blood_suck_state(std::span<u8> state, std::span<const u32> message,
+void step_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckStateContext& context); // Xbox 0x0008B9C0
+void message_runtime_blood_suck_state(BloodSuckState& state, std::span<const u32> message,
     RuntimeBloodSuckStateContext& context); // Xbox 0x0008BB90
-void set_runtime_blood_suck_phase(u32 phase, std::span<u8> state,
+void set_runtime_blood_suck_phase(u32 phase, BloodSuckState& state,
     RuntimeBloodSuckStateContext& context); // Xbox 0x0008BBD0, EDI state
-void start_runtime_blood_suck_animation(std::span<const u8> state,
+void start_runtime_blood_suck_animation(const BloodSuckState& state,
     RuntimeBloodSuckStateContext& context); // Xbox 0x0008BD30, EAX state
 // The grab point: the actor's grab shape's sphere centre, when it meets the target's model bound.
-bool runtime_blood_suck_grab_point(u32 target_record, std::span<const u8> state, Vec3& output,
+bool runtime_blood_suck_grab_point(u32 target_record, const BloodSuckState& state, Vec3& output,
     RuntimeBloodSuckStateContext& context); // Xbox 0x0008BD80, EAX target record, ESI actor
 // A bite a second: the target loses one energy (phase 4 at none) unless it is down or may not be hurt.
-bool drain_runtime_blood_suck_target(std::span<u8> state, RuntimeBloodSuckStateContext& context); // Xbox 0x0008BE60, EAX state
-void track_runtime_blood_suck_struggle(std::span<u8> state,
+bool drain_runtime_blood_suck_target(BloodSuckState& state,
+    RuntimeBloodSuckStateContext& context); // Xbox 0x0008BE60, EAX state
+void track_runtime_blood_suck_struggle(BloodSuckState& state,
     RuntimeBloodSuckStateContext& context); // Xbox 0x0008BF50, EAX state
 // The throw: the parameters' hit (0x47, else the actor's 0x28) on the target, its death motion, and message 0x6E.
-void throw_runtime_blood_suck_target(std::span<u8> state, RuntimeBloodSuckStateContext& context); // Xbox 0x0008BF90, EAX actor
+void throw_runtime_blood_suck_target(BloodSuckState& state,
+    RuntimeBloodSuckStateContext& context); // Xbox 0x0008BF90, EAX actor
 // The body is down (bit block byte 0 bit 7), or a player that may not be hurt now.
 bool runtime_body_down_or_unhurtable(std::span<const u8> body, const Actor& actor,
     const EntityBitBlock& bits, std::span<const u32, 2> blocked, std::span<const u8> modes,

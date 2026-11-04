@@ -23,7 +23,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = swing_state_field;
 namespace parameter = swing_state_parameter;
 
 constexpr float kTurn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
@@ -57,26 +56,24 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-constexpr std::array<size_t, 7> kAnimationOffsets{0x104, 0x108, 0x10C, 0x110, 0x114, 0x118, 0x11C};
-
-size_t animation_index(size_t offset)
+// Their order in SwingRecords, the words' order in the state.
+enum SwingAnimation : size_t
 {
-    for (size_t index = 0; index < kAnimationOffsets.size(); ++index)
-    {
-        if (kAnimationOffsets[index] == offset)
-        {
-            return index;
-        }
-    }
-    throw Error("swing state animation word outside +0x104..+0x11C");
-}
+    kGrabAnimation,
+    kLiftPositiveAnimation,
+    kLiftNegativeAnimation,
+    kSwingPositiveAnimation,
+    kSwingNegativeAnimation,
+    kDropPositiveAnimation,
+    kDropNegativeAnimation
+};
 
 // The record 0x0001AFA0 starts (ECX the state's word); retail reads a missing one through address zero.
-const AnimationRecord& record_at(std::span<const u8> state, size_t offset)
+const AnimationRecord& record_at(const SwingState& state, SwingAnimation animation)
 {
-    const auto found = swing_records.find(state.data());
+    const auto found = swing_records.find(body_state_key(state));
     const AnimationRecord* record = found == swing_records.end() ? nullptr
-        : found->second.animations[animation_index(offset)];
+        : found->second.animations[animation];
     if (record == nullptr)
     {
         throw Error("swing state starts a missing animation record through address zero");
@@ -84,23 +81,16 @@ const AnimationRecord& record_at(std::span<const u8> state, size_t offset)
     return *record;
 }
 
-u32 body_address_of(std::span<const u8> state)
-{
-    u32 address;
-    std::memcpy(&address, state.data() + 8, 4);
-    return address;
-}
-
 bool construct_swing_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_swing_state(state, parameters, swing_context_of(body_address_of(state)));
+    SwingState& state = body_state_view<SwingState>({object.bytes.get(), object.size});
+    return initialize_runtime_swing_state(state, parameters, swing_context_of(state.base.body));
 }
 
 void destroy_swing_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_swing_state(state, swing_context_of(body_address_of(state)));
+    SwingState& state = body_state_view<SwingState>({object.bytes.get(), object.size});
+    destroy_runtime_swing_state(state, swing_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* swing_state_lifecycle()
@@ -155,16 +145,16 @@ const EntityBonePose* shape_pose(const Actor& actor)
     return pose != nullptr ? pose : actor.model->primary_shape_pose;
 }
 
-i32 effect_slot(std::span<const u8> state, size_t index)
+i32 effect_slot(const SwingState& state, size_t index)
 {
-    return std::bit_cast<i32>(read_u32(state, field::effect_0.offset + index * 8));
+    return state.effects[index].slot;
 }
 
-void set_effect(std::span<u8> state, size_t index, i32 slot, const u8* shape)
+void set_effect(SwingState& state, size_t index, i32 slot, const u8* shape)
 {
-    put_word(state, field::effect_0.offset + index * 8, std::bit_cast<u32>(slot));
-    put_word(state, field::effect_shape_0.offset + index * 8, shape != nullptr ? 1u : 0u);
-    swing_records[state.data()].shapes[index] = shape;
+    state.effects[index].slot = slot;
+    state.effects[index].shape = shape != nullptr ? 1u : 0u;
+    swing_records[body_state_key(state)].shapes[index] = shape;
 }
 
 // The inlined 0x00152BE0 wrap into [-pi, pi): the x87 remainder is compared, its float kept.
@@ -261,7 +251,7 @@ float sample_spin_curve(float time)
 }
 
 // Xbox 0x00099120, EAX state
-void release_runtime_swing_effects(std::span<u8> state)
+void release_runtime_swing_effects(SwingState& state)
 {
     for (size_t index = 0; index < 4; ++index)
     {
@@ -282,7 +272,7 @@ void release_runtime_swing_effects(std::span<u8> state)
 }
 
 // Xbox 0x00098F40, EAX body
-void start_runtime_swing_effects(std::span<u8> state, RuntimeSwingStateContext& context)
+void start_runtime_swing_effects(SwingState& state, RuntimeSwingStateContext& context)
 {
     const u32 held = held_weapon(context);
     if (held == 0)
@@ -302,7 +292,7 @@ void start_runtime_swing_effects(std::span<u8> state, RuntimeSwingStateContext& 
             center); // 0x00056330
         g_actor_creation_options.position = center;
         g_actor_creation_options.flags |= 1;
-        const char* name = field_data(state, field::trail_effect);
+        const char* name = state.trail_effect.data();
         if (std::memcmp(name, "aid_", 4) != 0)
         {
             continue;
@@ -328,7 +318,7 @@ void start_runtime_swing_effects(std::span<u8> state, RuntimeSwingStateContext& 
 }
 
 // Xbox 0x000991B0, ECX state, EAX body
-void update_runtime_swing_effects(std::span<u8> state, RuntimeSwingStateContext& context)
+void update_runtime_swing_effects(SwingState& state, RuntimeSwingStateContext& context)
 {
     const u32 held = held_weapon(context);
     if (held == 0)
@@ -338,7 +328,7 @@ void update_runtime_swing_effects(std::span<u8> state, RuntimeSwingStateContext&
     }
     const Actor& weapon = context.pickup.weapon_at(held).actor;
     const Vec3 euler = actor_world_euler(weapon); // 0x00041820
-    const auto& records = swing_records[state.data()];
+    const auto& records = swing_records[body_state_key(state)];
     for (size_t index = 0; index < 4; ++index)
     {
         const i32 slot = effect_slot(state, index);
@@ -360,7 +350,7 @@ void update_runtime_swing_effects(std::span<u8> state, RuntimeSwingStateContext&
 }
 
 // Xbox 0x00098780
-void approach_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext& context)
+void approach_runtime_swing_weapon(SwingState& state, RuntimeSwingStateContext& context)
 {
     const u32 weapon_address = mind_weapon(context);
     if (weapon_address == 0)
@@ -386,10 +376,10 @@ void approach_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext
     }
     const MinaPlayer* player = first_player(context.pickup.animation);
     const float fraction = player == nullptr ? 0.f : player->position;
-    const Vec3 from = get(state, field::start_euler);
+    const Vec3 from = state.start_euler;
     const Vec3 euler{step_runtime_angle_toward(0.f, from.x, fraction), step_runtime_angle_toward(yaw, from.y, fraction),
         step_runtime_angle_toward(0.f, from.z, fraction)}; // 0x001013A0
-    const Vec3 start = get(state, field::start_position);
+    const Vec3 start = state.start_position;
     const Vec3 moved{(point.x - start.x) * fraction + start.x, (point.y - start.y) * fraction + start.y,
         (point.z - start.z) * fraction + start.z};
     actor_set_world_position(actor, moved); // 0x00041730
@@ -400,7 +390,7 @@ void approach_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext
 }
 
 // Xbox 0x00098E00, EAX state
-bool attach_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext& context)
+bool attach_runtime_swing_weapon(SwingState& state, RuntimeSwingStateContext& context)
 {
     const u32 weapon_address = mind_weapon(context);
     if (weapon_address == 0)
@@ -413,8 +403,8 @@ bool attach_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext& 
     auto& weapon = context.pickup.weapon_at(weapon_address);
     const Vec3 at = actor_world_position(weapon.actor); // 0x000412A0
     const Vec3 euler = actor_world_euler(weapon.actor); // 0x00041820
-    set(state, field::weapon_position, at);
-    set(state, field::weapon_euler, euler);
+    state.weapon_position = at;
+    state.weapon_euler = euler;
     if (!attach_runtime_player_weapon(weapon, 0, context.pickup.attachment, context.pickup.default_position,
         context.pickup.default_euler)) // 0x0001B190, EAX the weapon
     {
@@ -494,11 +484,11 @@ u32 pick_runtime_swing_side(RuntimeSwingStateContext& context)
 }
 
 // Xbox 0x00098B30, EBX state, XMM0 direction
-void swing_runtime_weapon(std::span<u8> state, const AnimationRecord& record, float direction,
+void swing_runtime_weapon(SwingState& state, const AnimationRecord& record, float direction,
     RuntimeSwingStateContext& context)
 {
-    set(state, field::direction, direction);
-    set(state, field::spin_euler, actor_world_euler(context.pickup.actor)); // 0x00041820, EDI state +0x40
+    state.direction = direction;
+    state.spin_euler = actor_world_euler(context.pickup.actor); // 0x00041820, EDI state +0x40
     const u32 weapon = mind_weapon(context);
     if (weapon == 0)
     {
@@ -518,7 +508,7 @@ void swing_runtime_weapon(std::span<u8> state, const AnimationRecord& record, fl
 }
 
 // Xbox 0x00098C10, EAX state
-bool spin_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext& context)
+bool spin_runtime_swing_weapon(SwingState& state, RuntimeSwingStateContext& context)
 {
     Actor& actor = context.pickup.actor;
     const u32 weapon = mind_weapon(context);
@@ -526,25 +516,25 @@ bool spin_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext& co
     {
         throw Error("0x00098C10 trails a missing weapon through address zero");
     }
-    float trail = get(state, field::trail_timer);
+    float trail = state.trail_timer;
     ActorTrailContext trails = context.trails(weapon);
     request_actor_video_rate_trail(context.pickup.weapon_at(weapon).actor, std::bit_cast<float>(0x3E19999Au), trail,
         trails); // The inlined 0x0013B1B0: 0x0013B030 at half the video rate.
-    set(state, field::trail_timer, trail);
+    state.trail_timer = trail;
     bool done = false;
-    const float timer = get(state, field::spin_timer);
+    const float timer = state.spin_timer;
     if (timer > 0.f)
     {
         const float left = timer - runtime_actor_step(actor, context.pickup.clock);
-        set(state, field::spin_timer, left);
+        state.spin_timer = left;
         if (!(0.f < left))
         {
-            set(state, field::spin_timer, 0.f);
+            state.spin_timer = 0.f;
             done = true;
         }
     }
-    const float time = 1.f - get(state, field::spin_timer) * std::bit_cast<float>(0x3F2AAAABu); // DAT_0032B204.
-    const float yaw = sample_spin_curve(time) * kTurn * get(state, field::direction) + get(state, field::spin_euler).y;
+    const float time = 1.f - state.spin_timer * std::bit_cast<float>(0x3F2AAAABu); // DAT_0032B204.
+    const float yaw = sample_spin_curve(time) * kTurn * state.direction + state.spin_euler.y;
     wrap_runtime_euler(Vec3{0.f, yaw, 0.f}, actor.euler); // 0x00105AA0
     actor.xform_valid = 0;
     put_body_vec3(context.pickup.body, 0x72C, actor_world_euler(actor)); // 0x00041820 into body +0x72C
@@ -552,7 +542,7 @@ bool spin_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext& co
 }
 
 // Xbox 0x00099280
-void release_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext& context)
+void release_runtime_swing_weapon(SwingState& state, RuntimeSwingStateContext& context)
 {
     const auto body = context.pickup.body;
     const u32 weapon = mind_weapon(context);
@@ -561,11 +551,11 @@ void release_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext&
     {
         Actor& released = context.pickup.weapon_at(held).actor;
         detach_runtime_body_actor(body, context.pickup.attachment.ownership); // 0x0001B4C0
-        actor_set_world_position(released, get(state, field::weapon_position)); // 0x00041730
-        wrap_runtime_euler(get(state, field::weapon_euler), released.euler); // 0x00105AA0
+        actor_set_world_position(released, state.weapon_position); // 0x00041730
+        wrap_runtime_euler(state.weapon_euler, released.euler); // 0x00105AA0
         released.xform_valid = 0;
     }
-    if (get(state, field::counted) != 0)
+    if (state.counted != 0)
     {
         const u32 count = get(body, body_field::holds) - 1;
         set(body, body_field::holds, count);
@@ -573,8 +563,8 @@ void release_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext&
         {
             send_words(context.body_message, {0x4A});
         }
-        set(state, field::counted, 0);
-        put_float(body, 0x1C, get(state, field::start_position).y); // Body +0x18..+0x20 keeps x and z.
+        state.counted = 0;
+        put_float(body, 0x1C, state.start_position.y); // Body +0x18..+0x20 keeps x and z.
     }
     if (weapon == 0)
     {
@@ -597,7 +587,7 @@ void release_runtime_swing_weapon(std::span<u8> state, RuntimeSwingStateContext&
 }
 
 // Xbox 0x000993A0
-void start_runtime_swing_cutscene(std::span<u8> state, RuntimeSwingStateContext& context)
+void start_runtime_swing_cutscene(SwingState& state, RuntimeSwingStateContext& context)
 {
     const char* suffix = runtime_door_room_suffix(context.room, context.aliases); // 0x001410F0
     if (suffix == nullptr)
@@ -625,8 +615,8 @@ void start_runtime_swing_cutscene(std::span<u8> state, RuntimeSwingStateContext&
         return;
     }
     RuntimeCutsceneInstance* instance = start_scene_cutscene(name, 0, 0, context.cutscenes()); // 0x0004EDA0
-    swing_records[state.data()].cutscene = instance;
-    set(state, field::cutscene, instance == nullptr ? 0u : context.heap_address(instance));
+    swing_records[body_state_key(state)].cutscene = instance;
+    state.cutscene = instance == nullptr ? 0u : context.heap_address(instance);
     if (instance == nullptr)
     {
         return;
@@ -638,39 +628,39 @@ void start_runtime_swing_cutscene(std::span<u8> state, RuntimeSwingStateContext&
 }
 
 // Xbox 0x00098680, ECX state, EAX phase
-void start_runtime_swing_phase(std::span<u8> state, u32 phase, RuntimeSwingStateContext& context)
+void start_runtime_swing_phase(SwingState& state, u32 phase, RuntimeSwingStateContext& context)
 {
-    set(state, field::phase, phase);
+    state.phase = phase;
     auto& actions = context.pickup.attachment.actions;
     switch (phase)
     {
     case 1:
-        start_runtime_body_animation_record(record_at(state, field::grab.offset), actions); // 0x0001AFA0
-        set(state, field::start_position, actor_world_position(context.pickup.actor)); // 0x000412A0, EDI +0x4C
-        set(state, field::start_euler, actor_world_euler(context.pickup.actor)); // 0x00041820, EDI +0x58
+        start_runtime_body_animation_record(record_at(state, kGrabAnimation), actions); // 0x0001AFA0
+        state.start_position = actor_world_position(context.pickup.actor); // 0x000412A0, EDI +0x4C
+        state.start_euler = actor_world_euler(context.pickup.actor); // 0x00041820, EDI +0x58
         return;
     case 2:
-        start_runtime_body_animation_record(record_at(state, field::lift_positive.offset), actions);
+        start_runtime_body_animation_record(record_at(state, kLiftPositiveAnimation), actions);
         return;
     case 3:
-        start_runtime_body_animation_record(record_at(state, field::lift_negative.offset), actions);
+        start_runtime_body_animation_record(record_at(state, kLiftNegativeAnimation), actions);
         return;
     case 4:
-        swing_runtime_weapon(state, record_at(state, field::swing_positive.offset), 1.f, context); // DAT_0032B0F8
+        swing_runtime_weapon(state, record_at(state, kSwingPositiveAnimation), 1.f, context); // DAT_0032B0F8
         return;
     case 5:
-        swing_runtime_weapon(state, record_at(state, field::swing_negative.offset), -1.f, context); // DAT_0032B120
+        swing_runtime_weapon(state, record_at(state, kSwingNegativeAnimation), -1.f, context); // DAT_0032B120
         return;
     case 6:
         release_runtime_swing_weapon(state, context); // 0x00099280
-        start_runtime_body_animation_record(record_at(state, field::drop_positive.offset), actions);
+        start_runtime_body_animation_record(record_at(state, kDropPositiveAnimation), actions);
         return;
     case 7:
         release_runtime_swing_weapon(state, context); // 0x00099280
-        start_runtime_body_animation_record(record_at(state, field::drop_negative.offset), actions);
+        start_runtime_body_animation_record(record_at(state, kDropNegativeAnimation), actions);
         return;
     case 8:
-        select_runtime_body_next_action(state, 0, context.next); // 0x00134180, EAX body
+        select_runtime_body_next_action(retail_bytes(state), 0, context.next); // 0x00134180, EAX body
         return;
     default:
         return;
@@ -678,18 +668,18 @@ void start_runtime_swing_phase(std::span<u8> state, u32 phase, RuntimeSwingState
 }
 
 // The inlined 0x0003AAA0 pairs (the attached actor's +0xDB0 variant first, then the plain name).
-void find_animation(std::span<u8> state, size_t offset, u32 name, RuntimeSwingStateContext& context)
+void find_animation(SwingState& state, u32& found_word, SwingAnimation animation, u32 name,
+    RuntimeSwingStateContext& context)
 {
     const AnimationRecord* record = find_runtime_body_animation(context.image_string(name),
         context.pickup.attachment.actions);
-    swing_records[state.data()].animations[animation_index(offset)] = record;
-    put_word(state, offset, record != nullptr ? 1u : 0u);
+    swing_records[body_state_key(state)].animations[animation] = record;
+    found_word = record != nullptr ? 1u : 0u;
 }
 
-template <typename To, typename From>
-void copy_name(std::span<u8> state, To to, std::span<const u8> parameters, From from)
+template <typename From>
+void copy_name(char* target, std::span<const u8> parameters, From from)
 {
-    char* target = field_data(state, to);
     const char* source = field_data(parameters, from);
     size_t index = 0;
     do
@@ -734,65 +724,71 @@ void wrap_runtime_euler_difference(const Vec3& from, const Vec3& to, Vec3& outpu
 // Xbox 0x00097F90
 void swing_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(SwingState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x00098010
-bool initialize_runtime_swing_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_swing_state(SwingState& state, std::span<const u8> parameters,
     RuntimeSwingStateContext& context)
 {
     const auto body = context.pickup.body;
-    swing_records[state.data()] = SwingRecords{};
+    swing_records[body_state_key(state)] = SwingRecords{};
     for (size_t index = 0; index < 4; ++index)
     {
-        put_word(state, field::effect_0.offset + index * 8, 0xFFFFFFFFu);
+        state.effects[index].slot = -1;
     }
-    find_animation(state, field::grab.offset, get(parameters, parameter::grab), context);
-    find_animation(state, field::swing_positive.offset, get(parameters, parameter::swing_positive), context);
-    find_animation(state, field::swing_negative.offset, get(parameters, parameter::swing_negative), context);
-    find_animation(state, field::lift_positive.offset, get(parameters, parameter::lift_positive), context);
-    find_animation(state, field::lift_negative.offset, get(parameters, parameter::lift_negative), context);
-    find_animation(state, field::drop_positive.offset, get(parameters, parameter::drop_positive), context);
-    find_animation(state, field::drop_negative.offset, get(parameters, parameter::drop_negative), context);
-    set(state, field::shape_mode, body[0x244]);
-    copy_name(state, field::hit_sound, parameters, parameter::hit_sound);
-    copy_name(state, field::trail_effect, parameters, parameter::trail_effect);
+    find_animation(state, state.grab, kGrabAnimation, get(parameters, parameter::grab), context);
+    find_animation(state, state.swing_positive, kSwingPositiveAnimation,
+        get(parameters, parameter::swing_positive), context);
+    find_animation(state, state.swing_negative, kSwingNegativeAnimation,
+        get(parameters, parameter::swing_negative), context);
+    find_animation(state, state.lift_positive, kLiftPositiveAnimation,
+        get(parameters, parameter::lift_positive), context);
+    find_animation(state, state.lift_negative, kLiftNegativeAnimation,
+        get(parameters, parameter::lift_negative), context);
+    find_animation(state, state.drop_positive, kDropPositiveAnimation,
+        get(parameters, parameter::drop_positive), context);
+    find_animation(state, state.drop_negative, kDropNegativeAnimation,
+        get(parameters, parameter::drop_negative), context);
+    state.shape_mode = body[0x244];
+    copy_name(state.hit_sound.data(), parameters, parameter::hit_sound);
+    copy_name(state.trail_effect.data(), parameters, parameter::trail_effect);
     body[0x38] = 1;
     body[0x39] = 1;
-    set(state, field::phase, 1);
-    start_runtime_body_animation_record(record_at(state, field::grab.offset),
+    state.phase = 1;
+    start_runtime_body_animation_record(record_at(state, kGrabAnimation),
         context.pickup.attachment.actions); // 0x0001AFA0, ESI body
-    set(state, field::start_position, actor_world_position(context.pickup.actor)); // 0x000412A0, EDI +0x4C
-    set(state, field::start_euler, actor_world_euler(context.pickup.actor)); // 0x00041820, EDI +0x58
+    state.start_position = actor_world_position(context.pickup.actor); // 0x000412A0, EDI +0x4C
+    state.start_euler = actor_world_euler(context.pickup.actor); // 0x00041820, EDI +0x58
     adjust_body_counters(body, 1);
     increment_runtime_body_latches(body, context.pickup.actor, *context.pickup.latches); // 0x0001FC40, ECX body
     set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
     set_runtime_body_shape_mode(0, context.shape); // 0x0001FEB0, BL 0
     set(body, body_field::holds, get(body, body_field::holds) + 1);
     context.pickup.bits.bytes[7] |= 2; // Body +0x15C -> +8, byte 7.
-    set(state, field::trail_timer, 0.f);
-    set(state, field::counted, 1);
-    set(state, field::spin_timer, 1.5f); // DAT_0032B210.
+    state.trail_timer = 0.f;
+    state.counted = 1;
+    state.spin_timer = 1.5f; // DAT_0032B210.
     start_runtime_swing_cutscene(state, context); // 0x000993A0
     return true;
 }
 
 // Xbox 0x00098370
-void destroy_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& context)
+void destroy_runtime_swing_state(SwingState& state, RuntimeSwingStateContext& context)
 {
     const auto body = context.pickup.body;
     adjust_body_counters(body, -1);
     decrement_runtime_body_latches(body, context.pickup.actor, *context.pickup.latches); // 0x0001FD20, ECX body
     set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
-    set_runtime_body_shape_mode(get(state, field::shape_mode), context.shape); // 0x0001FEB0, BL state +0x120
+    set_runtime_body_shape_mode(state.shape_mode, context.shape); // 0x0001FEB0, BL state +0x120
     context.pickup.bits.bytes[7] &= 0xFD;
     const u32 weapon = mind_weapon(context);
     if (weapon != 0)
     {
         release_actor_sound(context.pickup.weapon_at(weapon).actor.sound_slots[4], context.sounds); // 0x0012A3D0
     }
-    if (get(state, field::counted) != 0)
+    if (state.counted != 0)
     {
         const u32 count = get(body, body_field::holds) - 1;
         set(body, body_field::holds, count);
@@ -800,25 +796,24 @@ void destroy_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& 
         {
             send_words(context.body_message, {0x4A});
         }
-        set(state, field::counted, 0);
+        state.counted = 0;
     }
     release_runtime_swing_effects(state); // 0x00099120
-    if (get(state, field::cutscene) != 0)
+    if (state.cutscene != 0)
     {
-        stop_scene_cutscene(swing_records[state.data()].cutscene, context.cutscenes()); // 0x0004EEA0
-        set(state, field::cutscene, 0);
+        stop_scene_cutscene(swing_records[body_state_key(state)].cutscene, context.cutscenes()); // 0x0004EEA0
+        state.cutscene = 0;
     }
-    swing_records.erase(state.data());
+    swing_records.erase(body_state_key(state));
 }
 
 // Xbox 0x00098460
-void tick_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& context)
+void tick_runtime_swing_state(SwingState& state, RuntimeSwingStateContext& context)
 {
     Actor& actor = context.pickup.actor;
-    set(state, body_state_field::elapsed,
-        runtime_actor_step(actor, context.pickup.clock) + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_step(actor, context.pickup.clock) + state.base.elapsed;
     const auto& animation = context.pickup.animation;
-    switch (get(state, field::phase))
+    switch (state.phase)
     {
     case 1:
         approach_runtime_swing_weapon(state, context); // 0x00098780
@@ -828,7 +823,7 @@ void tick_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& con
         }
         if (!attach_runtime_swing_weapon(state, context)) // 0x00098E00
         {
-            select_runtime_body_next_action(state, 0, context.next); // 0x00134180, EAX body
+            select_runtime_body_next_action(retail_bytes(state), 0, context.next); // 0x00134180, EAX body
             return;
         }
         start_runtime_swing_phase(state, pick_runtime_swing_side(context), context); // 0x00098980, 0x00098680
@@ -836,24 +831,24 @@ void tick_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& con
     case 2:
         if (runtime_actor_animation_slot_complete(animation, 0))
         {
-            set(state, field::phase, 4);
-            swing_runtime_weapon(state, record_at(state, field::swing_positive.offset), 1.f, context); // 0x00098B30
+            state.phase = 4;
+            swing_runtime_weapon(state, record_at(state, kSwingPositiveAnimation), 1.f, context); // 0x00098B30
         }
         return;
     case 3:
         if (runtime_actor_animation_slot_complete(animation, 0))
         {
-            set(state, field::phase, 5);
-            swing_runtime_weapon(state, record_at(state, field::swing_negative.offset), -1.f, context);
+            state.phase = 5;
+            swing_runtime_weapon(state, record_at(state, kSwingNegativeAnimation), -1.f, context);
         }
         return;
     case 4:
         update_runtime_swing_effects(state, context); // 0x000991B0
         if (spin_runtime_swing_weapon(state, context)) // 0x00098C10
         {
-            set(state, field::phase, 6);
+            state.phase = 6;
             release_runtime_swing_weapon(state, context); // 0x00099280
-            start_runtime_body_animation_record(record_at(state, field::drop_positive.offset),
+            start_runtime_body_animation_record(record_at(state, kDropPositiveAnimation),
                 context.pickup.attachment.actions); // 0x0001AFA0
         }
         return;
@@ -861,9 +856,9 @@ void tick_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& con
         update_runtime_swing_effects(state, context);
         if (spin_runtime_swing_weapon(state, context))
         {
-            set(state, field::phase, 7);
+            state.phase = 7;
             release_runtime_swing_weapon(state, context);
-            start_runtime_body_animation_record(record_at(state, field::drop_negative.offset),
+            start_runtime_body_animation_record(record_at(state, kDropNegativeAnimation),
                 context.pickup.attachment.actions);
         }
         return;
@@ -871,8 +866,8 @@ void tick_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& con
     case 7:
         if (runtime_actor_animation_slot_complete(animation, 0))
         {
-            set(state, field::phase, 8);
-            select_runtime_body_next_action(state, 0, context.next); // 0x00134180, EAX body
+            state.phase = 8;
+            select_runtime_body_next_action(retail_bytes(state), 0, context.next); // 0x00134180, EAX body
         }
         return;
     default:
@@ -881,11 +876,11 @@ void tick_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& con
 }
 
 // Xbox 0x00098620
-void message_runtime_swing_state(std::span<u8> state, std::span<const u32> message, RuntimeSwingStateContext& context)
+void message_runtime_swing_state(SwingState& state, std::span<const u32> message, RuntimeSwingStateContext& context)
 {
     if (message[0] == 0x5A)
     {
-        const char* sound = field_data(state, field::hit_sound);
+        const char* sound = state.hit_sound.data();
         if (sound[0] == 0)
         {
             return;
@@ -902,10 +897,10 @@ void message_runtime_swing_state(std::span<u8> state, std::span<const u32> messa
             sound, context.sounds); // 0x0012A260, EBX the actor's +0x4A4
         return;
     }
-    if (message[0] == 0x7F && message[1] == get(state, field::cutscene))
+    if (message[0] == 0x7F && message[1] == state.cutscene)
     {
-        set(state, field::cutscene, 0);
-        swing_records[state.data()].cutscene = nullptr;
+        state.cutscene = 0;
+        swing_records[body_state_key(state)].cutscene = nullptr;
     }
 }
 

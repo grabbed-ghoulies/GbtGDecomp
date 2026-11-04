@@ -1,4 +1,5 @@
 #pragma once
+#include "input_tracking_record.h"
 #include "player_mind_requests.h"
 #include "../frontend/dialogue_input.h"
 #include "actor_model_anchors.h"
@@ -101,6 +102,7 @@ constexpr RetailField<float, 0x10> hold_timer{}; // the state flips once it runs
 constexpr RetailField<u32, 0x14> state{}; // 1 waits for full activity, 2 for none
 constexpr u32 kSize = 0x18;
 } // namespace input_tracking_field
+static_assert(sizeof(InputTrackingRecord) == input_tracking_field::kSize);
 
 // The tracking's preset (0x10 bytes).
 namespace input_tracking_preset_field

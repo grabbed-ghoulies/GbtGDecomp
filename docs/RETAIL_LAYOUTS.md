@@ -180,6 +180,10 @@ For one object type:
 | Slam smash, yoyo spin, grab throw and arc attack states (`SlamSmashState`, `YoyoSpinState`, `GrabThrowState`, `ArcAttackState`) | 0xD8 / 0x1DC / 0x5C / 0x268 | `body_slam_smash_state.h`, `body_yoyo_spin_state.h`, `body_grab_throw_state.h`, `body_arc_attack_state.h` |
 | Walk state (`WalkState`): bit, next, turn, time, length, orbit and size, the two names, three carried objects (`WalkObjectSlot`: orbit angle, bob angle, object) | 0x160 | `src/engine/entities/body_walk_state.h` |
 | Hit stream state (`HitStreamState`): sounds, push speed, stream time, drained energy, hit and sounding switches, effect, callout 0x36's tokens (a byte block the attachment functions take) | 0x160 | `src/engine/entities/body_hit_stream_state.h` |
+| Arc state (`ArcState`): end key, animations found, time and duration, start and target eulers, phase, count and latch switches, start and target, the 0x51 callout's tokens | 0x90 | `src/engine/entities/body_arc_state.h` |
+| Swing state (`SwingState`, factory type 0x78, 0x00097F90): phase, the weapon's pose when taken, timers, poses, four trail effects (`SwingEffectPair`), seven animation words, shape mode, hit sound | 0x1AC | `src/engine/entities/body_swing_state.h` |
+| Bandaged and blood suck states (`BandagedState`, `BloodSuckState`): their names, sounds, phases and switches, with the shared `InputTrackingRecord` | 0x3DC / 0x180 | `src/engine/entities/body_bandaged_state.h`, `body_blood_suck_state.h` |
+| Input tracking as a struct (`InputTrackingRecord`, the layout of `input_tracking_field`): axes, activity, accumulation, hold timer, state. 0x00109810 takes its `retail_bytes`. | 0x18 | `src/engine/entities/input_tracking_record.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -239,6 +243,10 @@ The walk and hit stream states' trailing +0x13C blocks were named from the code 
 slots, and the attachment tokens 0x0013B8B0 records. The tokens stay bytes because the attachment functions and the
 projectile records share that form.
 
+The arc, swing, bandaged and blood suck states' unnamed stretches were named the same way: the arc's +0x6C is the
+same token block, the swing's +0x64 is four trail-effect pairs, and the bandaged +0x2A4 and blood suck +0x54 are
+`InputTrackingRecord`s. Their old `struggle` and `tracking_state` fields were that record's accumulation and state.
+
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first
 naming change, both after naming and after consolidation. Those runs don't reach the contents completed splat
@@ -261,7 +269,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Throw state parameters (factory type 0x8B; the state is a struct, above) | parameters 0x2C | `throw_state_parameter` | `src/engine/entities/body_throw_state.h` |
 | Skeleton strategy (factory type 0x51) | — | `skeleton_strategy_field`: no spawn in reach, fetch delay; and the base strategy's `strategy_field::state` (+0xE, `strategy_fields.h`) | `src/engine/entities/skeleton_strategy.h` |
 | Bob weapon (factory type 0xA0, 0x000C5B90), the bob's own part | 0xFE8, parameters 0x7FC | `bob_weapon_field`: holders, hits, the break animation and its events, state 7 timer, cutscene name, unk_FE4; `bob_weapon_parameter` | `src/engine/entities/bob_weapon.h` |
-| Swing state (factory type 0x78, 0x00097F90) | 0x1AC, parameters 0x128 | `swing_state_field`: phase, the weapon's pose when taken, trail and spin timers, direction, spin and grab poses, four effect slots, the effect and hit-sound names, seven animation records, shape mode, count, cutscene; `swing_state_parameter` | `src/engine/entities/body_swing_state.h` |
+| Swing state parameters (factory type 0x78; the state is a struct, above) | parameters 0x128 | `swing_state_parameter` | `src/engine/entities/body_swing_state.h` |
 | Large projectile (0x000CD620), its own part | 0xF08, parameters 0x604 | `large_projectile_field`: throw target, fall, heading, spin, shatter, bounces, hits, rest pose, catch, hold offset and rise, command attachments, trail; `large_projectile_parameter` | `src/engine/entities/projectile_weapon.h` |
 | Ghouly cutscene setup (factory type 0x25, 0x0006B0F0), its own part | 0x9DC, parameters 0x3C4 | `ghouly_cutscene_field`, `ghouly_cutscene_parameter` | `src/engine/entities/ghouly_cutscene_setup.h` |
 | Bone debris (factory type 0x12, 0x00067E40), its own part | 0xAAC, parameters 0x55C | `bone_debris_field`, `bone_debris_parameter` | `src/engine/entities/bone_debris_actor.h` |

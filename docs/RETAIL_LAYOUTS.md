@@ -189,6 +189,7 @@ For one object type:
 | Knockdown state (`KnockdownState`, factory type 0x7A, 0x0009C5D0): phase and its clock, end timer, the seven animations' found flags (`KnockdownAnimation` slots), the end keys, the sweep point, callout tokens (`KnockdownCalloutTokens`), the pose and flight values, contact pool, landing point, switches | 0xF4 | `src/engine/entities/body_knockdown_state.h` |
 | Walk target and fly alert states (`WalkTargetState`, `FlyAlertState`): the rows block (`WalkTargetRows`: four `WalkTargetRow`s and the band limits), arrival delay and arrived, the keys, direction and band | 0x7C | `src/engine/entities/body_walk_target_state.h` |
 | Walk alert and fly states (`WalkAlertState`, `FlyState`): keys, switches, stick limit, row count and band, four `WalkAlertRow`s, sound | 0x88 / 0x78 | `src/engine/entities/body_state_actions.h` |
+| Jump on state (`JumpOnState`, factory type 0x79, 0x0009A4C0): the leap (`LeapRecord`, 0x50: target, start and current euler, start, end and current point, length, time left), phase, switches, the ride (`JumpOnRide`, 0xC8: phase, strikes, animations found, wobble timer and wobble, hold and ride times, `InputTrackingRecord`, hold sound, hat intro), animations found, claim and target | 0x158 | `src/engine/entities/body_jump_on_state.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -263,6 +264,10 @@ The four row-table states followed. Each pair shares code retail runs on both la
 offsets those functions depend on. 0x00091F70 runs on walk target and fly alert objects alike, so it views both as
 `WalkTargetState`. 0x000A5FD0 serves the walk alert and fly states and now takes just the row count and rows. The
 record lookups take the state's address (`body_state_key`). The parameter rows read from the XBE stay on descriptors.
+
+The jump on state's unnamed stretches were its two records. +0x18 is the leap 0x00103650 starts and 0x001036D0 steps,
+which the state had reached by raw offset (+0x30, +0x3C, +0x54..). +0x80 is the ride; its `shaken` and `shake_state`
+were its `InputTrackingRecord`'s accumulation and state.
 
 Game select checked with `--gameselect`, `--gameselect-native`, `--gameselect-new-game`, `--gameselect-delete` and
 `--gameselect-stats`. All pass, and all 25 captures are byte-identical to the captures taken before the first

@@ -402,7 +402,8 @@ void SceneBodyMessages::bind_action_children()
                 jump_on->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_jump_on_state({child->bytes.get(), child->size}, words,
+                    message_runtime_jump_on_state(body_state_view<JumpOnState>({child->bytes.get(), child->size}),
+                        words,
                         jump_on_context()); // 0x0009AE60
                 };
             }
@@ -1027,7 +1028,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             drone_appear_context()); // 0x0008D4D0
         return;
     case 0x79:
-        tick_runtime_jump_on_state({action.bytes.get(), action.size}, jump_on_context()); // 0x0009AB00
+        tick_runtime_jump_on_state(body_state_view<JumpOnState>({action.bytes.get(), action.size}),
+            jump_on_context()); // 0x0009AB00
         return;
     case 0x8D:
         tick_runtime_walk_state(body_state_view<WalkState>({action.bytes.get(), action.size}),
@@ -3250,7 +3252,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_jump_on_state({second.bytes.get(), second.size}, words, jump_on_context());
+                message_runtime_jump_on_state(body_state_view<JumpOnState>({second.bytes.get(), second.size}),
+                    words, jump_on_context());
                 return;
             }
             if (type == 0x67)

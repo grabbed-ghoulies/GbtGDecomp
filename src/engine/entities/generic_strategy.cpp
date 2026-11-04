@@ -18,7 +18,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = generic_strategy_field;
+GenericStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<GenericStrategyState>(strategy);
+}
+
+const GenericStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<GenericStrategyState>(strategy);
+}
+
 
 constexpr float kOne = 1.f; // DAT_0032B0F8.
 constexpr float kChaseRange = 40.f; // DAT_0032B1B8.
@@ -122,12 +131,12 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> mind = mind_of(context);
     const u32 prior = get(mind, mind_field::target_record);
-    float timer = get(strategy, field::reselect_timer) - runtime_frame_step(goals.clock);
-    set(strategy, field::reselect_timer, timer);
+    float timer = fields_of(strategy).reselect_timer - runtime_frame_step(goals.clock);
+    fields_of(strategy).reselect_timer = timer;
     bool elapsed = false;
     if (!(0.f < timer)) // COMISS; JC keeps a positive time.
     {
-        set(strategy, field::reselect_timer, timer + kOne);
+        fields_of(strategy).reselect_timer = timer + kOne;
         elapsed = true;
     }
     bool changed = false;
@@ -149,15 +158,15 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     if (!settled)
     {
         const u32 current = get(mind, mind_field::target_record);
-        select_runtime_strategy_target(output, get(strategy, field::reselect) != 0 ? 1u : 0u, goals); // 0x00139AA0
+        select_runtime_strategy_target(output, fields_of(strategy).reselect != 0 ? 1u : 0u, goals); // 0x00139AA0
         changed = current == 0 && output != nullptr;
     }
-    if (changed && get(strategy, field::attack_new) != 0)
+    if (changed && fields_of(strategy).attack_new != 0)
     {
         start_attack(context); // 0x000ABA40
     }
-    set(strategy, field::attack_new, 0u);
-    set(strategy, field::reselect, 0u);
+    fields_of(strategy).attack_new = 0u;
+    fields_of(strategy).reselect = 0u;
     if (output != nullptr)
     {
         return true;
@@ -297,7 +306,7 @@ bool initialize_runtime_generic_strategy(RuntimeGenericStrategy& context)
             row = find_runtime_mind_goal(*goals.table, context.goal_get_weapon); // 0x0002A770
         }
     }
-    set(strategy, field::can_arm, row != nullptr && row->bytes.data() + 4 != nullptr ? 1u : 0u);
+    fields_of(strategy).can_arm = row != nullptr && row->bytes.data() + 4 != nullptr ? 1u : 0u;
     return true;
 }
 
@@ -335,7 +344,7 @@ void dispatch_runtime_generic_message(std::span<const u32> message, RuntimeGener
         return;
     }
     bool arming = false;
-    if (message[4] != 0 && get(strategy, field::can_arm) != 0 && weapon_of(context) == nullptr)
+    if (message[4] != 0 && fields_of(strategy).can_arm != 0 && weapon_of(context) == nullptr)
     {
         bool near = false;
         if (actor != message[1])
@@ -349,8 +358,8 @@ void dispatch_runtime_generic_message(std::span<const u32> message, RuntimeGener
             arming = true;
         }
     }
-    set(strategy, field::reselect, 1u);
-    set(strategy, field::attack_new, arming ? 0u : 1u);
+    fields_of(strategy).reselect = 1u;
+    fields_of(strategy).attack_new = arming ? 0u : 1u;
 }
 
 // Xbox 0x000AB540

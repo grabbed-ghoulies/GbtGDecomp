@@ -22,7 +22,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = imp_ninja_strategy_field;
+ImpNinjaStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<ImpNinjaStrategyState>(strategy);
+}
+
+const ImpNinjaStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<ImpNinjaStrategyState>(strategy);
+}
+
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeImpNinjaStrategy& context)
 {
@@ -115,29 +124,29 @@ EntityBitBlock& body_bits(RuntimeImpNinjaStrategy& context, const char* caller)
 void make_inner_force_effect(RuntimeImpNinjaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect_made) != 0)
+    if (fields_of(strategy).effect_made != 0)
     {
         return;
     }
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const char* name = reinterpret_cast<const char*>(strategy.data() + field::effect_name.offset);
+    const char* name = fields_of(strategy).effect_name.data();
     const u32 actor = goals.address_of(goals.entry.actor_bytes.data());
-    set(strategy, field::effect, context.create_effect(name, actor)); // 0x00107720, 0x00107520, 0x000663E0
-    set(strategy, field::effect_made, 1u);
+    fields_of(strategy).effect = context.create_effect(name, actor); // 0x00107720, 0x00107520, 0x000663E0
+    fields_of(strategy).effect_made = 1u;
 }
 
 // Xbox 0x000B73C0, ESI strategy: message 5 ends the effect.
 void end_inner_force_effect(RuntimeImpNinjaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect_made) == 0)
+    if (fields_of(strategy).effect_made == 0)
     {
         return;
     }
     const std::array<u32, 2> message{5, 0};
-    context.object_message(get(strategy, field::effect), message); // Effect vtable +0xC.
-    set(strategy, field::effect, 0u);
-    set(strategy, field::effect_made, 0u);
+    context.object_message(fields_of(strategy).effect, message); // Effect vtable +0xC.
+    fields_of(strategy).effect = 0u;
+    fields_of(strategy).effect_made = 0u;
 }
 
 // Xbox 0x000B7750, ESI strategy: the psych-up (0x3ED), then the kick (0x3EE).
@@ -193,7 +202,7 @@ void tick_inner_force(RuntimeImpNinjaStrategy& context)
     {
         return;
     }
-    if (get(strategy, field::transformed) != 0)
+    if (fields_of(strategy).transformed != 0)
     {
         change_state(0x401, context);
         return;
@@ -201,7 +210,7 @@ void tick_inner_force(RuntimeImpNinjaStrategy& context)
     Actor& actor = goals.entry.actor;
     const std::span<u8> actor_bytes = goals.entry.actor_bytes;
     const std::span<u8> body = goals.entry.body; // Actor +0x95C.
-    set(strategy, field::transformed, 1u);
+    fields_of(strategy).transformed = 1u;
     load_goal(context.goal_inner_force_out, context);
     actor_set_uniform_scale(actor, actor.radius_y * 1.7f); // The inlined 0x00041B90, DAT_0032B59C.
     actor_refresh_transform(actor); // 0x00040DE0
@@ -271,16 +280,16 @@ void choose_attack(RuntimeImpNinjaStrategy& context)
         return;
     }
     goals.room = nullptr; // Actor +0xCA0.
-    if (get(strategy, field::unk_C0) != 0)
+    if (fields_of(strategy).unk_C0 != 0)
     {
         const std::span<const u8> target_body = context.shared.views.body_of(target->actor).bytes;
         if (std::bit_cast<i32>(read_u32(target_body, 0x738)) <= 1)
         {
             change_state(0x3ED, context);
-            set(strategy, field::spin_kick, 1u);
+            fields_of(strategy).spin_kick = 1u;
             return;
         }
-        if (get(strategy, field::transformed) != 0
+        if (fields_of(strategy).transformed != 0
             || actor_event_chance(goals.random, attribute(context, 0xC))) // 0x00019200
         {
             change_state(0x3EE, context);
@@ -289,7 +298,7 @@ void choose_attack(RuntimeImpNinjaStrategy& context)
         change_state(0x3ED, context);
         return;
     }
-    if (get(strategy, field::transformed) != 0)
+    if (fields_of(strategy).transformed != 0)
     {
         change_state(0x3EE, context);
         return;
@@ -306,7 +315,7 @@ void choose_attack(RuntimeImpNinjaStrategy& context)
 void choose_idle(RuntimeImpNinjaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::transformed) == 0 && !(parameter(context, 0xC) < roll(context))
+    if (fields_of(strategy).transformed == 0 && !(parameter(context, 0xC) < roll(context))
         && !runtime_imp_ninja_target_near(context)) // 0x000B7FE0
     {
         change_state(0x412, context);
@@ -327,12 +336,12 @@ void tick_idle(RuntimeImpNinjaStrategy& context)
     {
         return;
     }
-    switch (get(strategy, field::idle_step))
+    switch (fields_of(strategy).idle_step)
     {
     case 1:
         if ((body_bits(context, "0x000B7410").bytes[6] & 1) != 0)
         {
-            set(strategy, field::idle_step, 2u);
+            fields_of(strategy).idle_step = 2u;
         }
         return;
     case 2:
@@ -355,22 +364,22 @@ void tick_idle(RuntimeImpNinjaStrategy& context)
 void tick_meditation(RuntimeImpNinjaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    switch (get(strategy, field::meditation_step))
+    switch (fields_of(strategy).meditation_step)
     {
     case 1:
     {
-        float meditation = get(strategy, field::meditation);
+        float meditation = fields_of(strategy).meditation;
         const bool done = count_down_runtime_strategy_timer(meditation, goals_of(context)); // Inlined 0x0002B9F0.
-        set(strategy, field::meditation, meditation);
+        fields_of(strategy).meditation = meditation;
         if (!done && !runtime_imp_ninja_target_near(context)) // 0x000B7FE0
         {
             return;
         }
-        if (get(strategy, field::meditation_step) == 2)
+        if (fields_of(strategy).meditation_step == 2)
         {
             return;
         }
-        set(strategy, field::meditation_step, 2u);
+        fields_of(strategy).meditation_step = 2u;
         load_goal(context.goal_meditate_out, context);
         return;
     }
@@ -389,17 +398,17 @@ void tick_meditation(RuntimeImpNinjaStrategy& context)
 // Xbox 0x000B7A90
 void imp_ninja_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(ImpNinjaStrategyState);
     output.parameters = 0x98;
 }
 
 // Xbox 0x000B7B00
 bool initialize_runtime_imp_ninja_strategy(std::span<u8> strategy, std::span<const u8> parameters)
 {
-    set(strategy, field::parameters, 0x00303198u);
-    set(strategy, field::spin_kick, 0u);
+    fields_of(strategy).parameters = 0x00303198u;
+    fields_of(strategy).spin_kick = 0u;
     const char* name = reinterpret_cast<const char*>(parameters.data() + 0x18);
-    std::memcpy(strategy.data() + field::effect_name.offset, name, std::strlen(name) + 1);
+    std::memcpy(fields_of(strategy).effect_name.data(), name, std::strlen(name) + 1);
     return true;
 }
 
@@ -438,7 +447,7 @@ void update_runtime_imp_ninja_strategy(RuntimeImpNinjaStrategy& context)
     {
         open = get(actor, player_field::countdown_56) > 0.f ? 1u : u32(get(actor, player_field::provoked));
     }
-    set(strategy, field::unk_C0, open);
+    fields_of(strategy).unk_C0 = open;
     update_runtime_base_strategy(goals); // 0x0002C130
     switch (state)
     {
@@ -556,39 +565,39 @@ void enter_runtime_imp_ninja_state(u16 state, u16 previous, RuntimeImpNinjaStrat
         // The tail jump to 0x000B7710.
         body[0x328] = 4;
         strategy_base(strategy).attacking = 1;
-        load_goal(get(strategy, field::unk_C0) == 0 ? context.goal_psycheup : context.goal_psycheup_traitor, context);
+        load_goal(fields_of(strategy).unk_C0 == 0 ? context.goal_psycheup : context.goal_psycheup_traitor, context);
         return;
     case 0x3EE:
         // The tail jump to 0x000B7800.
         body[0x328] = 5;
         strategy_base(strategy).attacking = 1;
-        if (get(strategy, field::spin_kick) != 0)
+        if (fields_of(strategy).spin_kick != 0)
         {
             load_goal(context.goal_spin_kick, context);
             return;
         }
-        load_goal(get(strategy, field::transformed) != 0 ? context.goal_jump_kick_big : context.goal_jump_kick, context);
+        load_goal(fields_of(strategy).transformed != 0 ? context.goal_jump_kick_big : context.goal_jump_kick, context);
         return;
     case 0x3EF:
         // 0x000B7140.
         load_goal(context.goal_inner_force, context);
-        set(strategy, field::effect_made, 0u);
+        fields_of(strategy).effect_made = 0u;
         body[0x328] = 6;
         strategy_base(strategy).attacking = 1;
         return;
     case 0x401:
-        set(strategy, field::spin_kick, 0u);
-        set(strategy, field::idle_step, 1u);
+        fields_of(strategy).spin_kick = 0u;
+        fields_of(strategy).idle_step = 1u;
         return;
     case 0x412:
         // 0x000B7920.
-        if (get(strategy, field::meditation_step) != 1)
+        if (fields_of(strategy).meditation_step != 1)
         {
-            set(strategy, field::meditation_step, 1u);
+            fields_of(strategy).meditation_step = 1u;
             load_goal(context.goal_meditate, context);
             const float shortest = parameter(context, 0x10);
             const float longest = parameter(context, 0x14);
-            set(strategy, field::meditation, (longest - shortest) * roll(context) + shortest);
+            fields_of(strategy).meditation = (longest - shortest) * roll(context) + shortest;
         }
         strategy_base(strategy).attacking = 1;
         return;
@@ -617,12 +626,12 @@ void leave_runtime_imp_ninja_state(u16 state, RuntimeImpNinjaStrategy& context)
         end_inner_force_effect(context); // The same release as 0x000B73C0.
         return;
     case 0x401:
-        set(strategy, field::idle_step, 0u);
+        fields_of(strategy).idle_step = 0u;
         return;
     case 0x412:
-        if (get(strategy, field::meditation_step) != 0)
+        if (fields_of(strategy).meditation_step != 0)
         {
-            set(strategy, field::meditation_step, 0u);
+            fields_of(strategy).meditation_step = 0u;
         }
         strategy_base(strategy).attacking = 0;
         return;

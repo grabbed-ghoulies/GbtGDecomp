@@ -34,7 +34,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = mummy_cursed_strategy_field;
+MummyCursedStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<MummyCursedStrategyState>(strategy);
+}
+
+const MummyCursedStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<MummyCursedStrategyState>(strategy);
+}
+
 
 constexpr float kMinusOne = -1.f; // DAT_0032B120.
 constexpr float kHalf = 0.5f; // DAT_0032B0F4.
@@ -92,11 +101,6 @@ EntityBitBlock& body_bits(RuntimeMummyCursedStrategy& context, const char* calle
 float parameter(RuntimeMummyCursedStrategy& context, size_t offset)
 {
     return read_f32(context.parameters, offset);
-}
-
-const char* name_at(RuntimeMummyCursedStrategy& context, size_t offset)
-{
-    return reinterpret_cast<const char*>(strategy_of(context).data() + offset);
 }
 
 // Mind +0x58: the first pending mind request.
@@ -214,7 +218,7 @@ void dispatch_callouts(i32 id, size_t offset, RuntimeMummyCursedStrategy& contex
 // 0x0013B7E0 with 0x46 into +0x158.
 void request_grab_callout(RuntimeMummyCursedStrategy& context)
 {
-    with_events(field::grab_events.offset, context,
+    with_events(offsetof(MummyCursedStrategyState, grab_events), context,
         [&](u32 output)
         {
             request_runtime_player_attachment_events(context.resource.resource.data(), context.callouts, 0x46,
@@ -239,7 +243,7 @@ void remove_events(size_t offset, RuntimeMummyCursedStrategy& context)
 // Xbox 0x000BD650, EAX strategy: the victim's body bit block byte 7 loses bit 0x20.
 void release_victim_hold(RuntimeMummyCursedStrategy& context)
 {
-    const u32 victim = get(strategy_of(context), field::victim);
+    const u32 victim = fields_of(strategy_of(context)).victim;
     if (victim == 0 || context.body_at(victim).data() == nullptr)
     {
         return;
@@ -253,25 +257,25 @@ void release_victim_hold(RuntimeMummyCursedStrategy& context)
 void end_phase(RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 phase = get(strategy, field::phase);
+    const u32 phase = fields_of(strategy).phase;
     if (phase == 2)
     {
-        if (get(strategy, field::grab_callout) == 0)
+        if (fields_of(strategy).grab_callout == 0)
         {
             request_grab_callout(context); // 0x0013B7E0, ECX actor, EDX +0x158
-            set(strategy, field::grab_callout, 1u);
+            fields_of(strategy).grab_callout = 1u;
         }
     }
     else if (phase == 4)
     {
         release_victim_hold(context); // 0x000BD650
-        clear_runtime_player_attachment_events(strategy.subspan(field::grab_events.offset, 0x24),
+        clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).grab_events),
             context.lists); // 0x0013B810, EBX +0x158
-        set(strategy, field::grab_callout, 0u);
+        fields_of(strategy).grab_callout = 0u;
     }
     else if (phase == 5)
     {
-        set(strategy, field::whacked, 0u);
+        fields_of(strategy).whacked = 0u;
     }
 }
 
@@ -279,18 +283,18 @@ void end_phase(RuntimeMummyCursedStrategy& context)
 void release_mount(RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::riding) == 0 || get(strategy, field::mount) == 0)
+    if (fields_of(strategy).riding == 0 || fields_of(strategy).mount == 0)
     {
         return;
     }
-    const std::span<u8> body = context.body_at(get(strategy, field::mount));
+    const std::span<u8> body = context.body_at(fields_of(strategy).mount);
     const u32 holder = read_u32(body, 0x718);
     if (holder != 0 && holder == strategy_base(strategy).actor)
     {
         const u32 none = 0;
         std::memcpy(body.data() + 0x718, &none, 4);
-        set(strategy, field::riding, 0u);
-        set(strategy, field::mount, 0u);
+        fields_of(strategy).riding = 0u;
+        fields_of(strategy).mount = 0u;
     }
 }
 
@@ -298,10 +302,10 @@ void release_mount(RuntimeMummyCursedStrategy& context)
 void end_deathcurse(RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::deathcurse) != 0)
+    if (fields_of(strategy).deathcurse != 0)
     {
-        end_object(get(strategy, field::deathcurse), context);
-        set(strategy, field::deathcurse, 0u);
+        end_object(fields_of(strategy).deathcurse, context);
+        fields_of(strategy).deathcurse = 0u;
     }
 }
 
@@ -310,26 +314,26 @@ void end_deathcurse(RuntimeMummyCursedStrategy& context)
 void end_curse(u32 actor, RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::curse_form) != 0)
+    if (fields_of(strategy).curse_form != 0)
     {
-        set(strategy, field::curse_form, 0u);
+        fields_of(strategy).curse_form = 0u;
     }
     if (context.meter_shown() && context.meter_actor() == actor) // DAT_00545A18, DAT_00545A20
     {
         context.stop_meter(); // 0x0012E6C0
     }
-    if (get(strategy, field::curse_effect) != 0)
+    if (fields_of(strategy).curse_effect != 0)
     {
-        end_object(get(strategy, field::curse_effect), context);
-        set(strategy, field::curse_effect, 0u);
+        end_object(fields_of(strategy).curse_effect, context);
+        fields_of(strategy).curse_effect = 0u;
     }
-    if (get(strategy, field::deathcurse) != 0)
+    if (fields_of(strategy).deathcurse != 0)
     {
-        end_object(get(strategy, field::deathcurse), context);
-        set(strategy, field::deathcurse, 0u);
+        end_object(fields_of(strategy).deathcurse, context);
+        fields_of(strategy).deathcurse = 0u;
     }
-    remove_events(field::curse_events.offset, context); // 0x0003CFD0 over +0x2A8, EAX actor
-    remove_events(field::spawn_events.offset, context); // 0x0003CFD0 over +0x2CC, EAX actor
+    remove_events(offsetof(MummyCursedStrategyState, curse_events), context); // 0x0003CFD0 over +0x2A8, EAX actor
+    remove_events(offsetof(MummyCursedStrategyState, spawn_events), context); // 0x0003CFD0 over +0x2CC, EAX actor
 }
 
 // Xbox 0x000BC910, EAX form: form 1 drops the deathcurse and, with the block's +0x3C clear, spawns the object named at
@@ -338,19 +342,19 @@ void end_curse(u32 actor, RuntimeMummyCursedStrategy& context)
 void set_curse_form(u32 form, RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (form == get(strategy, field::curse_form))
+    if (form == fields_of(strategy).curse_form)
     {
         return;
     }
-    set(strategy, field::curse_form, form);
+    fields_of(strategy).curse_form = form;
     Actor& actor = actor_of(context);
     const u32 address = actor_address(context);
     if (form == 1)
     {
         end_deathcurse(context); // 0x000BCAA0
-        clear_runtime_player_attachment_events(strategy.subspan(field::curse_events.offset, 0x24),
+        clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).curse_events),
             context.lists); // 0x0013B810, EBX +0x2A4
-        dispatch_callouts(0x43, field::spawn_events.offset, context); // 0x0003BE20, actor +0x8C
+        dispatch_callouts(0x43, offsetof(MummyCursedStrategyState, spawn_events), context); // 0x0003BE20, actor +0x8C
         if (read_u32(context.parameters, 0x3C) != 0)
         {
             return;
@@ -373,7 +377,7 @@ void set_curse_form(u32 form, RuntimeMummyCursedStrategy& context)
         std::memcpy(&binding.kind, record, 2);
         std::memcpy(&binding.joint, record + 2, 2);
         std::memcpy(binding.matrix.data(), record + 4, 48);
-        const u32 spawn = context.create_patched(name_at(context, field::spawn_name.offset),
+        const u32 spawn = context.create_patched(fields_of(strategy_of(context)).spawn_name.data(),
             [&](std::span<u8> clone)
             {
                 Vec3 position;
@@ -383,8 +387,8 @@ void set_curse_form(u32 form, RuntimeMummyCursedStrategy& context)
                 std::memcpy(clone.data() + 8, &position, 12);
                 std::memcpy(clone.data() + 0x14, &euler, 12);
             }); // 0x00107720, 0x00107520, 0x000663E0
-        set(strategy, field::spawn, spawn);
-        context.burst(spawn, kMinusOne, name_at(context, field::burst_name.offset)); // 0x0013B1F0, ESI +0x218
+        fields_of(strategy).spawn = spawn;
+        context.burst(spawn, kMinusOne, fields_of(strategy_of(context)).burst_name.data()); // 0x0013B1F0, ESI +0x218
         context.activate(spawn); // 0x00112CC0, ESI +0x298
         return;
     }
@@ -392,9 +396,8 @@ void set_curse_form(u32 form, RuntimeMummyCursedStrategy& context)
     {
         return;
     }
-    set(strategy, field::curse_effect, context.create_effect(name_at(context, field::curse_effect_name.offset),
-        address)); // 0x00107720, 0x00107520, 0x000663E0
-    context.start_meter(address, get(strategy, field::cursed), parameter(context, 0x38)); // 0x0012E5E0
+    fields_of(strategy).curse_effect = context.create_effect(fields_of(strategy_of(context)).curse_effect_name.data(), address); // 0x00107720, 0x00107520, 0x000663E0
+    context.start_meter(address, fields_of(strategy).cursed, parameter(context, 0x38)); // 0x0012E5E0
     context.scare_near(kScareRadius); // 0x0013B660, ESI actor
     EntityBitBlock& bits = body_bits(context, "0x000BC910");
     bits.bytes[0] = u8(bits.bytes[0] | 0x20);
@@ -415,7 +418,7 @@ void land_curse(u32 actor, RuntimeMummyCursedStrategy& context)
 // the curse takes form 1.
 void check_curse(RuntimeMummyCursedStrategy& context)
 {
-    if (!decay_running(context) || get(strategy_of(context), field::cursed) == 0)
+    if (!decay_running(context) || fields_of(strategy_of(context)).cursed == 0)
     {
         return;
     }
@@ -449,9 +452,9 @@ bool evade_target(RuntimeMummyCursedStrategy& context)
         return false;
     }
     const std::span<u8> strategy = strategy_of(context);
-    body_of(context)[0x328] = get(strategy, field::curse_landed) != 0 ? 3 : 2;
+    body_of(context)[0x328] = fields_of(strategy).curse_landed != 0 ? 3 : 2;
     load_goal(context.goal_evade, context);
-    set(strategy, field::evading, 0u);
+    fields_of(strategy).evading = 0u;
     return true;
 }
 
@@ -462,7 +465,7 @@ bool engage_target(RuntimeMummyCursedStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::curse_landed) != 0)
+    if (fields_of(strategy).curse_landed != 0)
     {
         return false;
     }
@@ -510,8 +513,8 @@ bool engage_target(RuntimeMummyCursedStrategy& context)
             const_cast<EntityBitBlock*>(body.bits)};
         if (claim_runtime_rider(&peer, address)) // 0x00138140, EAX the target's actor
         {
-            set(strategy, field::mount, mount);
-            set(strategy, field::riding, 1u);
+            fields_of(strategy).mount = mount;
+            fields_of(strategy).riding = 1u;
             goals.room = nullptr; // Actor +0x954 -> +8 -> +0xCA0.
             change_state(0x3EE, context);
             return true;
@@ -535,12 +538,12 @@ void update_holding(RuntimeMummyCursedStrategy& context)
     if (!requests_pending(context) && !evade_target(context)) // 0x000BCB80
     {
         body_of(context)[0x328] = 3;
-        load_goal(get(strategy, field::curse_landed) != 0 ? context.goal_random_worried_walk : context.goal_random_walk,
+        load_goal(fields_of(strategy).curse_landed != 0 ? context.goal_random_worried_walk : context.goal_random_walk,
             context);
-        set(strategy, field::evading, 1u);
+        fields_of(strategy).evading = 1u;
         return;
     }
-    if (get(strategy, field::evading) != 0)
+    if (fields_of(strategy).evading != 0)
     {
         evade_target(context); // 0x000BCB80
     }
@@ -550,20 +553,20 @@ void update_holding(RuntimeMummyCursedStrategy& context)
 void set_phase(u32 phase, RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::phase) == phase)
+    if (fields_of(strategy).phase == phase)
     {
         return;
     }
     end_phase(context);
-    set(strategy, field::phase, phase);
+    fields_of(strategy).phase = phase;
     switch (phase)
     {
     case 1:
     {
-        set(strategy, field::unk_14C, 0u);
-        set(strategy, field::pulling, 0u);
-        set(strategy, field::whacked, 0u);
-        const Actor& victim = actor_at(get(strategy, field::victim), context, "0x000BD504");
+        fields_of(strategy).unk_14C = 0u;
+        fields_of(strategy).pulling = 0u;
+        fields_of(strategy).whacked = 0u;
+        const Actor& victim = actor_at(fields_of(strategy).victim, context, "0x000BD504");
         if (parameter(context, 8) > runtime_actor_distance(actor_of(context), victim)) // 0x00041490
         {
             load_goal(context.goal_evade_knockdown, context);
@@ -579,31 +582,31 @@ void set_phase(u32 phase, RuntimeMummyCursedStrategy& context)
         load_goal(context.goal_slab_whack_prepare, context);
         return;
     case 3:
-        set(strategy, field::phase_timer, phase_three_time(context)); // 0x000BC720
+        fields_of(strategy).phase_timer = phase_three_time(context); // 0x000BC720
         return;
     case 4:
     {
-        set(strategy, field::pulling, 1u);
-        const u32 victim = get(strategy, field::victim);
+        fields_of(strategy).pulling = 1u;
+        const u32 victim = fields_of(strategy).victim;
         if (victim != 0)
         {
             set_runtime_body_bit(context.body_bits_at(victim), 0x3D); // 0x0001EFD0, EAX the victim's body
         }
-        set(strategy, field::phase_timer, phase_four_time(context)); // 0x000BC6D0
+        fields_of(strategy).phase_timer = phase_four_time(context); // 0x000BC6D0
         return;
     }
     case 5:
-        set(strategy, field::pulling, 0u);
-        if (get(strategy, field::whacked) == 0)
+        fields_of(strategy).pulling = 0u;
+        if (fields_of(strategy).whacked == 0)
         {
             const std::array<u32, 2> message{0x5B, 0};
-            context.object_message(get(strategy, field::victim), message); // The victim's vtable +0xC.
-            set(strategy, field::whacked, 1u);
+            context.object_message(fields_of(strategy).victim, message); // The victim's vtable +0xC.
+            fields_of(strategy).whacked = 1u;
             load_goal(context.goal_slab_whack, context);
         }
         return;
     case 6:
-        set(strategy, field::pulling, 0u);
+        fields_of(strategy).pulling = 0u;
         load_goal(context.goal_scared, context);
         return;
     case 7:
@@ -620,11 +623,11 @@ void set_phase(u32 phase, RuntimeMummyCursedStrategy& context)
 bool victim_pulled(RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::pulling) == 0 || (context.runtime_flags & 0x20000) != 0)
+    if (fields_of(strategy).pulling == 0 || (context.runtime_flags & 0x20000) != 0)
     {
         return false;
     }
-    const u32 victim = get(strategy, field::victim);
+    const u32 victim = fields_of(strategy).victim;
     const std::span<u8> body = context.body_at(victim);
     if (get(body, body_field::energy) == 0)
     {
@@ -657,14 +660,14 @@ bool pull_ends(const Vec3& victim, float distance, RuntimeMummyCursedStrategy& c
     }
     const float step = runtime_frame_step(goals.clock);
     const float rate = runtime_actor_rate(actor);
-    const float timer = get(strategy, field::phase_timer);
+    const float timer = fields_of(strategy).phase_timer;
     if (timer > 0.f)
     {
         const float left = timer - rate * step;
-        set(strategy, field::phase_timer, left);
+        fields_of(strategy).phase_timer = left;
         if (!(0.f < left)) // COMISS; JC keeps a positive time.
         {
-            set(strategy, field::phase_timer, 0.f);
+            fields_of(strategy).phase_timer = 0.f;
             return true;
         }
     }
@@ -679,14 +682,14 @@ void update_grab(RuntimeMummyCursedStrategy& context)
     Actor& actor = actor_of(context);
     const std::span<u8> body = body_of(context);
     {
-        const Actor& victim = actor_at(get(strategy, field::victim), context, "0x000BCFDC");
+        const Actor& victim = actor_at(fields_of(strategy).victim, context, "0x000BCFDC");
         const float distance = float(runtime_actor_distance(actor, victim)); // 0x00041490
-        set_runtime_attachment_effect_reach(strategy.subspan(field::grab_events.offset, 0x24), distance,
+        set_runtime_attachment_effect_reach(retail_bytes(fields_of(strategy).grab_events), distance,
             context.lists); // 0x0013B840, EDI +0x158, EBX actor
     }
     if (victim_pulled(context)) // 0x000BD750
     {
-        const u32 victim_address = get(strategy, field::victim);
+        const u32 victim_address = fields_of(strategy).victim;
         Actor& victim = actor_at(victim_address, context, "0x000BD006");
         const std::span<u8> victim_body = context.body_at(victim_address);
         const float x = read_f32(victim_body, 0x18);
@@ -700,10 +703,10 @@ void update_grab(RuntimeMummyCursedStrategy& context)
         std::memcpy(victim_body.data() + 0x1C, &y, 4);
         std::memcpy(victim_body.data() + 0x20, &moved_z, 4);
     }
-    const u32 phase = get(strategy, field::phase);
+    const u32 phase = fields_of(strategy).phase;
     const auto face_victim = [&]()
     {
-        face_runtime_body_actor(body, actor, actor_at(get(strategy, field::victim), context, "0x001345B0"));
+        face_runtime_body_actor(body, actor, actor_at(fields_of(strategy).victim, context, "0x001345B0"));
     };
     // LAB 0x000BD28F: to phase 8, ending the current one.
     const auto finish = [&](u32 current)
@@ -713,7 +716,7 @@ void update_grab(RuntimeMummyCursedStrategy& context)
             return;
         }
         end_phase(context);
-        set(strategy, field::phase, 8u);
+        fields_of(strategy).phase = 8u;
     };
     switch (phase)
     {
@@ -729,19 +732,19 @@ void update_grab(RuntimeMummyCursedStrategy& context)
         {
             set_phase(3, context);
         }
-        if (get(strategy, field::grab_callout) == 0
+        if (fields_of(strategy).grab_callout == 0
             && runtime_body_bit_set(body_bits(context, "0x000BD0FE"), 0x17)) // 0x0001EF10, ECX 0x17
         {
             request_grab_callout(context); // 0x0013B7E0, ECX actor, EDX +0x158
-            set(strategy, field::grab_callout, 1u);
+            fields_of(strategy).grab_callout = 1u;
         }
         return;
     case 3:
     {
         face_victim(); // 0x001345B0
-        float timer = get(strategy, field::phase_timer);
+        float timer = fields_of(strategy).phase_timer;
         const bool done = count_down_runtime_strategy_timer(timer, goals); // 0x0002B9F0, ECX +0x148
-        set(strategy, field::phase_timer, timer);
+        fields_of(strategy).phase_timer = timer;
         if (done)
         {
             set_phase(4, context);
@@ -750,7 +753,7 @@ void update_grab(RuntimeMummyCursedStrategy& context)
     }
     case 4:
     {
-        const Actor& victim = actor_at(get(strategy, field::victim), context, "0x000BD167");
+        const Actor& victim = actor_at(fields_of(strategy).victim, context, "0x000BD167");
         const float distance = float(runtime_actor_distance(actor, victim)); // 0x00041490
         const Vec3 point = actor_world_position(victim); // 0x000412A0
         face_victim(); // 0x001345B0
@@ -759,13 +762,13 @@ void update_grab(RuntimeMummyCursedStrategy& context)
             set_phase(5, context);
             return;
         }
-        if (!pull_ends(point, distance, context) || get(strategy, field::phase) == 6) // 0x000BD680
+        if (!pull_ends(point, distance, context) || fields_of(strategy).phase == 6) // 0x000BD680
         {
             return;
         }
         end_phase(context);
-        set(strategy, field::phase, 6u);
-        set(strategy, field::pulling, 0u);
+        fields_of(strategy).phase = 6u;
+        fields_of(strategy).pulling = 0u;
         load_goal(context.goal_scared, context);
         return;
     }
@@ -784,12 +787,12 @@ void update_grab(RuntimeMummyCursedStrategy& context)
                                                                                        : target->bytes); // 0x00041560
         if (static_cast<long double>(parameter(context, 0x30)) > distance)
         {
-            if (get(strategy, field::phase) == 7)
+            if (fields_of(strategy).phase == 7)
             {
                 return;
             }
             end_phase(context);
-            set(strategy, field::phase, 7u);
+            fields_of(strategy).phase = 7u;
             clear_requests(context);
             load_goal(context.goal_slab_whack_sneaky, context);
             return;
@@ -798,7 +801,7 @@ void update_grab(RuntimeMummyCursedStrategy& context)
         {
             return;
         }
-        finish(get(strategy, field::phase));
+        finish(fields_of(strategy).phase);
         return;
     }
     case 8:
@@ -823,7 +826,7 @@ void start_grab(RuntimeMummyCursedStrategy& context)
         change_state(0x401, context); // The inlined 0x0002B8D0.
         return;
     }
-    set(strategy, field::victim, get(target->bytes, mind_target_field::actor));
+    fields_of(strategy).victim = get(target->bytes, mind_target_field::actor);
     const std::span<const u8> victim = target->actor_bytes;
     const bool player = target->bytes[0x14] == 0 && read_u32(victim, 0xCE0) != 0
         && (read_u16(victim, 0xCDC) == 2 || read_u32(victim, 0x93C) != 0);
@@ -837,29 +840,29 @@ void start_grab(RuntimeMummyCursedStrategy& context)
 void end_grab(RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::phase) != 0)
+    if (fields_of(strategy).phase != 0)
     {
         end_phase(context);
-        set(strategy, field::phase, 0u);
+        fields_of(strategy).phase = 0u;
     }
     release_victim_hold(context); // The inlined 0x000BD650.
-    set(strategy, field::whacked, 0u);
-    if (get(strategy, field::mount) != 0)
+    fields_of(strategy).whacked = 0u;
+    if (fields_of(strategy).mount != 0)
     {
-        const std::span<u8> body = context.body_at(get(strategy, field::mount));
+        const std::span<u8> body = context.body_at(fields_of(strategy).mount);
         const u32 holder = read_u32(body, 0x718);
         if (holder != 0 && holder == strategy_base(strategy).actor)
         {
             const u32 none = 0;
             std::memcpy(body.data() + 0x718, &none, 4);
-            set(strategy, field::riding, 0u);
-            set(strategy, field::mount, 0u);
+            fields_of(strategy).riding = 0u;
+            fields_of(strategy).mount = 0u;
         }
     }
     detach_runtime_strategy_link(context.shared.base.link); // 0x00112A20, EAX strategy +0x20
     strategy_base(strategy).attacking = 0;
-    remove_events(field::grab_events.offset, context); // 0x0003CFD0 over +0x15C, EAX actor
-    set(strategy, field::grab_callout, 0u);
+    remove_events(offsetof(MummyCursedStrategyState, grab_events), context); // 0x0003CFD0 over +0x15C, EAX actor
+    fields_of(strategy).grab_callout = 0u;
 }
 
 // Xbox 0x000BD8B0, ECX strategy, EAX step: the curse's steps. Step 1 takes the mind target's actor as the cursed
@@ -868,11 +871,11 @@ void end_grab(RuntimeMummyCursedStrategy& context)
 void set_curse_step(u32 step, RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (step == get(strategy, field::curse_step))
+    if (step == fields_of(strategy).curse_step)
     {
         return;
     }
-    set(strategy, field::curse_step, step);
+    fields_of(strategy).curse_step = step;
     const u32 address = actor_address(context);
     if (step == 1)
     {
@@ -882,14 +885,14 @@ void set_curse_step(u32 step, RuntimeMummyCursedStrategy& context)
             change_state(0x401, context); // 0x0002B8D0, EDI 0x401
             return;
         }
-        set(strategy, field::cursed, get(target->bytes, mind_target_field::actor));
+        fields_of(strategy).cursed = get(target->bytes, mind_target_field::actor);
         if (get(target->actor_bytes, player_field::mode) != 2)
         {
             change_state(0x401, context); // 0x0002B8D0, EDI 0x401
-            set(strategy, field::cursed, 0u);
+            fields_of(strategy).cursed = 0u;
             return;
         }
-        const Actor& cursed = actor_at(get(strategy, field::cursed), context, "0x000BD99F");
+        const Actor& cursed = actor_at(fields_of(strategy).cursed, context, "0x000BD99F");
         if (parameter(context, 0x10) > runtime_actor_distance(actor_of(context), cursed)) // 0x00041490
         {
             load_goal(context.goal_evade_special, context);
@@ -906,9 +909,8 @@ void set_curse_step(u32 step, RuntimeMummyCursedStrategy& context)
         return;
     }
     load_goal(context.goal_death_curse, context);
-    dispatch_callouts(0x42, field::curse_events.offset, context); // 0x0003BE20, mind +8 -> +0x8C
-    set(strategy, field::deathcurse, context.create_effect(name_at(context, field::deathcurse_name.offset),
-        address)); // 0x00107720, 0x00107520, 0x000663E0
+    dispatch_callouts(0x42, offsetof(MummyCursedStrategyState, curse_events), context); // 0x0003BE20, mind +8 -> +0x8C
+    fields_of(strategy).deathcurse = context.create_effect(fields_of(strategy_of(context)).deathcurse_name.data(), address); // 0x00107720, 0x00107520, 0x000663E0
 }
 
 // Xbox 0x000BD830, ECX strategy, EDX actor: the curse runs: step 1 casts once the requests are done, step 2 faces
@@ -916,7 +918,7 @@ void set_curse_step(u32 step, RuntimeMummyCursedStrategy& context)
 void update_curse(RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    switch (get(strategy, field::curse_step))
+    switch (fields_of(strategy).curse_step)
     {
     case 1:
         if (!requests_pending(context))
@@ -927,11 +929,11 @@ void update_curse(RuntimeMummyCursedStrategy& context)
     case 2:
         if ((body_bits(context, "0x000BD85D").bytes[3] & 1) != 0)
         {
-            set(strategy, field::curse_step, 3u);
+            fields_of(strategy).curse_step = 3u;
             return;
         }
         face_runtime_body_actor(body_of(context), actor_of(context),
-            actor_at(get(strategy, field::cursed), context, "0x000BD880")); // 0x001345B0, ESI +0x188
+            actor_at(fields_of(strategy).cursed, context, "0x000BD880")); // 0x001345B0, ESI +0x188
         return;
     case 3:
         if (!requests_pending(context))
@@ -951,10 +953,10 @@ void end_curse_state(RuntimeMummyCursedStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     detach_runtime_strategy_link(context.shared.base.link); // 0x00112A20
     strategy_base(strategy).attacking = 0;
-    remove_events(field::curse_events.offset, context); // 0x0003CFD0 over +0x2A8
-    if (get(strategy, field::curse_step) != 0)
+    remove_events(offsetof(MummyCursedStrategyState, curse_events), context); // 0x0003CFD0 over +0x2A8
+    if (fields_of(strategy).curse_step != 0)
     {
-        set(strategy, field::curse_step, 0u);
+        fields_of(strategy).curse_step = 0u;
     }
 }
 }
@@ -986,7 +988,7 @@ void set_runtime_attachment_effect_reach(std::span<const u8> events, float dista
 // Xbox 0x000BDA00
 void mummy_cursed_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(MummyCursedStrategyState);
     output.parameters = 0x218;
 }
 
@@ -994,15 +996,15 @@ void mummy_cursed_strategy_object_sizes(ObjectSizes& output)
 bool initialize_runtime_mummy_cursed_strategy(std::span<const u8> parameters, RuntimeMummyCursedStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    set(strategy, field::parameters, context.parameters_address);
-    set(strategy, field::curse_landed, 0u);
-    set(strategy, field::cursed, 0u);
-    set(strategy, field::riding, 0u);
-    set(strategy, field::mount, 0u);
-    set(strategy, field::victim, 0u);
-    if (get(strategy, field::curse_form) != 0)
+    fields_of(strategy).parameters = context.parameters_address;
+    fields_of(strategy).curse_landed = 0u;
+    fields_of(strategy).cursed = 0u;
+    fields_of(strategy).riding = 0u;
+    fields_of(strategy).mount = 0u;
+    fields_of(strategy).victim = 0u;
+    if (fields_of(strategy).curse_form != 0)
     {
-        set(strategy, field::curse_form, 0u);
+        fields_of(strategy).curse_form = 0u;
     }
     const auto copy = [&](size_t to, size_t from)
     {
@@ -1015,10 +1017,10 @@ bool initialize_runtime_mummy_cursed_strategy(std::span<const u8> parameters, Ru
             ++index;
         } while (character != 0);
     };
-    copy(field::curse_effect_name.offset, 0x98);
-    copy(field::deathcurse_name.offset, 0x18);
-    copy(field::burst_name.offset, 0x118);
-    copy(field::spawn_name.offset, 0x198);
+    copy(offsetof(MummyCursedStrategyState, curse_effect_name), 0x98);
+    copy(offsetof(MummyCursedStrategyState, deathcurse_name), 0x18);
+    copy(offsetof(MummyCursedStrategyState, burst_name), 0x118);
+    copy(offsetof(MummyCursedStrategyState, spawn_name), 0x198);
     return true;
 }
 
@@ -1064,7 +1066,7 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
     case 0x2E:
         if (message[1] == actor)
         {
-            const u32 cursed = get(strategy, field::cursed);
+            const u32 cursed = fields_of(strategy).cursed;
             const u16 energy = read_u16(context.body_at(cursed), 0x94); // The cursed player's body +0x94.
             const std::array<u32, 3> curse{0x2F, cursed, actor};
             context.object_message(cursed, curse); // The cursed player's vtable +0xC.
@@ -1084,17 +1086,17 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
         }
         release_mount(context); // 0x000BE070
         end_curse(actor, context); // 0x000BC770
-        if (get(strategy, field::curse_landed) != 0)
+        if (fields_of(strategy).curse_landed != 0)
         {
             const std::array<u32, 2> lifted{0x2C, 0};
-            context.object_message(get(strategy, field::cursed), lifted); // The cursed player's vtable +0xC.
+            context.object_message(fields_of(strategy).cursed, lifted); // The cursed player's vtable +0xC.
         }
         return;
     case 0x36:
         notice_runtime_strategy_hostile_target(0x17, shared.checks); // 0x0013A4F0
         return;
     case 0x49:
-        if (message[6] == get(strategy, field::cursed)
+        if (message[6] == fields_of(strategy).cursed
             && read_u32(context.actor_bytes_at(message[1]), 0xD8C) == actor)
         {
             land_curse(actor, context); // 0x000BC870
@@ -1102,8 +1104,8 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
         return;
     case 0x5F:
     {
-        const u32 record = context.shared.views.first_live_attachment_at(get(strategy, field::cursed)); // Actor +0x8F8.
-        set(strategy, field::curse_landed, 1u);
+        const u32 record = context.shared.views.first_live_attachment_at(fields_of(strategy).cursed); // Actor +0x8F8.
+        fields_of(strategy).curse_landed = 1u;
         std::memcpy(context.actor_bytes_at(message[1]).data() + 0xE50, &record, 4);
         return;
     }
@@ -1117,7 +1119,7 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
         {
             react_runtime_strategy_contact(message, kHalf, shared.checks); // 0x001395C0, XMM1 DAT_0032B0F4
         }
-        if (get(strategy, field::riding) == 0
+        if (fields_of(strategy).riding == 0
             && !runtime_body_bit_set(body_bits(context, "0x000BDD34"), 5)) // 0x0001EF10, ECX 5
         {
             retaliate_runtime_strategy_contact(message, -1, shared.checks, shared.views); // 0x00139390
@@ -1127,7 +1129,7 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
             if (runtime_message_from_mind_target(message, actor, mind_of(context), goals.target_at)) // 0x001408E0
             {
                 react_runtime_strategy_contact(message, kOne, shared.checks); // 0x001395C0, XMM1 DAT_0032B0F8
-                set(strategy, field::unk_14C, 1u);
+                fields_of(strategy).unk_14C = 1u;
             }
             return;
         }
@@ -1148,14 +1150,14 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
         return;
     }
     case 0x7C:
-        if (message[1] == get(strategy, field::victim))
+        if (message[1] == fields_of(strategy).victim)
         {
-            set(strategy, field::victim, 0u);
+            fields_of(strategy).victim = 0u;
             release_mount(context); // 0x000BE070
         }
-        if (message[1] == get(strategy, field::cursed))
+        if (message[1] == fields_of(strategy).cursed)
         {
-            set(strategy, field::cursed, 0u);
+            fields_of(strategy).cursed = 0u;
         }
         return;
     case 0x80:
@@ -1196,7 +1198,7 @@ void enter_runtime_mummy_cursed_state(u16 state, RuntimeMummyCursedStrategy& con
         strategy_base(strategy).attacking = 1;
         return;
     case 0x401:
-        set(strategy, field::evading, 0u);
+        fields_of(strategy).evading = 0u;
         return;
     default:
         enter_runtime_base_strategy_state(goals.entry, state); // 0x0002BAF0
@@ -1217,7 +1219,7 @@ void leave_runtime_mummy_cursed_state(u16 state, RuntimeMummyCursedStrategy& con
         end_curse_state(context); // 0x000BD7D0
         return;
     case 0x401:
-        set(strategy, field::evading, 0u);
+        fields_of(strategy).evading = 0u;
         return;
     case 0x3FC:
     case 0x3FF:

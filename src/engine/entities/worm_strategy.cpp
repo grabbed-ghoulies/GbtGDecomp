@@ -25,7 +25,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = worm_strategy_field;
+WormStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<WormStrategyState>(strategy);
+}
+
+const WormStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<WormStrategyState>(strategy);
+}
+
 
 constexpr float kTimerStart = 5.f; // DAT_0032B184.
 constexpr float kOne = 1.f; // DAT_0032B0F8.
@@ -87,11 +96,6 @@ RuntimeMindTarget* mind_target(RuntimeWormStrategy& context)
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
-const char* name_at(RuntimeWormStrategy& context, size_t offset)
-{
-    return reinterpret_cast<const char*>(strategy_of(context).data() + offset);
-}
-
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
@@ -113,13 +117,13 @@ void end_effect_mode(RuntimeWormStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 effect = get(strategy, field::effect);
+    const u32 effect = fields_of(strategy).effect;
     if (effect != 0)
     {
         context.release_frame_object(goals.entry.actor, effect); // 0x0003DE30, ECX actor, ESI effect
-        set(strategy, field::effect, 0u);
+        fields_of(strategy).effect = 0u;
     }
-    const u32 mode = get(strategy, field::effect_mode);
+    const u32 mode = fields_of(strategy).effect_mode;
     if (mode == 1)
     {
         EntityBitBlock& bits = body_bits(context, "0x000C4C70");
@@ -135,14 +139,14 @@ void end_effect_mode(RuntimeWormStrategy& context)
 // Xbox 0x000C4560
 void worm_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(WormStrategyState);
     output.parameters = 0x118;
 }
 
 // Xbox 0x000C45D0
 bool initialize_runtime_worm_strategy(std::span<u8> strategy, std::span<const u8> parameters)
 {
-    set(strategy, field::timer, kTimerStart);
+    fields_of(strategy).timer = kTimerStart;
     const auto copy = [&](size_t to, size_t from)
     {
         size_t index = 0;
@@ -154,8 +158,8 @@ bool initialize_runtime_worm_strategy(std::span<u8> strategy, std::span<const u8
             ++index;
         } while (character != 0);
     };
-    copy(field::emerge_effect_name.offset, 0x18);
-    copy(field::hit_effect_name.offset, 0x98);
+    copy(offsetof(WormStrategyState, emerge_effect_name), 0x18);
+    copy(offsetof(WormStrategyState, hit_effect_name), 0x98);
     return true;
 }
 
@@ -163,37 +167,35 @@ bool initialize_runtime_worm_strategy(std::span<u8> strategy, std::span<const u8
 void destroy_runtime_worm_strategy(RuntimeWormStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect_mode) == 0)
+    if (fields_of(strategy).effect_mode == 0)
     {
         return;
     }
     end_effect_mode(context);
-    set(strategy, field::effect_mode, 0u);
+    fields_of(strategy).effect_mode = 0u;
 }
 
 // Xbox 0x000C4C70
 void set_runtime_worm_effect_mode(u32 mode, RuntimeWormStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (mode == get(strategy, field::effect_mode))
+    if (mode == fields_of(strategy).effect_mode)
     {
         return;
     }
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const u32 actor = strategy_base(strategy).actor;
     end_effect_mode(context);
-    set(strategy, field::effect_mode, mode);
+    fields_of(strategy).effect_mode = mode;
     if (mode == 1)
     {
-        set(strategy, field::effect, context.create_effect(name_at(context, field::emerge_effect_name.offset),
-            actor)); // 0x00107720, 0x00107520, 0x000663E0
+        fields_of(strategy).effect = context.create_effect(fields_of(strategy_of(context)).emerge_effect_name.data(), actor); // 0x00107720, 0x00107520, 0x000663E0
         EntityBitBlock& bits = body_bits(context, "0x000C4C70");
         bits.bytes[0] = u8(bits.bytes[0] | 0x80);
     }
     else if (mode == 2)
     {
-        set(strategy, field::effect, context.create_effect(name_at(context, field::hit_effect_name.offset),
-            actor)); // 0x00107720, 0x00107520, 0x000663E0
+        fields_of(strategy).effect = context.create_effect(fields_of(strategy_of(context)).hit_effect_name.data(), actor); // 0x00107720, 0x00107520, 0x000663E0
         increment_runtime_body_latches(body_of_actor(context), goals.cleanup.body_owner,
             context.latches); // The tail jump to 0x0001FC40, ECX body.
     }
@@ -204,7 +206,7 @@ bool run_down_runtime_worm_timer(const RuntimeMindTarget* target, RuntimeWormStr
 {
     const std::span<u8> strategy = strategy_of(context);
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    float shown = get(strategy, field::timer) + kOne;
+    float shown = fields_of(strategy).timer + kOne;
     if (!(kTimerStart > shown)) // COMISS; JA keeps the sum.
     {
         shown = kTimerStart;
@@ -216,18 +218,18 @@ bool run_down_runtime_worm_timer(const RuntimeMindTarget* target, RuntimeWormStr
     }
     const float step = runtime_frame_step(goals.clock);
     const float rate = runtime_actor_rate(goals.entry.actor);
-    const float left = get(strategy, field::timer);
+    const float left = fields_of(strategy).timer;
     if (!(left > 0.f))
     {
         return false;
     }
     const float next = left - rate * step;
-    set(strategy, field::timer, next);
+    fields_of(strategy).timer = next;
     if (0.f < next) // COMISS; JC keeps a positive timer.
     {
         return false;
     }
-    set(strategy, field::timer, 0.f);
+    fields_of(strategy).timer = 0.f;
     change_state(0x400, context); // The inlined vtable +0x18, 0x00029E80 and +0x14.
     return true;
 }
@@ -255,7 +257,7 @@ void update_runtime_worm_strategy(RuntimeWormStrategy& context)
         }
         if (!requests_pending(context))
         {
-            change_state(get(strategy_of(context), field::effect_mode) != 0 ? 0x3EF : 0x401, context);
+            change_state(fields_of(strategy_of(context)).effect_mode != 0 ? 0x3EF : 0x401, context);
         }
         return;
     case 0x3FE:
@@ -346,9 +348,9 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
         return;
     }
     case 0x14:
-        if (get(strategy, field::effect) == message[1])
+        if (fields_of(strategy).effect == message[1])
         {
-            set(strategy, field::effect, 0u);
+            fields_of(strategy).effect = 0u;
         }
         return;
     case 0x31:
@@ -399,7 +401,7 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
                         strategy_base(strategy).unk_18 = u16(0x3EF);
                         return;
                     }
-                    if (get(strategy, field::effect) != 0)
+                    if (fields_of(strategy).effect != 0)
                     {
                         return;
                     }
@@ -414,7 +416,7 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
             return;
         }
         take_runtime_strategy_hit_sender(message, context.checks, context.views); // 0x001394D0; its result is not read.
-        if (get(strategy, field::effect) != 0)
+        if (fields_of(strategy).effect != 0)
         {
             return;
         }

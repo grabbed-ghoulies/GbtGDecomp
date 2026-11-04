@@ -22,7 +22,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = imp_flamethrower_strategy_field;
+ImpFlamethrowerStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<ImpFlamethrowerStrategyState>(strategy);
+}
+
+const ImpFlamethrowerStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<ImpFlamethrowerStrategyState>(strategy);
+}
+
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeImpFlamethrowerStrategy& context)
 {
@@ -109,7 +118,7 @@ void request_move(float pace, float wait, float linger, RuntimeImpFlamethrowerSt
     put_float(move->bytes, 0x14, 1.f); // DAT_0032B0F8.
     put_float(move->bytes, 0x1C, 1.f);
     put_float(move->bytes, 0x24, 0.f);
-    put_float(move->bytes, 0x18, get(strategy_of(context), field::fast) != 0 ? 25.f : 5.f);
+    put_float(move->bytes, 0x18, fields_of(strategy_of(context)).fast != 0 ? 25.f : 5.f);
     put_float(move->bytes, 0x28, 0.25f); // DAT_0032B104.
     RuntimePlayerMindRequest* hold = allocate_runtime_mind_request(mind.anchor, 0x29, mind.sizes); // 0x00029D90, EBX 0x29
     put_float(hold->bytes, 0x10, wait);
@@ -164,7 +173,7 @@ void roam_runtime_imp_flamethrower(RuntimeImpFlamethrowerStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> mind = mind_of(context);
-    set(strategy_of(context), field::fast, !(0.5f < roll(context)) ? 1u : 0u); // DAT_0032B0F4.
+    fields_of(strategy_of(context)).fast = !(0.5f < roll(context)) ? 1u : 0u; // DAT_0032B0F4.
     const i32 floor = i32(get(goals.entry.actor_bytes, player_field::floor));
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
     struct Candidate
@@ -242,7 +251,7 @@ void update_runtime_imp_flamethrower_strategy(RuntimeImpFlamethrowerStrategy& co
         {
             return;
         }
-        if (get(strategy, field::in_reach) == 0)
+        if (fields_of(strategy).in_reach == 0)
         {
             if (requests_pending(context))
             {
@@ -250,7 +259,7 @@ void update_runtime_imp_flamethrower_strategy(RuntimeImpFlamethrowerStrategy& co
                 return;
             }
             const bool reached = approach_runtime_imp_flamethrower_target(target, context); // 0x000B4FE0
-            set(strategy, field::in_reach, reached ? 1u : 0u);
+            fields_of(strategy).in_reach = reached ? 1u : 0u;
             if (reached)
             {
                 clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80
@@ -301,10 +310,10 @@ void update_runtime_imp_flamethrower_strategy(RuntimeImpFlamethrowerStrategy& co
         {
             return;
         }
-        float delay = get(strategy, field::delay);
+        float delay = fields_of(strategy).delay;
         count_down_runtime_strategy_timer(delay, goals); // 0x0002B9F0, ECX +0x38
-        set(strategy, field::delay, delay);
-        if (get(strategy, field::delay) == 0.f)
+        fields_of(strategy).delay = delay;
+        if (fields_of(strategy).delay == 0.f)
         {
             roam_runtime_imp_flamethrower(context); // 0x000B52B0
         }
@@ -339,9 +348,9 @@ void update_runtime_imp_flamethrower_strategy(RuntimeImpFlamethrowerStrategy& co
         {
             return;
         }
-        float delay = get(strategy, field::delay);
+        float delay = fields_of(strategy).delay;
         count_down_runtime_strategy_timer(delay, goals); // 0x0002B9F0, ECX +0x38
-        set(strategy, field::delay, delay);
+        fields_of(strategy).delay = delay;
         if (join_queue(target, context))
         {
             choose_runtime_imp_flamethrower_attack(context); // 0x000B1350
@@ -352,7 +361,7 @@ void update_runtime_imp_flamethrower_strategy(RuntimeImpFlamethrowerStrategy& co
             change_state(0x40C, context);
             return;
         }
-        if (get(strategy, field::delay) == 0.f)
+        if (fields_of(strategy).delay == 0.f)
         {
             change_state(0x40C, context);
         }
@@ -422,25 +431,25 @@ void enter_runtime_imp_flamethrower_state(u16 state, u16 previous, RuntimeImpFla
     case 0x3ED:
         body[0x328] = 4;
         strategy_base(strategy).attacking = 1;
-        set(strategy, field::fast, 0u);
-        set(strategy, field::in_reach, 0u);
+        fields_of(strategy).fast = 0u;
+        fields_of(strategy).in_reach = 0u;
         approach_runtime_imp_flamethrower_target(target, context); // 0x000B4FE0
         return;
     case 0x3EF:
         body[0x328] = 6;
         strategy_base(strategy).attacking = 1;
-        set(strategy, field::fast, 1u);
-        set(strategy, field::in_reach, 1u);
+        fields_of(strategy).fast = 1u;
+        fields_of(strategy).in_reach = 1u;
         load_runtime_mind_goal(context.goal_flamethrower, mind); // 0x0002A8E0
         return;
     case 0x401:
         if (actor_event_chance(goals.random, 0.25f)) // 0x00019200, DAT_0032B104
         {
-            set(strategy, field::delay, roll(context) * 2.f + 2.f); // DAT_0032B110.
+            fields_of(strategy).delay = roll(context) * 2.f + 2.f; // DAT_0032B110.
         }
         else
         {
-            set(strategy, field::delay, 0.f);
+            fields_of(strategy).delay = 0.f;
         }
         roam_runtime_imp_flamethrower(context); // 0x000B52B0
         return;
@@ -449,7 +458,7 @@ void enter_runtime_imp_flamethrower_state(u16 state, u16 previous, RuntimeImpFla
         approach_runtime_imp_flamethrower_target(target, context); // 0x000B4FE0
         return;
     case 0x40D:
-        set(strategy, field::delay, roll(context) + 1.f); // DAT_0032B0F8.
+        fields_of(strategy).delay = roll(context) + 1.f; // DAT_0032B0F8.
         allocate_runtime_mind_request(mind.anchor, 0x17, mind.sizes); // 0x00029D90, EBX 0x17
         return;
     case 0x416:

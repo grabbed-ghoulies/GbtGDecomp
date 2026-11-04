@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -13,20 +14,21 @@ namespace gbtg
 // a bobbing request 0xF, 0x000B0720) until it has a target, then circles it (0x40C, 0x000B0680) on the movement
 // table at 0x00302E80 and attacks (0x3ED "attack" or 0x3EF "attack_special", picked by aggression) between waits
 // of 0.45 to 0.55 s.
-// Strategy bytes: +0x1A attacking, +0x1B waking, +0x1C pause count, +0x20 target queue link.
 namespace haunted_picture_parameter
 {
 constexpr u32 kSize = 0x18;
 } // namespace haunted_picture_parameter
-namespace haunted_picture_strategy_field
+struct HauntedPictureStrategyState
 {
-constexpr RetailField<u32, 0x38> awake{}; // set by 0x000B1420
-constexpr RetailField<u32, 0x3C> latched{}; // message 0x7D raised the live holds (0x00042090)
-constexpr RetailField<float, 0x44> attack_wait{}; // counts down; 0x40C queues on the target once it is 0
-constexpr RetailField<float, 0x4C> phase{}; // the bob and circling phase, wrapped at 2.2
-constexpr u32 kSize = 0x50;
-static_assert(retail_fits(kSize, phase));
-} // namespace haunted_picture_strategy_field
+    StrategyBase base{}; // +0
+    u32 awake = 0; // +0x38, set by 0x000B1420
+    u32 latched = 0; // +0x3C, message 0x7D raised the live holds (0x00042090)
+    std::array<u8, 4> unk_40{}; // +0x40, never read or written by translated code
+    float attack_wait = 0.f; // +0x44, counts down; 0x40C queues on the target once it is 0
+    std::array<u8, 4> unk_48{}; // +0x48, never read or written by translated code
+    float phase = 0.f; // +0x4C, the bob and circling phase, wrapped at 2.2
+};
+static_assert(sizeof(HauntedPictureStrategyState) == 0x50);
 struct RuntimeHauntedPictureStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

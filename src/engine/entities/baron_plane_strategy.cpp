@@ -24,7 +24,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = baron_plane_strategy_field;
+BaronPlaneStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<BaronPlaneStrategyState>(strategy);
+}
+
+const BaronPlaneStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<BaronPlaneStrategyState>(strategy);
+}
+
 namespace parameter = baron_plane_parameter;
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeBaronPlaneStrategy& context)
@@ -114,11 +123,11 @@ bool paused(RuntimeBaronPlaneStrategy& context)
 void effect_on(RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect_mode) == 1)
+    if (fields_of(strategy).effect_mode == 1)
     {
         return;
     }
-    set(strategy, field::effect_mode, 1u);
+    fields_of(strategy).effect_mode = 1u;
     start_runtime_baron_plane_effect(context); // 0x000A8AD0
 }
 
@@ -126,11 +135,11 @@ void effect_on(RuntimeBaronPlaneStrategy& context)
 void effect_when_low(RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (energy_of(context) > 0x3C || get(strategy, field::effect_mode) == 2)
+    if (energy_of(context) > 0x3C || fields_of(strategy).effect_mode == 2)
     {
         return;
     }
-    set(strategy, field::effect_mode, 2u);
+    fields_of(strategy).effect_mode = 2u;
     if (!runtime_body_bit_set(bits_of(context, "0x000A9430"), 0x35))
     {
         start_runtime_baron_plane_effect(context); // 0x000A8AD0
@@ -143,21 +152,21 @@ void effect_when_low(RuntimeBaronPlaneStrategy& context)
 void effect_off(RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect_mode) == 0)
+    if (fields_of(strategy).effect_mode == 0)
     {
         return;
     }
-    set(strategy, field::effect_mode, 0u);
-    if (get(strategy, field::effect) != 0)
+    fields_of(strategy).effect_mode = 0u;
+    if (fields_of(strategy).effect != 0)
     {
-        set(strategy, field::linger, 0.25f);
+        fields_of(strategy).linger = 0.25f;
     }
 }
 
 // The dives done: more to come, or the wait.
 void after_dive(RuntimeBaronPlaneStrategy& context)
 {
-    change_state(get(strategy_of(context), field::dives) != 0 ? 0x3EE : 0x40C, context);
+    change_state(fields_of(strategy_of(context)).dives != 0 ? 0x3EE : 0x40C, context);
 }
 
 SceneCutsceneRuntime& cutscenes_of(RuntimeBaronPlaneStrategy& context)
@@ -169,7 +178,7 @@ SceneCutsceneRuntime& cutscenes_of(RuntimeBaronPlaneStrategy& context)
 // Xbox 0x000A8BF0
 void baron_plane_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(BaronPlaneStrategyState);
     output.parameters = parameter::kSize;
 }
 
@@ -180,10 +189,10 @@ bool initialize_runtime_baron_plane_strategy(std::span<u8> strategy, std::span<c
     {
         std::memcpy(strategy.data() + to, from, std::strlen(from) + 1);
     };
-    copy(field::effect_name.offset, field_data(parameters, parameter::effect));
-    copy(field::sound_name.offset, field_data(parameters, parameter::sound));
-    copy(field::cutscene_name.offset, field_data(parameters, parameter::cutscene));
-    set(strategy, field::spawns, 4u);
+    copy(offsetof(BaronPlaneStrategyState, effect_name), field_data(parameters, parameter::effect));
+    copy(offsetof(BaronPlaneStrategyState, sound_name), field_data(parameters, parameter::sound));
+    copy(offsetof(BaronPlaneStrategyState, cutscene_name), field_data(parameters, parameter::cutscene));
+    fields_of(strategy).spawns = 4u;
     return true;
 }
 
@@ -192,12 +201,12 @@ void tick_runtime_baron_plane_effect(RuntimeBaronPlaneStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 mode = get(strategy, field::effect_mode);
+    const u32 mode = fields_of(strategy).effect_mode;
     if (mode == 0)
     {
-        float linger = get(strategy, field::linger);
+        float linger = fields_of(strategy).linger;
         const bool ended = count_down_runtime_strategy_timer(linger, goals); // The inlined 0x0002B9F0.
-        set(strategy, field::linger, linger);
+        fields_of(strategy).linger = linger;
         if (ended)
         {
             end_runtime_baron_plane_effect(context); // 0x000A89C0
@@ -220,16 +229,16 @@ void tick_runtime_baron_plane_effect(RuntimeBaronPlaneStrategy& context)
 void set_runtime_baron_plane_effect_mode(u32 mode, RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect_mode) == mode)
+    if (fields_of(strategy).effect_mode == mode)
     {
         return;
     }
-    set(strategy, field::effect_mode, mode);
+    fields_of(strategy).effect_mode = mode;
     if (mode == 0)
     {
-        if (get(strategy, field::effect) != 0)
+        if (fields_of(strategy).effect != 0)
         {
-            set(strategy, field::linger, 0.25f); // DAT_0032B104.
+            fields_of(strategy).linger = 0.25f; // DAT_0032B104.
         }
         return;
     }
@@ -248,7 +257,7 @@ void set_runtime_baron_plane_effect_mode(u32 mode, RuntimeBaronPlaneStrategy& co
 void end_runtime_baron_plane_effect(RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 effect = get(strategy, field::effect);
+    const u32 effect = fields_of(strategy).effect;
     if (effect == 0)
     {
         return;
@@ -256,20 +265,20 @@ void end_runtime_baron_plane_effect(RuntimeBaronPlaneStrategy& context)
     const std::array<u32, 2> message{5, 0};
     context.object_message(effect, message); // Vtable +0xC.
     decrement_runtime_body_latches(body_of(context), actor_of(context), context.latches); // The inlined 0x0001FD20.
-    set(strategy, field::effect, 0u);
+    fields_of(strategy).effect = 0u;
 }
 
 // Xbox 0x000A8AD0
 void start_runtime_baron_plane_effect(RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect) != 0)
+    if (fields_of(strategy).effect != 0)
     {
         return;
     }
     const std::span<u8> body = body_of(context);
-    const char* name = field_data(std::span<const u8>{strategy}, field::effect_name);
-    set(strategy, field::effect, context.create_effect(name, read_u32(body, 8))); // The inlined 0x0003DF40.
+    const char* name = fields_of(std::span<const u8>{strategy}).effect_name.data();
+    fields_of(strategy).effect = context.create_effect(name, read_u32(body, 8)); // The inlined 0x0003DF40.
     increment_runtime_body_latches(body, actor_of(context), context.latches); // The inlined 0x0001FC40.
 }
 
@@ -340,7 +349,7 @@ bool runtime_baron_plane_crowded(RuntimeBaronPlaneStrategy& context)
 // Xbox 0x000A9B50
 bool runtime_baron_plane_can_fly(RuntimeBaronPlaneStrategy& context)
 {
-    if (get(strategy_of(context), field::hit_pause) > 0.f) // DAT_0032B100.
+    if (fields_of(strategy_of(context)).hit_pause > 0.f) // DAT_0032B100.
     {
         return false;
     }
@@ -374,7 +383,7 @@ void start_runtime_baron_plane_flight(RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    if (get(strategy, field::flying) == 0)
+    if (fields_of(strategy).flying == 0)
     {
         if (context.collision != nullptr)
         {
@@ -382,7 +391,7 @@ void start_runtime_baron_plane_flight(RuntimeBaronPlaneStrategy& context)
             put_u32(body, 0x2CC, 0);
         }
         body[0x6A] = u8(body[0x6A] + 1);
-        set(strategy, field::flying, 1u);
+        fields_of(strategy).flying = 1u;
     }
     // EDI body +0x5C, EBX 4: the first table's row, else the second's.
     const u8* row = nullptr;
@@ -410,7 +419,7 @@ void end_runtime_baron_plane_flight(RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    if (get(strategy, field::flying) != 0)
+    if (fields_of(strategy).flying != 0)
     {
         if (context.collision != nullptr)
         {
@@ -420,7 +429,7 @@ void end_runtime_baron_plane_flight(RuntimeBaronPlaneStrategy& context)
         put_u32(body, 0x88, 0);
         body[0x6A] = u8(body[0x6A] - 1);
         put_u32(body, 0x74C, 0);
-        set(strategy, field::flying, 0u);
+        fields_of(strategy).flying = 0u;
     }
     EntityBitBlock& bits = bits_of(context, "0x000A9C90");
     bits.bytes[1] = u8(bits.bytes[1] | 4);
@@ -430,12 +439,12 @@ void end_runtime_baron_plane_flight(RuntimeBaronPlaneStrategy& context)
 void start_runtime_baron_plane_sound(RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::sounding) != 0)
+    if (fields_of(strategy).sounding != 0)
     {
         return;
     }
-    set(strategy, field::sounding, 1u);
-    const char* name = field_data(std::span<const u8>{strategy}, field::sound_name);
+    fields_of(strategy).sounding = 1u;
+    const char* name = fields_of(std::span<const u8>{strategy}).sound_name.data();
     if (name[0] == 0)
     {
         return;
@@ -494,15 +503,15 @@ bool wait_runtime_baron_plane_crowd(RuntimeBaronPlaneStrategy& context)
     {
         return false;
     }
-    const float time = get(strategy, field::crowd_time)
+    const float time = fields_of(strategy).crowd_time
         - runtime_actor_rate(actor_of(context)) * runtime_frame_step(goals_of(context).clock);
-    set(strategy, field::crowd_time, time);
+    fields_of(strategy).crowd_time = time;
     if (0.f < time)
     {
         return false;
     }
-    set(strategy, field::crowd_wait, 0u);
-    if (energy_of(context) <= 0x3C && get(strategy, field::spawns) == 0 && get(strategy, field::spinning) == 0)
+    fields_of(strategy).crowd_wait = 0u;
+    if (energy_of(context) <= 0x3C && fields_of(strategy).spawns == 0 && fields_of(strategy).spinning == 0)
     {
         change_state(0x414, context);
         return true;
@@ -516,7 +525,7 @@ bool wait_runtime_baron_plane_crowd(RuntimeBaronPlaneStrategy& context)
 bool runtime_baron_plane_spin_ready(RuntimeBaronPlaneStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    return energy_of(context) < 0x3D && get(strategy, field::spawns) == 0 && get(strategy, field::spinning) == 0;
+    return energy_of(context) < 0x3D && fields_of(strategy).spawns == 0 && fields_of(strategy).spinning == 0;
 }
 
 // Xbox 0x000A8CD0
@@ -532,17 +541,17 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
     {
         // +0x40 runs down by the frame step alone while the actor is paused.
         const float step = runtime_frame_step(goals.clock);
-        if (get(strategy, field::hit_pause) > 0.f)
+        if (fields_of(strategy).hit_pause > 0.f)
         {
-            const float left = get(strategy, field::hit_pause) - step;
-            set(strategy, field::hit_pause, left);
+            const float left = fields_of(strategy).hit_pause - step;
+            fields_of(strategy).hit_pause = left;
             if (!(0.f < left))
             {
-                set(strategy, field::hit_pause, 0.f);
+                fields_of(strategy).hit_pause = 0.f;
             }
         }
     }
-    if (get(strategy, field::fly) != 0 && runtime_baron_plane_can_fly(context)) // 0x000A9B50
+    if (fields_of(strategy).fly != 0 && runtime_baron_plane_can_fly(context)) // 0x000A9B50
     {
         start_runtime_baron_plane_flight(context); // 0x000A9BE0
     }
@@ -550,16 +559,16 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
     {
         end_runtime_baron_plane_flight(context); // 0x000A9C90
     }
-    if (get(strategy, field::sound) != 0 && runtime_baron_plane_can_sound(context)) // 0x000A9BA0
+    if (fields_of(strategy).sound != 0 && runtime_baron_plane_can_sound(context)) // 0x000A9BA0
     {
         start_runtime_baron_plane_sound(context); // 0x000A9CF0
     }
-    else if (get(strategy, field::sounding) != 0)
+    else if (fields_of(strategy).sounding != 0)
     {
-        set(strategy, field::sounding, 0u);
+        fields_of(strategy).sounding = 0u;
         release_actor_sound(actor_of(context).sound_slots[4], context.sounds); // 0x0012A3D0, ESI actor +0x614
     }
-    if (get(strategy, field::flying) != 0 && context.collision != nullptr && context.collision->overrides != nullptr)
+    if (fields_of(strategy).flying != 0 && context.collision != nullptr && context.collision->overrides != nullptr)
     {
         expire_runtime_body_contact_overrides(context.collision->overrides, 0.5f); // 0x0013EB60, DAT_0032B0F4
     }
@@ -577,7 +586,7 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
         {
             return;
         }
-        if (get(strategy, field::crowd_wait) != 0 && wait_runtime_baron_plane_crowd(context)) // 0x000A9EA0
+        if (fields_of(strategy).crowd_wait != 0 && wait_runtime_baron_plane_crowd(context)) // 0x000A9EA0
         {
             return;
         }
@@ -585,7 +594,7 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
         {
             return;
         }
-        if (get(strategy, field::hit_target) != 0)
+        if (fields_of(strategy).hit_target != 0)
         {
             change_state(0x40E, context);
             return;
@@ -601,7 +610,7 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
         far();
         return;
     case 0x404:
-        if (get(strategy, field::cutscene) != 0)
+        if (fields_of(strategy).cutscene != 0)
         {
             follow_runtime_baron_plane_cutscene(context); // 0x000A9DB0
         }
@@ -609,18 +618,18 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
         {
             return;
         }
-        if (get(strategy, field::landed) == 0)
+        if (fields_of(strategy).landed == 0)
         {
             // The script hears {0xB9, his tag}.
             const std::array<u32, 2> event{0xB9, read_u16(goals.entry.actor_bytes, 6)};
             script_queue_event(goals.game, {reinterpret_cast<const u8*>(event.data()), sizeof(event)}); // 0x00116810
-            if (get(strategy, field::cutscene) != 0)
+            if (fields_of(strategy).cutscene != 0)
             {
                 release_scene_cutscenes(cutscenes_of(context)); // 0x0004ECE0
-                set(strategy, field::cutscene, 0u);
+                fields_of(strategy).cutscene = 0u;
             }
-            set(strategy, field::landed, get(strategy, field::landed) + 1);
-            set(strategy, field::spawns, get(strategy, field::spawns) - 1);
+            fields_of(strategy).landed = fields_of(strategy).landed + 1;
+            fields_of(strategy).spawns = fields_of(strategy).spawns - 1;
         }
         if (cutscenes_of(context).index > -1) // DAT_004E1C34.
         {
@@ -638,7 +647,7 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
             change_state(0x414, context);
             return;
         }
-        if (get(strategy, field::knocked) != 0 && get(strategy, field::spawns) != 0)
+        if (fields_of(strategy).knocked != 0 && fields_of(strategy).spawns != 0)
         {
             change_state(0x404, context);
             return;
@@ -651,19 +660,19 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
         {
             return;
         }
-        if (get(strategy, field::crowd_wait) != 0 && wait_runtime_baron_plane_crowd(context)) // 0x000A9EA0
+        if (fields_of(strategy).crowd_wait != 0 && wait_runtime_baron_plane_crowd(context)) // 0x000A9EA0
         {
             return;
         }
-        float wait = get(strategy, field::wait);
+        float wait = fields_of(strategy).wait;
         tick_runtime_hud_timer(wait); // 0x0012B2F0, ECX +0x44
-        set(strategy, field::wait, wait);
-        const bool low = energy_of(context) <= 0x3C && get(strategy, field::spinning) != 0;
+        fields_of(strategy).wait = wait;
+        const bool low = energy_of(context) <= 0x3C && fields_of(strategy).spinning != 0;
         const bool alone = !runtime_baron_plane_crowded(context); // 0x000A9B20
-        if ((get(strategy, field::wait) == 0.f || (low && alone)) && (!low || alone)) // DAT_0032B100.
+        if ((fields_of(strategy).wait == 0.f || (low && alone)) && (!low || alone)) // DAT_0032B100.
         {
             const u32 dives = std::bit_cast<u32>(runtime_baron_plane_row(body_of(context), context)[2]); // 0x000A9AA0
-            set(strategy, field::dives, dives);
+            fields_of(strategy).dives = dives;
             if (dives != 0)
             {
                 change_state(0x3EE, context);
@@ -690,7 +699,7 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
         {
             return;
         }
-        if (get(strategy, field::cutscene) != 0)
+        if (fields_of(strategy).cutscene != 0)
         {
             follow_runtime_baron_plane_cutscene(context); // 0x000A9DB0
         }
@@ -698,10 +707,10 @@ void update_runtime_baron_plane_strategy(RuntimeBaronPlaneStrategy& context)
         {
             return;
         }
-        if (get(strategy, field::cutscene) != 0)
+        if (fields_of(strategy).cutscene != 0)
         {
             release_scene_cutscenes(cutscenes_of(context)); // 0x0004ECE0
-            set(strategy, field::cutscene, 0u);
+            fields_of(strategy).cutscene = 0u;
         }
         change_state(0x40C, context);
         return;
@@ -721,7 +730,7 @@ void dispatch_runtime_baron_plane_message(std::span<u32> message, RuntimeBaronPl
     {
         if (paused(context))
         {
-            set(strategy, field::hit_pause, 1.f); // DAT_0032B0F8.
+            fields_of(strategy).hit_pause = 1.f; // DAT_0032B0F8.
         }
         const u16 state = strategy_base(strategy).state;
         if (state == 0x404 || state == 0x409 || state == 0x414)
@@ -733,9 +742,9 @@ void dispatch_runtime_baron_plane_message(std::span<u32> message, RuntimeBaronPl
     switch (message[0])
     {
     case 0x14:
-        if (get(strategy, field::effect) == message[1])
+        if (fields_of(strategy).effect == message[1])
         {
-            set(strategy, field::effect, 0u);
+            fields_of(strategy).effect = 0u;
         }
         return;
     case 0x31:
@@ -743,10 +752,10 @@ void dispatch_runtime_baron_plane_message(std::span<u32> message, RuntimeBaronPl
         return;
     case 0x3B:
         effect_off(context);
-        start_scene_cutscene(field_data(std::span<const u8>{strategy}, field::cutscene_name), 0, 0,
+        start_scene_cutscene(fields_of(std::span<const u8>{strategy}).cutscene_name.data(), 0, 0,
             cutscenes_of(context)); // 0x0004EDA0
         follow_runtime_baron_plane_cutscene(context); // 0x000A9DB0
-        set(strategy, field::cutscene, 1u);
+        fields_of(strategy).cutscene = 1u;
         return;
     case 0x58:
         message[2] = std::bit_cast<u32>(runtime_baron_plane_row(body, context)[3]); // 0x000A9AA0
@@ -761,16 +770,15 @@ void dispatch_runtime_baron_plane_message(std::span<u32> message, RuntimeBaronPl
         {
             if (message[3] != 0)
             {
-                set(strategy, field::dives,
-                    std::bit_cast<u32>(runtime_baron_plane_row(body, context)[2])); // 0x000A9AA0
+                fields_of(strategy).dives = std::bit_cast<u32>(runtime_baron_plane_row(body, context)[2]); // 0x000A9AA0
             }
-            set(strategy, field::knocked, message[3]);
+            fields_of(strategy).knocked = message[3];
             change_state(0x409, context);
         }
         if (runtime_message_from_mind_target(message, actor, mind_of(context), goals.target_at) // 0x001408E0
             && message[4] != 0)
         {
-            set(strategy, field::hit_target, 1u);
+            fields_of(strategy).hit_target = 1u;
         }
         return;
     default:
@@ -786,33 +794,33 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
     const std::span<u8> body = body_of(context);
     body[0x328] = 2;
     strategy_base(strategy).attacking = 0;
-    set(strategy, field::fly, 0u);
-    set(strategy, field::sound, 0u);
+    fields_of(strategy).fly = 0u;
+    fields_of(strategy).sound = 0u;
     const auto fly_and_sound = [&]()
     {
-        set(strategy, field::fly, 1u);
-        set(strategy, field::sound, 1u);
+        fields_of(strategy).fly = 1u;
+        fields_of(strategy).sound = 1u;
     };
     switch (state)
     {
     case 0x3E8:
-        set(strategy, field::sound, 1u);
+        fields_of(strategy).sound = 1u;
         effect_when_low(context);
         enter_runtime_base_strategy_state(goals.entry, state); // 0x0002BAF0
         (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
         return;
     case 0x3EE:
-        set(strategy, field::hit_target, 0u);
+        fields_of(strategy).hit_target = 0u;
         fly_and_sound();
-        if (get(strategy, field::dives) != 0)
+        if (fields_of(strategy).dives != 0)
         {
-            set(strategy, field::dives, get(strategy, field::dives) - 1);
+            fields_of(strategy).dives = fields_of(strategy).dives - 1;
         }
         if (runtime_baron_plane_crowded(context)) // 0x000A9B20
         {
             effect_on(context);
-            set(strategy, field::crowd_wait, 1u);
-            set(strategy, field::crowd_time, 2.f); // DAT_0032B110.
+            fields_of(strategy).crowd_wait = 1u;
+            fields_of(strategy).crowd_time = 2.f; // DAT_0032B110.
         }
         else
         {
@@ -824,7 +832,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         load_goal(context.goal_attack, context);
         return;
     case 0x3FB:
-        set(strategy, field::sound, 1u);
+        fields_of(strategy).sound = 1u;
         enter_runtime_base_strategy_state(goals.entry, state); // 0x0002BAF0
         return;
     case 0x401:
@@ -834,7 +842,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         if (runtime_baron_plane_crowded(context)) // 0x000A9B20
         {
             effect_on(context);
-            set(strategy, field::crowd_wait, 1u);
+            fields_of(strategy).crowd_wait = 1u;
             fly_and_sound();
             return;
         }
@@ -842,14 +850,14 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         fly_and_sound();
         return;
     case 0x404:
-        set(strategy, field::landed, 0u);
-        set(strategy, field::cutscene, 0u);
+        fields_of(strategy).landed = 0u;
+        fields_of(strategy).cutscene = 0u;
         effect_on(context);
         body[0x328] = 2;
         ++strategy_base(strategy).pause_count;
         land_runtime_baron_plane(context); // 0x000A9D40, EAX actor, EBX mind
         increment_runtime_body_latches(body, actor_of(context), context.latches); // 0x0001FC40, ECX body
-        set(strategy, field::sound, 1u);
+        fields_of(strategy).sound = 1u;
         change_runtime_actor_pause(u8(0xFFFF), 0, context.pause); // 0x00117400
         return;
     case 0x409:
@@ -866,7 +874,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         if (runtime_baron_plane_crowded(context)) // 0x000A9B20
         {
             effect_on(context);
-            set(strategy, field::crowd_wait, 1u);
+            fields_of(strategy).crowd_wait = 1u;
         }
         else
         {
@@ -875,7 +883,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         goals.random = goals.random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C.
         const float roll = std::bit_cast<float>((goals.random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
         fly_and_sound();
-        set(strategy, field::wait, (row[1] - row[0]) * roll + row[0]);
+        fields_of(strategy).wait = (row[1] - row[0]) * roll + row[0];
         return;
     }
     case 0x40E:
@@ -884,8 +892,8 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         load_goal(context.goal_celebrate, context);
         return;
     case 0x414:
-        set(strategy, field::cutscene, 0u);
-        set(strategy, field::spinning, 1u);
+        fields_of(strategy).cutscene = 0u;
+        fields_of(strategy).spinning = 1u;
         effect_on(context);
         increment_runtime_body_latches(body, actor_of(context), context.latches); // 0x0001FC40, ECX body
         load_goal(context.goal_spin, context);

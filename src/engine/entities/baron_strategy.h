@@ -16,7 +16,6 @@ namespace gbtg
 // knock-down (0x409) or a target picking up his cane (0x411) leaves him recovering, and with the cane in a target's
 // hands he chases it (0x3F4). Three timelines, one per energy tier (body +0x94 above 180, 161 to 180, or less),
 // switch an effect (the parameters' +0x18 object, holding all six body latches while it lives) on and off.
-// Strategy bytes: +0x1A attacking, +0x1C pause count.
 namespace baron_parameter
 {
 constexpr RetailField<std::array<char, 0x80>, 0x18> effect{}; // the effect object's template
@@ -25,28 +24,28 @@ constexpr u32 kTimelineStride = 0x80;
 constexpr u32 kSize = 0x218;
 static_assert(retail_fits(kSize, timeline_0) && 0x98 + 3 * kTimelineStride == kSize);
 } // namespace baron_parameter
-namespace baron_strategy_field
+struct BaronStrategyState
 {
-constexpr RetailField<u32, 0x38> cane{}; // the cane actor (messages 0x5E and 0x7D), or 0
-constexpr RetailField<u32, 0x3C> hit_target{}; // the mind target was hit by him (message 0x6E); 0x3EE celebrates
-constexpr RetailField<u32, 0x40> angry{}; // set from 0x3EB near the target: 0x3EE starts the effect at once
-constexpr RetailField<float, 0x44> aloof_time{}; // 2 s on entering 0x3EA; the target must stay in view for it
-constexpr RetailField<float, 0x48> recovery{}; // 1 s after the first knock-down or cane notice; holds 0x409 / 0x411
-constexpr RetailField<u32, 0x4C> knockdown_notice{}; // "chapter4_baron_firstknockdown" queued (0x0013FF00)
-constexpr RetailField<u32, 0x50> cane_notice{}; // "chapter4_baron_canepickedup" queued
-constexpr RetailField<u16, 0x54> after_fetch{}; // the state 0x402 moves on to once he holds the cane
-constexpr RetailField<u32, 0x58> effect_mode{}; // 0 off, 1 on, 2 by the tier's timeline
-constexpr RetailField<float, 0x5C> linger{}; // 0.25 s the effect outlives a mode ending
-constexpr RetailField<u32, 0x60> effect{}; // the effect object (0x0003DF40), or 0
-constexpr RetailField<std::array<char, 0x80>, 0x64> effect_name{};
-constexpr RetailField<float, 0xE4> row_time{};
-constexpr RetailField<u32, 0xE8> tier{};
-constexpr RetailField<u32, 0xEC> row{}; // the timeline row: {u32 on, float seconds}
-constexpr RetailField<u32, 0xF0> timeline_0{}; // three {start, end} pairs, 8 apart, by tier
-constexpr u32 kTimelineStride = 8;
-constexpr u32 kSize = 0x108;
-static_assert(0xF0 + 3 * kTimelineStride == kSize);
-} // namespace baron_strategy_field
+    StrategyBase base{}; // +0
+    u32 cane = 0; // +0x38, the cane actor (messages 0x5E and 0x7D), or 0
+    u32 hit_target = 0; // +0x3C, the mind target was hit by him (message 0x6E); 0x3EE celebrates
+    u32 angry = 0; // +0x40, set from 0x3EB near the target: 0x3EE starts the effect at once
+    float aloof_time = 0.f; // +0x44, 2 s on entering 0x3EA; the target must stay in view for it
+    float recovery = 0.f; // +0x48, 1 s after the first knock-down or cane notice; holds 0x409 / 0x411
+    u32 knockdown_notice = 0; // +0x4C, "chapter4_baron_firstknockdown" queued (0x0013FF00)
+    u32 cane_notice = 0; // +0x50, "chapter4_baron_canepickedup" queued
+    u16 after_fetch = 0; // +0x54, the state 0x402 moves on to once he holds the cane
+    std::array<u8, 2> unk_56{}; // +0x56, padding
+    u32 effect_mode = 0; // +0x58, 0 off, 1 on, 2 by the tier's timeline
+    float linger = 0.f; // +0x5C, 0.25 s the effect outlives a mode ending
+    u32 effect = 0; // +0x60, the effect object (0x0003DF40), or 0
+    std::array<char, 0x80> effect_name{}; // +0x64
+    float row_time = 0.f; // +0xE4
+    u32 tier = 0; // +0xE8
+    u32 row = 0; // +0xEC, the timeline row: {u32 on, float seconds}
+    std::array<u32, 6> timelines{}; // +0xF0, three {start, end} pairs, by tier
+};
+static_assert(sizeof(BaronStrategyState) == 0x108);
 struct RuntimeBaronStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

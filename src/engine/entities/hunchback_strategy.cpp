@@ -22,7 +22,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = hunchback_strategy_field;
+HunchbackStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<HunchbackStrategyState>(strategy);
+}
+
+const HunchbackStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<HunchbackStrategyState>(strategy);
+}
+
 
 void put_u32(std::span<u8> bytes, size_t offset, u32 value)
 {
@@ -159,18 +168,18 @@ void contact_callout(std::span<const u32> message, i32 id, RuntimeHunchbackStrat
 // Xbox 0x000B3A70
 void hunchback_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(HunchbackStrategyState);
     output.parameters = 0x98;
 }
 
 // Xbox 0x000B3AE0
 bool initialize_runtime_hunchback_strategy(std::span<u8> strategy, std::span<const u8> parameters, Actor& actor)
 {
-    set(strategy, field::parameters, 0x00428770u);
+    fields_of(strategy).parameters = 0x00428770u;
     clear_actor_shader_bits(actor, 0, 4); // Model +0x16C.
     clear_actor_shader_bits(actor, 3, 4); // Model +0x178.
     const char* name = reinterpret_cast<const char*>(parameters.data() + 0x18);
-    std::memcpy(strategy.data() + field::charge_effect.offset, name, std::strlen(name) + 1);
+    std::memcpy(fields_of(strategy).charge_effect.data(), name, std::strlen(name) + 1);
     return true;
 }
 
@@ -178,11 +187,11 @@ bool initialize_runtime_hunchback_strategy(std::span<u8> strategy, std::span<con
 void recover_runtime_hunchback(RuntimeHunchbackStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 phase = get(strategy, field::special_phase);
+    const u32 phase = fields_of(strategy).special_phase;
     if (2 < phase && phase < 5 && phase != 5)
     {
-        set(strategy, field::special_phase, 5u);
-        set(strategy, field::special_time, roll_between(context, 0x40));
+        fields_of(strategy).special_phase = 5u;
+        fields_of(strategy).special_time = roll_between(context, 0x40);
     }
 }
 
@@ -214,11 +223,11 @@ float runtime_hunchback_stun_time(RuntimeHunchbackStrategy& context)
 void set_runtime_hunchback_idle_phase(u32 phase, RuntimeHunchbackStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::idle_phase) == phase)
+    if (fields_of(strategy).idle_phase == phase)
     {
         return;
     }
-    set(strategy, field::idle_phase, phase);
+    fields_of(strategy).idle_phase = phase;
     switch (phase)
     {
     case 1:
@@ -226,11 +235,11 @@ void set_runtime_hunchback_idle_phase(u32 phase, RuntimeHunchbackStrategy& conte
         return;
     case 2:
     {
-        set(strategy, field::taunt_delay, 0.05f); // DAT_0032B250.
-        set(strategy, field::taunts, 0);
+        fields_of(strategy).taunt_delay = 0.05f; // DAT_0032B250.
+        fields_of(strategy).taunts = 0;
         const i32 least = i32(read_u32(context.parameters, 0x14));
         const i32 most = i32(read_u32(context.parameters, 0x18));
-        set(strategy, field::taunt_limit, i32(float(most - least) * roll(context) + float(least))); // CVTTSS2SI
+        fields_of(strategy).taunt_limit = i32(float(most - least) * roll(context) + float(least)); // CVTTSS2SI
         return;
     }
     case 3:
@@ -245,11 +254,11 @@ void set_runtime_hunchback_idle_phase(u32 phase, RuntimeHunchbackStrategy& conte
 void set_runtime_hunchback_special_phase(u32 phase, RuntimeHunchbackStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::special_phase) == phase)
+    if (fields_of(strategy).special_phase == phase)
     {
         return;
     }
-    set(strategy, field::special_phase, phase);
+    fields_of(strategy).special_phase = phase;
     const std::span<u8> body = body_of(context);
     Actor& actor = actor_of(context);
     switch (phase)
@@ -257,7 +266,7 @@ void set_runtime_hunchback_special_phase(u32 phase, RuntimeHunchbackStrategy& co
     case 1:
         goals_of(context).room = nullptr; // Actor +0xCA0.
         load_goal(context.goal_prepare, context);
-        set(strategy, field::armed, 0u);
+        fields_of(strategy).armed = 0u;
         clear_runtime_body_bit(body_bits(context, "0x000B3780"), 0x2B); // The tail jump to 0x0001F030.
         return;
     case 3:
@@ -281,22 +290,22 @@ void set_runtime_hunchback_special_phase(u32 phase, RuntimeHunchbackStrategy& co
         hold_live_attachments(1, context); // 0x0001D760, ECX body
         put_u32(body, 0x74C, 1);
         increment_runtime_body_latches(body, actor, context.latches); // 0x0001FC40, ECX body
-        const char* effect = reinterpret_cast<const char*>(strategy.data() + field::charge_effect.offset);
-        set(strategy, field::effect, context.create_effect(effect, strategy_base(strategy).actor)); // 0x0003DF40
+        const char* effect = fields_of(strategy).charge_effect.data();
+        fields_of(strategy).effect = context.create_effect(effect, strategy_base(strategy).actor); // 0x0003DF40
         const float time = roll_between(context, 0x2C);
         strategy_base(strategy).attacking = 1;
-        set(strategy, field::armed, 1u);
-        set(strategy, field::special_time, time);
-        set(strategy, field::saved_334, read_u32(body, 0x334));
+        fields_of(strategy).armed = 1u;
+        fields_of(strategy).special_time = time;
+        fields_of(strategy).saved_334 = read_u32(body, 0x334);
         return;
     }
     case 4:
         load_goal(context.goal_special, context);
-        set(strategy, field::special_time, roll_between(context, 0x34));
+        fields_of(strategy).special_time = roll_between(context, 0x34);
         put_u32(body, 0x334, read_u32(context.parameters, 0x3C));
         return;
     case 5:
-        set(strategy, field::special_time, roll_between(context, 0x40));
+        fields_of(strategy).special_time = roll_between(context, 0x40);
         return;
     case 6:
         clear_requests(context); // 0x00029E80, EBX mind
@@ -323,17 +332,17 @@ void disarm_runtime_hunchback(RuntimeHunchbackStrategy& context)
     hold_live_attachments(-1, context);
     put_u32(body, 0x74C, 0);
     decrement_runtime_body_latches(body, actor_of(context), context.latches); // 0x0001FD20
-    const u32 effect = get(strategy, field::effect);
+    const u32 effect = fields_of(strategy).effect;
     if (effect == 0)
     {
         throw Error("0x000B39D0 messages a charge effect the strategy never made (+0xE4 is 0)");
     }
     const std::array<u32, 2> expire{5, 0};
     context.object_message(effect, expire); // Effect vtable +0xC.
-    set(strategy, field::effect, 0u);
-    put_u32(body, 0x334, get(strategy, field::saved_334));
+    fields_of(strategy).effect = 0u;
+    put_u32(body, 0x334, fields_of(strategy).saved_334);
     strategy_base(strategy).attacking = 0;
-    set(strategy, field::armed, 0u);
+    fields_of(strategy).armed = 0u;
 }
 
 // Xbox 0x000B3B40
@@ -357,23 +366,23 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
         const auto finish = [&]()
         {
             // The inlined 0x000B3780 to phase 6.
-            if (get(strategy, field::special_phase) == 6)
+            if (fields_of(strategy).special_phase == 6)
             {
                 return;
             }
-            set(strategy, field::special_phase, 6u);
+            fields_of(strategy).special_phase = 6u;
             clear_requests(context);
             load_goal(context.goal_finish, context);
             disarm_runtime_hunchback(context);
         };
         const auto time_up = [&]()
         {
-            float time = get(strategy, field::special_time);
+            float time = fields_of(strategy).special_time;
             count_down_runtime_strategy_timer(time, goals); // 0x0002B9F0, ECX +0xD8
-            set(strategy, field::special_time, time);
-            return get(strategy, field::special_time) == 0.f;
+            fields_of(strategy).special_time = time;
+            return fields_of(strategy).special_time == 0.f;
         };
-        switch (get(strategy, field::special_phase))
+        switch (fields_of(strategy).special_phase)
         {
         case 1:
             if ((body_bits(context, "0x000B3530").bytes[5] & 8) != 0)
@@ -386,7 +395,7 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
             {
                 return;
             }
-            if (get(strategy, field::interrupted) == 0)
+            if (fields_of(strategy).interrupted == 0)
             {
                 set_runtime_hunchback_special_phase(4, context);
                 return;
@@ -394,7 +403,7 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
             finish();
             return;
         case 4:
-            if (get(strategy, field::interrupted) != 0)
+            if (fields_of(strategy).interrupted != 0)
             {
                 clear_requests(context);
                 finish();
@@ -461,17 +470,17 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
         }
         const auto taunt = [&]()
         {
-            float delay = get(strategy, field::taunt_delay);
+            float delay = fields_of(strategy).taunt_delay;
             const bool due = count_down_runtime_strategy_timer(delay, goals); // 0x0002B9F0, ECX +0xBC
-            set(strategy, field::taunt_delay, delay);
-            if (due && get(strategy, field::taunts) < get(strategy, field::taunt_limit))
+            fields_of(strategy).taunt_delay = delay;
+            if (due && fields_of(strategy).taunts < fields_of(strategy).taunt_limit)
             {
                 load_goal(context.goal_taunt, context);
-                set(strategy, field::taunts, get(strategy, field::taunts) + 1);
-                set(strategy, field::taunt_delay, roll_between(context, 0xC)); // 0x000B2B70, EAX the block
+                fields_of(strategy).taunts = fields_of(strategy).taunts + 1;
+                fields_of(strategy).taunt_delay = roll_between(context, 0xC); // 0x000B2B70, EAX the block
             }
         };
-        switch (get(strategy, field::idle_phase))
+        switch (fields_of(strategy).idle_phase)
         {
         case 1:
             if (requests_pending(context))
@@ -482,11 +491,11 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
             set_runtime_hunchback_idle_phase(2, context);
             [[fallthrough]];
         case 2:
-            if (!requests_pending(context) && get(strategy, field::taunts) >= get(strategy, field::taunt_limit))
+            if (!requests_pending(context) && fields_of(strategy).taunts >= fields_of(strategy).taunt_limit)
             {
-                if (get(strategy, field::idle_phase) != 3)
+                if (fields_of(strategy).idle_phase != 3)
                 {
-                    set(strategy, field::idle_phase, 3u);
+                    fields_of(strategy).idle_phase = 3u;
                     load_goal(context.goal_random_run, context);
                 }
                 return;
@@ -512,12 +521,12 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
             return;
         }
         const EntityBitBlock& bits = body_bits(context, "0x000B3220");
-        switch (get(strategy, field::dizzy_step))
+        switch (fields_of(strategy).dizzy_step)
         {
         case 1:
             if ((bits.bytes[6] & 1) != 0)
             {
-                set(strategy, field::dizzy_step, 2u);
+                fields_of(strategy).dizzy_step = 2u;
             }
             return;
         case 2:
@@ -525,9 +534,9 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
             {
                 throw Error("0x000B3300 measures the reach to a target the mind does not hold");
             }
-            if (target_beyond(*target, parameter(context, 0), context) && get(strategy, field::dizzy_step) != 3)
+            if (target_beyond(*target, parameter(context, 0), context) && fields_of(strategy).dizzy_step != 3)
             {
-                set(strategy, field::dizzy_step, 3u);
+                fields_of(strategy).dizzy_step = 3u;
                 const std::array<float, 2> push{1.f, 0.f}; // DAT_0032B0F8.
                 set_runtime_input_axes(context.axes, push, context.keyboard); // 0x00108FC0, EAX actor +0x960
             }
@@ -636,7 +645,7 @@ void dispatch_runtime_hunchback_message(std::span<const u32> message, RuntimeHun
     case 0x64:
         if (state == 0x3EF)
         {
-            set(strategy, field::interrupted, 1u);
+            fields_of(strategy).interrupted = 1u;
             return;
         }
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
@@ -657,14 +666,14 @@ void enter_runtime_hunchback_state(u16 state, u16 previous, RuntimeHunchbackStra
     {
     case 0x3EF:
         // 0x000B3490, ESI strategy.
-        set(strategy, field::armed, 0u);
-        set(strategy, field::interrupted, 0u);
-        if (get(strategy, field::special_phase) != 1)
+        fields_of(strategy).armed = 0u;
+        fields_of(strategy).interrupted = 0u;
+        if (fields_of(strategy).special_phase != 1)
         {
-            set(strategy, field::special_phase, 1u);
+            fields_of(strategy).special_phase = 1u;
             goals.room = nullptr; // Actor +0xCA0.
             load_goal(context.goal_prepare, context);
-            set(strategy, field::armed, 0u);
+            fields_of(strategy).armed = 0u;
             clear_runtime_body_bit(body_bits(context, "0x000B3490"), 0x2B); // 0x0001F030
         }
         body[0x328] = 6;
@@ -676,9 +685,9 @@ void enter_runtime_hunchback_state(u16 state, u16 previous, RuntimeHunchbackStra
         return;
     case 0x401:
         // 0x000B2D90, ESI strategy.
-        if (get(strategy, field::idle_phase) != 1)
+        if (fields_of(strategy).idle_phase != 1)
         {
-            set(strategy, field::idle_phase, 1u);
+            fields_of(strategy).idle_phase = 1u;
             load_goal(context.goal_into_far, context);
         }
         body[0x328] = 2;
@@ -686,9 +695,9 @@ void enter_runtime_hunchback_state(u16 state, u16 previous, RuntimeHunchbackStra
     case 0x409:
     {
         // The tail jump to 0x000B2FF0, EAX strategy.
-        if (get(strategy, field::dizzy_step) != 1)
+        if (fields_of(strategy).dizzy_step != 1)
         {
-            set(strategy, field::dizzy_step, 1u);
+            fields_of(strategy).dizzy_step = 1u;
         }
         body_bits(context, "0x000B2FF0").bytes[1] |= 2;
         Actor& actor = actor_of(context);
@@ -718,22 +727,22 @@ void leave_runtime_hunchback_state(u16 state, RuntimeHunchbackStrategy& context)
     {
     case 0x3EF:
         // The tail jump to 0x000B3500, EAX strategy.
-        if (get(strategy, field::armed) != 0)
+        if (fields_of(strategy).armed != 0)
         {
             disarm_runtime_hunchback(context); // 0x000B39D0
         }
-        if (get(strategy, field::special_phase) != 0)
+        if (fields_of(strategy).special_phase != 0)
         {
-            set(strategy, field::special_phase, 0u);
+            fields_of(strategy).special_phase = 0u;
         }
         return;
     case 0x3FE:
     case 0x40C:
         return;
     case 0x401:
-        if (get(strategy, field::idle_phase) != 0)
+        if (fields_of(strategy).idle_phase != 0)
         {
-            set(strategy, field::idle_phase, 0u);
+            fields_of(strategy).idle_phase = 0u;
         }
         return;
     case 0x409:
@@ -745,9 +754,9 @@ void leave_runtime_hunchback_state(u16 state, RuntimeHunchbackStrategy& context)
         clear_actor_shader_bits(actor, 0, 4);
         clear_actor_shader_bits(actor, 3, 4); // Model +0x178.
         decrement_runtime_body_latch_mask(body_of(context), 1, actor, context.latches); // The inlined 0x0001F2F0
-        if (get(strategy, field::dizzy_step) != 0)
+        if (fields_of(strategy).dizzy_step != 0)
         {
-            set(strategy, field::dizzy_step, 0u);
+            fields_of(strategy).dizzy_step = 0u;
         }
         return;
     }

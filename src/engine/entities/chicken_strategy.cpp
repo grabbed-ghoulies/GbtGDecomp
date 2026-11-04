@@ -13,7 +13,11 @@ namespace gbtg
 {
 namespace
 {
-namespace field = chicken_strategy_field;
+ChickenStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<ChickenStrategyState>(strategy);
+}
+
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeChickenStrategy& context)
 {
@@ -40,8 +44,8 @@ void load_goal(const char* name, RuntimeChickenStrategy& context)
 // Xbox 0x000AA030
 bool initialize_runtime_chicken_strategy(std::span<u8> strategy)
 {
-    set(strategy, field::parameters, 0x00302B5Cu);
-    set(strategy, field::provoked, 0u);
+    fields_of(strategy).parameters = 0x00302B5Cu;
+    fields_of(strategy).provoked = 0u;
     return true;
 }
 
@@ -63,7 +67,7 @@ void update_runtime_chicken_strategy(RuntimeChickenStrategy& context)
     {
         return;
     }
-    if (get(strategy, field::provoked) != 0)
+    if (fields_of(strategy).provoked != 0)
     {
         const EntityBitBlock* bits = goals.body_bits; // Body +0x15C.
         if (bits == nullptr)
@@ -96,7 +100,7 @@ void dispatch_runtime_chicken_message(std::span<const u32> message, RuntimeChick
         const u32 actor = strategy_base(strategy).actor;
         if (sender == actor)
         {
-            set(strategy, field::provoked, 1u);
+            fields_of(strategy).provoked = 1u;
         }
         else if (read_u16(shared.views.actor_bytes_at(sender), 6) == 7)
         {
@@ -108,7 +112,7 @@ void dispatch_runtime_chicken_message(std::span<const u32> message, RuntimeChick
             const long double distance = std::sqrt(dz * dz + dy * dy + dx * dx);
             if ((long double)read_f32(context.parameters, 0) > distance) // FCOMPI; JBE keeps it unarmed.
             {
-                set(strategy, field::provoked, 1u);
+                fields_of(strategy).provoked = 1u;
             }
         }
         break;

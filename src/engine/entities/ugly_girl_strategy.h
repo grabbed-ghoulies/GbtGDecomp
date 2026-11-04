@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -16,12 +17,13 @@ namespace ugly_girl_strategy_parameter
 constexpr RetailRecord<0x18, 0x80> attachment{};
 constexpr u32 kSize = 0x98;
 } // namespace ugly_girl_strategy_parameter
-namespace ugly_girl_strategy_field
+struct UglyGirlStrategyState
 {
-constexpr RetailField<u32, 0x38> attachment_token{}; // the started attachment's +0x18, or 0
-constexpr RetailRecord<0x3C, 0x80> attachment{}; // parameters +0x18
-constexpr u32 kSize = 0xBC;
-} // namespace ugly_girl_strategy_field
+    StrategyBase base{}; // +0
+    u32 attachment_token = 0; // +0x38, the started attachment's +0x18, or 0
+    std::array<char, 0x80> attachment{}; // +0x3C, parameters +0x18
+};
+static_assert(sizeof(UglyGirlStrategyState) == 0xBC);
 struct RuntimeUglyGirlStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

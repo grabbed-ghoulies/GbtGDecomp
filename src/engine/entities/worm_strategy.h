@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -13,16 +14,16 @@ namespace gbtg
 // object named at +0x38, with body bit block byte 0 bit 7) on its animation event 0x3A naming flag 0x13, mode 2 (the
 // object named at +0xB8, with the body's latches raised) when it is hit. Its body (type 0x2B) reads bit 0x13.
 // Strategy bytes: +0x12 / +0x18 states, +0x1A attacking, +0x1C pause count, +0x20 target queue link (+0x30 active).
-namespace worm_strategy_field
+struct WormStrategyState
 {
-constexpr RetailField<std::array<char, 0x80>, 0x38> emerge_effect_name{}; // Parameters +0x18, mode 1's object
-constexpr RetailField<std::array<char, 0x80>, 0xB8> hit_effect_name{}; // Parameters +0x98, mode 2's object
-constexpr RetailField<float, 0x138> timer{}; // DAT_0032B184 (5) on construction; 0x000C4D60 runs it down
-constexpr RetailField<u32, 0x13C> effect{}; // The current mode's object; message 0x14 from it forgets it
-constexpr RetailField<u32, 0x140> effect_mode{}; // 0x000C4C70: 1 emerged, 2 hit, 0 none
-constexpr u32 kSize = 0x144;
-static_assert(retail_fits(kSize, effect_mode));
-} // namespace worm_strategy_field
+    StrategyBase base{}; // +0
+    std::array<char, 0x80> emerge_effect_name{}; // +0x38, parameters +0x18, mode 1's object
+    std::array<char, 0x80> hit_effect_name{}; // +0xB8, parameters +0x98, mode 2's object
+    float timer = 0.f; // +0x138, DAT_0032B184 (5) on construction; 0x000C4D60 runs it down
+    u32 effect = 0; // +0x13C, the current mode's object; message 0x14 from it forgets it
+    u32 effect_mode = 0; // +0x140, 0x000C4C70: 1 emerged, 2 hit, 0 none
+};
+static_assert(sizeof(WormStrategyState) == 0x144);
 struct RuntimeWormStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

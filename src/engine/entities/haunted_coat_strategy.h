@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -14,23 +15,22 @@ namespace gbtg
 // "sleep_wall") until a target comes within 60 or hits it; it wakes (0x417, "wakeup" or "wakeup_wall") and waits
 // (0x416), then closes in (0x40C), swaying on a heading search beside its target, and attacks (0x3ED, "attack") once
 // the target stands near and in front.
-// Strategy bytes: +0x1A attacking, +0x1B waking, +0x1C pause count, +0x20 target queue link.
 namespace haunted_coat_parameter
 {
 constexpr u32 kSize = 0x18;
 } // namespace haunted_coat_parameter
-namespace haunted_coat_strategy_field
+struct HauntedCoatStrategyState
 {
-constexpr RetailField<u32, 0x38> on_wall{}; // Init: the actor stands 3 above its floor cell (DAT_0032B260)
-constexpr RetailField<u32, 0x3C> awake{}; // set by 0x000AF870
-constexpr RetailField<u32, 0x40> latched{}; // message 0x7D raised the live holds (0x00042090)
-constexpr RetailField<float, 0x44> sway{}; // 0x000AEBF0's step, wrapped at 2
-constexpr RetailField<float, 0x48> closing{}; // 0x000AEBF0's step since entering 0x3ED; attack once above 1
-constexpr RetailField<float, 0x4C> turn{}; // 0x000AEBF0's step, held at 1: the heading's turn fraction
-constexpr RetailField<float, 0x50> bob{}; // 0x000AEBF0's step, wrapped at 2.2
-constexpr u32 kSize = 0x54;
-static_assert(retail_fits(kSize, bob));
-} // namespace haunted_coat_strategy_field
+    StrategyBase base{}; // +0
+    u32 on_wall = 0; // +0x38, init: the actor stands 3 above its floor cell (DAT_0032B260)
+    u32 awake = 0; // +0x3C, set by 0x000AF870
+    u32 latched = 0; // +0x40, message 0x7D raised the live holds (0x00042090)
+    float sway = 0.f; // +0x44, 0x000AEBF0's step, wrapped at 2
+    float closing = 0.f; // +0x48, 0x000AEBF0's step since entering 0x3ED; attack once above 1
+    float turn = 0.f; // +0x4C, 0x000AEBF0's step, held at 1: the heading's turn fraction
+    float bob = 0.f; // +0x50, 0x000AEBF0's step, wrapped at 2.2
+};
+static_assert(sizeof(HauntedCoatStrategyState) == 0x54);
 struct RuntimeHauntedCoatStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

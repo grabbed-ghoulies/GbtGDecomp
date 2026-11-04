@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "strategy_fields.h"
 #include "spider_strategy.h"
 #include "actor_attachment_events.h"
 #include "body_attachment_cleanup.h"
@@ -14,37 +16,36 @@ struct RuntimeActorResourceReference;
 // and slab-whacks ("slabwhackprepare", "slabwhack", "slabwhacksneaky") through the phases at +0x144. Its curse on the
 // player (+0x188) shows the baddie meter (form 2 at +0x190, 0x0012E5E0) and, its body's bit 2 set, spawns the object
 // named at +0x198 at model binding 4 (form 1).
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace mummy_cursed_strategy_field
+struct MummyCursedStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_00428848, the block its tunables come from
-constexpr RetailField<std::array<char, 0x80>, 0x3C> curse_effect_name{}; // Parameters +0x98, form 2's object
-constexpr RetailField<std::array<char, 0x80>, 0xBC> deathcurse_name{}; // Parameters +0x18, 0x3EF's object (+0x2A0)
-constexpr RetailField<u32, 0x13C> evading{}; // 0x401 wandering; 0x000BCB80 clears it
-constexpr RetailField<u32, 0x140> victim{}; // 0x3EE's grabbed actor (mind +0x10 -> +0x10); message 0x7C forgets it
-constexpr RetailField<u32, 0x144> phase{}; // 0x3EE's phase, 1..8 (0x000BD450)
-constexpr RetailField<float, 0x148> phase_timer{}; // Phases 3 and 4: seconds, from the block's +0x18 / +0x20 ranges
-constexpr RetailField<u32, 0x14C> unk_14C{}; // Message 0x6E from its mind target; phase 1 clears it
-constexpr RetailField<u32, 0x150> pulling{}; // Phase 4: the victim is pulled in (0x000BD750)
-constexpr RetailField<u32, 0x154> whacked{}; // Phase 5 sent the victim message 0x5B
-constexpr RetailField<std::array<u8, 0x24>, 0x158> grab_events{}; // Callout 0x46's tokens (0x0013B7E0)
-constexpr RetailField<u32, 0x17C> grab_callout{}; // Callout 0x46 requested
-constexpr RetailField<u32, 0x180> riding{}; // The rider claim on +0x184 (0x00138140)
-constexpr RetailField<u32, 0x184> mount{}; // The actor it claimed; its body +0x718 holds this mummy
-constexpr RetailField<u32, 0x188> cursed{}; // The player the curse is on (0x3EF)
-constexpr RetailField<u32, 0x18C> curse_landed{}; // Message 0x5F
-constexpr RetailField<u32, 0x190> curse_form{}; // 0x000BC910: 1 the bound spawn, 2 the meter; 0 ended (0x000BC770)
-constexpr RetailField<u32, 0x194> curse_step{}; // 0x3EF: 1 facing, 2 cursing, 3 done (0x000BD8B0)
-constexpr RetailField<std::array<char, 0x80>, 0x198> spawn_name{}; // Parameters +0x198, form 1's object
-constexpr RetailField<std::array<char, 0x80>, 0x218> burst_name{}; // Parameters +0x118, form 1's burst (0x0013B1F0)
-constexpr RetailField<u32, 0x298> spawn{}; // Form 1's object
-constexpr RetailField<u32, 0x29C> curse_effect{}; // Form 2's object
-constexpr RetailField<u32, 0x2A0> deathcurse{}; // 0x3EF's object
-constexpr RetailField<std::array<u8, 0x24>, 0x2A4> curse_events{}; // Callout 0x42's tokens
-constexpr RetailField<std::array<u8, 0x24>, 0x2C8> spawn_events{}; // Callout 0x43's tokens
-constexpr u32 kSize = 0x2EC;
-static_assert(retail_fits(kSize, spawn_events));
-} // namespace mummy_cursed_strategy_field
+    StrategyBase base{}; // +0
+    u32 parameters = 0; // +0x38, DAT_00428848, the block its tunables come from
+    std::array<char, 0x80> curse_effect_name{}; // +0x3C, parameters +0x98, form 2's object
+    std::array<char, 0x80> deathcurse_name{}; // +0xBC, parameters +0x18, 0x3EF's object (+0x2A0)
+    u32 evading = 0; // +0x13C, 0x401 wandering; 0x000BCB80 clears it
+    u32 victim = 0; // +0x140, 0x3EE's grabbed actor (mind +0x10 -> +0x10); message 0x7C forgets it
+    u32 phase = 0; // +0x144, 0x3EE's phase, 1..8 (0x000BD450)
+    float phase_timer = 0.f; // +0x148, phases 3 and 4: seconds, from the block's +0x18 / +0x20 ranges
+    u32 unk_14C = 0; // +0x14C, message 0x6E from its mind target; phase 1 clears it
+    u32 pulling = 0; // +0x150, phase 4: the victim is pulled in (0x000BD750)
+    u32 whacked = 0; // +0x154, phase 5 sent the victim message 0x5B
+    std::array<u8, 0x24> grab_events{}; // +0x158, callout 0x46's tokens (0x0013B7E0)
+    u32 grab_callout = 0; // +0x17C, callout 0x46 requested
+    u32 riding = 0; // +0x180, the rider claim on +0x184 (0x00138140)
+    u32 mount = 0; // +0x184, the actor it claimed; its body +0x718 holds this mummy
+    u32 cursed = 0; // +0x188, the player the curse is on (0x3EF)
+    u32 curse_landed = 0; // +0x18C, message 0x5F
+    u32 curse_form = 0; // +0x190, 0x000BC910: 1 the bound spawn, 2 the meter; 0 ended (0x000BC770)
+    u32 curse_step = 0; // +0x194, 0x3EF: 1 facing, 2 cursing, 3 done (0x000BD8B0)
+    std::array<char, 0x80> spawn_name{}; // +0x198, parameters +0x198, form 1's object
+    std::array<char, 0x80> burst_name{}; // +0x218, parameters +0x118, form 1's burst (0x0013B1F0)
+    u32 spawn = 0; // +0x298, form 1's object
+    u32 curse_effect = 0; // +0x29C, form 2's object
+    u32 deathcurse = 0; // +0x2A0, 0x3EF's object
+    std::array<u8, 0x24> curse_events{}; // +0x2A4, callout 0x42's tokens
+    std::array<u8, 0x24> spawn_events{}; // +0x2C8, callout 0x43's tokens
+};
+static_assert(sizeof(MummyCursedStrategyState) == 0x2EC);
 struct RuntimeMummyCursedStrategy
 {
     // The instance's spider views over the same strategy: base goals, target checks, queue and actor views.

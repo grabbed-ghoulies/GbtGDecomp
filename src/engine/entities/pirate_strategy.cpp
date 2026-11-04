@@ -22,7 +22,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = pirate_strategy_field;
+PirateStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<PirateStrategyState>(strategy);
+}
+
+const PirateStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<PirateStrategyState>(strategy);
+}
+
 
 RuntimePlayerStrategyGoals& goals_of(RuntimePirateStrategy& context)
 {
@@ -79,7 +88,7 @@ bool join_target(RuntimeMindTarget& target, RuntimePirateStrategy& context)
 // States 0x3EF and 0x3FA leave for 0x401 once he wants no chest or holds a sword, else fetch one (0x405).
 void after_throw(RuntimePirateStrategy& context)
 {
-    if (get(strategy_of(context), field::wants_chest) == 0 || runtime_pirate_holds_sword(context))
+    if (fields_of(strategy_of(context)).wants_chest == 0 || runtime_pirate_holds_sword(context))
     {
         change_state(0x401, context);
         return;
@@ -98,7 +107,7 @@ void drop_secondary(RuntimePirateStrategy& context)
 // Xbox 0x000BE0C0
 void pirate_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(PirateStrategyState);
     output.parameters = 0x98;
 }
 
@@ -106,8 +115,8 @@ void pirate_strategy_object_sizes(ObjectSizes& output)
 bool initialize_runtime_pirate_strategy(std::span<u8> strategy, std::span<const u8> parameters)
 {
     const char* name = reinterpret_cast<const char*>(parameters.data() + 0x18);
-    std::memcpy(strategy.data() + field::angry_effect.offset, name, std::strlen(name) + 1);
-    set(strategy, field::wants_chest, 1u);
+    std::memcpy(fields_of(strategy).angry_effect.data(), name, std::strlen(name) + 1);
+    fields_of(strategy).wants_chest = 1u;
     return true;
 }
 
@@ -158,7 +167,7 @@ void choose_runtime_pirate_attack(RuntimePirateStrategy& context)
         change_state(0x3EF, context);
         return;
     }
-    const bool many_hits = i32(get(strategy_of(context), field::hits)) >= 5;
+    const bool many_hits = i32(fields_of(strategy_of(context)).hits) >= 5;
     if (runtime_pirate_holds_sword(context)
         && (roll_runtime_actor_knockdown(attributes, goals.random) || many_hits)) // 0x00019750
     {
@@ -183,8 +192,8 @@ void count_runtime_pirate_hit(std::span<const u32> message, RuntimePirateStrateg
     {
         return;
     }
-    set(strategy, field::hits, get(strategy, field::hits) + 1);
-    set(strategy, field::hit_window, 2.f); // DAT_0032B110.
+    fields_of(strategy).hits = fields_of(strategy).hits + 1;
+    fields_of(strategy).hit_window = 2.f; // DAT_0032B110.
 }
 
 // Xbox 0x000BE160
@@ -194,12 +203,12 @@ void update_runtime_pirate_strategy(RuntimePirateStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
-    float window = get(strategy, field::hit_window);
+    float window = fields_of(strategy).hit_window;
     const bool closed = count_down_runtime_strategy_live_timer(window, goals); // 0x0002BA60, EDX +0xD0
-    set(strategy, field::hit_window, window);
+    fields_of(strategy).hit_window = window;
     if (closed)
     {
-        set(strategy, field::hits, 0u);
+        fields_of(strategy).hits = 0u;
     }
     bool found;
     RuntimeMindTarget* target = nullptr;
@@ -242,7 +251,7 @@ void update_runtime_pirate_strategy(RuntimePirateStrategy& context)
         {
             return;
         }
-        if (get(strategy, field::wants_chest) != 0 && !runtime_pirate_holds_sword(context))
+        if (fields_of(strategy).wants_chest != 0 && !runtime_pirate_holds_sword(context))
         {
             change_state(0x405, context);
             return;
@@ -260,7 +269,7 @@ void update_runtime_pirate_strategy(RuntimePirateStrategy& context)
         {
             return;
         }
-        if (get(strategy, field::angry_object) == 0)
+        if (fields_of(strategy).angry_object == 0)
         {
             change_state(0x3FA, context);
             return;
@@ -274,7 +283,7 @@ void update_runtime_pirate_strategy(RuntimePirateStrategy& context)
         {
             throw Error("pirate strategy 0x000BE160 reads the body +0x15C bit block of a body with none");
         }
-        set(strategy, field::drink_open, u32((bits->bytes[3] >> 2) & 1));
+        fields_of(strategy).drink_open = u32((bits->bytes[3] >> 2) & 1);
         if (requests_pending(context))
         {
             return;
@@ -303,18 +312,18 @@ void update_runtime_pirate_strategy(RuntimePirateStrategy& context)
                 return;
             }
         }
-        float delay = get(strategy, field::drink_delay);
+        float delay = fields_of(strategy).drink_delay;
         count_down_runtime_strategy_timer(delay, goals); // 0x0002B9F0, ECX +0x48
-        set(strategy, field::drink_delay, delay);
+        fields_of(strategy).drink_delay = delay;
         if (requests_pending(context))
         {
             return;
         }
-        if (get(strategy, field::drink_delay) == 0.f && actor_event_chance(goals.random, 0.25f)) // 0x00019200
+        if (fields_of(strategy).drink_delay == 0.f && actor_event_chance(goals.random, 0.25f)) // 0x00019200
         {
             goals.random = goals.random * 0x19660Du + 0x3C6EF35Fu;
             const float roll = std::bit_cast<float>((goals.random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
-            set(strategy, field::drink_delay, roll * 5.f + 5.f); // DAT_0032B184.
+            fields_of(strategy).drink_delay = roll * 5.f + 5.f; // DAT_0032B184.
             change_state(0x3FA, context);
             return;
         }
@@ -323,11 +332,11 @@ void update_runtime_pirate_strategy(RuntimePirateStrategy& context)
     }
     case 0x405:
         if (requests_pending(context)
-            && (get(strategy, field::fetching) == 0 || runtime_pirate_chest_free(context)))
+            && (fields_of(strategy).fetching == 0 || runtime_pirate_chest_free(context)))
         {
             return;
         }
-        set(strategy, field::wants_chest, 0u);
+        fields_of(strategy).wants_chest = 0u;
         change_state(0x401, context);
         return;
     case 0x40D:
@@ -371,9 +380,9 @@ void dispatch_runtime_pirate_message(std::span<const u32> message, RuntimePirate
     switch (message[0])
     {
     case 0x14:
-        if (get(strategy, field::angry_object) == message[1])
+        if (fields_of(strategy).angry_object == message[1])
         {
-            set(strategy, field::angry_object, 0u);
+            fields_of(strategy).angry_object = 0u;
         }
         return;
     case 0x31:
@@ -393,11 +402,11 @@ void dispatch_runtime_pirate_message(std::span<const u32> message, RuntimePirate
         }
         Actor* chest = find_runtime_player_nearest_spawn(goals.entry.actor, nullptr, 0x1F); // 0x00129C20
         const u32 address = chest == nullptr ? 0u : context.actor_address(*chest);
-        set(strategy, field::chest, address);
+        fields_of(strategy).chest = address;
         if (address != 0)
         {
-            set(strategy, field::wants_chest, 1u);
-            set(strategy, field::fetching, 0u);
+            fields_of(strategy).wants_chest = 1u;
+            fields_of(strategy).fetching = 0u;
         }
         return;
     }
@@ -423,10 +432,10 @@ void dispatch_runtime_pirate_message(std::span<const u32> message, RuntimePirate
         }
         const std::span<u8> body = body_of(context);
         u16 next = 0x401;
-        if (strategy_base(strategy).state == 0x3FA && get(strategy, field::drink_open) != 0 && message[2] != 0)
+        if (strategy_base(strategy).state == 0x3FA && fields_of(strategy).drink_open != 0 && message[2] != 0)
         {
-            const char* effect = reinterpret_cast<const char*>(strategy.data() + field::angry_effect.offset);
-            set(strategy, field::angry_object, context.create_effect(effect, actor)); // 0x0003DF40
+            const char* effect = fields_of(strategy).angry_effect.data();
+            fields_of(strategy).angry_object = context.create_effect(effect, actor); // 0x0003DF40
             increment_runtime_body_latch_mask(body, 0x3F, goals.entry.actor, context.latches); // 0x0001F3F0
             std::memset(body.data() + 0x240, 0, 4);
             std::memset(body.data() + 0x23C, 0, 4);
@@ -449,10 +458,10 @@ void dispatch_runtime_pirate_message(std::span<const u32> message, RuntimePirate
     }
     case 0x7C:
         // The tail jump to 0x00140A40 over strategy +0x38.
-        clear_runtime_player_mind_reference(strategy, field::chest.offset, message[1]);
+        clear_runtime_player_mind_reference(strategy, offsetof(PirateStrategyState, chest), message[1]);
         return;
     case 0x7D:
-        set(strategy, field::chest, read_u32(body_of(context), 0x48));
+        fields_of(strategy).chest = read_u32(body_of(context), 0x48);
         return;
     case 0x82:
         if (runtime_pirate_reacts(context))
@@ -484,8 +493,8 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
     strategy_base(strategy).attacking = 0;
     const auto clear_hits = [&]()
     {
-        set(strategy, field::hits, 0u);
-        set(strategy, field::hit_window, 0.f);
+        fields_of(strategy).hits = 0u;
+        fields_of(strategy).hit_window = 0.f;
     };
     switch (state)
     {
@@ -508,7 +517,7 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
     case 0x3EF:
         body[0x328] = 6;
         strategy_base(strategy).attacking = 1;
-        if (get(strategy, field::angry_object) != 0)
+        if (fields_of(strategy).angry_object != 0)
         {
             load_goal(context.goal_angry, context);
         }
@@ -517,13 +526,13 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
         {
             load_goal(runtime_pirate_holds_sword(context) ? context.goal_special : context.goal_special_no_sword,
                 context);
-            load_goal(get(strategy, field::angry_object) != 0 ? context.goal_throw_chests : context.goal_throw_chest,
+            load_goal(fields_of(strategy).angry_object != 0 ? context.goal_throw_chests : context.goal_throw_chest,
                 context);
         }
         clear_hits();
         return;
     case 0x3FA:
-        set(strategy, field::drink_open, 0u);
+        fields_of(strategy).drink_open = 0u;
         load_goal(context.goal_drink, context);
         return;
     case 0x401:
@@ -533,8 +542,8 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
     {
         body[0x328] = 3;
         const bool free = runtime_pirate_chest_free(context);
-        set(strategy, field::fetching, free ? 1u : 0u);
-        set(mind, mind_field::action_actor, get(strategy, field::chest));
+        fields_of(strategy).fetching = free ? 1u : 0u;
+        set(mind, mind_field::action_actor, fields_of(strategy).chest);
         load_goal(free ? context.goal_get_weapon : context.goal_get_weapon_confused, context);
         return;
     }
@@ -560,7 +569,7 @@ void leave_runtime_pirate_state(u16 state, RuntimePirateStrategy& context)
     case 0x3EF:
     {
         const std::span<u8> body = body_of(context);
-        const u32 angry = get(strategy, field::angry_object);
+        const u32 angry = fields_of(strategy).angry_object;
         if (angry != 0)
         {
             RuntimeBodyTimerRecipient recipient{[&](std::span<const u32> message)
@@ -569,7 +578,7 @@ void leave_runtime_pirate_state(u16 state, RuntimePirateStrategy& context)
                 }};
             expire_runtime_body_timer_recipient(recipient); // 0x0013B240
             decrement_runtime_body_latch_mask(body, 0x3F, goals_of(context).entry.actor, context.latches); // 0x0001F2F0
-            set(strategy, field::angry_object, 0u);
+            fields_of(strategy).angry_object = 0u;
         }
         if (context.attachment.secondary != nullptr) // Body +0x4C.
         {
@@ -582,14 +591,14 @@ void leave_runtime_pirate_state(u16 state, RuntimePirateStrategy& context)
         return;
     }
     case 0x3FA:
-        set(strategy, field::drink_open, 0u);
+        fields_of(strategy).drink_open = 0u;
         if (context.attachment.secondary != nullptr) // Body +0x4C.
         {
             drop_secondary(context); // The tail jump to 0x0001B6E0.
         }
         return;
     case 0x405:
-        set(strategy, field::fetching, 0u);
+        fields_of(strategy).fetching = 0u;
         return;
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)

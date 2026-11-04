@@ -30,7 +30,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = baron_strategy_field;
+BaronStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<BaronStrategyState>(strategy);
+}
+
+const BaronStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<BaronStrategyState>(strategy);
+}
+
 namespace parameter = baron_parameter;
 
 // The host halves of the three timeline words (+0xF0, +0xF8, +0x100), by the strategy's bytes.
@@ -121,13 +130,13 @@ bool weapon_free(RuntimeBaronStrategy& context)
 u32 timeline_word(u32 tier, u32 offset, RuntimeBaronStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    return read_u32(strategy, field::timeline_0.offset + tier * field::kTimelineStride + offset);
+    return strategy_view<BaronStrategyState>(strategy).timelines[tier * 2 + offset / 4];
 }
 
 // The timeline row at `row` (a retail address inside the tier's timeline): +0 on, +4 seconds.
 std::span<const u8> timeline_row(u32 row, RuntimeBaronStrategy& context)
 {
-    const u32 tier = get(strategy_of(context), field::tier);
+    const u32 tier = fields_of(strategy_of(context)).tier;
     const std::span<const u8> timeline = baron_timelines[strategy_of(context).data()][tier];
     const u32 start = timeline_word(tier, 0, context);
     if (timeline.data() == nullptr || start == 0 || row < start || row - start + 8 > timeline.size())
@@ -141,12 +150,12 @@ std::span<const u8> timeline_row(u32 row, RuntimeBaronStrategy& context)
 void begin_timeline(RuntimeBaronStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    set(strategy, field::effect_mode, 2u);
+    fields_of(strategy).effect_mode = 2u;
     const u32 tier = runtime_baron_tier(body_of(context));
-    set(strategy, field::tier, tier);
+    fields_of(strategy).tier = tier;
     const u32 row = timeline_word(tier, 0, context);
-    set(strategy, field::row, row);
-    set(strategy, field::row_time, 0.f);
+    fields_of(strategy).row = row;
+    fields_of(strategy).row_time = 0.f;
     if (read_u32(timeline_row(row, context), 0) == 0)
     {
         end_runtime_baron_effect(context); // 0x000A75B0
@@ -159,11 +168,11 @@ void begin_timeline(RuntimeBaronStrategy& context)
 void turn_effect_on(RuntimeBaronStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect_mode) == 1)
+    if (fields_of(strategy).effect_mode == 1)
     {
         return;
     }
-    set(strategy, field::effect_mode, 1u);
+    fields_of(strategy).effect_mode = 1u;
     start_runtime_baron_effect(context); // 0x000A76C0
 }
 
@@ -171,16 +180,16 @@ void turn_effect_on(RuntimeBaronStrategy& context)
 bool turn_effect_off(RuntimeBaronStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect_mode) == 0)
+    if (fields_of(strategy).effect_mode == 0)
     {
         return false;
     }
-    set(strategy, field::effect_mode, 0u);
-    if (get(strategy, field::effect) == 0)
+    fields_of(strategy).effect_mode = 0u;
+    if (fields_of(strategy).effect == 0)
     {
         return false;
     }
-    set(strategy, field::linger, 0.25f);
+    fields_of(strategy).linger = 0.25f;
     return true;
 }
 
@@ -201,7 +210,7 @@ u32 queue_notice(const char* name, RuntimeBaronStrategy& context)
 // Xbox 0x000A77E0
 void baron_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(BaronStrategyState);
     output.parameters = parameter::kSize;
 }
 
@@ -210,7 +219,7 @@ void initialize_runtime_baron_strategy(std::span<const u8> parameters, RuntimeBa
 {
     const std::span<u8> strategy = strategy_of(context);
     const char* effect = field_data(parameters, parameter::effect);
-    std::memcpy(strategy.data() + field::effect_name.offset, effect, std::strlen(effect) + 1);
+    std::memcpy(fields_of(strategy).effect_name.data(), effect, std::strlen(effect) + 1);
     auto& timelines = baron_timelines[strategy.data()];
     for (u32 tier = 0; tier < 3; ++tier)
     {
@@ -228,16 +237,15 @@ void initialize_runtime_baron_strategy(std::span<const u8> parameters, RuntimeBa
             }
         }
         const u32 start = timelines[tier].data() == nullptr ? 0u : context.address_of(timelines[tier].data());
-        const u32 offset = field::timeline_0.offset + tier * field::kTimelineStride;
-        put_u32(strategy, offset, start);
+        strategy_view<BaronStrategyState>(strategy).timelines[tier * 2] = start;
         if (start != 0)
         {
             const u32 size = runtime_body_resource_size(timelines[tier].data(), context.registry.records,
                 context.loaded_sizes); // 0x00035D90
-            put_u32(strategy, offset + 4, start + (size >> 3) * 8);
+            strategy_view<BaronStrategyState>(strategy).timelines[tier * 2 + 1] = start + (size >> 3) * 8;
         }
     }
-    set(strategy, field::row, get(strategy, field::timeline_0));
+    fields_of(strategy).row = strategy_view<BaronStrategyState>(strategy).timelines[0];
 }
 
 // Xbox 0x000A7440
@@ -247,12 +255,11 @@ void destroy_runtime_baron_strategy(RuntimeBaronStrategy& context)
     auto& timelines = baron_timelines[strategy.data()];
     for (u32 tier = 0; tier < 3; ++tier)
     {
-        const u32 offset = field::timeline_0.offset + tier * field::kTimelineStride;
-        if (read_u32(strategy, offset) != 0)
+        if (strategy_view<BaronStrategyState>(strategy).timelines[tier * 2] != 0)
         {
             release_animation_resource(context.registry, timelines[tier]); // 0x00035C00
             timelines[tier] = {};
-            put_u32(strategy, offset, 0u);
+            strategy_view<BaronStrategyState>(strategy).timelines[tier * 2] = 0u;
         }
     }
     baron_timelines.erase(strategy.data());
@@ -263,12 +270,12 @@ void tick_runtime_baron_effect(RuntimeBaronStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 mode = get(strategy, field::effect_mode);
+    const u32 mode = fields_of(strategy).effect_mode;
     if (mode == 0)
     {
-        float linger = get(strategy, field::linger);
+        float linger = fields_of(strategy).linger;
         const bool ended = count_down_runtime_strategy_timer(linger, goals); // The inlined 0x0002B9F0.
-        set(strategy, field::linger, linger);
+        fields_of(strategy).linger = linger;
         if (ended)
         {
             end_runtime_baron_effect(context); // 0x000A75B0
@@ -280,22 +287,22 @@ void tick_runtime_baron_effect(RuntimeBaronStrategy& context)
         return;
     }
     const float time = runtime_actor_rate(actor_of(context)) * runtime_frame_step(goals.clock)
-        + get(strategy, field::row_time);
-    set(strategy, field::row_time, time);
-    if (time < read_f32(timeline_row(get(strategy, field::row), context), 4))
+        + fields_of(strategy).row_time;
+    fields_of(strategy).row_time = time;
+    if (time < read_f32(timeline_row(fields_of(strategy).row, context), 4))
     {
         return;
     }
-    const u32 tier = get(strategy, field::tier);
-    const u32 row = get(strategy, field::row) + 8;
-    set(strategy, field::row_time, 0.f);
-    set(strategy, field::row, row);
+    const u32 tier = fields_of(strategy).tier;
+    const u32 row = fields_of(strategy).row + 8;
+    fields_of(strategy).row_time = 0.f;
+    fields_of(strategy).row = row;
     if (timeline_word(tier, 4, context) <= row)
     {
-        set(strategy, field::row, timeline_word(tier, 0, context));
+        fields_of(strategy).row = timeline_word(tier, 0, context);
     }
-    const u32 on = read_u32(timeline_row(get(strategy, field::row), context), 0);
-    if (u32(get(strategy, field::effect) != 0) == on)
+    const u32 on = read_u32(timeline_row(fields_of(strategy).row, context), 0);
+    if (u32(fields_of(strategy).effect != 0) == on)
     {
         return;
     }
@@ -311,7 +318,7 @@ void tick_runtime_baron_effect(RuntimeBaronStrategy& context)
 void end_runtime_baron_effect(RuntimeBaronStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 effect = get(strategy, field::effect);
+    const u32 effect = fields_of(strategy).effect;
     if (effect == 0)
     {
         return;
@@ -319,20 +326,20 @@ void end_runtime_baron_effect(RuntimeBaronStrategy& context)
     const std::array<u32, 2> message{5, 0};
     context.object_message(effect, message); // Vtable +0xC.
     decrement_runtime_body_latches(body_of(context), actor_of(context), context.latches); // The inlined 0x0001FD20.
-    set(strategy, field::effect, 0u);
+    fields_of(strategy).effect = 0u;
 }
 
 // Xbox 0x000A76C0
 void start_runtime_baron_effect(RuntimeBaronStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::effect) != 0)
+    if (fields_of(strategy).effect != 0)
     {
         return;
     }
     const std::span<u8> body = body_of(context);
-    const char* name = field_data(std::span<const u8>{strategy}, field::effect_name);
-    set(strategy, field::effect, context.create_effect(name, read_u32(body, 8))); // The inlined 0x0003DF40.
+    const char* name = fields_of(std::span<const u8>{strategy}).effect_name.data();
+    fields_of(strategy).effect = context.create_effect(name, read_u32(body, 8)); // The inlined 0x0003DF40.
     increment_runtime_body_latches(body, actor_of(context), context.latches); // The inlined 0x0001FC40.
 }
 
@@ -357,14 +364,14 @@ u32 runtime_baron_tier(std::span<const u8> body)
 bool runtime_baron_target_holds_cane(const RuntimeMindTarget& target, RuntimeBaronStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 cane = get(strategy, field::cane);
+    const u32 cane = fields_of(strategy).cane;
     if (cane == 0)
     {
         return false;
     }
     if (context.views.actor_bytes_at(cane)[0x93C] == 0)
     {
-        set(strategy, field::cane, 0u);
+        fields_of(strategy).cane = 0u;
         return false;
     }
     if (get(target.bytes, mind_target_field::kind) != 0)
@@ -382,7 +389,7 @@ void fetch_runtime_baron_cane_for(u16 state, RuntimeBaronStrategy& context)
         change_state(state, context);
         return;
     }
-    set(strategy_of(context), field::after_fetch, state);
+    fields_of(strategy_of(context)).after_fetch = state;
     change_state(0x402, context);
 }
 
@@ -421,18 +428,18 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
     alert_runtime_goal_listener(goals); // 0x0013D400
     update_runtime_base_strategy(goals); // 0x0002C130
     tick_runtime_baron_effect(context); // 0x000A7470
-    float recovery = get(strategy, field::recovery);
+    float recovery = fields_of(strategy).recovery;
     count_down_runtime_strategy_live_timer(recovery, goals); // The inlined 0x0002BA60 over +0x48.
-    set(strategy, field::recovery, recovery);
+    fields_of(strategy).recovery = recovery;
     bool found;
     RuntimeMindTarget* target = nullptr;
     switch (state)
     {
     case 0x3EA:
     {
-        float aloof = get(strategy, field::aloof_time);
+        float aloof = fields_of(strategy).aloof_time;
         tick_runtime_body_frame_timer(aloof, goals.clock); // 0x0012B2A0, EAX +0x44
-        set(strategy, field::aloof_time, aloof);
+        fields_of(strategy).aloof_time = aloof;
         target = selected_target(context, found);
         if (!found)
         {
@@ -442,9 +449,9 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
             std::bit_cast<float>(0x40060A92u), 50.f); // 0x00134430, EAX body
         if (!in_view)
         {
-            set(strategy, field::aloof_time, 0.f);
+            fields_of(strategy).aloof_time = 0.f;
         }
-        if (get(strategy, field::aloof_time) == 0.f && in_view) // DAT_0032B100.
+        if (fields_of(strategy).aloof_time == 0.f && in_view) // DAT_0032B100.
         {
             fetch_runtime_baron_cane_for(0x3EE, context); // 0x000A87E0
             return;
@@ -466,7 +473,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
             fetch_runtime_baron_cane_for(0x3EA, context); // 0x000A8750
             return;
         }
-        set(strategy, field::angry, 1u);
+        fields_of(strategy).angry = 1u;
         fetch_runtime_baron_cane_for(0x3EE, context); // 0x000A87E0
         return;
     case 0x3EE:
@@ -475,7 +482,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
         {
             return;
         }
-        change_state(get(strategy, field::hit_target) != 0 ? 0x40E : 0x3EA, context);
+        change_state(fields_of(strategy).hit_target != 0 ? 0x40E : 0x3EA, context);
         return;
     case 0x3F4:
         put_f32(body, 0x32C, runtime_baron_tier_row(body)[1]); // 0x000A8870
@@ -522,7 +529,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
     case 0x402:
         if (!requests_pending(context))
         {
-            change_state(get(strategy, field::after_fetch), context);
+            change_state(fields_of(strategy).after_fetch, context);
         }
         return;
     case 0x405:
@@ -541,7 +548,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
     case 0x409:
         target = selected_target(context, found);
         if (!found || requests_pending(context) || !can_resume(context)
-            || get(strategy, field::recovery) != 0.f) // DAT_0032B100.
+            || fields_of(strategy).recovery != 0.f) // DAT_0032B100.
         {
             return;
         }
@@ -566,7 +573,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
         fetch_runtime_baron_cane_for(0x3EA, context); // 0x000A8750
         return;
     case 0x411:
-        if (requests_pending(context) || !can_resume(context) || get(strategy, field::recovery) != 0.f)
+        if (requests_pending(context) || !can_resume(context) || fields_of(strategy).recovery != 0.f)
         {
             return;
         }
@@ -593,9 +600,9 @@ void dispatch_runtime_baron_message(std::span<u32> message, RuntimeBaronStrategy
     switch (message[0])
     {
     case 0x14:
-        if (get(strategy, field::effect) == message[1])
+        if (fields_of(strategy).effect == message[1])
         {
-            set(strategy, field::effect, 0u);
+            fields_of(strategy).effect = 0u;
         }
         return;
     case 0x31:
@@ -616,7 +623,7 @@ void dispatch_runtime_baron_message(std::span<u32> message, RuntimeBaronStrategy
         return;
     }
     case 0x5E:
-        set(strategy, field::cane, message[1]);
+        fields_of(strategy).cane = message[1];
         return;
     case 0x6E:
         if (check_runtime_player_knockout(goals) != 0) // 0x0013A490, EBX strategy
@@ -628,11 +635,11 @@ void dispatch_runtime_baron_message(std::span<u32> message, RuntimeBaronStrategy
             if (message[4] != 0)
             {
                 change_state(0x409, context);
-                if (get(strategy, field::knockdown_notice) == 0)
+                if (fields_of(strategy).knockdown_notice == 0)
                 {
-                    set(strategy, field::knockdown_notice,
-                        queue_notice("chapter4_baron_firstknockdown", context)); // 0x003242AC
-                    set(strategy, field::recovery, 1.f); // DAT_0032B0F8.
+                    // 0x003242AC
+                    fields_of(strategy).knockdown_notice = queue_notice("chapter4_baron_firstknockdown", context);
+                    fields_of(strategy).recovery = 1.f; // DAT_0032B0F8.
                 }
             }
             else
@@ -648,11 +655,11 @@ void dispatch_runtime_baron_message(std::span<u32> message, RuntimeBaronStrategy
         if (runtime_message_from_mind_target(message, actor, mind_of(context), goals.target_at) // 0x001408E0
             && message[4] != 0)
         {
-            set(strategy, field::hit_target, 1u);
+            fields_of(strategy).hit_target = 1u;
         }
         return;
     case 0x74:
-        if (message[2] != get(strategy, field::cane) || message[1] == actor)
+        if (message[2] != fields_of(strategy).cane || message[1] == actor)
         {
             return;
         }
@@ -661,19 +668,19 @@ void dispatch_runtime_baron_message(std::span<u32> message, RuntimeBaronStrategy
             return;
         }
         change_state(0x411, context);
-        if (get(strategy, field::cane_notice) == 0
+        if (fields_of(strategy).cane_notice == 0
             && queue_notice("chapter4_baron_canepickedup", context) != 0) // 0x00324290
         {
-            set(strategy, field::cane_notice, 1u);
-            set(strategy, field::recovery, 1.f); // DAT_0032B0F8.
+            fields_of(strategy).cane_notice = 1u;
+            fields_of(strategy).recovery = 1.f; // DAT_0032B0F8.
         }
         return;
     case 0x7C:
         // The tail jump to 0x00140A40 over strategy +0x38.
-        clear_runtime_player_mind_reference(strategy, field::cane.offset, message[1]);
+        clear_runtime_player_mind_reference(strategy, offsetof(BaronStrategyState, cane), message[1]);
         return;
     case 0x7D:
-        set(strategy, field::cane, get(body, body_field::attached));
+        fields_of(strategy).cane = get(body, body_field::attached);
         return;
     default:
         return;
@@ -700,7 +707,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         }
         load_goal(context.goal_aloof_prepare, context);
         load_goal(context.goal_aloof, context);
-        set(strategy, field::aloof_time, 2.f); // DAT_0032B110.
+        fields_of(strategy).aloof_time = 2.f; // DAT_0032B110.
         return;
     case 0x3EB:
         angry_goal[0] = 0;
@@ -710,8 +717,8 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         return;
     case 0x3EE:
     {
-        set(strategy, field::hit_target, 0u);
-        if (get(strategy, field::angry) != 0)
+        fields_of(strategy).hit_target = 0u;
+        if (fields_of(strategy).angry != 0)
         {
             turn_effect_on(context);
         }
@@ -740,7 +747,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         return;
     }
     case 0x3F4:
-        if (get(strategy, field::effect_mode) != 2)
+        if (fields_of(strategy).effect_mode != 2)
         {
             begin_timeline(context);
         }
@@ -753,7 +760,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         return;
     case 0x401:
         if (target_address != 0 && runtime_baron_target_holds_cane(*goals.target_at(target_address), context)
-            && get(strategy, field::effect_mode) != 2) // 0x000A8700, EDX the mind's target
+            && fields_of(strategy).effect_mode != 2) // 0x000A8700, EDX the mind's target
         {
             begin_timeline(context);
         }
@@ -769,10 +776,10 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         body[0x328] = 3;
         strategy_base(strategy).unk_18 = u16(0x405);
         load_goal(context.goal_get_weapon, context);
-        set(mind, mind_field::action_actor, get(strategy, field::cane));
+        set(mind, mind_field::action_actor, fields_of(strategy).cane);
         return;
     case 0x409:
-        if (get(strategy, field::effect_mode) != 2)
+        if (fields_of(strategy).effect_mode != 2)
         {
             begin_timeline(context);
         }
@@ -786,7 +793,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
     case 0x411:
         load_goal(context.goal_worried, context);
         ++strategy_base(strategy).pause_count;
-        if (get(strategy, field::effect_mode) != 2)
+        if (fields_of(strategy).effect_mode != 2)
         {
             begin_timeline(context);
         }
@@ -806,10 +813,10 @@ void leave_runtime_baron_state(u16 state, RuntimeBaronStrategy& context)
     {
     case 0x3EE:
         detach_runtime_strategy_link(context.base.link); // 0x00112A20, EAX strategy +0x20
-        if (get(strategy, field::angry) != 0)
+        if (fields_of(strategy).angry != 0)
         {
             turn_effect_off(context);
-            set(strategy, field::angry, 0u);
+            fields_of(strategy).angry = 0u;
         }
         return;
     case 0x3F4:

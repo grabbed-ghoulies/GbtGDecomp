@@ -33,7 +33,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = warlock_strategy_field;
+WarlockStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<WarlockStrategyState>(strategy);
+}
+
+const WarlockStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<WarlockStrategyState>(strategy);
+}
+
 namespace parameter = warlock_strategy_parameter;
 
 constexpr u32 kRecordAddress = 0x003034F8;
@@ -191,7 +200,7 @@ bool can_react(RuntimeWarlockStrategy& context)
 void show(RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::shown) != 0)
+    if (fields_of(strategy).shown != 0)
     {
         return;
     }
@@ -203,47 +212,47 @@ void show(RuntimeWarlockStrategy& context)
     }
     register_actor_model_anchors(actor_of(context), view.anchors); // 0x0003EEB0
     body_bits(context).bytes[7] &= 0xEF;
-    set(strategy, field::shown, 1u);
+    fields_of(strategy).shown = 1u;
 }
 
 // Xbox 0x000C33E0, ESI strategy
 void hide(RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::shown) == 0 || (body_bits(context).bytes[3] & 8) != 0)
+    if (fields_of(strategy).shown == 0 || (body_bits(context).bytes[3] & 8) != 0)
     {
         return;
     }
     hide_runtime_actor(context.actor_view, body_bits(context)); // 0x001364B0, EBX actor
-    set(strategy, field::shown, 0u);
+    fields_of(strategy).shown = 0u;
 }
 
 // Xbox 0x000C3410, EDI strategy
 void leave_world(RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::solid) == 0 || (body_bits(context).bytes[3] & 8) != 0)
+    if (fields_of(strategy).solid == 0 || (body_bits(context).bytes[3] & 8) != 0)
     {
         return;
     }
     RuntimeBodyStateContext body = body_state(context);
     remove_runtime_actor_collision(context.actor_view, body); // 0x00136540, ESI actor
-    set(strategy, field::solid, 0u);
+    fields_of(strategy).solid = 0u;
 }
 
 // Xbox 0x000C3490, EDI strategy: back in the world's collision, and the body hears 0x4A.
 void enter_world(RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::solid) != 0)
+    if (fields_of(strategy).solid != 0)
     {
         return;
     }
     RuntimeBodyStateContext body = body_state(context);
-    restore_runtime_actor_collision(get(strategy, field::model_flags), get(strategy, field::model_mode),
-        u8(get(strategy, field::shape_mode)), context.actor_view, body); // 0x001365C0, ESI actor, EAX flags
+    restore_runtime_actor_collision(fields_of(strategy).model_flags, fields_of(strategy).model_mode,
+        u8(fields_of(strategy).shape_mode), context.actor_view, body); // 0x001365C0, ESI actor, EAX flags
     tell_body(0x4A, context); // Body vtable +0xC.
-    set(strategy, field::solid, 1u);
+    fields_of(strategy).solid = 1u;
 }
 
 // Xbox 0x000C4170, EDI strategy: with story bit 0x1D (byte 3 bit 0x20) the entrance camera looks at the warlock from
@@ -258,25 +267,25 @@ void start_entrance(RuntimeWarlockStrategy& context)
     Actor& actor = actor_of(context);
     increment_runtime_body_latches(body_of(context), actor, context.latches); // The inlined 0x0001FC40.
     actor.model_flags &= 0xFFFFFFFDu; // Actor +0x1F0.
-    set(strategy, field::entrance_timer, kEntranceTime); // Record +0x50.
+    fields_of(strategy).entrance_timer = kEntranceTime; // Record +0x50.
     if (context.view == nullptr)
     {
         throw Error("0x000C4170 reads the display view through address zero");
     }
-    set(strategy, field::eye, context.view->position); // DAT_005077A8 +0.
+    fields_of(strategy).eye = context.view->position; // DAT_005077A8 +0.
     initialize_camera_view(context.entrance_view, kEntranceCamera, 1); // 0x000496C0, EDX +0x80, CL 1
     link_camera_view(0, context.entrance_view); // 0x00048C20, ESI 0
     camera_bind_named_view(0, kEntranceCamera); // 0x00048CF0, EBX name
-    context.entrance_view.position = get(strategy, field::eye); // +0x88.
+    context.entrance_view.position = fields_of(strategy).eye; // +0x88.
     change_runtime_actor_pause(u8(0xFFFF), 0, context.pause()); // 0x00117400
-    set(strategy, field::entrance, 1u);
+    fields_of(strategy).entrance = 1u;
 }
 
 // Xbox 0x000C4440, EDI strategy
 void end_entrance(RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::entrance) == 0)
+    if (fields_of(strategy).entrance == 0)
     {
         return;
     }
@@ -285,29 +294,29 @@ void end_entrance(RuntimeWarlockStrategy& context)
     actor.model_flags = 2; // Actor +0x1F0.
     camera_unlink_view(&context.entrance_view); // 0x00048C70, EAX +0x80
     change_runtime_actor_pause(u8(0xFFFF), 1, context.pause()); // 0x00117400
-    set(strategy, field::entrance, 0u);
-    set(strategy, field::entering, 1u);
+    fields_of(strategy).entrance = 0u;
+    fields_of(strategy).entering = 1u;
 }
 
 // Xbox 0x000C42F0, EBX strategy: the entrance runs out, or the camera turns from its eye toward the warlock.
 void update_entrance(RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::entrance) == 0)
+    if (fields_of(strategy).entrance == 0)
     {
         return;
     }
-    float timer = get(strategy, field::entrance_timer);
+    float timer = fields_of(strategy).entrance_timer;
     count_down(timer, context);
-    set(strategy, field::entrance_timer, timer);
-    if (kRunOut > get(strategy, field::entrance_timer)) // COMISS; JBE keeps it.
+    fields_of(strategy).entrance_timer = timer;
+    if (kRunOut > fields_of(strategy).entrance_timer) // COMISS; JBE keeps it.
     {
         end_entrance(context); // 0x000C4440, EDI strategy
         return;
     }
     const Actor& actor = actor_of(context);
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const Vec3 eye = get(strategy, field::eye);
+    const Vec3 eye = fields_of(strategy).eye;
     // The look height is the body's actor (+8) Y scale times the body's +0x884 and the record's +0x54; the actor's
     // own height is not added.
     const float dy = actor.radius_y * read_f32(body_of(context), 0x884) * kEntranceLookHeight - eye.y;
@@ -346,11 +355,11 @@ void move_away(RuntimeWarlockStrategy& context)
 void fade(bool vanishing, RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const float duration = get(strategy, field::duration);
+    const float duration = fields_of(strategy).duration;
     float level = kOpaque;
     if (duration != 0.f) // UCOMISS; JNP takes a zero duration as opaque.
     {
-        const float value = get(strategy, field::timer) / duration * kOpaque;
+        const float value = fields_of(strategy).timer / duration * kOpaque;
         level = value > kOpaque ? kOpaque : 0.f > value ? 0.f : value;
     }
     const u8 alpha = u8(truncate_runtime_float(vanishing ? level : kOpaque - level)); // 0x001673D8
@@ -380,8 +389,8 @@ void stretch(bool vanishing, RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = actor_of(context);
-    const float left = get(strategy, field::timer);
-    const float duration = get(strategy, field::duration);
+    const float left = fields_of(strategy).timer;
+    const float duration = fields_of(strategy).duration;
     float height = 0.f;
     float width = 0.f;
     float lift = 0.f;
@@ -421,7 +430,7 @@ void stretch(bool vanishing, RuntimeWarlockStrategy& context)
     if (rising)
     {
         Vec3 position = actor_world_position(actor); // 0x000412A0
-        position.y = get(strategy, field::height) + lift;
+        position.y = fields_of(strategy).height + lift;
         actor_set_world_position(actor, position); // 0x00041730, ESI point, EDI actor
         const Vec3 placed = actor_world_position(actor); // 0x000412A0, ESI body +8, EDI body +0x18
         std::memcpy(body_of(context).data() + 0x18, &placed, 12);
@@ -455,37 +464,37 @@ void begin_waiting(RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     const Actor& actor = actor_of(context);
-    set(strategy, field::model_flags, actor.model_flags); // Actor +0x1F0.
-    set(strategy, field::model_mode, actor.model_mode); // Actor +0x118.
-    set(strategy, field::shape_mode, u32(body_of(context)[0x244]));
-    set(strategy, field::noticed, 0u);
-    set(strategy, field::height, actor_height(actor)); // 0x0002B410, ESI actor
-    if (get(strategy, field::entering) != 0)
+    fields_of(strategy).model_flags = actor.model_flags; // Actor +0x1F0.
+    fields_of(strategy).model_mode = actor.model_mode; // Actor +0x118.
+    fields_of(strategy).shape_mode = u32(body_of(context)[0x244]);
+    fields_of(strategy).noticed = 0u;
+    fields_of(strategy).height = actor_height(actor); // 0x0002B410, ESI actor
+    if (fields_of(strategy).entering != 0)
     {
-        set(strategy, field::timer, kEnteringHoldTime); // Record +0x24.
+        fields_of(strategy).timer = kEnteringHoldTime; // Record +0x24.
     }
-    else if (get(strategy, field::hit) != 0)
+    else if (fields_of(strategy).hit != 0)
     {
-        set(strategy, field::timer, kHitHoldTime); // Record +0x34.
+        fields_of(strategy).timer = kHitHoldTime; // Record +0x34.
         leave_world(context); // 0x000C3410, EDI strategy
     }
     else
     {
-        set(strategy, field::timer, kHoldTime); // Record +0x2C.
+        fields_of(strategy).timer = kHoldTime; // Record +0x2C.
     }
-    set(strategy, field::notice_timer, get(strategy, field::hit) != 0 ? kHitNoticeTime : kNoticeTime); // +0x3C / +0x38
-    set(strategy, field::duration, get(strategy, field::timer));
+    fields_of(strategy).notice_timer = fields_of(strategy).hit != 0 ? kHitNoticeTime : kNoticeTime; // +0x3C / +0x38
+    fields_of(strategy).duration = fields_of(strategy).timer;
 }
 
 // Xbox 0x000C3160, ECX strategy, EAX mode
 void set_mode(u32 mode, RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::mode) == mode)
+    if (fields_of(strategy).mode == mode)
     {
         return;
     }
-    set(strategy, field::mode, mode);
+    fields_of(strategy).mode = mode;
     switch (mode)
     {
     case 1:
@@ -493,12 +502,12 @@ void set_mode(u32 mode, RuntimeWarlockStrategy& context)
         return;
     case 2:
     {
-        set(strategy, field::timer, get(strategy, field::hit) != 0 ? kHitVanishTime : kVanishTime); // +0x30 / +0x28
+        fields_of(strategy).timer = fields_of(strategy).hit != 0 ? kHitVanishTime : kVanishTime; // +0x30 / +0x28
         leave_world(context); // 0x000C3410, EDI strategy
-        set(strategy, field::duration, get(strategy, field::timer));
+        fields_of(strategy).duration = fields_of(strategy).timer;
         callout(0x52, context); // 0x0003C040, ECX actor, EDX 0x52
-        const auto name = get(strategy, field::effect_name);
-        set(strategy, field::effect, context.create_effect(name.data(), actor_address(context))); // 0x0003DF40
+        const auto name = fields_of(strategy).effect_name;
+        fields_of(strategy).effect = context.create_effect(name.data(), actor_address(context)); // 0x0003DF40
         return;
     }
     case 3:
@@ -506,18 +515,18 @@ void set_mode(u32 mode, RuntimeWarlockStrategy& context)
         end_entrance(context); // 0x000C4440, EDI strategy
         hide(context); // 0x000C33E0, ESI strategy
         move_away(context); // 0x000C3370
-        set(strategy, field::timer, kGoneTime); // Record +0x20.
-        set(strategy, field::duration, kGoneTime);
+        fields_of(strategy).timer = kGoneTime; // Record +0x20.
+        fields_of(strategy).duration = kGoneTime;
         strategy_base(strategy).attacking = 0;
-        clear_runtime_player_attachment_events(strategy.subspan(field::first_events.offset, 0x24),
+        clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).first_events),
             context.lists); // 0x0013B810, EBX +0xF0
-        clear_runtime_player_attachment_events(strategy.subspan(field::second_events.offset, 0x24),
+        clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).second_events),
             context.lists); // 0x0013B810, EBX +0x114
-        set(strategy, field::noticed, 1u);
-        set(strategy, field::hit, 0u);
-        if (get(strategy, field::entering) != 0)
+        fields_of(strategy).noticed = 1u;
+        fields_of(strategy).hit = 0u;
+        if (fields_of(strategy).entering != 0)
         {
-            set(strategy, field::entering, 0u);
+            fields_of(strategy).entering = 0u;
             decrement_runtime_body_latch_mask(body_of(context), 0x3F, actor_of(context), context.latches); // 0x0001F2F0
         }
         return;
@@ -525,21 +534,21 @@ void set_mode(u32 mode, RuntimeWarlockStrategy& context)
     case 4:
         load_goal(context.goal_reappear, context);
         show(context); // 0x000C3440, ESI strategy
-        set(strategy, field::timer, kVanishTime); // Record +0x28.
-        set(strategy, field::duration, kVanishTime);
+        fields_of(strategy).timer = kVanishTime; // Record +0x28.
+        fields_of(strategy).duration = kVanishTime;
         strategy_base(strategy).attacking = 1;
         callout(0x51, context); // 0x0003C040, ECX actor, EDX 0x51
         return;
     case 5:
-        if (get(strategy, field::effect) != 0)
+        if (fields_of(strategy).effect != 0)
         {
-            RuntimeBodyTimerRecipient recipient{[&context, effect = get(strategy, field::effect)](
+            RuntimeBodyTimerRecipient recipient{[&context, effect = fields_of(strategy).effect](
                                                     std::span<const u32> message)
                 {
                     context.object_message(effect, message);
                 }};
             expire_runtime_body_timer_recipient(recipient); // 0x0013B240, EAX the object
-            set(strategy, field::effect, 0u);
+            fields_of(strategy).effect = 0u;
         }
         enter_world(context); // 0x000C3490, EDI strategy
         return;
@@ -554,7 +563,7 @@ void pick_attack_limit(RuntimeWarlockStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    set(strategy, field::attacks, 0);
+    fields_of(strategy).attacks = 0;
     size_t row = 0;
     const u16 full = get(body, body_field::max_energy);
     if (full != 0)
@@ -573,7 +582,7 @@ void pick_attack_limit(RuntimeWarlockStrategy& context)
             row = 1;
         }
     }
-    set(strategy, field::attack_limit, kAttackLimits[row]);
+    fields_of(strategy).attack_limit = kAttackLimits[row];
     std::memcpy(body.data() + 0x80, &kAttackRates[row], 4);
 }
 
@@ -586,8 +595,8 @@ void enter_attack(RuntimeWarlockStrategy& context)
     select_runtime_strategy_target(target, 0, goals); // 0x00139AA0, EAX strategy
     if (target == nullptr)
     {
-        set(strategy, field::attacks, 0);
-        set(strategy, field::attack_limit, 0);
+        fields_of(strategy).attacks = 0;
+        fields_of(strategy).attack_limit = 0;
         return;
     }
     goals.room = nullptr; // Actor +0xCA0.
@@ -620,18 +629,18 @@ void update_attack(RuntimeWarlockStrategy& context)
     {
         return;
     }
-    const i32 attacks = get(strategy, field::attacks);
-    const i32 limit = get(strategy, field::attack_limit);
+    const i32 attacks = fields_of(strategy).attacks;
+    const i32 limit = fields_of(strategy).attack_limit;
     if (attacks < limit)
     {
         load_goal(context.goal_attack, context);
-        set(strategy, field::attacks, attacks + 1);
+        fields_of(strategy).attacks = attacks + 1;
         return;
     }
     if (attacks == limit)
     {
         load_goal(context.goal_attack_finish, context);
-        set(strategy, field::attacks, attacks + 1);
+        fields_of(strategy).attacks = attacks + 1;
         return;
     }
     change_state(0x401, context); // 0x0002B8D0, EDI 0x401
@@ -642,19 +651,19 @@ void update_hold(RuntimeWarlockStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::noticed) == 0)
+    if (fields_of(strategy).noticed == 0)
     {
-        float timer = get(strategy, field::notice_timer);
+        float timer = fields_of(strategy).notice_timer;
         count_down(timer, context);
-        set(strategy, field::notice_timer, timer);
-        if (kRunOut > get(strategy, field::notice_timer)) // COMISS; JBE keeps it.
+        fields_of(strategy).notice_timer = timer;
+        if (kRunOut > fields_of(strategy).notice_timer) // COMISS; JBE keeps it.
         {
             // LEA EAX,[EDI + 0x8C] is never null, so the callout always runs.
             callout(0x53, context); // 0x0003BE20, EAX actor +0x8C
-            set(strategy, field::noticed, 1u);
+            fields_of(strategy).noticed = 1u;
         }
     }
-    switch (get(strategy, field::mode))
+    switch (fields_of(strategy).mode)
     {
     case 1:
     {
@@ -663,10 +672,10 @@ void update_hold(RuntimeWarlockStrategy& context)
         {
             notice_runtime_strategy_target(0x1D, context.checks); // 0x0013A430, EAX strategy
         }
-        float timer = get(strategy, field::timer);
+        float timer = fields_of(strategy).timer;
         count_down_runtime_strategy_timer(timer, goals); // 0x0002B9F0, ECX +0x40
-        set(strategy, field::timer, timer);
-        if (kRunOut > get(strategy, field::timer) && !runtime_body_bit_set(body_bits(context), 0x24) // 0x0001EF10
+        fields_of(strategy).timer = timer;
+        if (kRunOut > fields_of(strategy).timer && !runtime_body_bit_set(body_bits(context), 0x24) // 0x0001EF10
             && can_resume(context))
         {
             set_mode(2, context); // 0x000C3160, EAX 2
@@ -677,9 +686,9 @@ void update_hold(RuntimeWarlockStrategy& context)
     {
         fade(true, context); // 0x000C34E0, 1
         stretch(true, context); // 0x000C3570, EAX 1
-        float timer = get(strategy, field::timer);
+        float timer = fields_of(strategy).timer;
         const bool done = count_down_runtime_strategy_timer(timer, goals); // 0x0002B9F0, ECX +0x40
-        set(strategy, field::timer, timer);
+        fields_of(strategy).timer = timer;
         if (done)
         {
             set_mode(3, context); // 0x000C3160, EAX 3
@@ -689,11 +698,11 @@ void update_hold(RuntimeWarlockStrategy& context)
     case 3:
         if (can_resume(context))
         {
-            float timer = get(strategy, field::timer);
+            float timer = fields_of(strategy).timer;
             count_down_runtime_strategy_timer(timer, goals); // 0x0002B9F0, ECX +0x40
-            set(strategy, field::timer, timer);
+            fields_of(strategy).timer = timer;
         }
-        if (kRunOut > get(strategy, field::timer) && get(strategy, field::mode) != 4)
+        if (kRunOut > fields_of(strategy).timer && fields_of(strategy).mode != 4)
         {
             set_mode(4, context); // The inlined 0x000C3160, EAX 4.
         }
@@ -702,10 +711,10 @@ void update_hold(RuntimeWarlockStrategy& context)
     {
         fade(false, context); // 0x000C34E0, 0
         stretch(false, context); // 0x000C3570, EAX 0
-        float timer = get(strategy, field::timer);
+        float timer = fields_of(strategy).timer;
         const bool done = count_down_runtime_strategy_timer(timer, goals); // 0x0002B9F0, ECX +0x40
-        set(strategy, field::timer, timer);
-        if (done && get(strategy, field::mode) != 5)
+        fields_of(strategy).timer = timer;
+        if (done && fields_of(strategy).mode != 5)
         {
             set_mode(5, context); // The inlined 0x000C3160, EAX 5.
         }
@@ -729,11 +738,11 @@ void stop_holding(RuntimeWarlockStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     show(context); // 0x000C3440, ESI strategy
     enter_world(context); // The inlined 0x000C3490.
-    if (const u32 effect = get(strategy, field::effect); effect != 0)
+    if (const u32 effect = fields_of(strategy).effect; effect != 0)
     {
         const std::array<u32, 2> message{5, 0};
         context.object_message(effect, message); // Object vtable +0xC.
-        set(strategy, field::effect, 0u);
+        fields_of(strategy).effect = 0u;
     }
     Actor& actor = actor_of(context);
     if (kOne != actor.scale_x || kOne != actor.radius_y || kOne != actor.radius_xz) // UCOMISS; JP sets.
@@ -743,11 +752,11 @@ void stop_holding(RuntimeWarlockStrategy& context)
         actor.radius_xz = kOne;
         actor.xform_valid = 0; // +0x2A8.
     }
-    remove_events(field::first_events.offset, context); // 0x0003CFD0 over +0xF0, EAX actor
-    remove_events(field::second_events.offset, context); // 0x0003CFD0 over +0x114, EAX actor
-    if (get(strategy, field::mode) != 0)
+    remove_events(offsetof(WarlockStrategyState, first_events), context); // 0x0003CFD0 over +0xF0, EAX actor
+    remove_events(offsetof(WarlockStrategyState, second_events), context); // 0x0003CFD0 over +0x114, EAX actor
+    if (fields_of(strategy).mode != 0)
     {
-        set(strategy, field::mode, 0u);
+        fields_of(strategy).mode = 0u;
     }
 }
 }
@@ -755,7 +764,7 @@ void stop_holding(RuntimeWarlockStrategy& context)
 // Xbox 0x000C3CA0
 void warlock_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(WarlockStrategyState);
     output.parameters = parameter::kSize;
 }
 
@@ -763,16 +772,16 @@ void warlock_strategy_object_sizes(ObjectSizes& output)
 bool initialize_runtime_warlock_strategy(std::span<u8> strategy, std::span<const u8> parameters,
     RuntimeWarlockStrategy& context)
 {
-    set(strategy, field::record, kRecordAddress);
-    set(strategy, field::hit, 0u);
-    set(strategy, field::entering, 1u);
+    fields_of(strategy).record = kRecordAddress;
+    fields_of(strategy).hit = 0u;
+    fields_of(strategy).entering = 1u;
     increment_runtime_body_latches(body_of(context), actor_of(context), context.latches); // The inlined 0x0001FC40.
-    set(strategy, field::solid, 1u);
-    set(strategy, field::shown, 1u);
+    fields_of(strategy).solid = 1u;
+    fields_of(strategy).shown = 1u;
     const auto source = get(parameters, parameter::effect_name);
     std::array<char, 0x80> name{};
     std::strncpy(name.data(), source.data(), name.size() - 1); // The inlined strcpy.
-    set(strategy, field::effect_name, name);
+    fields_of(strategy).effect_name = name;
     start_entrance(context); // 0x000C4170, EDI strategy
     if (!context.scare_near)
     {
@@ -797,7 +806,7 @@ void dispatch_runtime_warlock_message(std::span<const u32> message, RuntimeWarlo
     {
     case 0x26:
     case 0x27:
-        if (get(strategy, field::entering) != 0)
+        if (fields_of(strategy).entering != 0)
         {
             return;
         }
@@ -836,7 +845,7 @@ void dispatch_runtime_warlock_message(std::span<const u32> message, RuntimeWarlo
         if (runtime_message_lands_on_actor(message, actor_address(context)) // 0x001408A0, EAX message, EDX actor
             && !runtime_body_bit_set(body_bits(context), 0x1B)) // 0x0001EF10, EAX body
         {
-            set(strategy, field::hit, 1u);
+            fields_of(strategy).hit = 1u;
             change_state(0x401, context); // 0x0002B8D0, EDI 0x401
         }
         return;

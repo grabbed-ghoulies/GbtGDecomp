@@ -15,7 +15,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = vampire_chicken_strategy_field;
+VampireChickenStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<VampireChickenStrategyState>(strategy);
+}
+
+const VampireChickenStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<VampireChickenStrategyState>(strategy);
+}
+
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeVampireChickenStrategy& context)
 {
@@ -94,7 +103,7 @@ RuntimeStrategyBodyView held_body(RuntimeVampireChickenStrategy& context, const 
         throw Error(std::string(caller) + " reads a held body with no native actor behind it");
     }
     RuntimeStrategyBodyView body = context.shared.views.body_of(*context.held_actor);
-    if (body.address != get(strategy_of(context), field::held))
+    if (body.address != fields_of(strategy_of(context)).held)
     {
         throw Error(std::string(caller) + " holds a body its native actor no longer has");
     }
@@ -105,7 +114,7 @@ RuntimeStrategyBodyView held_body(RuntimeVampireChickenStrategy& context, const 
 void release_held(RuntimeVampireChickenStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::held) == 0)
+    if (fields_of(strategy).held == 0)
     {
         return;
     }
@@ -116,7 +125,7 @@ void release_held(RuntimeVampireChickenStrategy& context)
     }
     const u32 zero = 0;
     std::memcpy(body.bytes.data() + 0x50, &zero, 4);
-    set(strategy, field::held, 0u);
+    fields_of(strategy).held = 0u;
     context.held_actor = nullptr;
 }
 
@@ -177,7 +186,7 @@ bool try_attack(RuntimeVampireChickenStrategy& context)
     const std::span<const u8> attributes = context.shared.checks.attributes; // Actor +0x964.
     // UCOMISS; JP takes the knockdown for a nonzero (or unordered) +0xC.
     const bool knockdown_only = attributes.data() != nullptr && !(read_f32(attributes, 0xC) == 0.f);
-    if (get(strategy, field::provoked) == 0 && !knockdown_only)
+    if (fields_of(strategy).provoked == 0 && !knockdown_only)
     {
         RuntimeStrategyBodyView body = context.shared.views.body_of(target->actor);
         if (!claim_body(body, own_address(context))) // 0x0001B0D0, EAX target body
@@ -185,7 +194,7 @@ bool try_attack(RuntimeVampireChickenStrategy& context)
             return false;
         }
         goals.room = nullptr; // Actor +0xCA0.
-        set(strategy, field::held, body.address);
+        fields_of(strategy).held = body.address;
         context.held_actor = &target->actor;
         change_state(0x3ED, context);
         return true;
@@ -257,7 +266,7 @@ void tick_knockdown(RuntimeVampireChickenStrategy& context)
 // Xbox 0x000C2930
 bool initialize_runtime_vampire_chicken_strategy(std::span<u8> strategy)
 {
-    set(strategy, field::parameters, 0x003034E8u);
+    fields_of(strategy).parameters = 0x003034E8u;
     return true;
 }
 
@@ -282,7 +291,7 @@ void update_runtime_vampire_chicken_strategy(RuntimeVampireChickenStrategy& cont
     {
         provoked = get(actor, player_field::countdown_56) > 0.f ? 1u : u32(get(actor, player_field::provoked));
     }
-    set(strategy, field::provoked, provoked);
+    fields_of(strategy).provoked = provoked;
     update_runtime_base_strategy(goals); // 0x0002C130
     switch (state)
     {
@@ -322,7 +331,7 @@ void dispatch_runtime_vampire_chicken_message(std::span<const u32> message, Runt
         return;
     case 0x31:
         react_runtime_strategy_watched_actor(message, shared.checks, shared.views); // 0x001397B0
-        if (get(strategy, field::held) != 0
+        if (fields_of(strategy).held != 0
             && message[1] == read_u32(held_body(context, "0x000C2A40").bytes, 8)) // The held body's +8 actor.
         {
             release_held(context); // The tail jump to 0x000C2D90.

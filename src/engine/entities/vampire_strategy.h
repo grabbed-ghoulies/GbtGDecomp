@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -12,21 +13,20 @@ namespace gbtg
 // roll, else to knock the target down ("knockdown", 0x3EE) or back ("knockback", 0x3ED). Hit from behind while he
 // waits he is knocked back (0x406, "coffinlook"); message 0x1A shuts him in ("waitingforfollowup", 0x416), the body's
 // bit 0x40 then set. His body (type 0x2C) reads that bit.
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace vampire_strategy_field
+struct VampireStrategyState
 {
-constexpr RetailField<u32, 0x38> record{}; // 0x003034D0
-constexpr RetailField<float, 0x3C> delay{}; // The record's +8 on entering 0x401; no attack while it runs
-constexpr RetailField<u32, 0x40> shut{}; // Message 0x1A this frame; the update clears it
-constexpr RetailField<u32, 0x44> knocked_stage{}; // 0x406: 1 knocked, 2 walked off, 3 looking round
-constexpr RetailField<u32, 0x48> knockdown_stage{}; // 0x3EE: 1 knockdown, 2 the cheer or the close
-constexpr RetailField<u32, 0x4C> knockback_stage{}; // 0x3ED: 1 knockback, 2 the follow-up, 3 the close
-constexpr RetailField<u32, 0x50> struck{}; // Message 0x6E from him (its +8) since the knockback began
-constexpr RetailField<float, 0x54> open_time{}; // The record's +0xC on opening (0x3EF)
-constexpr RetailField<u32, 0x58> open_stage{}; // 0x3EF: 1 open, 2 grabbed, 3 closing
-constexpr u32 kSize = 0x5C;
-static_assert(retail_fits(kSize, open_stage));
-} // namespace vampire_strategy_field
+    StrategyBase base{}; // +0
+    u32 record = 0; // +0x38, 0x003034D0
+    float delay = 0.f; // +0x3C, the record's +8 on entering 0x401; no attack while it runs
+    u32 shut = 0; // +0x40, message 0x1A this frame; the update clears it
+    u32 knocked_stage = 0; // +0x44, 0x406: 1 knocked, 2 walked off, 3 looking round
+    u32 knockdown_stage = 0; // +0x48, 0x3EE: 1 knockdown, 2 the cheer or the close
+    u32 knockback_stage = 0; // +0x4C, 0x3ED: 1 knockback, 2 the follow-up, 3 the close
+    u32 struck = 0; // +0x50, message 0x6E from him (its +8) since the knockback began
+    float open_time = 0.f; // +0x54, the record's +0xC on opening (0x3EF)
+    u32 open_stage = 0; // +0x58, 0x3EF: 1 open, 2 grabbed, 3 closing
+};
+static_assert(sizeof(VampireStrategyState) == 0x5C);
 struct RuntimeVampireStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

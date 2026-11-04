@@ -26,7 +26,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = haunted_picture_strategy_field;
+HauntedPictureStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<HauntedPictureStrategyState>(strategy);
+}
+
+const HauntedPictureStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<HauntedPictureStrategyState>(strategy);
+}
+
 namespace parameter = haunted_picture_parameter;
 
 constexpr u32 kMovementAddress = 0x00302E80; // The movement table B0680 passes.
@@ -122,8 +131,8 @@ float roll_attack_wait(RuntimeHauntedPictureStrategy& context)
 float step_phase(RuntimeHauntedPictureStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    float phase = runtime_actor_step(actor_of(context), goals_of(context).clock) + get(strategy, field::phase);
-    set(strategy, field::phase, phase);
+    float phase = runtime_actor_step(actor_of(context), goals_of(context).clock) + fields_of(strategy).phase;
+    fields_of(strategy).phase = phase;
     const float period = std::bit_cast<float>(0x400CCCCDu);
     if (period < phase)
     {
@@ -131,9 +140,9 @@ float step_phase(RuntimeHauntedPictureStrategy& context)
         {
             phase -= period;
         } while (period < phase);
-        set(strategy, field::phase, phase);
+        fields_of(strategy).phase = phase;
     }
-    return get(strategy, field::phase);
+    return fields_of(strategy).phase;
 }
 
 // value held within [0, 2 pi] (DAT_0032B298).
@@ -278,7 +287,7 @@ void wander_runtime_haunted_picture(RuntimeHauntedPictureStrategy& context)
 // else it joins it (0x0002B910).
 bool runtime_haunted_picture_attack_ready(RuntimeMindTarget* target, RuntimeHauntedPictureStrategy& context)
 {
-    if (get(strategy_of(context), field::attack_wait) > 0.f) // DAT_0032B100.
+    if (fields_of(strategy_of(context)).attack_wait > 0.f) // DAT_0032B100.
     {
         detach_runtime_strategy_link(context.base.link); // 0x00112A20, EAX strategy +0x20
         return false;
@@ -305,15 +314,15 @@ void wake_runtime_haunted_picture(RuntimeHauntedPictureStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::awake) != 0)
+    if (fields_of(strategy).awake != 0)
     {
         return;
     }
-    set(strategy, field::awake, 1u);
-    if (get(strategy, field::latched) != 0)
+    fields_of(strategy).awake = 1u;
+    if (fields_of(strategy).latched != 0)
     {
         adjust_live_holds(-1, context); // The inlined 0x000420B0.
-        set(strategy, field::latched, 0u);
+        fields_of(strategy).latched = 0u;
     }
     strategy_base(strategy).unk_18 = 0x401;
     strategy_base(strategy).unk_1B = 1;
@@ -326,7 +335,7 @@ void wake_runtime_haunted_picture(RuntimeHauntedPictureStrategy& context)
 // Xbox 0x000B0B90
 void haunted_picture_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(HauntedPictureStrategyState);
     output.parameters = parameter::kSize;
 }
 
@@ -337,14 +346,14 @@ void update_runtime_haunted_picture_strategy(RuntimeHauntedPictureStrategy& cont
     const std::span<u8> strategy = strategy_of(context);
     const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
-    const float wait = get(strategy, field::attack_wait);
+    const float wait = fields_of(strategy).attack_wait;
     if (wait > 0.f)
     {
         const float left = wait - runtime_actor_step(actor_of(context), goals.clock);
-        set(strategy, field::attack_wait, left);
+        fields_of(strategy).attack_wait = left;
         if (0.f >= left)
         {
-            set(strategy, field::attack_wait, 0.f);
+            fields_of(strategy).attack_wait = 0.f;
         }
     }
     bool found = false;
@@ -386,9 +395,9 @@ void update_runtime_haunted_picture_strategy(RuntimeHauntedPictureStrategy& cont
         {
             choose_runtime_haunted_picture_attack(context); // 0x000B1350
         }
-        if (get(strategy, field::attack_wait) == 0.f) // DAT_0032B100.
+        if (fields_of(strategy).attack_wait == 0.f) // DAT_0032B100.
         {
-            set(strategy, field::attack_wait, roll_attack_wait(context));
+            fields_of(strategy).attack_wait = roll_attack_wait(context);
         }
         return;
     }
@@ -457,7 +466,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         const u16 state = strategy_base(strategy).state;
         if (state == 0x3E9)
         {
-            if (get(strategy, field::awake) != 0)
+            if (fields_of(strategy).awake != 0)
             {
                 return;
             }
@@ -483,7 +492,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         wake_runtime_haunted_picture(context); // 0x000B1420
         return;
     case 0x31:
-        if (get(strategy, field::awake) != 0)
+        if (fields_of(strategy).awake != 0)
         {
             react_runtime_strategy_watched_actor(message, context.checks, context.views); // 0x001397B0
         }
@@ -497,7 +506,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         {
             return;
         }
-        if (message[1] == actor && get(strategy, field::awake) == 0 && strategy_base(strategy).state == 0x413)
+        if (message[1] == actor && fields_of(strategy).awake == 0 && strategy_base(strategy).state == 0x413)
         {
             const std::span<const u8> mind = goals.entry.events.mind; // Actor +0x958.
             if (get(mind, mind_field::target_record) != 0)
@@ -510,7 +519,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
                 context); // 0x0002B7F0
             return;
         }
-        if (get(strategy, field::awake) == 0)
+        if (fields_of(strategy).awake == 0)
         {
             return;
         }
@@ -527,7 +536,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
     case 0x7D:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
         adjust_live_holds(1, context); // 0x00042090, EAX actor
-        set(strategy, field::latched, 1u);
+        fields_of(strategy).latched = 1u;
         return;
     default:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
@@ -561,7 +570,7 @@ void enter_runtime_haunted_picture_state(u16 state, u16 previous, RuntimeHaunted
         return;
     case 0x40C:
         body[0x328] = 3;
-        set(strategy, field::attack_wait, roll_attack_wait(context));
+        fields_of(strategy).attack_wait = roll_attack_wait(context);
         return;
     case 0x413:
         load_goal(context.goal_sleep, context);

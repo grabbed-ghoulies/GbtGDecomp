@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "strategy_fields.h"
 #include "spider_strategy.h"
 #include "body_damage_tables.h"
 
@@ -9,23 +11,23 @@ namespace gbtg
 // meditates ("meditate", 0x412) while nothing is near, and once queued on its target psychs up (0x3ED), then kicks
 // (0x3EE: a spin kick, a jump kick or a big jump kick) or gathers its inner force (0x3EF). The inner force's first
 // ending makes it big: 1.7 times the size, the 0x1C attribute row and its health refilled (+0xBC).
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace imp_ninja_strategy_field
+struct ImpNinjaStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_00303198: +0 reach, +8 move chance, +0xC meditate chance,
-                                               // +0x10 / +0x14 the meditation's shortest and longest seconds
-constexpr RetailField<u32, 0x3C> effect_name{}; // The inner force's effect template, copied from parameters +0x18
-constexpr RetailField<u32, 0xBC> transformed{}; // The inner force has ended once and made the imp big
-constexpr RetailField<u32, 0xC0> unk_C0{}; // Each tick: the actor is provoked, or its target is no player in view
-constexpr RetailField<float, 0xC4> meditation{}; // Seconds left in state 0x412
-constexpr RetailField<u32, 0xC8> idle_step{}; // State 0x401: 1 waits for body bit 0x30, 2 picks a move or attack
-constexpr RetailField<u32, 0xCC> meditation_step{}; // State 0x412: 1 meditating, 2 getting out of it
-constexpr RetailField<u32, 0xD0> effect{}; // The inner force's effect object
-constexpr RetailField<u32, 0xD4> effect_made{}; // 0x000B7360 ran (+0xD0 may still be 0)
-constexpr RetailField<u32, 0xD8> spin_kick{}; // 0x3EE takes "spinkick": a light target was kicked from 0x3ED
-constexpr u32 kSize = 0xDC;
-static_assert(retail_fits(kSize, spin_kick));
-} // namespace imp_ninja_strategy_field
+    StrategyBase base{}; // +0
+    // +0x38: DAT_00303198: +0 reach, +8 move chance, +0xC meditate chance, +0x10 / +0x14 the meditation's shortest and
+    // longest seconds.
+    u32 parameters = 0;
+    std::array<char, 0x80> effect_name{}; // +0x3C, the inner force's effect template, copied from parameters +0x18
+    u32 transformed = 0; // +0xBC, the inner force has ended once and made the imp big
+    u32 unk_C0 = 0; // +0xC0, each tick: the actor is provoked, or its target is no player in view
+    float meditation = 0.f; // +0xC4, seconds left in state 0x412
+    u32 idle_step = 0; // +0xC8, state 0x401: 1 waits for body bit 0x30, 2 picks a move or attack
+    u32 meditation_step = 0; // +0xCC, state 0x412: 1 meditating, 2 getting out of it
+    u32 effect = 0; // +0xD0, the inner force's effect object
+    u32 effect_made = 0; // +0xD4, 0x000B7360 ran (+0xD0 may still be 0)
+    u32 spin_kick = 0; // +0xD8, 0x3EE takes "spinkick": a light target was kicked from 0x3ED
+};
+static_assert(sizeof(ImpNinjaStrategyState) == 0xDC);
 struct RuntimeImpNinjaStrategy
 {
     // The instance's spider views over the same strategy: base goals, target checks, queue and actor views.

@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "strategy_fields.h"
 #include "spider_strategy.h"
 #include "actor_attachment_events.h"
 #include "body_attachment_cleanup.h"
@@ -14,31 +16,30 @@ struct RuntimeActorResourceReference;
 // latches go, her flower with them ("noflower" at body +0x288), and the body's bit block byte 1 bit 7 makes her body
 // slots (0x00075A70 / 0x00075AA0) pick actions 2 and 3. Angry, she counts down a cue (+0x44), then shouts (0x3ED,
 // whose animation event scares the room through 0x0013B270), knocks down (0x3EE) or prepares her special (0x3EF).
-// Strategy bytes: +0x1A attacking, +0x1C pause count.
-namespace jessie_clyde_strategy_field
+struct JessieClydeStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_003031B8, the block her tunables come from
-constexpr RetailField<u32, 0x3C> open{}; // Each tick: provoked (actor +0x978 / +0x969), or her target is no player in view
-constexpr RetailField<u32, 0x40> calm{}; // Set by the constructor; the transformation's end (0x000B83A0 step 2) clears it
-constexpr RetailField<float, 0x44> cue{}; // Seconds before an angry attack; state 0x401 starts it at the block's +0
-constexpr RetailField<u32, 0x48> struck{}; // Message 0x6E while calm, or state 0x403
-constexpr RetailField<std::array<char, 0x80>, 0x4C> effect_name{}; // parameters +0x18
-constexpr RetailField<float, 0xCC> special_time{}; // The special's seconds, the block's +0x14..+0x18
-constexpr RetailField<u32, 0xD0> unk_D0{}; // Set entering the special; 0x000B91F0 and 0x000B9260 clear it
-constexpr RetailField<u32, 0xD4> unk_D4{}; // Message 0x6E from her target during the special ends it in 0x3F2
-constexpr RetailField<u32, 0xD8> unk_D8{}; // Set entering the special; 0x000B91F0 clears it
-constexpr RetailField<u32, 0xDC> special_effect{}; // The special's effect (+0x13C) and latches are up
-constexpr RetailField<u32, 0xE0> special_step{}; // 1 preparing ("specialprepare"), 2 the special itself
-constexpr RetailField<u32, 0xE4> shout_step{}; // 1 shouting ("shout"), 2 the shout's scare made
-constexpr RetailField<u32, 0xE8> follow_up{}; // Message 0x57: the knockdown ends in 0x3F2, not 0x401
-constexpr RetailField<u32, 0xEC> knockdown_effect{}; // The knockdown's effect (+0x13C) and latches are up
-constexpr RetailField<u32, 0xF0> transform_step{}; // 0x000B83A0: 0 calm, 1 transforming, 2 transformed
-constexpr RetailField<std::array<u8, 0x24>, 0xF4> events{}; // Callout 0x11's tokens (0x0013B8B0)
-constexpr RetailField<std::array<u8, 0x24>, 0x118> other_events{}; // Released by the destructor
-constexpr RetailField<u32, 0x13C> effect{}; // The current effect object; message 0x14 forgets it
-constexpr u32 kSize = 0x140;
-static_assert(retail_fits(kSize, effect));
-} // namespace jessie_clyde_strategy_field
+    StrategyBase base{}; // +0
+    u32 parameters = 0; // +0x38, DAT_003031B8, the block her tunables come from
+    u32 open = 0; // +0x3C, each tick: provoked (actor +0x978 / +0x969), or her target is no player in view
+    u32 calm = 0; // +0x40, set by the constructor; the transformation's end (0x000B83A0 step 2) clears it
+    float cue = 0.f; // +0x44, seconds before an angry attack; state 0x401 starts it at the block's +0
+    u32 struck = 0; // +0x48, message 0x6E while calm, or state 0x403
+    std::array<char, 0x80> effect_name{}; // +0x4C, parameters +0x18
+    float special_time = 0.f; // +0xCC, the special's seconds, the block's +0x14..+0x18
+    u32 unk_D0 = 0; // +0xD0, set entering the special; 0x000B91F0 and 0x000B9260 clear it
+    u32 unk_D4 = 0; // +0xD4, message 0x6E from her target during the special ends it in 0x3F2
+    u32 unk_D8 = 0; // +0xD8, set entering the special; 0x000B91F0 clears it
+    u32 special_effect = 0; // +0xDC, the special's effect (+0x13C) and latches are up
+    u32 special_step = 0; // +0xE0, 1 preparing ("specialprepare"), 2 the special itself
+    u32 shout_step = 0; // +0xE4, 1 shouting ("shout"), 2 the shout's scare made
+    u32 follow_up = 0; // +0xE8, message 0x57: the knockdown ends in 0x3F2, not 0x401
+    u32 knockdown_effect = 0; // +0xEC, the knockdown's effect (+0x13C) and latches are up
+    u32 transform_step = 0; // +0xF0, 0x000B83A0: 0 calm, 1 transforming, 2 transformed
+    std::array<u8, 0x24> events{}; // +0xF4, callout 0x11's tokens (0x0013B8B0)
+    std::array<u8, 0x24> other_events{}; // +0x118, released by the destructor
+    u32 effect = 0; // +0x13C, the current effect object; message 0x14 forgets it
+};
+static_assert(sizeof(JessieClydeStrategyState) == 0x140);
 struct RuntimeJessieClydeStrategy
 {
     // The instance's spider views over the same strategy: base goals, target checks, queue and actor views.

@@ -247,9 +247,9 @@ void dispatch_background_part_destruction(Actor& actor, i32 part, const Vec3& so
                 {
                     throw Error("background part graph lies outside actor +0x950");
                 }
-                auto fields = context.graphs[graph].fields;
-                std::memcpy(fields.data() + 0x1D0, &cleared, 4);
-                fields[0x1D5] = 1;
+                PointGraphRecord& record = context.graphs[graph].record();
+                record.age = cleared;
+                record.active = 1;
             }
             // Retail releases the row indexed by the part, not the row just filled.
             auto& volume = volume_at(part);

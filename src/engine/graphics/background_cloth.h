@@ -81,6 +81,12 @@ struct BackgroundClothHeader
     u8 unk_1EF = 0; // +0x1EF
 };
 static_assert(sizeof(BackgroundClothHeader) == 0x1F0);
+static_assert(offsetof(BackgroundClothHeader, points) == offsetof(PointGraphHeader, points));
+static_assert(offsetof(BackgroundClothHeader, edges) == offsetof(PointGraphHeader, edges));
+static_assert(offsetof(BackgroundClothHeader, free_edges) == offsetof(PointGraphHeader, free_edges));
+static_assert(offsetof(BackgroundClothHeader, sorted) == offsetof(PointGraphHeader, sorted));
+static_assert(offsetof(BackgroundClothHeader, squared) == offsetof(PointGraphHeader, squared));
+static_assert(offsetof(BackgroundClothHeader, damping) == offsetof(PointGraphHeader, damping));
 static_assert(offsetof(BackgroundClothHeader, sound) == 0x15A);
 static_assert(offsetof(BackgroundClothHeader, always_stepped) == 0x1DC);
 

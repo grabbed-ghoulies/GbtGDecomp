@@ -11,14 +11,6 @@ namespace gbtg
 {
 RuntimePointGraph* g_point_graph_sort = nullptr;
 
-namespace
-{
-void word(std::span<u8> fields, size_t offset, u32 value)
-{
-    std::memcpy(fields.data() + offset, &value, 4);
-}
-}
-
 // Xbox 0x0010B1F0
 void build_runtime_point_graph(RuntimePointGraph& graph, std::span<const Vec3> source, u32 count,
     const std::function<u32(u8*, u32)>& bind_allocation)
@@ -145,19 +137,18 @@ void build_runtime_point_graph(RuntimePointGraph& graph, std::span<const Vec3> s
     allocate_runtime_point_graph_storage(graph, points, capacity, bind_allocation);
     for (u32 index = 0; index < points; ++index)
     {
-        const size_t row = index * 0x30u;
-        std::memcpy(graph.points.data() + row, samples->begin + index * 12, 12);
-        word(graph.points, row + 0x18, 0);
-        word(graph.points, row + 0x20, 0);
-        word(graph.points, row + 0x1C, std::bit_cast<u32>(-2.5f));
-        word(graph.points, row + 0x24, std::bit_cast<u32>(1.f));
-        graph.points[row + 0x28] = 0;
+        PointGraphPoint& point = graph.point(index);
+        std::memcpy(&point.position, samples->begin + index * 12, 12);
+        point.force.x = 0.f;
+        point.force.z = 0.f;
+        point.force.y = -2.5f;
+        point.inverse_mass = 1.f;
+        point.pinned = 0;
     }
     engine_heap_free(samples);
     for (u32 index = 0; index < points; ++index)
     {
-        std::memcpy(graph.points.data() + index * 0x30u + 12,
-            graph.points.data() + index * 0x30u, 12);
+        graph.point(index).previous = graph.point(index).position;
     }
     auto* valencies = static_cast<u8*>(engine_heap_allocate(i32(points)));
     for (u32 index = 0; index < points; ++index)
@@ -172,35 +163,35 @@ void build_runtime_point_graph(RuntimePointGraph& graph, std::span<const Vec3> s
         {
             for (u32 second = first + 1; second < points; ++second)
             {
-                const size_t left = first * 0x30u;
-                const size_t right = second * 0x30u;
-                const float dz = read_f32(graph.points, left + 8) - read_f32(graph.points, right + 8);
-                const float dy = read_f32(graph.points, left + 4) - read_f32(graph.points, right + 4);
-                const float dx = read_f32(graph.points, left) - read_f32(graph.points, right);
+                const Vec3& left = graph.point(first).position;
+                const Vec3& right = graph.point(second).position;
+                const float dz = left.z - right.z;
+                const float dy = left.y - right.y;
+                const float dx = left.x - right.x;
                 const float squared = (dz * dz + dy * dy) + dx * dx;
                 if (squared > 0.f)
                 {
                     if (std::bit_cast<i32>(candidate) % stride == 0 ||
                         (first != 0 && first < 4) || (second != 0 && second < 4))
                     {
-                        const ExtendedFloat ex = ExtendedFloat{read_f32(graph.points, left)} -
-                            ExtendedFloat{read_f32(graph.points, right)};
-                        const ExtendedFloat ey = ExtendedFloat{read_f32(graph.points, left + 4)} -
-                            ExtendedFloat{read_f32(graph.points, right + 4)};
-                        const ExtendedFloat ez = ExtendedFloat{read_f32(graph.points, left + 8)} -
-                            ExtendedFloat{read_f32(graph.points, right + 8)};
+                        const ExtendedFloat ex = ExtendedFloat{left.x} -
+                            ExtendedFloat{right.x};
+                        const ExtendedFloat ey = ExtendedFloat{left.y} -
+                            ExtendedFloat{right.y};
+                        const ExtendedFloat ez = ExtendedFloat{left.z} -
+                            ExtendedFloat{right.z};
                         const float distance = float(extended_sqrt((ez * ez + ey * ey) + ex * ex));
-                        if (graph.fields[0x18] == 0)
+                        if (graph.header().sorted == 0)
                         {
-                            const u32 edges = read_u32(graph.fields, 8);
-                            const size_t edge = edges * 0x1Cu;
-                            word(graph.edges, edge, first);
-                            word(graph.edges, edge + 4, second);
-                            word(graph.edges, edge + 0x10, std::bit_cast<u32>(distance));
+                            const u32 edges = graph.header().edges;
+                            PointGraphEdge& edge = graph.edge(edges);
+                            edge.first = first;
+                            edge.second = second;
+                            edge.length = distance;
                             const float distance_squared = distance * distance;
-                            word(graph.edges, edge + 0x14, std::bit_cast<u32>(1.f / distance_squared));
-                            word(graph.edges, edge + 0x18, std::bit_cast<u32>(distance_squared));
-                            word(graph.fields, 8, edges + 1);
+                            edge.inverse_squared_length = 1.f / distance_squared;
+                            edge.squared_length = distance_squared;
+                            graph.header().edges = edges + 1;
                         }
                     }
                     ++candidate;
@@ -211,19 +202,19 @@ void build_runtime_point_graph(RuntimePointGraph& graph, std::span<const Vec3> s
     prepare_runtime_point_graph_edges(graph);
     for (u32 index = 0; index < points; ++index)
     {
-        std::memcpy(graph.coordinates.data() + index * 12, graph.points.data() + index * 0x30u, 12);
+        graph.coordinate(index) = graph.point(index).position;
     }
-    const u32 edges = read_u32(graph.fields, 8);
+    const u32 edges = graph.header().edges;
     if (edges != 0)
     {
         step.x = step.x * 2.f;
         for (u32 index = 0; index < edges; ++index)
         {
-            const u32 first = read_u32(graph.edges, index * 0x1Cu);
-            const u32 second = read_u32(graph.edges, index * 0x1Cu + 4);
-            float dx = read_f32(graph.points, first * 0x30u) - read_f32(graph.points, second * 0x30u);
-            float dy = read_f32(graph.points, first * 0x30u + 4) - read_f32(graph.points, second * 0x30u + 4);
-            float dz = read_f32(graph.points, first * 0x30u + 8) - read_f32(graph.points, second * 0x30u + 8);
+            const u32 first = graph.edge(index).first;
+            const u32 second = graph.edge(index).second;
+            float dx = graph.point(first).position.x - graph.point(second).position.x;
+            float dy = graph.point(first).position.y - graph.point(second).position.y;
+            float dz = graph.point(first).position.z - graph.point(second).position.z;
             if (0.f > dx)
             {
                 dx = 0.f - dx;
@@ -254,15 +245,15 @@ void build_runtime_point_graph(RuntimePointGraph& graph, std::span<const Vec3> s
             }
             if ((first == 0 && second == 1) || (first == 1 && second == 0))
             {
-                word(graph.fields, 0x1BC, index);
+                graph.record().reference_edges[0] = index;
             }
             if ((first == 0 && second == 2) || (first == 2 && second == 0))
             {
-                word(graph.fields, 0x1C0, index);
+                graph.record().reference_edges[1] = index;
             }
             if ((first == 0 && second == 3) || (first == 3 && second == 0))
             {
-                word(graph.fields, 0x1C4, index);
+                graph.record().reference_edges[2] = index;
             }
         }
     }
@@ -270,8 +261,8 @@ void build_runtime_point_graph(RuntimePointGraph& graph, std::span<const Vec3> s
     {
         if (graph.edge_flags[index] == 0)
         {
-            const u32 first = read_u32(graph.edges, index * 0x1Cu);
-            const u32 second = read_u32(graph.edges, index * 0x1Cu + 4);
+            const u32 first = graph.edge(index).first;
+            const u32 second = graph.edge(index).second;
             if ((first == 0 || first > 3) && (second == 0 || second > 3) &&
                 (valencies[first] < 2 || valencies[second] < 2))
             {
@@ -299,37 +290,36 @@ void allocate_runtime_point_graph_storage(RuntimePointGraph& graph, u32 points, 
     graph.coordinates = {graph.allocation + coordinate_offset, points * 0xCu};
     graph.edge_flags = {graph.allocation + flag_offset, edges};
     graph.points_address = address + point_offset;
-    word(graph.fields, 0x24, address + coordinate_offset);
-    word(graph.fields, 0x2C, address + flag_offset);
-    word(graph.fields, 0x1D0, 0);
-    word(graph.fields, 0x28, address);
-    word(graph.fields, 0x20, address + point_offset);
-    graph.fields[0x18] = 0;
-    word(graph.fields, 0x10, 0);
-    word(graph.fields, 4, address + point_offset);
-    word(graph.fields, 0, points);
-    word(graph.fields, 0x14, address);
-    word(graph.fields, 8, 0);
-    word(graph.fields, 0xC, edges);
-    graph.fields[0x19] = 1;
-    graph.fields[0x1D4] = 5;
-    word(graph.fields, 0x1C8, 0);
-    graph.fields[0x1D5] = 0;
-    graph.fields[0x1D6] = 0;
-    word(graph.fields, 0x1C, 0x3C23D70Au); // DAT_0032B124, 0.01f.
+    PointGraphRecord& record = graph.record();
+    record.coordinates_address = address + coordinate_offset;
+    record.edge_flags_address = address + flag_offset;
+    record.age = 0.f;
+    record.edges_address_copy = address;
+    record.points_address_copy = address + point_offset;
+    record.header.sorted = 0;
+    record.header.free_edges = 0;
+    record.header.points_address = address + point_offset;
+    record.header.points = points;
+    record.header.edges_address = address;
+    record.header.edges = 0;
+    record.header.edge_capacity = edges;
+    record.header.squared = 1;
+    record.iterations = 5;
+    record.warm_up_frames = 0;
+    record.active = 0;
+    record.contacted = 0;
+    record.header.damping = 0.01f; // DAT_0032B124.
 }
 
 // Xbox 0x001021A0
 i32 compare_runtime_point_graph_edges(const void* first, const void* second)
 {
-    const std::span<const u8> left{static_cast<const u8*>(first), 0x1C};
-    const std::span<const u8> right{static_cast<const u8*>(second), 0x1C};
-    const auto points = g_point_graph_sort->points;
-    if ((points[read_u32(left, 4) * 0x30u + 0x28] |
-        points[read_u32(left, 0) * 0x30u + 0x28]) != 0)
+    const auto& left = *static_cast<const PointGraphEdge*>(first);
+    const auto& right = *static_cast<const PointGraphEdge*>(second);
+    const RuntimePointGraph& graph = *g_point_graph_sort;
+    if ((graph.point(left.second).pinned | graph.point(left.first).pinned) != 0)
     {
-        return (points[read_u32(right, 0) * 0x30u + 0x28] |
-            points[read_u32(right, 4) * 0x30u + 0x28]) == 0;
+        return (graph.point(right.first).pinned | graph.point(right.second).pinned) == 0;
     }
     return -1;
 }
@@ -338,17 +328,17 @@ i32 compare_runtime_point_graph_edges(const void* first, const void* second)
 void sort_runtime_point_graph_edges(RuntimePointGraph& graph)
 {
     g_point_graph_sort = &graph;
-    runtime_quick_sort(graph.edges.data(), read_u32(graph.fields, 8), 0x1C, compare_runtime_point_graph_edges);
-    const u32 count = read_u32(graph.fields, 8);
+    runtime_quick_sort(graph.edges.data(), graph.header().edges, sizeof(PointGraphEdge), compare_runtime_point_graph_edges);
+    const u32 count = graph.header().edges;
     g_point_graph_sort = nullptr;
-    word(graph.fields, 0x10, count);
+    graph.header().free_edges = count;
     for (u32 index = 0; index < count; ++index)
     {
-        const u32 first = read_u32(graph.edges, index * 0x1C);
-        const u32 second = read_u32(graph.edges, index * 0x1C + 4);
-        if (graph.points[first * 0x30u + 0x28] != 0 || graph.points[second * 0x30u + 0x28] != 0)
+        const u32 first = graph.edge(index).first;
+        const u32 second = graph.edge(index).second;
+        if (graph.point(first).pinned != 0 || graph.point(second).pinned != 0)
         {
-            word(graph.fields, 0x10, index);
+            graph.header().free_edges = index;
             return;
         }
     }
@@ -357,17 +347,16 @@ void sort_runtime_point_graph_edges(RuntimePointGraph& graph)
 // Xbox 0x001024A0
 void prepare_runtime_point_graph_edges(RuntimePointGraph& graph)
 {
-    if (graph.fields[0x18] == 0)
+    if (graph.header().sorted == 0)
     {
-        graph.fields[0x18] = 1;
+        graph.header().sorted = 1;
         sort_runtime_point_graph_edges(graph);
-        const u32 count = read_u32(graph.fields, 8);
+        const u32 count = graph.header().edges;
         for (u32 index = 0; index < count; ++index)
         {
-            const u32 first = read_u32(graph.edges, index * 0x1C);
-            const u32 second = read_u32(graph.edges, index * 0x1C + 4);
-            word(graph.edges, index * 0x1C + 8, graph.points_address + first * 0x30u);
-            word(graph.edges, index * 0x1C + 0xC, graph.points_address + second * 0x30u);
+            PointGraphEdge& edge = graph.edge(index);
+            edge.first_address = graph.points_address + edge.first * u32(sizeof(PointGraphPoint));
+            edge.second_address = graph.points_address + edge.second * u32(sizeof(PointGraphPoint));
         }
     }
 }

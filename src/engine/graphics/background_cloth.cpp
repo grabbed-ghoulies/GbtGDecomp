@@ -506,7 +506,7 @@ RuntimeBackgroundCloth* build_runtime_background_cloth(u16 rows, u16 columns, u1
             point[0] = float((long double)normal.x * wave) + ((quad[0] + ax * across) + bx * down);
             point[1] = ((quad[1] + ay * across) + by * down) + float((long double)normal.y * wave);
             point[2] = ((quad[2] + az * across) + bz * down) + float((long double)normal.z * wave);
-            reinterpret_cast<u8*>(point)[0x28] = 0;
+            reinterpret_cast<PointGraphPoint*>(point)->pinned = 0;
             point[6] = gravity.x;
             point[7] = gravity.y;
             point[8] = gravity.z;
@@ -525,9 +525,9 @@ RuntimeBackgroundCloth* build_runtime_background_cloth(u16 rows, u16 columns, u1
     cloth_header(bytes).column_step = float(std::sqrt(double(column_y * column_y + column_z * column_z + column_x * column_x)));
     for (u32 row = 0; row < count_rows; row += pin_step)
     {
-        reinterpret_cast<u8*>(cloth->point(row * count_columns))[0x28] = 1;
+        cloth->graph.point(row * count_columns).pinned = 1;
     }
-    reinterpret_cast<u8*>(cloth->point((count_rows - 1) * count_columns))[0x28] = 1;
+    cloth->graph.point((count_rows - 1) * count_columns).pinned = 1;
     for (u32 index = 0; index < cloth_header(bytes).points; ++index)
     {
         float* point = cloth->point(index);
@@ -546,14 +546,14 @@ RuntimeBackgroundCloth* build_runtime_background_cloth(u16 rows, u16 columns, u1
         if (cloth_header(bytes).sorted == 0)
         {
             const u32 edge = cloth_header(bytes).edges;
-            u8* row = cloth->graph.edges.data() + size_t(edge) * 0x1C;
-            std::memcpy(row, &first, 4);
-            std::memcpy(row + 4, &second, 4);
+            PointGraphEdge& row = cloth->graph.edge(edge);
+            row.first = first;
+            row.second = second;
             const float squared = length * length;
             const float inverse = 1.f / squared;
-            std::memcpy(row + 0x10, &length, 4);
-            std::memcpy(row + 0x14, &inverse, 4);
-            std::memcpy(row + 0x18, &squared, 4);
+            row.length = length;
+            row.inverse_squared_length = inverse;
+            row.squared_length = squared;
             cloth_header(bytes).edges = edge + 1;
         }
     };
@@ -716,7 +716,7 @@ RuntimeBackgroundCloth* build_runtime_background_water_sheet(u16 size, u16 edges
             point[1] = (quad[1] + across * 0.f) + down * 0.f;
             point[2] = (quad[2] + az * across) + bz * down;
             const bool edge = row == 0 || i32(rows - 1) <= i32(row) || column == 0 || i32(columns - 1) <= i32(column);
-            reinterpret_cast<u8*>(point)[0x28] = edge ? 1 : 0;
+            reinterpret_cast<PointGraphPoint*>(point)->pinned = edge ? 1 : 0;
             point[6] = context.origin.x; // DAT_0050DD80
             point[7] = context.origin.y;
             point[8] = context.origin.z;
@@ -754,14 +754,14 @@ RuntimeBackgroundCloth* build_runtime_background_water_sheet(u16 size, u16 edges
         if (cloth_header(bytes).sorted == 0)
         {
             const u32 edge = cloth_header(bytes).edges;
-            u8* row = cloth->graph.edges.data() + size_t(edge) * 0x1C;
-            std::memcpy(row, &first, 4);
-            std::memcpy(row + 4, &second, 4);
+            PointGraphEdge& row = cloth->graph.edge(edge);
+            row.first = first;
+            row.second = second;
             const float squared = length * length;
             const float inverse = 1.f / squared; // DAT_0032B0F8
-            std::memcpy(row + 0x10, &length, 4);
-            std::memcpy(row + 0x14, &inverse, 4);
-            std::memcpy(row + 0x18, &squared, 4);
+            row.length = length;
+            row.inverse_squared_length = inverse;
+            row.squared_length = squared;
             cloth_header(bytes).edges = edge + 1;
         }
     };
@@ -1038,7 +1038,7 @@ void constrain_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBa
     {
         for (u32 index = 0; i32(index) < i32(count); index = (index + 1) & 0xFFFF)
         {
-            if (reinterpret_cast<const u8*>(cloth.point(index))[0x28] == 0)
+            if (cloth.graph.point(index).pinned == 0)
             {
                 push_from_planes(cloth, index, false);
             }
@@ -1047,7 +1047,7 @@ void constrain_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBa
     }
     for (u32 index = 0; i32(index) < i32(count); index = (index + 1) & 0xFFFF)
     {
-        if (reinterpret_cast<const u8*>(cloth.point(index))[0x28] != 0)
+        if (cloth.graph.point(index).pinned != 0)
         {
             continue;
         }

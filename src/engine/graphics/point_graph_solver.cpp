@@ -15,55 +15,15 @@ namespace gbtg
 {
 namespace
 {
-constexpr size_t kPoint = 0x30;
-constexpr size_t kEdge = 0x1C;
-
-float* point_floats(RuntimePointGraph& graph, u32 index)
+// An edge's point addresses, which 0x001024A0 derives from the canonical points address, as point indices.
+u32 point_at_address(const RuntimePointGraph& graph, u32 address)
 {
-    if ((size_t(index) + 1) * kPoint > graph.points.size())
-    {
-        throw Error("point graph index is outside its point rows");
-    }
-    return reinterpret_cast<float*>(graph.points.data() + size_t(index) * kPoint);
-}
-
-float point_real(RuntimePointGraph& graph, u32 index, size_t offset)
-{
-    float value;
-    std::memcpy(&value, graph.points.data() + size_t(index) * kPoint + offset, 4);
-    return value;
-}
-
-void point_store(RuntimePointGraph& graph, u32 index, size_t offset, float value)
-{
-    std::memcpy(graph.points.data() + size_t(index) * kPoint + offset, &value, 4);
-}
-
-bool pinned(const RuntimePointGraph& graph, u32 index)
-{
-    return graph.points[size_t(index) * kPoint + 0x28] != 0;
-}
-
-u32 edge_word(const RuntimePointGraph& graph, u32 edge, size_t offset)
-{
-    return read_u32(graph.edges, size_t(edge) * kEdge + offset);
-}
-
-float edge_real(const RuntimePointGraph& graph, u32 edge, size_t offset)
-{
-    return read_f32(graph.edges, size_t(edge) * kEdge + offset);
-}
-
-// Edge +8 / +0xC hold point addresses that 0x001024A0 derives from the canonical points address.
-u32 edge_point(const RuntimePointGraph& graph, u32 edge, size_t offset)
-{
-    const u32 address = edge_word(graph, edge, offset);
     const u32 delta = address - graph.points_address;
-    if (delta % kPoint != 0 || delta / kPoint >= graph.points.size() / kPoint)
+    if (delta % sizeof(PointGraphPoint) != 0 || delta / sizeof(PointGraphPoint) >= graph.points.size() / sizeof(PointGraphPoint))
     {
         throw Error("point graph edge address does not name a point row");
     }
-    return delta / kPoint;
+    return delta / sizeof(PointGraphPoint);
 }
 
 // CVTTSS2SI: out-of-range and unordered inputs give the integer indefinite value.
@@ -79,16 +39,16 @@ i32 truncate_float(float value)
 // The pinned-end pass shared by 0x00102030 and 0x00102280.
 bool hold_pinned_edge(RuntimePointGraph& graph, u32 edge)
 {
-    const u32 first = edge_word(graph, edge, 0);
-    const u32 second = edge_word(graph, edge, 4);
-    if (pinned(graph, first))
+    const u32 first = graph.edge(edge).first;
+    const u32 second = graph.edge(edge).second;
+    if (graph.point(first).pinned != 0)
     {
-        hold_runtime_point_graph_edge(graph, first, second, edge_real(graph, edge, 0x10));
+        hold_runtime_point_graph_edge(graph, first, second, graph.edge(edge).length);
         return true;
     }
-    if (pinned(graph, second))
+    if (graph.point(second).pinned != 0)
     {
-        hold_runtime_point_graph_edge(graph, second, first, edge_real(graph, edge, 0x10));
+        hold_runtime_point_graph_edge(graph, second, first, graph.edge(edge).length);
         return true;
     }
     return false;
@@ -98,87 +58,87 @@ bool hold_pinned_edge(RuntimePointGraph& graph, u32 edge)
 // Xbox 0x00102500
 void step_runtime_point_graph(RuntimePointGraph& graph, float step)
 {
-    const float keep = 1.f - read_f32(graph.fields, 0x1C); // DAT_0032B0F8.
+    const float keep = 1.f - graph.header().damping; // DAT_0032B0F8.
     const float squared = step * step;
-    for (u32 index = 0; index < read_u32(graph.fields, 0); ++index)
+    for (u32 index = 0; index < graph.header().points; ++index)
     {
-        if (pinned(graph, index))
+        if (graph.point(index).pinned != 0)
         {
             continue;
         }
-        const float x = point_real(graph, index, 0);
-        const float y = point_real(graph, index, 4);
-        const float z = point_real(graph, index, 8);
-        point_store(graph, index, 0, (x - point_real(graph, index, 0xC)) * keep
-            + point_real(graph, index, 0x18) * squared + x);
-        point_store(graph, index, 4, (y - point_real(graph, index, 0x10)) * keep
-            + point_real(graph, index, 0x1C) * squared + y);
-        point_store(graph, index, 8, (z - point_real(graph, index, 0x14)) * keep
-            + point_real(graph, index, 0x20) * squared + z);
-        point_store(graph, index, 0xC, x);
-        point_store(graph, index, 0x10, y);
-        point_store(graph, index, 0x14, z);
+        const float x = graph.point(index).position.x;
+        const float y = graph.point(index).position.y;
+        const float z = graph.point(index).position.z;
+        graph.point(index).position.x = (x - graph.point(index).previous.x) * keep
+            + graph.point(index).force.x * squared + x;
+        graph.point(index).position.y = (y - graph.point(index).previous.y) * keep
+            + graph.point(index).force.y * squared + y;
+        graph.point(index).position.z = (z - graph.point(index).previous.z) * keep
+            + graph.point(index).force.z * squared + z;
+        graph.point(index).previous.x = x;
+        graph.point(index).previous.y = y;
+        graph.point(index).previous.z = z;
     }
 }
 
 // Xbox 0x00101C80
 void relax_runtime_point_graph_edge(RuntimePointGraph& graph, u32 first, u32 second, float length)
 {
-    float* a = point_floats(graph, first);
-    float* b = point_floats(graph, second);
-    const float dx = b[0] - a[0];
-    const float dy = b[1] - a[1];
-    const float dz = b[2] - a[2];
+    PointGraphPoint& a = graph.point(first);
+    PointGraphPoint& b = graph.point(second);
+    const float dx = b.position.x - a.position.x;
+    const float dy = b.position.y - a.position.y;
+    const float dz = b.position.z - a.position.z;
     const float distance = float(std::sqrt(double(dx) * dx + double(dz) * dz + double(dy) * dy));
     constexpr float kMinimum = std::bit_cast<float>(0x38D1B717u); // DAT_0032B200.
     if (!(distance > kMinimum))
     {
         return;
     }
-    const float scale = (distance - length) / ((b[9] + a[9]) * distance);
-    const float move_first = scale * a[9];
-    const float move_second = 0.f - b[9] * scale;
-    a[0] = a[0] + dx * move_first;
-    a[1] = a[1] + move_first * dy;
-    a[2] = dz * move_first + a[2];
-    b[0] = b[0] + dx * move_second;
-    b[1] = dy * move_second + b[1];
-    b[2] = b[2] + dz * move_second;
+    const float scale = (distance - length) / ((b.inverse_mass + a.inverse_mass) * distance);
+    const float move_first = scale * a.inverse_mass;
+    const float move_second = 0.f - b.inverse_mass * scale;
+    a.position.x = a.position.x + dx * move_first;
+    a.position.y = a.position.y + move_first * dy;
+    a.position.z = dz * move_first + a.position.z;
+    b.position.x = b.position.x + dx * move_second;
+    b.position.y = dy * move_second + b.position.y;
+    b.position.z = b.position.z + dz * move_second;
 }
 
 // Xbox 0x00101DD0
 void relax_runtime_point_graph_edge_squared(RuntimePointGraph& graph, u32 first, u32 second, float stiffness)
 {
-    float* a = point_floats(graph, first);
-    float* b = point_floats(graph, second);
-    const float dz = b[2] - a[2];
-    const float dx = b[0] - a[0];
-    const float dy = b[1] - a[1];
+    PointGraphPoint& a = graph.point(first);
+    PointGraphPoint& b = graph.point(second);
+    const float dz = b.position.z - a.position.z;
+    const float dx = b.position.x - a.position.x;
+    const float dy = b.position.y - a.position.y;
     const float stretch = (dx * dx + dz * dz + dy * dy) * stiffness;
-    const float scale = (stretch - 1.f) / ((b[9] + a[9]) * (stretch + 1.f));
-    const float move_first = a[9] * scale;
-    const float move_second = 0.f - b[9] * scale;
-    a[0] = a[0] + dx * move_first;
-    a[1] = a[1] + move_first * dy;
-    a[2] = dz * move_first + a[2];
-    b[0] = b[0] + dx * move_second;
-    b[1] = dy * move_second + b[1];
-    b[2] = b[2] + dz * move_second;
+    const float scale = (stretch - 1.f) / ((b.inverse_mass + a.inverse_mass) * (stretch + 1.f));
+    const float move_first = a.inverse_mass * scale;
+    const float move_second = 0.f - b.inverse_mass * scale;
+    a.position.x = a.position.x + dx * move_first;
+    a.position.y = a.position.y + move_first * dy;
+    a.position.z = dz * move_first + a.position.z;
+    b.position.x = b.position.x + dx * move_second;
+    b.position.y = dy * move_second + b.position.y;
+    b.position.z = b.position.z + dz * move_second;
 }
 
 // Xbox 0x00101F10
 void hold_runtime_point_graph_edge(RuntimePointGraph& graph, u32 anchor, u32 moved, float length)
 {
-    const float* a = point_floats(graph, anchor);
-    float* b = point_floats(graph, moved);
-    const float ax = a[0];
-    const float ay = a[1];
-    const float az = a[2];
-    const float dx = b[0] - ax;
-    const float dy = b[1] - ay;
-    const float dz = b[2] - az;
+    const PointGraphPoint& a = graph.point(anchor);
+    PointGraphPoint& b = graph.point(moved);
+    const float ax = a.position.x;
+    const float ay = a.position.y;
+    const float az = a.position.z;
+    const float dx = b.position.x - ax;
+    const float dy = b.position.y - ay;
+    const float dz = b.position.z - az;
     float scale;
-    if (graph.fields[0x19] != 0)
+    if (graph.header().squared != 0)
     {
         scale = 2.f / ((dx * dx + dz * dz + dy * dy) * (1.f / (length * length)) + 1.f); // DAT_0032B110.
     }
@@ -186,35 +146,35 @@ void hold_runtime_point_graph_edge(RuntimePointGraph& graph, u32 anchor, u32 mov
     {
         scale = float(length / std::sqrt(double(dx) * dx + double(dz) * dz + double(dy) * dy));
     }
-    b[0] = dx * scale + ax;
-    b[1] = dy * scale + ay;
-    b[2] = dz * scale + az;
+    b.position.x = dx * scale + ax;
+    b.position.y = dy * scale + ay;
+    b.position.z = dz * scale + az;
 }
 
 // Xbox 0x00102030
 void relax_runtime_point_graph(RuntimePointGraph& graph)
 {
-    if (graph.fields[0x18] != 0)
+    if (graph.header().sorted != 0)
     {
         relax_sorted_runtime_point_graph(graph);
         return;
     }
-    const bool squared = graph.fields[0x19] != 0;
-    for (u32 edge = 0; edge < read_u32(graph.fields, 8); ++edge)
+    const bool squared = graph.header().squared != 0;
+    for (u32 edge = 0; edge < graph.header().edges; ++edge)
     {
         if (hold_pinned_edge(graph, edge))
         {
             continue;
         }
-        const u32 first = edge_word(graph, edge, 0);
-        const u32 second = edge_word(graph, edge, 4);
+        const u32 first = graph.edge(edge).first;
+        const u32 second = graph.edge(edge).second;
         if (squared)
         {
-            relax_runtime_point_graph_edge_squared(graph, first, second, edge_real(graph, edge, 0x14));
+            relax_runtime_point_graph_edge_squared(graph, first, second, graph.edge(edge).inverse_squared_length);
         }
         else
         {
-            relax_runtime_point_graph_edge(graph, first, second, edge_real(graph, edge, 0x10));
+            relax_runtime_point_graph_edge(graph, first, second, graph.edge(edge).length);
         }
     }
 }
@@ -222,39 +182,39 @@ void relax_runtime_point_graph(RuntimePointGraph& graph)
 // Xbox 0x00102280
 void relax_sorted_runtime_point_graph(RuntimePointGraph& graph)
 {
-    if (graph.fields[0x19] == 0)
+    if (graph.header().squared == 0)
     {
-        for (u32 edge = 0; edge < read_u32(graph.fields, 8); ++edge)
+        for (u32 edge = 0; edge < graph.header().edges; ++edge)
         {
             if (!hold_pinned_edge(graph, edge))
             {
-                relax_runtime_point_graph_edge(graph, edge_word(graph, edge, 0), edge_word(graph, edge, 4),
-                    edge_real(graph, edge, 0x10));
+                relax_runtime_point_graph_edge(graph, graph.edge(edge).first, graph.edge(edge).second,
+                    graph.edge(edge).length);
             }
         }
         return;
     }
-    for (u32 edge = 0; edge < read_u32(graph.fields, 0x10); ++edge)
+    for (u32 edge = 0; edge < graph.header().free_edges; ++edge)
     {
-        float* a = point_floats(graph, edge_point(graph, edge, 8));
-        float* b = point_floats(graph, edge_point(graph, edge, 0xC));
-        const float dx = b[0] - a[0];
-        const float dz = b[2] - a[2];
-        const float dy = b[1] - a[1];
-        const float rest = edge_real(graph, edge, 0x18);
+        PointGraphPoint& a = graph.point(point_at_address(graph, graph.edge(edge).first_address));
+        PointGraphPoint& b = graph.point(point_at_address(graph, graph.edge(edge).second_address));
+        const float dx = b.position.x - a.position.x;
+        const float dz = b.position.z - a.position.z;
+        const float dy = b.position.y - a.position.y;
+        const float rest = graph.edge(edge).squared_length;
         const float squared = dx * dx + dz * dz + dy * dy;
         const float scale = (squared - rest) / ((rest + squared) * 2.f); // DAT_0032B110.
         const float mx = dx * scale;
         const float my = dy * scale;
         const float mz = dz * scale;
-        a[0] = a[0] + mx;
-        a[1] = a[1] + my;
-        a[2] = mz + a[2];
-        b[0] = b[0] - mx;
-        b[1] = b[1] - my;
-        b[2] = b[2] - mz;
+        a.position.x = a.position.x + mx;
+        a.position.y = a.position.y + my;
+        a.position.z = mz + a.position.z;
+        b.position.x = b.position.x - mx;
+        b.position.y = b.position.y - my;
+        b.position.z = b.position.z - mz;
     }
-    for (u32 edge = read_u32(graph.fields, 0x10); edge < read_u32(graph.fields, 8); ++edge)
+    for (u32 edge = graph.header().free_edges; edge < graph.header().edges; ++edge)
     {
         hold_pinned_edge(graph, edge);
     }
@@ -369,18 +329,18 @@ const RuntimeGraphContact* project_runtime_point_graph_edges(RuntimePointGraph& 
     constexpr float kFriction = std::bit_cast<float>(0x378637BEu); // DAT_0032B350.
     constexpr float kFrictionLimit = std::bit_cast<float>(0x3F666666u); // DAT_0032B174.
     constexpr float kBounce = std::bit_cast<float>(0x3F19999Au); // DAT_0032B248.
-    for (u32 edge = 0; edge < read_u32(graph.fields, 8); ++edge)
+    for (u32 edge = 0; edge < graph.header().edges; ++edge)
     {
         if (graph.edge_flags[edge] == 0)
         {
             continue;
         }
-        const u32 first = edge_word(graph, edge, 0);
-        const u32 second = edge_word(graph, edge, 4);
-        const float* a = point_floats(graph, first);
-        const float* b = point_floats(graph, second);
-        const Vec3 start{a[0], a[1], a[2]};
-        const Vec3 finish{b[0], b[1], b[2]};
+        const u32 first = graph.edge(edge).first;
+        const u32 second = graph.edge(edge).second;
+        const PointGraphPoint& a = graph.point(first);
+        const PointGraphPoint& b = graph.point(second);
+        const Vec3 start{a.position.x, a.position.y, a.position.z};
+        const Vec3 finish{b.position.x, b.position.y, b.position.z};
         u8 flag = 0;
         u8 reversed = 0;
         Vec3 normal{};
@@ -391,34 +351,34 @@ const RuntimeGraphContact* project_runtime_point_graph_edges(RuntimePointGraph& 
         }
         const u32 moved = reversed == 0 ? second : first;
         const Vec3& base = reversed == 0 ? finish : start;
-        float* p = point_floats(graph, moved);
-        const float t = ((point.z - p[2]) * normal.z + (point.y - p[1]) * normal.y + (point.x - p[0]) * normal.x)
+        PointGraphPoint& p = graph.point(moved);
+        const float t = ((point.z - p.position.z) * normal.z + (point.y - p.position.y) * normal.y + (point.x - p.position.x) * normal.x)
             / (normal.z * normal.z + normal.y * normal.y + normal.x * normal.x);
         const Vec3 on{base.x + normal.x * t, base.y + normal.y * t, base.z + normal.z * t};
         const float x = normal.x * kLift + on.x;
         const float y = normal.y * kLift + on.y;
         const float z = normal.z * kLift + on.z;
-        const float dx = x - p[3];
-        const float dy = y - p[4];
-        const float dz = z - p[5];
+        const float dx = x - p.previous.x;
+        const float dy = y - p.previous.y;
+        const float dz = z - p.previous.z;
         const float along = dz * normal.z + dy * normal.y + dx * normal.x;
         const float tangent_x = dx - along * normal.x;
         const float tangent_y = dy - along * normal.y;
         const float tangent_z = dz - along * normal.z;
-        const float gz = p[2] - z;
-        const float gy = p[1] - y;
-        const float gx = p[0] - x;
+        const float gz = p.position.z - z;
+        const float gy = p.position.y - y;
+        const float gx = p.position.x - x;
         float friction = kFriction / (gz * gz + gy * gy + gx * gx);
         if (friction > kFrictionLimit)
         {
             friction = kFrictionLimit;
         }
-        p[3] = x - (tangent_x * friction + along * normal.x * kBounce);
-        p[4] = y - (tangent_y * friction + along * normal.y * kBounce);
-        p[5] = z - (tangent_z * friction + along * normal.z * kBounce);
-        p[0] = x;
-        p[1] = y;
-        p[2] = z;
+        p.previous.x = x - (tangent_x * friction + along * normal.x * kBounce);
+        p.previous.y = y - (tangent_y * friction + along * normal.y * kBounce);
+        p.previous.z = z - (tangent_z * friction + along * normal.z * kBounce);
+        p.position.x = x;
+        p.position.y = y;
+        p.position.z = z;
     }
     return hit;
 }
@@ -429,7 +389,7 @@ void step_runtime_point_graph_collision(RuntimePointGraph& graph, float step, st
 {
     float farthest = 0.f;
     step_runtime_point_graph(graph, step);
-    const u32 count = read_u32(graph.fields, 0);
+    const u32 count = graph.header().points;
     float sum_x = 0.f;
     float sum_y = 0.f;
     float sum_z = 0.f;
@@ -437,17 +397,17 @@ void step_runtime_point_graph_collision(RuntimePointGraph& graph, float step, st
     const u32 passes = count == 0 ? 0 : ((count - 1) >> 1) + 1;
     for (u32 pass = 0; pass < passes; ++pass)
     {
-        sum_x = point_real(graph, pass * 2, 0) + sum_x;
-        sum_y = point_real(graph, pass * 2, 4) + sum_y;
-        sum_z = point_real(graph, pass * 2, 8) + sum_z;
+        sum_x = graph.point(pass * 2).position.x + sum_x;
+        sum_y = graph.point(pass * 2).position.y + sum_y;
+        sum_z = graph.point(pass * 2).position.z + sum_z;
     }
     const long double scale = 2.0L / (long double)(count); // DAT_0032B110 over the unsigned FILD.
     const Vec3 center{float(sum_x * scale), float(sum_y * scale), float(sum_z * scale)};
     for (u32 pass = 0; pass < passes; ++pass)
     {
-        const float dy = center.y - point_real(graph, pass * 2, 4);
-        const float dx = center.x - point_real(graph, pass * 2, 0);
-        const float dz = center.z - point_real(graph, pass * 2, 8);
+        const float dy = center.y - graph.point(pass * 2).position.y;
+        const float dx = center.x - graph.point(pass * 2).position.x;
+        const float dz = center.z - graph.point(pass * 2).position.z;
         const float distance = dz * dz + dy * dy + dx * dx;
         if (distance > farthest)
         {
@@ -516,13 +476,13 @@ void step_runtime_point_graph_collision(RuntimePointGraph& graph, float step, st
             ++found;
         }
     }
-    for (u32 iteration = 0; iteration < graph.fields[0x1D4]; ++iteration)
+    for (u32 iteration = 0; iteration < graph.record().iterations; ++iteration)
     {
         relax_runtime_point_graph(graph);
         const RuntimeGraphContact* hit = project_runtime_point_graph_edges(graph, contacts, found);
         if (hit != nullptr)
         {
-            graph.fields[0x1D6] = 1;
+            graph.record().contacted = 1;
             if (found > 1)
             {
                 contacts[0] = *hit;
@@ -535,29 +495,25 @@ void step_runtime_point_graph_collision(RuntimePointGraph& graph, float step, st
 // Xbox 0x0010C8D0
 void recover_runtime_point_graph_transform(RuntimePointGraph& graph)
 {
-    const auto edge_point_index = [&graph](u32 field, size_t end)
-    {
-        return edge_word(graph, read_u32(graph.fields, field), end);
-    };
+    PointGraphRecord& record = graph.record();
     const auto rest = [&graph](u32 index)
     {
-        return Vec3{read_f32(graph.coordinates, size_t(index) * 0xC), read_f32(graph.coordinates, size_t(index) * 0xC + 4),
-            read_f32(graph.coordinates, size_t(index) * 0xC + 8)};
+        return graph.coordinate(index);
     };
     const auto current = [&graph](u32 index)
     {
-        return Vec3{point_real(graph, index, 0), point_real(graph, index, 4), point_real(graph, index, 8)};
+        return graph.point(index).position;
     };
     const auto difference = [](const Vec3& to, const Vec3& from)
     {
         return Vec3{to.x - from.x, to.y - from.y, to.z - from.z};
     };
-    const u32 first_a = edge_point_index(0x1BC, 0);
-    const u32 first_b = edge_point_index(0x1BC, 4);
-    const u32 second_a = edge_point_index(0x1C0, 0);
-    const u32 second_b = edge_point_index(0x1C0, 4);
-    const u32 third_a = edge_point_index(0x1C4, 0);
-    const u32 third_b = edge_point_index(0x1C4, 4);
+    const u32 first_a = graph.edge(record.reference_edges[0]).first;
+    const u32 first_b = graph.edge(record.reference_edges[0]).second;
+    const u32 second_a = graph.edge(record.reference_edges[1]).first;
+    const u32 second_b = graph.edge(record.reference_edges[1]).second;
+    const u32 third_a = graph.edge(record.reference_edges[2]).first;
+    const u32 third_b = graph.edge(record.reference_edges[2]).second;
     Vec3 rest_first = difference(rest(first_b), rest(first_a));
     Vec3 current_first = difference(current(first_b), current(first_a));
     Vec3 rest_second = difference(rest(second_b), rest(second_a));
@@ -629,37 +585,34 @@ void recover_runtime_point_graph_transform(RuntimePointGraph& graph)
     const Vec3 offset = difference(current(0), origin);
     std::array<float, 16> shift{};
     runtime_graphics_translation_matrix(shift.data(), 0.f - origin.x, 0.f - origin.y, 0.f - origin.z);
-    std::array<float, 16> rest_matrix;
-    std::memcpy(rest_matrix.data(), graph.fields.data() + 0x70, 0x40);
+    const std::array<float, 16> rest_matrix = record.rest_matrix;
     multiply_runtime_graphics_matrices(shift.data(), rest_matrix.data(), shift.data());
     multiply_runtime_graphics_matrices(turn.data(), shift.data(), turn.data());
     runtime_graphics_translation_matrix(shift.data(), offset.x + origin.x, origin.y + offset.y, origin.z + offset.z);
     std::array<float, 16> placed;
     multiply_runtime_graphics_matrices(placed.data(), turn.data(), shift.data());
-    std::memcpy(graph.fields.data() + 0xB0, placed.data(), 0x40);
+    record.placed_matrix = placed;
     std::array<float, 16> inverse;
-    std::memcpy(inverse.data(), graph.fields.data() + 0x170, 0x40);
+    inverse = record.placed_inverse;
     invert_runtime_graphics_matrix(inverse, nullptr, placed);
-    std::memcpy(graph.fields.data() + 0x170, inverse.data(), 0x40);
-    u32 frames = read_u32(graph.fields, 0x1C8) + 1;
+    record.placed_inverse = inverse;
+    u32 frames = record.warm_up_frames + 1;
 #if !defined(GBTG_RETAIL_GAME_ONLY)
     // Rare Replay: the warm-up counts retail ticks.
     if (!rare_replay_retail_tick())
     {
-        frames = read_u32(graph.fields, 0x1C8);
+        frames = record.warm_up_frames;
     }
 #endif
-    std::memcpy(graph.fields.data() + 0x1C8, &frames, 4);
+    record.warm_up_frames = frames;
     if (frames > 10)
     {
-        for (u32 index = 0; index < read_u32(graph.fields, 0); ++index)
+        for (u32 index = 0; index < graph.header().points; ++index)
         {
-            std::memcpy(graph.coordinates.data() + size_t(index) * 0xC, graph.points.data() + size_t(index) * kPoint,
-                0xC);
+            graph.coordinate(index) = graph.point(index).position;
         }
-        std::memcpy(graph.fields.data() + 0x70, graph.fields.data() + 0xB0, 0x40);
-        const u32 zero = 0;
-        std::memcpy(graph.fields.data() + 0x1C8, &zero, 4);
+        record.rest_matrix = record.placed_matrix;
+        record.warm_up_frames = 0;
     }
 }
 }

@@ -212,6 +212,7 @@ For one object type:
 | Event step (`EventStep`, a DAT_005064E0 pool row, built by script nodes 0x19..0x88, run by 0x000D0B40): type, delay block (`EventStepDelay`: left, started, waits for cutscene), icon, icon shown, and a union of one struct per type: tag, kill count, timed, done, spare tag, next different, unhit since, one type, number, key carrier, attack limit, tag kill count | 0x88 | `src/engine/scripts/script_event_step_fields.h` |
 | Background cloth header (`BackgroundClothHeader`, the start of a cloth's block, 0x0004B5F0, viewed with `cloth_header`): the point graph's descriptor, grid, light, bounds, hooks, shadow state, sound, draw switches. The points, edges, colours and normals follow it. | 0x1F0 | `src/engine/graphics/background_cloth.h` |
 | Actor effect header (`ActorEffectHeader`, an emitter, 0x000ED1C0, `ActorEffectNode::bytes`, viewed with `effect_header`): particle counts and free head, emitting, emit timer, life, ticks, flags, position and its previous and tick copies, emit point, motion, euler, spin, jitter, offset, velocity, particle size, volume euler and spin, scale, binding, the emission volume and its angles, velocity mode, speed and angle ranges, script, command, draw and depth modes, texture and its frames, model, the particle and collision sounds and the collision effect. The particles follow it. | 0x390, plus 0x150 per particle | `src/engine/graphics/actor_effect_nodes.h` |
+| Point graph (`src/engine/graphics/point_graph.h`, 0x00102500 and on): the solver's `PointGraphHeader` (counts, sorted and squared switches, damping; also the start of a cloth's header), a background animation's whole `PointGraphRecord` (the address words, bind, rest and placed matrices and two inverses, centre, reference edges, warm-up frames, age, iterations, active, contacted), `PointGraphPoint` (position, previous, force, inverse mass, pinned) and `PointGraphEdge` (ends by index and address, rest length, inverse squared and squared lengths) | 0x20 / 0x1E0 / 0x30 / 0x1C | `src/engine/graphics/point_graph.h` |
 | Candle flame block (`CandleFlameBlock`, 0x000C6C80..0x000C7540; the candle's +0xE5C and the relics store's +0x40): lit, light slot, point light; its pointer words are `RuntimeCandleFlame`'s references | 0x18 | `src/engine/entities/candle_weapon.h` |
 
 
@@ -395,6 +396,17 @@ named at the store. The raw +0x15C, +0x1DC and +0x25C uses named the two sound n
 pre-struct build (d8b0055e) does the same, so the structs didn't cause it, and the cause is unknown. Separately, one
 `--scene3c3` run of the actor effect build crashed with an access violation at 30 captures. 28 more runs of that build and 20 of
 the one before it didn't crash, so whether this change is involved is unknown.
+
+`RuntimePointGraph::record()` views 0x1E0 bytes, so only an animation's graph may use it; a cloth's descriptor is its own
+0x1F0-byte type with different words from +0x20, so everything the solver shares with cloths goes through `header()`. Static
+asserts in `background_cloth.h` tie the two.
+
+Mind requests keep their descriptors. DAT_00217F18 gives each kind's size (stride 8) and every named field fits, so structs
+would be safe, but `get(request, escape_request::speed)` already reads well. The gain was in naming the raw writes beside them,
+about 90 sites, and in 0x0007C580: each moving kind draws `speed` from a low and a high, which replaces several `unk_` names, and
+the escapes draw `safe_distance` the same way. Body messages stay too: a message's length is its sender's, and a whole-struct
+view could demand more bytes than a sender provides. Kind 8's name and chance are `chance_flag_request`. The camera's request
++0x10 in 0x00079E80 stays literal until its kind is confirmed.
 
 `ActorBytes` became `ActorBase` once it had named fields. Parameter rows, presets and other read-only script and XBE data stay
 on descriptors, as elsewhere: `walk_alert_row_field`, `strategy_move_settings_field`, `input_tracking_preset_field`,

@@ -1279,9 +1279,9 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
     case 0x19:
     {
         // 0x00125C80 builds step type 0 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const float delay = 1.5f;
-        set(step, event_step_field::delay, delay);
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1289,11 +1289,11 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
     {
         // 0x00125D80 builds step type 4 with XMM0 = 0 at +4; +0x18 is the time limit at node+8. 0x000D05D0 queues it
         // unless bit 0x10 of DAT_0050EA9C is set.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 4;
-        set(step, event_step_field::type, type);
+        step.type = type;
         const u32 seconds = node_u32(g.scene_script, node, 8);
-        set(step, timed_event_step::seconds, std::bit_cast<float>(seconds));
+        step.timed.seconds = std::bit_cast<float>(seconds);
         if ((g_flags_ea9c & 0x10u) != 0)
         {
             return 2;
@@ -1304,9 +1304,9 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
     case 0x1b:
     {
         // 0x00125CC0 builds step type 1 with XMM0 = 0 at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 1;
-        set(step, event_step_field::type, type);
+        step.type = type;
         queue_script_event_step(step);
         return 2;
     }
@@ -1315,15 +1315,15 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         // 0x00125D00 builds step type 2 with XMM0 = 1.5 (0x0032B210) at +4, clearing it from +0x18 to the type's
         // size (DAT_00428934); +0x18 is the tag of the name at node+8 and +0x1C is set when the dword at node+0x48
         // is 0. 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 2;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        set(step, tag_event_step::tag, tag);
+        step.tag.tag = tag;
         const u32 absent = node_u32(g.scene_script, node, 0x48) == 0 ? 1u : 0u;
-        set(step, tag_event_step::seen, absent);
+        step.tag.seen = absent;
         queue_script_event_step(step);
         return 2;
     }
@@ -1331,17 +1331,17 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
     {
         // 0x00125D40 builds step type 3 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the kill count 0x0001BB60
         // draws from [node+8, node+0xC + 1) and +0x1C the tag of the name at node+0x10. 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 3;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         const i32 low = i32(node_u32(g.scene_script, node, 8));
         const i32 high = i32(node_u32(g.scene_script, node, 0xC)) + 1;
         const i32 count = draw_runtime_random_count(high, low, g_shared_random); // 0x0001BB60, ESI DAT_0054DD7C
-        set(step, kill_count_event_step::required, count);
+        step.kill_count.required = count;
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 0x10).c_str()));
-        set(step, kill_count_event_step::tag, tag);
+        step.kill_count.tag = tag;
         queue_script_event_step(step);
         return 2;
     }
@@ -1349,22 +1349,22 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
     {
         // 0x00125DC0 builds step type 5 with XMM0 = 0 at +4; +0x18 is the time to survive at node+8. 0x000D05D0
         // queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 5;
-        set(step, event_step_field::type, type);
+        step.type = type;
         const u32 seconds = node_u32(g.scene_script, node, 8);
-        set(step, timed_event_step::seconds, std::bit_cast<float>(seconds));
+        step.timed.seconds = std::bit_cast<float>(seconds);
         queue_script_event_step(step);
         return 2;
     }
     case 0x1f:
     {
         // 0x00126040 builds step type 0xF with XMM0 = 2.0 (0x0032B110) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xF;
         const float delay = 2.f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1372,13 +1372,13 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
     {
         // 0x00125E00 builds step type 6 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the word at node+8.
         // 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 6;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         const u32 word = u32(node_u16(g.scene_script, node, 8));
-        set(step, done_event_step::unk_18, word);
+        step.done.unk_18 = word;
         queue_script_event_step(step);
         return 2;
     }
@@ -1386,14 +1386,14 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
     {
         // 0x00125E40 builds step type 7 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the tag of the name at node+8
         // and +0x1C is -1 (the total, kept on its first run). 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 7;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        set(step, spare_tag_event_step::tag, tag);
-        set(step, spare_tag_event_step::kept_total, -1);
+        step.spare_tag.tag = tag;
+        step.spare_tag.kept_total = -1;
         queue_script_event_step(step);
         return 2;
     }
@@ -1401,23 +1401,23 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
     {
         // 0x00125F00 builds step type 10 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is -1 (the total, kept on its
         // first run). 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 10;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
-        set(step, unhit_since_event_step::kept_total, -1);
+        step.type = type;
+        step.delay.left = delay;
+        step.unhit_since.kept_total = -1;
         queue_script_event_step(step);
         return 2;
     }
     case 0x23:
     {
         // 0x00125EC0 builds step type 9 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 9;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1432,24 +1432,24 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         push_named(0xd0, 0x90, words, count);
         push_named(0x114, 0xd4, words, count);
         push_named(0x158, 0x118, words, count);
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 8;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
-        std::memcpy(field_data(step, next_different_event_step::tags), words, size_t(count) * 2);
-        set(step, next_different_event_step::count, u8(count));
+        step.type = type;
+        step.delay.left = delay;
+        std::memcpy(step.next_different.tags.data(), words, size_t(count) * 2);
+        step.next_different.count = u8(count);
         queue_script_event_step(step);
         return 2;
     }
     case 0x26:
     {
         // 0x00125F40 builds step type 0xB with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xB;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1457,24 +1457,24 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
     {
         // 0x00126080 builds step type 0x10 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the dword at node+8.
         // 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0x10;
         const float delay = 1.5f;
         const u32 value = node_u32(g.scene_script, node, 8);
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
-        set(step, attack_limit_event_step::limit, std::bit_cast<i32>(value));
+        step.type = type;
+        step.delay.left = delay;
+        step.attack_limit.limit = std::bit_cast<i32>(value);
         queue_script_event_step(step);
         return 2;
     }
     case 0x28:
     {
         // 0x00125F80 builds step type 0xC with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xC;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1490,14 +1490,14 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         push_named(0xd0, 0x90, words, count);
         push_named(0x114, 0xd4, words, count);
         push_named(0x158, 0x118, words, count);
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xD;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         const i32 index = draw_runtime_random_count(i32(u16(count)), 0, g_shared_random); // 0x0001BB60, ECX count
         const u16 tag = words[size_t(index)];
-        set(step, one_type_event_step::tag, tag);
+        step.one_type.tag = tag;
         if (node_u32(g.scene_script, node, 0x15c) != 0)
         {
             mark_runtime_one_type_actors(tag, 0); // 0x00126940, DI the tag
@@ -1520,24 +1520,24 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         // to node+0xC (0x0001BB60, ECX node+0xC + 1, EDX node+8, ESI DAT_0054DD7C). 0x000D05D0 queues it.
         const u32 lo = node_u32(g.scene_script, node, 8);
         const u32 hi = node_u32(g.scene_script, node, 0xC) + 1u;
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xE;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         const i32 drawn = draw_runtime_random_count(i32(hi), i32(lo), g_shared_random); // 0x0001BB60
-        set(step, number_event_step::target, drawn);
+        step.number.target = drawn;
         queue_script_event_step(step);
         return 2;
     }
     case 0x87:
     {
         // 0x001260C0 builds step type 0x11 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0x11;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1566,15 +1566,15 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, in
         choice(0xdc, 0x98, 0xd8);
         choice(0x124, 0xe0, 0x120);
         choice(0x16c, 0x128, 0x168);
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0x12;
         const float delay = 1.5f;
-        set(step, event_step_field::type, type);
-        set(step, event_step_field::delay, delay);
+        step.type = type;
+        step.delay.left = delay;
         const i32 index = draw_runtime_random_count(i32(u16(count)), 0, g_shared_random); // 0x0001BB60, ECX count
         const u16 tag = words[size_t(index)];
-        set(step, tag_kill_count_event_step::tag, tag);
-        set(step, tag_kill_count_event_step::required, std::bit_cast<i32>(counts[size_t(index)]));
+        step.tag_kill_count.tag = tag;
+        step.tag_kill_count.required = std::bit_cast<i32>(counts[size_t(index)]);
         if (node_u32(g.scene_script, node, 0x170) != 0)
         {
             mark_runtime_one_type_actors(tag, 0); // 0x00126940, DI the tag

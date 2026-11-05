@@ -1,110 +1,122 @@
 #pragma once
-#include "gbtg/retail_field.h"
+#include "gbtg/entity.h"
 
 #include <array>
 
 namespace gbtg
 {
 // An event step (0x88 bytes, a DAT_005064E0 pool row): what the event asks of the player. Script nodes 0x19..0x88
-// build them and 0x000D05D0 queues them; 0x000D0B40 runs each by its type. The fields after +0x18 depend on the type.
-// See docs/RETAIL_LAYOUTS.md.
-namespace event_step_field
-{
-constexpr RetailField<u32, 0x00> type{};
-constexpr RetailField<float, 0x04> delay{}; // the delay block's time left (event_step_delay_field)
-constexpr RetailRecord<0x04, 0x0C> delay_block{}; // 0x000D0700's ECX
-constexpr RetailField<u32, 0x10> icon{}; // the scoreboard message (0x0012FB80), 0 for none
-constexpr RetailField<u32, 0x14> icon_shown{};
-constexpr u32 kSize = 0x88;
-} // namespace event_step_field
+// build them and 0x000D05D0 queues them; 0x000D0B40 runs each by its type. What follows +0x18 depends on the type.
 
 // The step's delay block (+4): waited out once the step is otherwise done (0x000D0700).
-namespace event_step_delay_field
+struct EventStepDelay
 {
-constexpr RetailField<float, 0x0> left{};
-constexpr RetailField<u32, 0x4> started{};
-constexpr RetailField<u32, 0x8> waits_for_cutscene{}; // a cutscene ran when it started: wait for it instead
-} // namespace event_step_delay_field
+    float left = 0.f; // +0
+    u32 started = 0; // +4
+    u32 waits_for_cutscene = 0; // +8, a cutscene ran when it started: wait for it instead
+};
+static_assert(sizeof(EventStepDelay) == 0xC);
 
-// Type 2 (0x000CFDA0): hold while an actor of the tag lives.
-namespace tag_event_step
+// Type 2 (0x000CFDA0): hold while an actor of the tag lives. Types 7 and 0xD also keep a tag at +0x18.
+struct TagEventStep
 {
-constexpr RetailField<u16, 0x18> tag{};
-constexpr RetailField<u32, 0x1C> seen{}; // one has lived (or none needs to)
-} // namespace tag_event_step
-
+    u16 tag; // +0x18
+    u16 unk_1A; // +0x1A
+    u32 seen; // +0x1C, one has lived (or none needs to)
+};
 // Type 3 (0x000CFE20): kill `required` of the tag.
-namespace kill_count_event_step
+struct KillCountEventStep
 {
-constexpr RetailField<i32, 0x18> required{};
-constexpr RetailField<u16, 0x1C> tag{};
-} // namespace kill_count_event_step
-
+    i32 required; // +0x18
+    u16 tag; // +0x1C
+};
 // Types 4 (0x000CFE50, a time limit) and 5 (0x000CFEE0, survive): the seconds left.
-namespace timed_event_step
+struct TimedEventStep
 {
-constexpr RetailField<float, 0x18> seconds{};
-} // namespace timed_event_step
-
+    float seconds; // +0x18
+};
 // Type 6 (0x000CFFD0): done at once; its builder keeps a word from the script node.
-namespace done_event_step
+struct DoneEventStep
 {
-constexpr RetailField<u32, 0x18> unk_18{};
-} // namespace done_event_step
-
+    u32 unk_18; // +0x18
+};
 // Type 7 (0x000CFF60): fail once the player's kills of the tag grow past the total kept on the first run.
-namespace spare_tag_event_step
+struct SpareTagEventStep
 {
-constexpr RetailField<u16, 0x18> tag{};
-constexpr RetailField<i32, 0x1C> kept_total{}; // -1 until the first run
-} // namespace spare_tag_event_step
-
+    u16 tag; // +0x18
+    u16 unk_1A; // +0x1A
+    i32 kept_total; // +0x1C, -1 until the first run
+};
 // Type 8 (0x000CFFE0): "next one different": a kill of the current tag fails it.
-namespace next_different_event_step
+struct NextDifferentEventStep
 {
-constexpr RetailField<u16, 0x18> current{}; // 0 until a tag is killed
-constexpr RetailField<std::array<u16, 9>, 0x1A> tags{};
-constexpr RetailField<std::array<i32, 8>, 0x2C> seen{}; // each tag's last kill total
-constexpr RetailField<u8, 0x4C> count{};
-} // namespace next_different_event_step
-
+    u16 current; // +0x18, 0 until a tag is killed
+    std::array<u16, 9> tags; // +0x1A
+    std::array<i32, 8> seen; // +0x2C, each tag's last kill total
+    u8 count; // +0x4C
+};
 // Type 10 (0x000D00C0): fail once the player takes a kind-3 hit past the total kept on the first run.
-namespace unhit_since_event_step
+struct UnhitSinceEventStep
 {
-constexpr RetailField<i32, 0x18> kept_total{}; // -1 until the first run
-} // namespace unhit_since_event_step
-
+    i32 kept_total; // +0x18, -1 until the first run
+};
 // Type 0xD (script node 0x50): one of the named tags, drawn at random.
-namespace one_type_event_step
+struct OneTypeEventStep
 {
-constexpr RetailField<u16, 0x18> tag{};
-} // namespace one_type_event_step
-
+    u16 tag; // +0x18
+};
 // Type 0xE (0x000D0160): the number still to go against `target`.
-namespace number_event_step
+struct NumberEventStep
 {
-constexpr RetailField<i32, 0x18> target{};
-} // namespace number_event_step
-
+    i32 target; // +0x18
+};
 // Type 0xF (0x000CFAE0): the key carrier, then the key and its camera.
-namespace key_carrier_event_step
+struct KeyCarrierEventStep
 {
-constexpr RetailField<u32, 0x18> carrier_found{};
-constexpr RetailField<u32, 0x1C> key_shown{};
-constexpr RetailField<u32, 0x20> key{}; // the key object, by address
-constexpr RetailField<u32, 0x84> camera_linked{}; // the +0x24 camera view is linked
-} // namespace key_carrier_event_step
-
+    u32 carrier_found; // +0x18
+    u32 key_shown; // +0x1C
+    u32 key; // +0x20, the key object, by address
+    std::array<u8, 0x60> camera_words; // +0x24, the camera view; the host keeps g_event_sequence.key_camera
+    u32 camera_linked; // +0x84
+};
 // Type 0x10 (0x000D01D0): fail once the attacks pass `limit`.
-namespace attack_limit_event_step
+struct AttackLimitEventStep
 {
-constexpr RetailField<i32, 0x18> limit{};
-} // namespace attack_limit_event_step
-
+    i32 limit; // +0x18
+};
 // Type 0x12 (0x000CFDF0, script node 0x88): kill `required` of the tag drawn at random.
-namespace tag_kill_count_event_step
+struct TagKillCountEventStep
 {
-constexpr RetailField<u16, 0x18> tag{};
-constexpr RetailField<i32, 0x1C> required{};
-} // namespace tag_kill_count_event_step
+    u16 tag; // +0x18
+    u16 unk_1A; // +0x1A
+    i32 required; // +0x1C
+};
+
+struct EventStep
+{
+    u32 type = 0; // +0
+    EventStepDelay delay{}; // +4, 0x000D0700's ECX
+    u32 icon = 0; // +0x10, the scoreboard message (0x0012FB80), 0 for none
+    u32 icon_shown = 0; // +0x14
+    union
+    {
+        std::array<u8, 0x70> body{}; // +0x18, zero until a builder fills it
+        TagEventStep tag;
+        KillCountEventStep kill_count;
+        TimedEventStep timed;
+        DoneEventStep done;
+        SpareTagEventStep spare_tag;
+        NextDifferentEventStep next_different;
+        UnhitSinceEventStep unhit_since;
+        OneTypeEventStep one_type;
+        NumberEventStep number;
+        KeyCarrierEventStep key_carrier;
+        AttackLimitEventStep attack_limit;
+        TagKillCountEventStep tag_kill_count;
+    };
+};
+static_assert(sizeof(EventStep) == 0x88);
+static_assert(offsetof(EventStep, key_carrier) == 0x18);
+static_assert(offsetof(EventStep, key_carrier) + offsetof(KeyCarrierEventStep, camera_linked) == 0x84);
+static_assert(offsetof(EventStep, next_different) + offsetof(NextDifferentEventStep, count) == 0x4C);
 } // namespace gbtg

@@ -1,4 +1,5 @@
 #pragma once
+#include "script_event_step_fields.h"
 
 #include "../navigation/cell_registration.h"
 #include "../frontend/scoreboard_messages.h"
@@ -89,7 +90,7 @@ bool complete_script_event_sequence(Game& g); // Xbox 0x000D0870
 // AX door, the stack hold word, ESI name.
 void begin_script_event_sequence(u16 door, u32 hold, const char* name); // Xbox 0x000D0550
 // EDI step: copies the step type's size into the next pool record.
-void queue_script_event_step(std::span<const u8> step); // Xbox 0x000D05D0
+void queue_script_event_step(const EventStep& step); // Xbox 0x000D05D0
 // Script type 0x18 on its first pass: start the steps and the door.
 void play_script_event_sequence(Game& g); // Xbox 0x000D0680
 void set_script_event_sequence_state(Game& g, i32 state); // Xbox 0x000D09A0
@@ -112,33 +113,33 @@ bool show_script_event_reminders(const SceneExecutableResources& image,
     RuntimeDialogueActivationContext& dialogue); // Xbox 0x000D0780
 bool run_script_event_steps(Game& g); // Xbox 0x000D0B40
 // ECX the step's +4 timer block: the step waits on a running cutscene, or counts its +4 delay down.
-bool script_event_step_delay_done(std::span<u8> timer); // Xbox 0x000D0700
-i32 run_script_event_kill_step(std::span<u8> step); // Xbox 0x000CFA10, step type 0
-i32 run_script_event_key_step(std::span<u8> step); // Xbox 0x000CFA90, step type 1
+bool script_event_step_delay_done(EventStepDelay& timer); // Xbox 0x000D0700
+i32 run_script_event_kill_step(EventStep& step); // Xbox 0x000CFA10, step type 0
+i32 run_script_event_key_step(EventStep& step); // Xbox 0x000CFA90, step type 1
 // +0x18 the tag, +0x1C set once an actor of it has been seen (or none needs to be).
-i32 run_script_event_tag_step(std::span<u8> step); // Xbox 0x000CFDA0, step type 2
-i32 run_script_event_kill_count_step(std::span<u8> step); // Xbox 0x000CFE20, step type 3
+i32 run_script_event_tag_step(EventStep& step); // Xbox 0x000CFDA0, step type 2
+i32 run_script_event_kill_count_step(EventStep& step); // Xbox 0x000CFE20, step type 3
 // As type 3 with the tag at +0x18 and the kills wanted at +0x1C (script type 0x88's random choice).
-i32 run_script_event_tag_kill_count_step(std::span<u8> step); // Xbox 0x000CFDF0, step type 0x12
-i32 run_script_event_next_different_step(std::span<u8> step); // Xbox 0x000CFFE0, step type 8
-i32 run_script_event_number_step(std::span<u8> step); // Xbox 0x000D0160, step type 0xE
-i32 run_script_event_time_limit_step(std::span<u8> step); // Xbox 0x000CFE50, step type 4
-i32 run_script_event_survive_step(std::span<u8> step); // Xbox 0x000CFEE0, step type 5
+i32 run_script_event_tag_kill_count_step(EventStep& step); // Xbox 0x000CFDF0, step type 0x12
+i32 run_script_event_next_different_step(EventStep& step); // Xbox 0x000CFFE0, step type 8
+i32 run_script_event_number_step(EventStep& step); // Xbox 0x000D0160, step type 0xE
+i32 run_script_event_time_limit_step(EventStep& step); // Xbox 0x000CFE50, step type 4
+i32 run_script_event_survive_step(EventStep& step); // Xbox 0x000CFEE0, step type 5
 // Fails once points are scored (DAT_00545980) while the steps do not wait (DAT_0050653C).
 i32 run_script_event_unpaired_step(); // Xbox 0x000D0110, step type 11
-i32 run_script_event_attack_limit_step(std::span<u8> step); // Xbox 0x000D01D0, step type 16
+i32 run_script_event_attack_limit_step(EventStep& step); // Xbox 0x000D01D0, step type 16
 i32 run_script_event_untouched_step(); // Xbox 0x000CFFB0, step type 17
 i32 run_script_event_no_points_step(); // Xbox 0x000D0140, step type 12
 i32 run_script_event_done_step(); // Xbox 0x000CFFD0, step type 6
 // Fails once the player's kills of the +0x18 tag grow past the total kept at +0x1C.
-i32 run_script_event_spare_tag_step(std::span<u8> step); // Xbox 0x000CFF60, step type 7
+i32 run_script_event_spare_tag_step(EventStep& step); // Xbox 0x000CFF60, step type 7
 // Fail once the player takes a kind-4 hit (type 9), or a kind-3 hit past the total kept at +0x18 (type 10).
 i32 run_script_event_unhit_step(); // Xbox 0x000D0090, step type 9
-i32 run_script_event_unhit_since_step(std::span<u8> step); // Xbox 0x000D00C0, step type 10
+i32 run_script_event_unhit_since_step(EventStep& step); // Xbox 0x000D00C0, step type 10
 // The key carrier: the first DAT_00511B48 actor whose +0x96D is set carries the key (+0xCE4) and its effect; once its
 // death queues event 0xB5, the key object appears at the event's point and "ghoulykeycam" looks at it until the +4
 // delay runs out.
-i32 run_script_event_key_carrier_step(std::span<u8> step); // Xbox 0x000CFAE0, step type 0xF
+i32 run_script_event_key_carrier_step(EventStep& step); // Xbox 0x000CFAE0, step type 0xF
 // EDI kind: adds the step's scoreboard icon and returns its message id.
 u32 add_script_event_icon(u32 kind, u16 tag); // Xbox 0x0012FB80, EDI kind, ESI tag
 // EDX id: the scoreboard message fades out.

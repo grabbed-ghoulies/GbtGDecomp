@@ -1,4 +1,5 @@
 #pragma once
+#include "../scripts/script_event_step_fields.h"
 #include "../audio/bank_streams.h"
 #include "../frontend/scoreboard_messages.h"
 #include "../saves/runtime_profile.h"
@@ -35,7 +36,7 @@ void cancel_runtime_powerup(u32 kind, RuntimePowerupTable& table); // Xbox 0x001
 void extend_runtime_challenge_timers(float amount,
     std::vector<RuntimeChallengeRecord>* records); // Xbox 0x0004A370, XMM0 amount
 // The scripted event step (DAT_005064E0, stride 0x88) whose type word at +0 matches, or null.
-u8* find_runtime_event_step(u32 type,
+EventStep* find_runtime_event_step(u32 type,
     const entity_detail::NavigationCellRegistration* steps); // Xbox 0x000D0650, EDX type
 // What 0x000F24C0 reaches when a challenge is won.
 struct RuntimeChallengeAward

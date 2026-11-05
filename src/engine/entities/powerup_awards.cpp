@@ -55,7 +55,7 @@ void extend_runtime_challenge_timers(float amount, std::vector<RuntimeChallengeR
 }
 
 // Xbox 0x000D0650
-u8* find_runtime_event_step(u32 type, const entity_detail::NavigationCellRegistration* steps)
+EventStep* find_runtime_event_step(u32 type, const entity_detail::NavigationCellRegistration* steps)
 {
     if (steps == nullptr)
     {
@@ -63,9 +63,9 @@ u8* find_runtime_event_step(u32 type, const entity_detail::NavigationCellRegistr
     }
     for (u8* step = steps->begin; step < steps->end; step += 0x88)
     {
-        if (read_u32(std::span<const u8>(step, 4), 0) == type)
+        if (reinterpret_cast<EventStep*>(step)->type == type)
         {
-            return step;
+            return reinterpret_cast<EventStep*>(step);
         }
     }
     return nullptr;
@@ -203,14 +203,13 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         cleared = true;
         sound = 0;
         // Event step type 4's +0x18 seconds, while some remain, and the challenge's timers gain the amount.
-        if (u8* step = find_runtime_event_step(4, g_event_sequence.steps); step != nullptr) // 0x000D0650, EDX 4
+        if (EventStep* step = find_runtime_event_step(4, g_event_sequence.steps); step != nullptr) // 0x000D0650, EDX 4
         {
-            float left;
-            std::memcpy(&left, step + 0x18, 4);
+            float left = step->timed.seconds;
             if (left > 0.f) // DAT_0032B100.
             {
                 left = amount + left;
-                std::memcpy(step + 0x18, &left, 4);
+                step->timed.seconds = left;
             }
         }
         extend_runtime_challenge_timers(amount, g_challenge_run.records.get()); // 0x0004A370, XMM0 amount

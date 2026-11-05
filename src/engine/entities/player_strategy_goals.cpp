@@ -34,11 +34,6 @@ void put_u16(std::span<u8> bytes, size_t offset, u16 value)
     std::memcpy(bytes.data() + offset, &value, 2);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 std::span<u8> strategy_bytes(RuntimePlayerStrategyGoals& context)
 {
     return context.entry.strategy;
@@ -427,20 +422,20 @@ u32 seek_runtime_player_free_position(RuntimePlayerStrategyGoals& context)
         if (player_record(actor).owner_class == 1)
         {
             RuntimePlayerMindRequest* request = allocate_runtime_mind_request(goals.anchor, 0xF, goals.sizes);
-            put_float(request->bytes, 0x10, 1.0f); // DAT_0032B0F8.
-            put_float(request->bytes, 0x14, 1.0f);
-            put_float(request->bytes, 0x1C, 1.0f);
-            put_float(request->bytes, 0x24, 30.0f); // DAT_0032B108.
-            put_float(request->bytes, 0x28, 0.25f); // DAT_0032B104.
-            put_float(request->bytes, 0x18, 10.0f); // DAT_0032B10C.
-            put_float(request->bytes, 0x24, 0.0f);
+            set(request->bytes, vertical_position_request::speed_low, 1.0f); // DAT_0032B0F8.
+            set(request->bytes, vertical_position_request::speed_high, 1.0f);
+            set(request->bytes, vertical_position_request::tolerance, 1.0f);
+            set(request->bytes, vertical_position_request::approach, 30.0f); // DAT_0032B108.
+            set(request->bytes, vertical_position_request::vertical_speed, 0.25f); // DAT_0032B104.
+            set(request->bytes, vertical_position_request::height, 10.0f); // DAT_0032B10C.
+            set(request->bytes, vertical_position_request::approach, 0.0f);
             return 0;
         }
         RuntimePlayerMindRequest* request = allocate_runtime_mind_request(goals.anchor, 0x2D, goals.sizes);
-        put_float(request->bytes, 0x10, 1.0f);
-        put_float(request->bytes, 0x14, 1.0f);
-        put_float(request->bytes, 0x1C, 30.0f);
-        put_float(request->bytes, 0x1C, 0.0f);
+        set(request->bytes, position_request::speed_low, 1.0f);
+        set(request->bytes, position_request::speed_high, 1.0f);
+        set(request->bytes, position_request::approach, 30.0f);
+        set(request->bytes, position_request::approach, 0.0f);
     }
     return 0;
 }

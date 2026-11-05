@@ -33,10 +33,6 @@ void change_state(u16 state, RuntimeRibsStrategy& context)
     change_runtime_player_strategy_state(goals_of(context).strategy, state, goals_of(context).setup); // 0x0002B8D0
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 }
 
 // Xbox 0x000BF7B0
@@ -126,10 +122,10 @@ void enter_runtime_ribs_state(u16 state, u16 previous, RuntimeRibsStrategy& cont
     }
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest* request = allocate_runtime_mind_request(mind.anchor, 0xD, mind.sizes); // 0x00029D90
-    put_float(request->bytes, 0x10, 20.f); // DAT_0042888C.
-    put_float(request->bytes, 0x14, 25.f); // DAT_00428890.
-    put_float(request->bytes, 0x18, 60.f); // DAT_00428894.
-    put_float(request->bytes, 0x1C, 65.f); // DAT_00428898.
+    set(request->bytes, escape_request::min_distance, 20.f); // DAT_0042888C.
+    set(request->bytes, escape_request::max_distance, 25.f); // DAT_00428890.
+    set(request->bytes, escape_request::safe_low, 60.f); // DAT_00428894.
+    set(request->bytes, escape_request::safe_high, 65.f); // DAT_00428898.
     const u16 full = body_record(body).max_energy;
     if (full != 0)
     {
@@ -138,13 +134,13 @@ void enter_runtime_ribs_state(u16 state, u16 previous, RuntimeRibsStrategy& cont
         {
             if (fraction <= 0.5f) // DAT_0032B0F4.
             {
-                put_float(request->bytes, 0x20, fraction <= 0.25f ? 1.f : 0.8f); // DAT_0032B104, DAT_004288A8 / A4.
+                set(request->bytes, escape_request::speed, fraction <= 0.25f ? 1.f : 0.8f); // DAT_0032B104, DAT_004288A8 / A4.
                 return;
             }
-            put_float(request->bytes, 0x20, 0.6f); // DAT_004288A0.
+            set(request->bytes, escape_request::speed, 0.6f); // DAT_004288A0.
             return;
         }
     }
-    put_float(request->bytes, 0x20, 0.4f); // DAT_0042889C.
+    set(request->bytes, escape_request::speed, 0.4f); // DAT_0042889C.
 }
 }

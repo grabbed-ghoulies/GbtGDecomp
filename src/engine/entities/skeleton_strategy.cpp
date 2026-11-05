@@ -30,11 +30,6 @@ const SkeletonStrategyState& fields_of(std::span<const u8> strategy)
     return strategy_view<SkeletonStrategyState>(strategy);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 RuntimePlayerStrategyGoals& goals_of(RuntimeSkeletonStrategy& context)
 {
     return context.base.goals;
@@ -162,12 +157,10 @@ void reposition_runtime_skeleton(RuntimeSkeletonStrategy& context)
     change_state(0x3FE, context);
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest* request = allocate_runtime_mind_request(mind.anchor, 0x2E, mind.sizes);
-    put_float(request->bytes, 0x1C, 1.f); // DAT_0032B0F8.
-    put_float(request->bytes, 0x20, 1.f);
-    put_float(request->bytes, 0x28, 30.f); // DAT_0032B108.
-    put_float(request->bytes, 0x10, position.x);
-    put_float(request->bytes, 0x14, position.y);
-    put_float(request->bytes, 0x18, position.z);
+    set(request->bytes, navigation_request::speed_low, 1.f); // DAT_0032B0F8.
+    set(request->bytes, navigation_request::speed_high, 1.f);
+    set(request->bytes, navigation_request::approach, 30.f); // DAT_0032B108.
+    set(request->bytes, navigation_request::point, position);
 }
 
 // Xbox 0x000C03D0

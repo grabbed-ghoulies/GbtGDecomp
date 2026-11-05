@@ -3,6 +3,7 @@
 #include "../../gbtg/runtime/object_lifecycle.h"
 #include "ghouly_box_decoder.h"
 #include "ghouly_requests.h"
+#include "mind_request_fields.h"
 #include "../frontend/input_activation.h"
 #include <functional>
 

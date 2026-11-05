@@ -29,11 +29,6 @@ const ZombieStrategyState& fields_of(std::span<const u8> strategy)
     return strategy_view<ZombieStrategyState>(strategy);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 RuntimePlayerStrategyGoals& goals_of(RuntimeZombieStrategy& context)
 {
     return context.base.goals;
@@ -285,8 +280,8 @@ void set_runtime_zombie_approach(u32 mode, RuntimeZombieStrategy& context)
     {
         return;
     }
-    put_float(request->bytes, 0x1C, 1.f); // DAT_0032B0F8.
-    put_float(request->bytes, 0x20, 1.f);
+    set(request->bytes, navigation_request::speed_low, 1.f); // DAT_0032B0F8.
+    set(request->bytes, navigation_request::speed_high, 1.f);
 }
 
 // Xbox 0x000C5290

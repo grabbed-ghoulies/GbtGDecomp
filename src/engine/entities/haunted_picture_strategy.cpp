@@ -94,15 +94,6 @@ const RuntimeMindTarget& require_target(const RuntimeMindTarget* target, const c
     return *target;
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    if (offset + 4 > bytes.size())
-    {
-        throw Error("haunted picture mind request field lies outside the request");
-    }
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // Each of the actor's live attachment records (+0x8F8) holds `step` more (0x00042090 / 0x000420B0).
 void adjust_live_holds(i32 step, RuntimeHauntedPictureStrategy& context)
 {
@@ -266,19 +257,19 @@ void wander_runtime_haunted_picture(RuntimeHauntedPictureStrategy& context)
     const float lift = float(retail_sin(angle) * 8.0L); // 0x00153320, DAT_0032B26C
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest& bob = *allocate_runtime_mind_request(mind.anchor, 0xF, mind.sizes); // 0x00029D90
-    put_float(bob.bytes, 0x24, 30.f); // DAT_0032B108.
-    put_float(bob.bytes, 0x10, 1.f); // DAT_0032B0F8.
-    put_float(bob.bytes, 0x14, 1.f);
-    put_float(bob.bytes, 0x1C, 1.f);
-    put_float(bob.bytes, 0x18, 10.f); // DAT_0032B10C.
-    put_float(bob.bytes, 0x28, .25f); // DAT_0032B104.
-    put_float(bob.bytes, 0x10, 1.f);
-    put_float(bob.bytes, 0x14, 1.f);
-    put_float(bob.bytes, 0x20, 10.f);
-    put_float(bob.bytes, 0x18, lift);
-    put_float(bob.bytes, 0x24, 0.f);
-    put_float(bob.bytes, 0x1C, 8.f); // DAT_0032B26C.
-    put_float(bob.bytes, 0x28, .25f);
+    set(bob.bytes, vertical_position_request::approach, 30.f); // DAT_0032B108.
+    set(bob.bytes, vertical_position_request::speed_low, 1.f); // DAT_0032B0F8.
+    set(bob.bytes, vertical_position_request::speed_high, 1.f);
+    set(bob.bytes, vertical_position_request::tolerance, 1.f);
+    set(bob.bytes, vertical_position_request::height, 10.f); // DAT_0032B10C.
+    set(bob.bytes, vertical_position_request::vertical_speed, .25f); // DAT_0032B104.
+    set(bob.bytes, vertical_position_request::speed_low, 1.f);
+    set(bob.bytes, vertical_position_request::speed_high, 1.f);
+    set(bob.bytes, vertical_position_request::radius, 10.f);
+    set(bob.bytes, vertical_position_request::height, lift);
+    set(bob.bytes, vertical_position_request::approach, 0.f);
+    set(bob.bytes, vertical_position_request::tolerance, 8.f); // DAT_0032B26C.
+    set(bob.bytes, vertical_position_request::vertical_speed, .25f);
 }
 
 // Xbox 0x000B1320, EAX strategy, EDI target: while the attack wait runs the picture leaves its target's queue,

@@ -25,6 +25,8 @@ namespace escape_request
 {
 constexpr RetailField<float, 0x10> min_distance{};
 constexpr RetailField<float, 0x14> max_distance{};
+constexpr RetailField<float, 0x18> safe_low{}; // safe_distance's range, drawn at the start (0x0007C580)
+constexpr RetailField<float, 0x1C> safe_high{};
 constexpr RetailField<float, 0x20> speed{};
 constexpr RetailField<float, 0x28> safe_distance{};
 constexpr RetailField<float, 0x2C> heading{}; // written: the heading the last point was picked on
@@ -38,6 +40,8 @@ constexpr RetailField<float, 0x10> height{};
 constexpr RetailField<float, 0x14> tolerance{};
 constexpr RetailField<float, 0x18> min_distance{};
 constexpr RetailField<float, 0x1C> max_distance{};
+constexpr RetailField<float, 0x20> safe_low{}; // safe_distance's range, drawn at the start (0x0007C580)
+constexpr RetailField<float, 0x24> safe_high{};
 constexpr RetailField<float, 0x28> speed{};
 constexpr RetailField<float, 0x2C> vertical_speed{};
 constexpr RetailField<float, 0x34> safe_distance{};
@@ -48,6 +52,8 @@ constexpr RetailField<float, 0x3C> retry_timer{};
 // Kind 0xF (0x0007B5A0): go to the mind's goal point in height too.
 namespace vertical_position_request
 {
+constexpr RetailField<float, 0x10> speed_low{}; // `speed`'s range, drawn at the start (0x0007C580)
+constexpr RetailField<float, 0x14> speed_high{};
 constexpr RetailField<float, 0x18> height{};
 constexpr RetailField<float, 0x1C> tolerance{};
 constexpr RetailField<float, 0x20> radius{}; // plus 1
@@ -60,8 +66,8 @@ constexpr RetailField<float, 0x2C> speed{};
 namespace vertical_point_request
 {
 constexpr RetailField<Vec3, 0x10> point{};
-constexpr RetailField<float, 0x1C> unk_1C{};
-constexpr RetailField<float, 0x20> unk_20{};
+constexpr RetailField<float, 0x1C> speed_low{}; // `speed`'s range, drawn at the start (0x0007C580)
+constexpr RetailField<float, 0x20> speed_high{};
 constexpr RetailField<float, 0x24> height{};
 constexpr RetailField<float, 0x28> tolerance{};
 constexpr RetailField<float, 0x2C> radius{}; // plus 2.5
@@ -73,6 +79,8 @@ constexpr RetailField<float, 0x38> speed{};
 // Kind 0x11 (0x0007B620): go to the mind's target in height too.
 namespace vertical_target_request
 {
+constexpr RetailField<float, 0x10> speed_low{}; // `speed`'s range, drawn at the start (0x0007C580)
+constexpr RetailField<float, 0x14> speed_high{};
 constexpr RetailField<float, 0x18> height{};
 constexpr RetailField<float, 0x1C> tolerance{};
 constexpr RetailField<float, 0x20> radius{}; // added to the target's radius, plus 1
@@ -103,8 +111,11 @@ constexpr RetailField<float, 0x1C> step{};
 // Kind 0x24 (0x0007BA20): move on a heading for a time, steered or pushed straight.
 namespace timed_motion_request
 {
+constexpr RetailField<float, 0x10> heading_offset{}; // degrees, from the target or (with own_heading) the actor's facing
+constexpr RetailField<float, 0x14> heading_spread{}; // degrees either side, drawn at the start
 constexpr RetailField<float, 0x18> duration{}; // against the header's elapsed
 constexpr RetailField<float, 0x1C> speed{}; // of the body's step speed
+constexpr RetailField<u32, 0x20> own_heading{}; // set: starts from the actor's facing, not the target
 constexpr RetailField<u32, 0x24> direct{}; // set: the stick is pushed on the heading, no navigation
 constexpr RetailField<float, 0x28> heading{};
 } // namespace timed_motion_request
@@ -120,6 +131,8 @@ constexpr RetailField<float, 0x1C> point_degrees{}; // kind 0x26
 // Kind 0x2D (0x0007BC20): go to the mind's goal point.
 namespace position_request
 {
+constexpr RetailField<float, 0x10> speed_low{}; // `speed`'s range, drawn at the start (0x0007C580)
+constexpr RetailField<float, 0x14> speed_high{};
 constexpr RetailField<float, 0x18> radius{}; // plus 1
 constexpr RetailField<float, 0x1C> approach{};
 constexpr RetailField<float, 0x20> speed{};
@@ -129,8 +142,8 @@ constexpr RetailField<float, 0x20> speed{};
 namespace navigation_request
 {
 constexpr RetailField<Vec3, 0x10> point{};
-constexpr RetailField<float, 0x1C> unk_1C{};
-constexpr RetailField<float, 0x20> unk_20{};
+constexpr RetailField<float, 0x1C> speed_low{}; // `speed`'s range, drawn at the start (0x0007C580)
+constexpr RetailField<float, 0x20> speed_high{};
 constexpr RetailField<float, 0x24> radius{}; // plus 2.5
 constexpr RetailField<float, 0x28> approach{};
 constexpr RetailField<float, 0x2C> speed{};
@@ -139,8 +152,8 @@ constexpr RetailField<float, 0x2C> speed{};
 // Kind 0x2F (0x0007BC80): go to the mind's target.
 namespace target_position_request
 {
-constexpr RetailField<float, 0x10> unk_10{};
-constexpr RetailField<float, 0x14> unk_14{};
+constexpr RetailField<float, 0x10> speed_low{}; // `speed`'s range, drawn at the start (0x0007C580)
+constexpr RetailField<float, 0x14> speed_high{};
 constexpr RetailField<float, 0x18> radius{}; // added to the reach and the target's radius, plus 1
 constexpr RetailField<float, 0x1C> approach{};
 constexpr RetailField<float, 0x20> lead{}; // from behind the target, aim this far along its facing
@@ -200,9 +213,18 @@ constexpr RetailField<float, 0x84> chance{}; // kind 0x22
 constexpr RetailField<u32, 0x88> chance_waits{}; // kind 0x22
 } // namespace flag_action_request
 
+// Kind 8 (0x0007C0E0): a body flag's test, then a chance.
+namespace chance_flag_request
+{
+constexpr RetailField<std::array<char, 0x30>, 0x10> flag{};
+constexpr RetailField<float, 0x40> chance{};
+} // namespace chance_flag_request
+
 // Kind 0x29: wait out a duration (against the header's elapsed).
 namespace wait_request
 {
+constexpr RetailField<float, 0x10> duration_low{}; // `duration`'s range, drawn at the start (0x00029EC0, 0x0007C580)
+constexpr RetailField<float, 0x14> duration_high{};
 constexpr RetailField<float, 0x18> duration{};
 } // namespace wait_request
 

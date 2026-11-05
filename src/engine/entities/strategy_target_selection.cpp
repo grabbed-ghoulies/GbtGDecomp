@@ -740,14 +740,14 @@ RuntimePlayerMindRequest* request_runtime_strategy_position(const Vec3& position
     RuntimeMindGoalContext& goals = context.entry.goals;
     RuntimePlayerMindRequest* request = allocate_runtime_mind_request(goals.anchor, 0x2E, goals.sizes);
     std::span<u8> bytes = request->bytes;
-    set(bytes, navigation_request::unk_1C, 1.f); // DAT_0032B0F8.
-    set(bytes, navigation_request::unk_20, 1.f);
+    set(bytes, navigation_request::speed_low, 1.f); // DAT_0032B0F8.
+    set(bytes, navigation_request::speed_high, 1.f);
     set(bytes, navigation_request::approach, 30.f); // DAT_0032B108.
     set(bytes, navigation_request::point, position);
     set(bytes, navigation_request::radius, get(settings, strategy_move_settings_field::radius));
     set(bytes, navigation_request::approach, get(settings, strategy_move_settings_field::approach));
-    set(bytes, navigation_request::unk_1C, get(settings, strategy_move_settings_field::unk_10));
-    set(bytes, navigation_request::unk_20, get(settings, strategy_move_settings_field::unk_14));
+    set(bytes, navigation_request::speed_low, get(settings, strategy_move_settings_field::speed_low));
+    set(bytes, navigation_request::speed_high, get(settings, strategy_move_settings_field::speed_high));
     return request;
 }
 
@@ -758,8 +758,8 @@ RuntimePlayerMindRequest* request_runtime_strategy_sway(const Vec3& position, st
     RuntimeMindGoalContext& goals = context.entry.goals;
     RuntimePlayerMindRequest* request = allocate_runtime_mind_request(goals.anchor, 0x10, goals.sizes); // EBX 0x10
     std::span<u8> bytes = request->bytes;
-    set(bytes, vertical_point_request::unk_1C, 1.f); // DAT_0032B0F8.
-    set(bytes, vertical_point_request::unk_20, 1.f);
+    set(bytes, vertical_point_request::speed_low, 1.f); // DAT_0032B0F8.
+    set(bytes, vertical_point_request::speed_high, 1.f);
     set(bytes, vertical_point_request::tolerance, 1.f);
     set(bytes, vertical_point_request::height, 10.f); // DAT_0032B10C.
     set(bytes, vertical_point_request::approach, 30.f); // DAT_0032B108.
@@ -768,8 +768,8 @@ RuntimePlayerMindRequest* request_runtime_strategy_sway(const Vec3& position, st
     set(bytes, vertical_point_request::approach, 30.f);
     set(bytes, vertical_point_request::radius, get(settings, strategy_move_settings_field::radius));
     set(bytes, vertical_point_request::approach, get(settings, strategy_move_settings_field::approach));
-    set(bytes, vertical_point_request::unk_1C, get(settings, strategy_move_settings_field::unk_10));
-    set(bytes, vertical_point_request::unk_20, get(settings, strategy_move_settings_field::unk_14));
+    set(bytes, vertical_point_request::speed_low, get(settings, strategy_move_settings_field::speed_low));
+    set(bytes, vertical_point_request::speed_high, get(settings, strategy_move_settings_field::speed_high));
     set(bytes, vertical_point_request::height, sway);
     set(bytes, vertical_point_request::tolerance, amplitude);
     set(bytes, vertical_point_request::vertical_speed, .25f);

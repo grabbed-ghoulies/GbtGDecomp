@@ -106,9 +106,9 @@ void request_move(float pace, float wait, float linger, RuntimeSpiderStrategy& c
 {
     RuntimeMindGoalContext& mind = goals_of(context).entry.goals;
     RuntimePlayerMindRequest* move = allocate_runtime_mind_request(mind.anchor, 0x2D, mind.sizes); // 0x00029D90
-    put_float(move->bytes, 0x10, pace);
-    put_float(move->bytes, 0x14, 1.f); // DAT_0032B0F8.
-    put_float(move->bytes, 0x1C, 0.f);
+    set(move->bytes, position_request::speed_low, pace);
+    set(move->bytes, position_request::speed_high, 1.f); // DAT_0032B0F8.
+    set(move->bytes, position_request::approach, 0.f);
     RuntimePlayerMindRequest* hold = allocate_runtime_mind_request(mind.anchor, 0x29, mind.sizes); // 0x00029D90
     put_float(hold->bytes, 0x10, wait);
     put_float(hold->bytes, 0x14, linger);

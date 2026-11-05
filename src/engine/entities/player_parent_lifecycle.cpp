@@ -90,11 +90,11 @@ bool initialize_runtime_base_mind(std::span<u8> mind, std::span<const u8> parame
 // Xbox 0x00029EC0
 bool initialize_runtime_mind_request(std::span<u8> request, u32& random)
 {
-    if (read_u16(request, 8) == 0x29)
+    if (get(request, mind_request_field::kind) == 0x29)
     {
         const float fraction = random_fraction(random);
-        const float low = read_f32(request, 0x10);
-        write_float(request, 0x18, (read_f32(request, 0x14) - low) * fraction + low);
+        const float low = get(request, wait_request::duration_low);
+        set(request, wait_request::duration, (get(request, wait_request::duration_high) - low) * fraction + low);
     }
     return true;
 }

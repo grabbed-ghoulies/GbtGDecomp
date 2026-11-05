@@ -110,12 +110,12 @@ void request_move(float pace, float wait, float linger, RuntimeImpFlamethrowerSt
 {
     RuntimeMindGoalContext& mind = goals_of(context).entry.goals;
     RuntimePlayerMindRequest* move = allocate_runtime_mind_request(mind.anchor, 0xF, mind.sizes); // 0x00029D90, EBX 0xF
-    put_float(move->bytes, 0x10, pace);
-    put_float(move->bytes, 0x14, 1.f); // DAT_0032B0F8.
-    put_float(move->bytes, 0x1C, 1.f);
-    put_float(move->bytes, 0x24, 0.f);
-    put_float(move->bytes, 0x18, fields_of(strategy_of(context)).fast != 0 ? 25.f : 5.f);
-    put_float(move->bytes, 0x28, 0.25f); // DAT_0032B104.
+    set(move->bytes, vertical_position_request::speed_low, pace);
+    set(move->bytes, vertical_position_request::speed_high, 1.f); // DAT_0032B0F8.
+    set(move->bytes, vertical_position_request::tolerance, 1.f);
+    set(move->bytes, vertical_position_request::approach, 0.f);
+    set(move->bytes, vertical_position_request::height, fields_of(strategy_of(context)).fast != 0 ? 25.f : 5.f);
+    set(move->bytes, vertical_position_request::vertical_speed, 0.25f); // DAT_0032B104.
     RuntimePlayerMindRequest* hold = allocate_runtime_mind_request(mind.anchor, 0x29, mind.sizes); // 0x00029D90, EBX 0x29
     put_float(hold->bytes, 0x10, wait);
     put_float(hold->bytes, 0x14, linger);

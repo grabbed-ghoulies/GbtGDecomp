@@ -249,18 +249,16 @@ bool sway_runtime_haunted_coat(std::span<const u8> target, RuntimeHauntedCoatStr
     clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
     const float lift = float(retail_sin(phase_angle(fields_of(strategy).bob * bob_scale * tau)) * 8.0L);
     RuntimePlayerMindRequest& move = allocate_request(0x10, context);
-    put_float(move.bytes, 0x1C, 1.f);
-    put_float(move.bytes, 0x20, 1.f);
-    put_float(move.bytes, 0x24, 10.f);
-    put_float(move.bytes, 0x28, 1.f);
-    put_float(move.bytes, 0x30, 30.f);
-    put_float(move.bytes, 0x34, .25f);
-    put_float(move.bytes, 0x10, point.x);
-    put_float(move.bytes, 0x14, point.y);
-    put_float(move.bytes, 0x18, point.z);
-    put_float(move.bytes, 0x30, 0.f);
-    put_float(move.bytes, 0x24, lift);
-    put_float(move.bytes, 0x34, .25f);
+    set(move.bytes, vertical_point_request::speed_low, 1.f);
+    set(move.bytes, vertical_point_request::speed_high, 1.f);
+    set(move.bytes, vertical_point_request::height, 10.f);
+    set(move.bytes, vertical_point_request::tolerance, 1.f);
+    set(move.bytes, vertical_point_request::approach, 30.f);
+    set(move.bytes, vertical_point_request::vertical_speed, .25f);
+    set(move.bytes, vertical_point_request::point, point);
+    set(move.bytes, vertical_point_request::approach, 0.f);
+    set(move.bytes, vertical_point_request::height, lift);
+    set(move.bytes, vertical_point_request::vertical_speed, .25f);
     return true;
 }
 

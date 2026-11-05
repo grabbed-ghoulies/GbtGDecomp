@@ -64,13 +64,13 @@ i32 update_runtime_cinema_mind_request(RuntimeCinemaMindRequestUpdate& context, 
             context.input, context.input_context);
     case 8:
     {
-        const u32 flag = runtime_body_flag_name_index(reinterpret_cast<const char*>(request.data() + 0x10),
+        const u32 flag = runtime_body_flag_name_index(field_data(request, chance_flag_request::flag),
             context.parent.flag_names);
         if (!runtime_body_bit_set(context.parent.flags, flag))
         {
             return 1;
         }
-        if (!actor_event_chance(movement.random, read_f32(request, 0x40)))
+        if (!actor_event_chance(movement.random, get(request, chance_flag_request::chance)))
         {
             return 1;
         }

@@ -35,11 +35,6 @@ const MummyStrategyState& fields_of(std::span<const u8> strategy)
 }
 
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 RuntimePlayerStrategyGoals& goals_of(RuntimeMummyStrategy& context)
 {
     return context.base.goals;
@@ -159,11 +154,11 @@ void approach_runtime_mummy_ring(const RuntimeMindTarget* target, RuntimeMummySt
     clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest* move = allocate_runtime_mind_request(mind.anchor, 0x2E, mind.sizes); // 0x00029D90
-    put_float(move->bytes, 0x1C, 1.f); // DAT_0032B0F8.
-    put_float(move->bytes, 0x20, 1.f);
-    put_float(move->bytes, 0x28, 30.f); // DAT_0032B108.
-    std::memcpy(move->bytes.data() + 0x10, &point, 12);
-    put_float(move->bytes, 0x28, 0.f);
+    set(move->bytes, navigation_request::speed_low, 1.f); // DAT_0032B0F8.
+    set(move->bytes, navigation_request::speed_high, 1.f);
+    set(move->bytes, navigation_request::approach, 30.f); // DAT_0032B108.
+    set(move->bytes, navigation_request::point, point);
+    set(move->bytes, navigation_request::approach, 0.f);
 }
 
 // Xbox 0x000BB8E0, ESI strategy, ECX target, EDX mind

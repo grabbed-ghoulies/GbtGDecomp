@@ -200,13 +200,13 @@ void hover_at(float height, RuntimeImpFlyingStrategy& context)
     fields_of(strategy_of(context)).high = 0u;
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest* move = allocate_runtime_mind_request(mind.anchor, 0xF, mind.sizes); // 0x00029D90, EBX 0xF
-    put_float(move->bytes, 0x10, 0.4f); // DAT_0032B11C, after DAT_0032B0F8.
-    put_float(move->bytes, 0x14, 1.f); // DAT_0032B0F8.
-    put_float(move->bytes, 0x18, height); // After DAT_0032B10C.
-    put_float(move->bytes, 0x1C, 1.f);
-    put_float(move->bytes, 0x20, 0.f);
-    put_float(move->bytes, 0x24, 0.f); // After DAT_0032B108.
-    put_float(move->bytes, 0x28, 3.f); // DAT_0032B260, after DAT_0032B104.
+    set(move->bytes, vertical_position_request::speed_low, 0.4f); // DAT_0032B11C, after DAT_0032B0F8.
+    set(move->bytes, vertical_position_request::speed_high, 1.f); // DAT_0032B0F8.
+    set(move->bytes, vertical_position_request::height, height); // After DAT_0032B10C.
+    set(move->bytes, vertical_position_request::tolerance, 1.f);
+    set(move->bytes, vertical_position_request::radius, 0.f);
+    set(move->bytes, vertical_position_request::approach, 0.f); // After DAT_0032B108.
+    set(move->bytes, vertical_position_request::vertical_speed, 3.f); // DAT_0032B260, after DAT_0032B104.
 }
 
 // Xbox 0x000B6A30, ECX strategy, EAX low: a hover height above the floor.
@@ -274,12 +274,12 @@ void hover_around(bool low, RuntimeImpFlyingStrategy& context)
     put_float(face->bytes, 0x10, 10.f); // DAT_0032B10C.
     RuntimePlayerMindRequest* move
         = allocate_runtime_mind_request(requests.anchor, 0xF, requests.sizes); // 0x00029D90, EBX 0xF
-    put_float(move->bytes, 0x10, 0.4f); // DAT_0032B11C, after DAT_0032B0F8.
-    put_float(move->bytes, 0x14, 1.f); // DAT_0032B0F8.
-    put_float(move->bytes, 0x18, 10.f); // DAT_0032B10C.
-    put_float(move->bytes, 0x1C, 1.f);
-    put_float(move->bytes, 0x24, 0.f); // After DAT_0032B108.
-    put_float(move->bytes, 0x28, 3.f); // DAT_0032B260, after DAT_0032B104.
+    set(move->bytes, vertical_position_request::speed_low, 0.4f); // DAT_0032B11C, after DAT_0032B0F8.
+    set(move->bytes, vertical_position_request::speed_high, 1.f); // DAT_0032B0F8.
+    set(move->bytes, vertical_position_request::height, 10.f); // DAT_0032B10C.
+    set(move->bytes, vertical_position_request::tolerance, 1.f);
+    set(move->bytes, vertical_position_request::approach, 0.f); // After DAT_0032B108.
+    set(move->bytes, vertical_position_request::vertical_speed, 3.f); // DAT_0032B260, after DAT_0032B104.
     // The floor's height under the imp (cell +2 on its 0x00110BF0 grid). Without a cell the float is the strategy
     // pointer's bits, the stack slot of the first argument.
     float ground = std::bit_cast<float>(goals.address_of(strategy_of(context).data()));
@@ -307,11 +307,11 @@ void hover_around(bool low, RuntimeImpFlyingStrategy& context)
     if (height > above)
     {
         const float highest = above + 5.f; // DAT_0032B184.
-        put_float(move->bytes, 0x18, height > highest ? highest : height);
+        set(move->bytes, vertical_position_request::height, height > highest ? highest : height);
         return;
     }
     const float lowest = above - 5.f;
-    put_float(move->bytes, 0x18, lowest > height ? lowest : height);
+    set(move->bytes, vertical_position_request::height, lowest > height ? lowest : height);
 }
 
 // Xbox 0x000B5E20, ESI strategy, AL step: the wing whack's step and its goal.

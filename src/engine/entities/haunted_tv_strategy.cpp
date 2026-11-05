@@ -526,11 +526,11 @@ bool begin_runtime_haunted_tv_generate(const RuntimeMindTarget* target, u32 jolt
     change_state(0x3FE, context); // The inlined 0x0002B8D0.
     RuntimeMindGoalContext& mind = goals_of(context).entry.goals;
     RuntimePlayerMindRequest* request = allocate_runtime_mind_request(mind.anchor, 0xD, mind.sizes); // 0x00029D90
-    put_float(request->bytes, 0x10, 20.f); // DAT_0032B234.
-    put_float(request->bytes, 0x14, 25.f); // DAT_0032B170.
-    put_float(request->bytes, 0x20, 1.f); // DAT_0032B0F8.
-    put_float(request->bytes, 0x18, 100.f); // DAT_0032B12C.
-    put_float(request->bytes, 0x1C, 100.f);
+    set(request->bytes, escape_request::min_distance, 20.f); // DAT_0032B234.
+    set(request->bytes, escape_request::max_distance, 25.f); // DAT_0032B170.
+    set(request->bytes, escape_request::speed, 1.f); // DAT_0032B0F8.
+    set(request->bytes, escape_request::safe_low, 100.f); // DAT_0032B12C.
+    set(request->bytes, escape_request::safe_high, 100.f);
     if (jolt != 0)
     {
        body_record(body_of(context)).step_speed = 2.f; // DAT_0032B110.

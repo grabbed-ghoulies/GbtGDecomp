@@ -8,8 +8,8 @@ namespace strategy_move_settings_field
 {
 constexpr RetailField<float, 0x08> radius{};
 constexpr RetailField<float, 0x0C> approach{};
-constexpr RetailField<float, 0x10> unk_10{};
-constexpr RetailField<float, 0x14> unk_14{};
+constexpr RetailField<float, 0x10> speed_low{}; // the request's speed range
+constexpr RetailField<float, 0x14> speed_high{};
 } // namespace strategy_move_settings_field
 
 // DAT_00511B48 actor list; each link is actor +0x944 with its next pointer at +4.

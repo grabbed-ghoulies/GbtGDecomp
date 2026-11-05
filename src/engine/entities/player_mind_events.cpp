@@ -457,8 +457,8 @@ RuntimePlayerMindRequest* append_runtime_position_request(RuntimePlayerMindReque
     std::span<const u8> sizes, std::span<const u8, 12> position)
 {
     auto* request = allocate_runtime_mind_request(anchor, 0x2E, sizes);
-    set(request->bytes, navigation_request::unk_1C, 1.f);
-    set(request->bytes, navigation_request::unk_20, 1.f);
+    set(request->bytes, navigation_request::speed_low, 1.f);
+    set(request->bytes, navigation_request::speed_high, 1.f);
     set(request->bytes, navigation_request::approach, 30.f);
     std::memcpy(field_data(request->bytes, navigation_request::point), position.data(), position.size());
     return request;
@@ -469,8 +469,8 @@ RuntimePlayerMindRequest* append_runtime_range_request(RuntimePlayerMindRequest&
     float range)
 {
     auto* request = allocate_runtime_mind_request(anchor, 0x2F, sizes);
-    set(request->bytes, target_position_request::unk_10, 1.f);
-    set(request->bytes, target_position_request::unk_14, 1.f);
+    set(request->bytes, target_position_request::speed_low, 1.f);
+    set(request->bytes, target_position_request::speed_high, 1.f);
     set(request->bytes, target_position_request::approach, 30.f);
     set(request->bytes, target_position_request::radius, range);
     return request;

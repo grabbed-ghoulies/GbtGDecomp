@@ -1,4 +1,5 @@
 #include "actor_matrix_setup.h"
+#include "gbtg/model_nodes.h"
 
 #include <cstring>
 
@@ -80,7 +81,7 @@ bool initialize_actor_model_matrices(const Actor& actor, ActorMatrixSetup& state
         // Model CPU +0x10 -> +0x10: the part header's word, which must be set.
         const auto& asset = *actor.model->runtime->source;
         const auto cpu = actor.model->cpu;
-        if (read_u32(cpu, read_u32(cpu, 0x10) + 0x10) != 0)
+        if (runtime_model_piece_header(cpu) != 0)
         {
             state.matrices.instance = actor.model->runtime->tree_storage.bytes;
             auto* node = find_runtime_model_node_by_name(*asset.tree, 0, "ndMtxArray", types);

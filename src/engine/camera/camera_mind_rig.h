@@ -9,6 +9,22 @@
 
 namespace gbtg
 {
+// The camera's request kinds, sized by DAT_00217F18. Kind 1 (0x2A4 bytes, 0x000781F0): follow the mind's target, with
+// up to 20 target shapes (0x20 bytes each, MindTargetShape).
+namespace camera_target_request
+{
+constexpr size_t shapes = 0x14;
+constexpr RetailField<u32, 0x294> shape_count{};
+constexpr RetailField<u32, 0x298> fixed_heading{}; // set: head for `heading` rather than choosing
+constexpr RetailField<float, 0x29C> heading{};
+constexpr RetailField<u32, 0x2A0> sets_goal_point{}; // set: the placed position becomes the mind's goal point
+} // namespace camera_target_request
+// Kind 3 (0x18 bytes, 0x00079B80): follow an actor by address.
+namespace camera_follow_request
+{
+constexpr RetailField<u32, 0x10> target{};
+} // namespace camera_follow_request
+
 // DAT_00434008..DAT_00434033, the camera view tunables: the retail .data words, then whatever 0x0013CBD0,
 // 0x00140E30 and the script's type 0x61 store.
 extern std::array<u32, 11> g_camera_view_tunables;

@@ -1,4 +1,5 @@
 #include "ghouly_swap_setup.h"
+#include "actor_fields.h"
 #include "actor_lookup.h"
 #include "actor_spawn_eligibility.h"
 #include "actor_spawn_query.h"
@@ -65,7 +66,7 @@ u32 find_runtime_actor_by_link_key(u16 key, const std::function<u32(const entity
     for (const auto* node = entity_detail::g_world.latch; node != nullptr; node = node->next) // DAT_00511AA4.
     {
         const u32 address = owner(*node); // The node sits at the object's +0x900.
-        if (read_u16(bytes_at(address), 0x1FE) == key)
+        if (actor_marker_next(bytes_at(address)) == key)
         {
             return address;
         }
@@ -161,13 +162,13 @@ void dispatch_runtime_ghouly_swap_setup_message(RuntimeGhoulySwapSetupMessages& 
         break;
     case 0x7D:
     {
-        if (read_u16(bytes, 0x1FE) != 0)
+        if (actor_marker_next(bytes) != 0)
         {
-            fields_of(bytes).anchor = find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
+            fields_of(bytes).anchor = find_runtime_actor_by_id(actor_marker_next(bytes), context.latch_owner,
                 context.bytes_at); // 0x00129ED0, DX +0x1FE
         }
         const Vec3 position = actor_world_position(setup.actor); // 0x000412A0
-        u32 source = find_runtime_actor_by_link_key(read_u16(bytes, 0x1FC), context.latch_owner,
+        u32 source = find_runtime_actor_by_link_key(actor_marker_id(bytes), context.latch_owner,
             context.bytes_at); // 0x00129F00, EAX the setup
         if (source == 0)
         {

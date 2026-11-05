@@ -41,14 +41,9 @@ float real(std::span<const u8> bytes, size_t offset)
     return read_f32(bytes, offset);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 Vec3 record_position(std::span<const u8> record)
 {
-    return Vec3{real(record, 4), real(record, 8), real(record, 0xC)};
+    return mind_target_shape(record).position;
 }
 
 // The inline wrap after 0x00152BE0: a remainder below -pi (compared in x87) gains a turn; one at or
@@ -308,7 +303,7 @@ u32 frame_camera_target(const Vec3& from, std::span<const u8, 0x20> record, Vec3
     {
         return 0;
     }
-    const float half_height = real(record, 0x14) * kHalf;
+    const float half_height = mind_target_shape(record).height * kHalf;
     rise = half_height;
     float vertical = 0.f;
     const i32 vertical_pixels = i32(context.tunables.word(0x00434010));
@@ -329,7 +324,7 @@ u32 frame_camera_target(const Vec3& from, std::span<const u8, 0x20> record, Vec3
         {
             throw Error("camera rig needs the display records 0x000F5900 initializes (DAT_0054DD84 is 0)");
         }
-        horizontal = active_camera().focal_pixels * active_camera().pixel_aspect * real(record, 0x1C)
+        horizontal = active_camera().focal_pixels * active_camera().pixel_aspect * mind_target_shape(record).radius
             / (float(horizontal_pixels) * kHundredth * float(context.render_width / 2));
     }
     if (!(horizontal >= vertical))
@@ -526,11 +521,11 @@ void merge_camera_targets(std::span<const u8> records, i32 count, const Vec3& ey
     const auto elevation = [&records, &eye](size_t offset, float& top, float& bottom)
     {
         const std::span<const u8> record = records.subspan(offset, 0x20);
-        const float dz = real(record, 0xC) - eye.z;
-        const float dx = real(record, 4) - eye.x;
+        const float dz = mind_target_shape(record).position.z - eye.z;
+        const float dx = mind_target_shape(record).position.x - eye.x;
         const float flat = float(retail_square_root(dz * dz + dx * dx));
-        top = float(retail_atan2(real(record, 0x14) + real(record, 8) - eye.y, flat));
-        bottom = float(retail_atan2(real(record, 8) - eye.y, flat));
+        top = float(retail_atan2(mind_target_shape(record).height + mind_target_shape(record).position.y - eye.y, flat));
+        bottom = float(retail_atan2(mind_target_shape(record).position.y - eye.y, flat));
     };
     float top_angle = 0.f;
     float bottom_angle = 0.f;
@@ -554,14 +549,14 @@ void merge_camera_targets(std::span<const u8> records, i32 count, const Vec3& ey
     output[0] = 4;
     output[1] = 0x20;
     output[2] = 1;
-    const std::span<u8> bytes{output.data(), 0x20};
-    put_float(bytes, 4, meet_x);
-    put_float(bytes, 8, eye.y + bottom_height);
-    put_float(bytes, 0xC, meet_z);
-    put_float(bytes, 0x10, 0.f);
-    put_float(bytes, 0x14, float(double(top_height) - bottom_height));
-    put_float(bytes, 0x18, 0.f);
-    put_float(bytes, 0x1C, width);
+    MindTargetShape& shape = mind_target_shape(std::span<u8>(output.data(), 0x20));
+    shape.position.x = meet_x;
+    shape.position.y = eye.y + bottom_height;
+    shape.position.z = meet_z;
+    shape.unk_10 = 0;
+    shape.height = float(double(top_height) - bottom_height);
+    shape.unk_18 = 0;
+    shape.radius = width;
 }
 
 // Xbox 0x00078840
@@ -569,14 +564,14 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
     Vec3& position, Vec3& focus, u32 target, float& distance, const RuntimeCameraRigContext& context)
 {
     const Vec3 euler = actor_world_euler(camera);
-    const i32 count = i32(read_u32(request, 0x294));
+    const i32 count = i32(get(request, camera_target_request::shape_count));
     if (count < 1)
     {
         position = eye;
         return;
     }
     std::array<u8, 0x20> merged{};
-    merge_camera_targets(request.subspan(0x14), count, eye, euler.y, merged);
+    merge_camera_targets(request.subspan(camera_target_request::shapes), count, eye, euler.y, merged);
     const RuntimeDirectorActor watched = context.actor_at(target);
     float heading = 0.f;
     float rise = 0.f;
@@ -709,7 +704,7 @@ u32 camera_body_mask(const Actor& camera)
 Vec3 first_contact_normal()
 {
     const u8* record = entity_detail::g_segment_slots[0].pool.begin;
-    return Vec3{read_f32({record, 0x18}, 0xC), read_f32({record, 0x18}, 0x10), read_f32({record, 0x18}, 0x14)};
+    return segment_contact_normal({record, 0x18});
 }
 }
 
@@ -843,24 +838,24 @@ u32 sweep_camera_eye(RuntimeCameraMindView& view, const Vec3& eye, Vec3& start, 
 void choose_camera_heading(RuntimeCameraMindView& view, std::span<const u8> request, const Vec3& eye,
     const RuntimeCameraRigContext& context)
 {
-    if (read_u32(request, 0x298) != 0)
+    if (get(request, camera_target_request::fixed_heading) != 0)
     {
-        set_camera_heading_goal(view.mind, real(request, 0x29C), context.tunables.real(0x004274FC), 0,
+        set_camera_heading_goal(view.mind, get(request, camera_target_request::heading), context.tunables.real(0x004274FC), 0,
             context.tunables.real(0x004274F8), 1);
         return;
     }
-    if (read_u32(request, 0x294) == 0)
+    if (get(request, camera_target_request::shape_count) == 0)
     {
         return;
     }
-    const std::span<const u8, 0x20> record{request.data() + 0x14, 0x20};
+    const std::span<const u8, 0x20> record{request.data() + camera_target_request::shapes, 0x20};
     if (navigation_record_reaches_point(record, eye, i32(context.tunables.word(0x0042751C)),
             i32(context.tunables.word(0x00427520)), 1) != 0)
     {
         camera_mind_record(view.mind).route_reaches_eye = 1;
         return;
     }
-    Vec3 center{real(record, 4), real(record, 0x14) * kHalf + real(record, 8), real(record, 0xC)};
+    Vec3 center{mind_target_shape(record).position.x, mind_target_shape(record).height * kHalf + mind_target_shape(record).position.y, mind_target_shape(record).position.z};
     Vec3 start = eye;
     float heading = 0.f;
     if (sweep_camera_eye(view, eye, start, center, heading, i32(context.tunables.word(0x00427538)), context) != 0)
@@ -965,7 +960,7 @@ void track_camera_obstruction(RuntimeCameraMindView& view, Vec3& eye, Vec3& posi
             return;
         }
         float angle = 0.f;
-        const Vec3 wall{read_f32(contact, 0xC), read_f32(contact, 0x10), read_f32(contact, 0x14)};
+        const Vec3 wall = segment_contact_normal(contact);
         if (!runtime_direction_angle(wall, angle))
         {
             return;
@@ -1052,7 +1047,7 @@ u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8
     Vec3 focus{};
     place_camera_rig(view.mind, view.camera, request, eye, position, focus, target, distance, context);
     track_camera_obstruction(view, eye, position, focus, target, distance, context);
-    if (read_u32(request, 0x2A0) != 0)
+    if (get(request, camera_target_request::sets_goal_point) != 0)
     {
         mind_record(view.mind).goal_point = position;
         Vec3 aim{};

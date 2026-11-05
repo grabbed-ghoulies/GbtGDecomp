@@ -1,4 +1,5 @@
 #include "body_grab_throw_state.h"
+#include "actor_fields.h"
 #include <cstddef>
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -161,7 +162,7 @@ bool initialize_runtime_grab_throw_state(GrabThrowState& state, std::span<const 
     {
         state.victim = mind_target_record(target).actor;
     }
-    const u16 key = read_u16(context.actor_bytes, 0x1FC);
+    const u16 key = actor_marker_id(context.actor_bytes);
     if (key != 0)
     {
         u16 id = next_runtime_marker_id(0, kThrowMarkerKind, 1, context.markers); // 0x0011F1C0, AX 0

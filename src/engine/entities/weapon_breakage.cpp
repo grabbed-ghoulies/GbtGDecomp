@@ -1,4 +1,5 @@
 #include "weapon_breakage.h"
+#include "gbtg/model_nodes.h"
 #include "weapon_actor_detail.h"
 #include "actor_live_attachments.h"
 #include "actor_model_anchors.h"
@@ -121,7 +122,7 @@ void set_runtime_weapon_piece_pairs(RuntimeWeaponActor& weapon, float fraction)
         return;
     }
     const auto cpu = actor.model->cpu;
-    const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+    const u32 header = runtime_model_piece_header(cpu);
     if (header == 0 || cpu[header + 0x19] == 0xFF)
     {
         return;
@@ -147,7 +148,7 @@ bool break_runtime_weapon(RuntimeWeaponActor& weapon)
     if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
     {
         const auto cpu = actor.model->cpu;
-        header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+        header = runtime_model_piece_header(cpu);
         if (header != 0)
         {
             groups = cpu[header];

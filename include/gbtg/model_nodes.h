@@ -7,6 +7,21 @@ namespace gbtg
 {
 // A loaded model image's records, read by address through RuntimeRelocationImage. See docs/RETAIL_LAYOUTS.md.
 
+// The model's breakable-piece header (CPU +0x10 -> +0x10; 0 for none): its group count at +0, piece count at +1, and
+// from +0x14 a 0xC-byte row per group, with the group's piece list at +0 (from the header) and piece count at +2.
+inline u32 runtime_model_piece_header(std::span<const u8> cpu)
+{
+    return read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+}
+inline u8 runtime_model_piece_group_size(std::span<const u8> cpu, u32 header, u32 group)
+{
+    return cpu[header + 0x16 + group * 0xC];
+}
+inline u32 runtime_model_piece_group_list(std::span<const u8> cpu, u32 header, u32 group)
+{
+    return header + read_u16(cpu, header + 0x14 + group * 0xC);
+}
+
 // The model directory (0x00052910): its entries and their count.
 namespace model_directory_field
 {

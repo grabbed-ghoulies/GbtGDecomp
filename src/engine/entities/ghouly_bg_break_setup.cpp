@@ -1,4 +1,5 @@
 #include "ghouly_bg_break_setup.h"
+#include "actor_fields.h"
 #include "actor_lookup.h"
 #include "actor_template_creation.h"
 #include "actor_transform.h"
@@ -45,7 +46,7 @@ float random_fraction(u32& random)
 // The DAT_0051108C row of this setup's marker (actor +0x1FC); retail writes through address zero without one.
 u8* own_record(RuntimeGhoulyBgBreakSetup& context)
 {
-    u8* row = find_runtime_marker(context.records, i16(read_u16(context.bytes, 0x1FC)));
+    u8* row = find_runtime_marker(context.records, i16(actor_marker_id(context.bytes)));
     if (row == nullptr)
     {
         throw Error("ghouly bg-break setup has no DAT_0051108C row for its marker");
@@ -394,9 +395,9 @@ void dispatch_runtime_ghouly_bg_break_setup_message(RuntimeGhoulyBgBreakSetupMes
     case 0x7D:
     {
         const Vec3 position = actor_world_position(setup.actor); // 0x000412A0
-        if (read_u16(bytes, 0x1FE) != 0)
+        if (actor_marker_next(bytes) != 0)
         {
-            fields_of(bytes).anchor = find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
+            fields_of(bytes).anchor = find_runtime_actor_by_id(actor_marker_next(bytes), context.latch_owner,
                 context.bytes_at); // 0x00129ED0
         }
         u32 background = fields_of(bytes).background;

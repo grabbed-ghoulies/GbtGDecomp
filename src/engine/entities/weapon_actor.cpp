@@ -1,4 +1,7 @@
 #include "weapon_actor.h"
+#include "mind_fields.h"
+#include "gbtg/model_nodes.h"
+#include "actor_fields.h"
 #include "weapon_fields.h"
 #include "player_fields.h"
 #include <cstddef>
@@ -110,9 +113,9 @@ void set_spawn_blocked(RuntimeWeaponActor& weapon, i32 value)
 void copy_runtime_weapon_classes(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     const i32 count = i32(get(parameters, weapon_parameter::accepted_class_count));
-    weapon_base(weapon.bytes).accepted_class_count = read_u16(parameters, 0x458);
+    weapon_base(weapon.bytes).accepted_class_count = u16(get(parameters, weapon_parameter::accepted_class_count));
     weapon_base(weapon.bytes).accepted_class_row = 0;
-    weapon.actor.accepted_class_count = i16(read_u16(parameters, 0x458));
+    weapon.actor.accepted_class_count = i16(u16(get(parameters, weapon_parameter::accepted_class_count)));
     weapon.actor.accepted_classes = reinterpret_cast<const ActorAcceptedClass*>(weapon_base(weapon.bytes).accepted_classes.data());
     if (count <= 0)
     {
@@ -746,7 +749,7 @@ void start_runtime_weapon_scene(RuntimeWeaponActor& weapon)
 // Xbox 0x00148600, ESI actor
 void bind_runtime_weapon_group(RuntimeWeaponActor& weapon)
 {
-    const u16 group = read_u16(weapon.bytes, 0x1FE);
+    const u16 group = actor_marker_next(weapon.bytes);
     if (group == 0)
     {
         return;
@@ -755,7 +758,7 @@ void bind_runtime_weapon_group(RuntimeWeaponActor& weapon)
     for (const auto* node = entity_detail::g_world.latch; node != nullptr; node = node->next) // DAT_00511AA4.
     {
         const u32 address = weapon.latch_owner(*node);
-        if (read_u16(weapon.bytes_at(address), 0x1FC) == group)
+        if (actor_marker_id(weapon.bytes_at(address)) == group)
         {
             owner = address;
             break;
@@ -1517,7 +1520,7 @@ void chip_runtime_weapon(RuntimeWeaponActor& weapon, const Vec3& direction, cons
             return 0;
         }
         const auto cpu = actor.model->cpu;
-        const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+        const u32 header = runtime_model_piece_header(cpu);
         return header == 0 ? 0u : cpu[header];
     };
     const auto remaining = [&]()
@@ -1537,7 +1540,7 @@ void chip_runtime_weapon(RuntimeWeaponActor& weapon, const Vec3& direction, cons
         while (remaining() > fraction)
         {
             const auto cpu = actor.model->cpu;
-            const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+            const u32 header = runtime_model_piece_header(cpu);
             const u32 group = weapon_base(bytes).broken_groups;
             bytes[0x298] = 0;
             RuntimeActorMatrixSampling sampling{actor_matrix_records(weapon.matrices), weapon.matrices.matrices.node,
@@ -1934,48 +1937,40 @@ void tick_actor_model_pieces(const Actor& actor, std::span<u8> actor_bytes, std:
         throw Error("0x0003FB80 reads the animation header of an actor without a model");
     }
     const auto cpu = actor.model->cpu;
-    const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
-    const auto put = [&](size_t offset, float value)
-    {
-        std::memcpy(pieces.data() + offset, &value, 4);
-    };
-    const auto get = [&](size_t offset)
-    {
-        return read_f32(pieces, offset);
-    };
+    const u32 header = runtime_model_piece_header(cpu);
     u32 row = 0;
     for (u32 group = 0; group < cpu[header]; ++group)
     {
-        const u8 count = cpu[header + 0x16 + group * 0xC];
-        const u32 list = header + read_u16(cpu, header + 0x14 + group * 0xC);
+        const u8 count = runtime_model_piece_group_size(cpu, header, group);
+        const u32 list = runtime_model_piece_group_list(cpu, header, group);
         for (u32 piece = 0; piece < count; ++piece)
         {
-            const size_t offset = size_t(row) * 0xB0;
-            if (read_u32(pieces, offset + 0x8C) == 0)
+            ActorModelPiece& part = actor_model_piece(pieces, row);
+            if (part.active == 0)
             {
                 ++row;
                 continue;
             }
-            put(offset + 0xA8, get(offset + 0xA8) + step);
-            if (get(offset + 0xA8) > 6.f) // DAT_0032B218.
+            part.age = part.age + step;
+            if (part.age > 6.f) // DAT_0032B218.
             {
                 // The expired piece stops; retail keeps the same row for the group's next piece.
-                const u32 zero = 0;
-                std::memcpy(pieces.data() + offset + 0x8C, &zero, 4);
+                part.active = 0;
                 continue;
             }
             // The piece flies by its velocity (+0) from its position (+0x30), as a sphere of its radius (+0x48).
-            Vec3 next{get(offset + 0x30) + get(offset), get(offset + 0x34) + get(offset + 4),
-                get(offset + 0x38) + get(offset + 8)};
-            Vec3 start{get(offset + 0x30), get(offset + 0x34), get(offset + 0x38)};
-            if (entity_record_sphere_probe(next, start, get(offset + 0x48), -1, 0) != 0) // 0x001225A0
+            Vec3 next{part.position.x + part.velocity.x, part.position.y + part.velocity.y,
+                part.position.z + part.velocity.z};
+            Vec3 start{part.position.x, part.position.y, part.position.z};
+            if (entity_record_sphere_probe(next, start, part.radius, -1, 0) != 0) // 0x001225A0
             {
                 const u8* record = entity_detail::g_segment_slots[0].pool.begin; // DAT_00511A20 + 4.
                 if (record != nullptr)
                 {
-                    float nx = read_f32({record, 0x54}, 0xC);
-                    float ny = read_f32({record, 0x54}, 0x10);
-                    float nz = read_f32({record, 0x54}, 0x14);
+                    const Vec3 contact_normal = segment_contact_normal({record, 0x54});
+                    float nx = contact_normal.x;
+                    float ny = contact_normal.y;
+                    float nz = contact_normal.z;
                     const float length = (nz * nz + ny * ny) + nx * nx;
                     if (length != 0.f)
                     {
@@ -1985,52 +1980,51 @@ void tick_actor_model_pieces(const Actor& actor, std::span<u8> actor_bytes, std:
                         nz = float(nz * scale);
                     }
                     // The velocity bounces off the surface, then halves.
-                    const float bounce = (get(offset + 4) * ny * -2.f - get(offset + 8) * nz * 2.f) -
-                        get(offset) * nx * 2.f; // DAT_0032B14C, DAT_0032B110.
-                    put(offset + 8, nz * bounce + get(offset + 8));
-                    put(offset + 4, ny * bounce + get(offset + 4));
-                    put(offset, get(offset) + bounce * nx);
-                    put(offset, get(offset) * 0.5f); // DAT_0032B0F4.
-                    put(offset + 4, get(offset + 4) * 0.5f);
-                    put(offset + 8, get(offset + 8) * 0.5f);
-                    const long double vx = get(offset);
-                    const long double vy = get(offset + 4);
-                    const long double vz = get(offset + 8);
+                    const float bounce = (part.velocity.y * ny * -2.f - part.velocity.z * nz * 2.f) -
+                        part.velocity.x * nx * 2.f; // DAT_0032B14C, DAT_0032B110.
+                    part.velocity.z = nz * bounce + part.velocity.z;
+                    part.velocity.y = ny * bounce + part.velocity.y;
+                    part.velocity.x = part.velocity.x + bounce * nx;
+                    part.velocity.x = part.velocity.x * 0.5f; // DAT_0032B0F4.
+                    part.velocity.y = part.velocity.y * 0.5f;
+                    part.velocity.z = part.velocity.z * 0.5f;
+                    const long double vx = part.velocity.x;
+                    const long double vy = part.velocity.y;
+                    const long double vz = part.velocity.z;
                     const long double speed = std::sqrt((vx * vx + vy * vy) + vz * vz);
                     u32 surface;
                     std::memcpy(&surface, record + 0x20, 4);
                     if (static_cast<long double>(std::bit_cast<float>(0x3DCCCCCDu)) > speed && // DAT_0032B254.
-                        get(offset + 0xA8) > 3.f && (surface & 8) != 0) // DAT_0032B260.
+                        part.age > 3.f && (surface & 8) != 0) // DAT_0032B260.
                     {
-                        const u32 zero = 0;
-                        std::memcpy(pieces.data() + offset + 0x8C, &zero, 4);
+                        part.active = 0;
                     }
                 }
             }
             else
             {
-                put(offset + 4, get(offset + 4) - std::bit_cast<float>(0x3D4CCCCDu)); // DAT_0032B250 gravity.
+                part.velocity.y = part.velocity.y - std::bit_cast<float>(0x3D4CCCCDu); // DAT_0032B250 gravity.
             }
-            put(offset + 0x30, next.x);
-            put(offset + 0x34, next.y);
-            put(offset + 0x38, next.z);
+            part.position.x = next.x;
+            part.position.y = next.y;
+            part.position.z = next.z;
             constexpr float damping = std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
-            put(offset + 0xC, get(offset + 0xC) * damping);
-            put(offset + 0x10, get(offset + 0x10) * damping);
-            put(offset + 0x14, get(offset + 0x14) * damping);
-            put(offset + 0x3C, get(offset + 0x18) + get(offset + 0xC));
-            put(offset + 0x40, get(offset + 0x1C) + get(offset + 0x10));
-            put(offset + 0x44, get(offset + 0x20) + get(offset + 0x14));
+            part.spin.x = part.spin.x * damping;
+            part.spin.y = part.spin.y * damping;
+            part.spin.z = part.spin.z * damping;
+            part.euler.x = part.turn.x + part.spin.x;
+            part.euler.y = part.turn.y + part.spin.y;
+            part.euler.z = part.turn.z + part.spin.z;
             // The piece's matrix record (+0x288 by its node) takes the position, lowered by the radius past the
             // extent, and the wrapped euler; it redraws.
             ActorMatrixRecord& matrix = actor_matrix_records(matrices)[size_t(cpu[list + piece])];
-            const float x = get(offset + 0x30);
-            const float z = get(offset + 0x38);
-            const float y = get(offset + 0x34) - (get(offset + 0x48) - get(offset + 0xAC));
+            const float x = part.position.x;
+            const float z = part.position.z;
+            const float y = part.position.y - (part.radius - part.extent);
             matrix.translation.x = x;
             matrix.translation.z = z;
             matrix.translation.y = y;
-            std::memcpy(&matrix.euler, pieces.data() + offset + 0x3C, 12);
+            matrix.euler = part.euler;
             Vec3 euler = matrix.euler;
             wrap_runtime_euler_angles(euler); // 0x001059B0
             matrix.euler = euler;
@@ -2054,14 +2048,14 @@ bool actor_model_pieces_settled(const Actor& actor, const std::vector<u8>& piece
         throw Error("0x00040040 reads the animation header of an actor without a model");
     }
     const auto cpu = actor.model->cpu;
-    const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+    const u32 header = runtime_model_piece_header(cpu);
     u32 row = 0;
     for (u32 group = 0; group < cpu[header]; ++group)
     {
-        const u8 count = cpu[header + 0x16 + group * 0xC];
+        const u8 count = runtime_model_piece_group_size(cpu, header, group);
         for (u32 piece = 0; piece < count; ++piece)
         {
-            if (read_u32(pieces, size_t(row) * 0xB0 + 0x8C) != 0)
+            if (actor_model_piece(pieces, row).active != 0)
             {
                 return false;
             }
@@ -2292,10 +2286,11 @@ void update_runtime_weapon_bounds(RuntimeWeaponActor& weapon)
     const float scale_xz = actor.radius_xz;
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float inverse = 1.f / scale_y;
-    const float bottom = read_f32(bound, 8);
+    const MindTargetShape& shape = mind_target_shape(std::span<const u8>(bound));
+    const float bottom = shape.position.y;
     const float low = (bottom - position.y) * inverse;
-    const float high = ((read_f32(bound, 0x14) + bottom) - position.y) * inverse;
-    const float radius = read_f32(bound, 0x1C) / scale_xz;
+    const float high = ((shape.height + bottom) - position.y) * inverse;
+    const float radius = shape.radius / scale_xz;
     actor.model_size_y = high; // +0x1C8
     actor.model_size_z = low; // +0x1CC
     actor.model_size_x = radius; // +0x1C4
@@ -2915,9 +2910,9 @@ bool initialize_runtime_chair_weapon(RuntimeWeaponActor& weapon, std::span<const
 {
     auto bytes = weapon.bytes;
     weapon_base(bytes).contact_test = 0x000CF5F0; // The chair's grab test, called through +0x99C.
-    chair_of(bytes).taker_uses = read_u32(parameters, 0x5F8);
-    chair_of(bytes).player_uses = read_u32(parameters, 0x5FC);
-    if (read_u32(parameters, 0x600) != 0)
+    chair_of(bytes).taker_uses = get(parameters, chair_weapon_parameter::taker_uses);
+    chair_of(bytes).player_uses = get(parameters, chair_weapon_parameter::player_uses);
+    if (get(parameters, chair_weapon_parameter::unk_600) != 0)
     {
         weapon_base(bytes).unk_942 = 1;
     }

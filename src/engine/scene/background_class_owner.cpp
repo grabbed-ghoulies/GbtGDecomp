@@ -1,4 +1,5 @@
 #include "background_class_owner.h"
+#include "gbtg/model_nodes.h"
 
 namespace gbtg
 {
@@ -147,7 +148,7 @@ void NativeBackgroundClassOwner::release(FactoryObject& object)
             throw Error("background release reads the first background's model through address zero");
         }
         const auto cpu = first->state.actor.model->cpu;
-        count = cpu[read_u32(cpu, read_u32(cpu, 0x10) + 0x10) + 1];
+        count = cpu[runtime_model_piece_header(cpu) + 1];
         for (const auto& graph : first->state.graphs)
         {
             rows.push_back({graph.allocation});

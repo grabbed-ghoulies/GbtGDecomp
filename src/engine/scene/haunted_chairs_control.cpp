@@ -1,4 +1,5 @@
 #include "haunted_chairs_control.h"
+#include "../entities/actor_fields.h"
 #include "../entities/weapon_fields.h"
 #include "scene_controls.h"
 #include "scene_control_fields.h"
@@ -85,7 +86,7 @@ void gather_runtime_haunted_chairs(HauntedChairsControlState& control,
         {
             const i32 count = control.count;
             control.chairs[size_t(count)] = actor;
-            const u16 id = read_u16(services.actor_bytes(*actor), 0x1FC);
+            const u16 id = actor_marker_id(services.actor_bytes(*actor));
             i32 row = 0;
             while (row < 9 && services.chair_ids[size_t(row)] != u32(id))
             {
@@ -153,7 +154,7 @@ void show_runtime_haunted_chairs(const HauntedChairsControlState& control,
         }
         register_actor_render_bins(services.render(*chair)); // 0x0003CAE0
         const auto bytes = services.actor_bytes(*chair);
-        const u16 id = read_u16(bytes, 0x1FE);
+        const u16 id = actor_marker_next(bytes);
         if (id == 0)
         {
             continue;

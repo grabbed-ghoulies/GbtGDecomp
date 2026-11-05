@@ -213,6 +213,7 @@ For one object type:
 | Background cloth header (`BackgroundClothHeader`, the start of a cloth's block, 0x0004B5F0, viewed with `cloth_header`): the point graph's descriptor, grid, light, bounds, hooks, shadow state, sound, draw switches. The points, edges, colours and normals follow it. | 0x1F0 | `src/engine/graphics/background_cloth.h` |
 | Actor effect header (`ActorEffectHeader`, an emitter, 0x000ED1C0, `ActorEffectNode::bytes`, viewed with `effect_header`): particle counts and free head, emitting, emit timer, life, ticks, flags, position and its previous and tick copies, emit point, motion, euler, spin, jitter, offset, velocity, particle size, volume euler and spin, scale, binding, the emission volume and its angles, velocity mode, speed and angle ranges, script, command, draw and depth modes, texture and its frames, model, the particle and collision sounds and the collision effect. The particles follow it. | 0x390, plus 0x150 per particle | `src/engine/graphics/actor_effect_nodes.h` |
 | Point graph (`src/engine/graphics/point_graph.h`, 0x00102500 and on): the solver's `PointGraphHeader` (counts, sorted and squared switches, damping; also the start of a cloth's header), a background animation's whole `PointGraphRecord` (the address words, bind, rest and placed matrices and two inverses, centre, reference edges, warm-up frames, age, iterations, active, contacted), `PointGraphPoint` (position, previous, force, inverse mass, pinned) and `PointGraphEdge` (ends by index and address, rest length, inverse squared and squared lengths) | 0x20 / 0x1E0 / 0x30 / 0x1C | `src/engine/graphics/point_graph.h` |
+| Model piece (`ActorModelPiece`, a row at actor +0x2A4, 0x0003F170, 0x0003F820, 0x0003FB80): velocity, spin, turn, position, euler, radius, matrix, active, center, age, extent. `actor_model_piece` views a row. | 0xB0 | `src/engine/entities/actor_model_pieces.h` |
 | Candle flame block (`CandleFlameBlock`, 0x000C6C80..0x000C7540; the candle's +0xE5C and the relics store's +0x40): lit, light slot, point light; its pointer words are `RuntimeCandleFlame`'s references | 0x18 | `src/engine/entities/candle_weapon.h` |
 
 
@@ -407,6 +408,12 @@ about 90 sites, and in 0x0007C580: each moving kind draws `speed` from a low and
 the escapes draw `safe_distance` the same way. Body messages stay too: a message's length is its sender's, and a whole-struct
 view could demand more bytes than a sender provides. Kind 8's name and chance are `chance_flag_request`. The camera's request
 +0x10 in 0x00079E80 stays literal until its kind is confirmed.
+
+`weapon_actor.cpp`'s and `camera_mind_rig.cpp`'s raw reads were mostly other types: the actor's marker words, the model's piece
+header (`runtime_model_piece_header` and its group helpers in `model_nodes.h`), model pieces, chair parameters and segment contact
+normals (`segment_contact_normal`). The markers go through `actor_marker_id` and `actor_marker_next`, which read one word rather
+than a whole `ActorBase`, as short test blocks reach them. The camera's `record`s are `MindTargetShape`s, and an actor bound (0x000426F0) is one too. The camera's
+request kinds 1 (0x2A4 bytes, up to 20 shapes) and 3 (0x18 bytes, a target) have names.
 
 `ActorBytes` became `ActorBase` once it had named fields. Parameter rows, presets and other read-only script and XBE data stay
 on descriptors, as elsewhere: `walk_alert_row_field`, `strategy_move_settings_field`, `input_tracking_preset_field`,

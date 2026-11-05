@@ -1,4 +1,5 @@
 #include "../camera/entity_camera.h"
+#include "../entities/actor_fields.h"
 #include "../entities/mind_fields.h"
 #include "../scene/chapter5_countdown.h"
 #include "../scene/challenge_runtime.h"
@@ -1711,7 +1712,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             {
                 continue;
             }
-            if (mark != 0 && mark != u32(read_u16(marked.bytes, 0x1FC)))
+            if (mark != 0 && mark != u32(actor_marker_id(marked.bytes)))
             {
                 continue;
             }

@@ -1,4 +1,5 @@
 #include "trigger_actor.h"
+#include "actor_fields.h"
 #include "actor_transform.h"
 #include "player_mind_events.h"
 #include "ghouly_spawn_trigger.h"
@@ -275,9 +276,9 @@ void dispatch_runtime_trigger_message(RuntimeTriggerMessages& context, std::span
         }
         break;
     case 0x7D:
-        if (read_u16(bytes, 0x1FE) != 0)
+        if (actor_marker_next(bytes) != 0)
         {
-            fields_of(bytes).anchor = find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
+            fields_of(bytes).anchor = find_runtime_actor_by_id(actor_marker_next(bytes), context.latch_owner,
                 context.bytes_at); // 0x00129ED0
         }
         break;
@@ -310,7 +311,7 @@ void dispatch_runtime_trigger_message(RuntimeTriggerMessages& context, std::span
             if (message[0] == 0xA7)
             {
                 const u32 anchor = fields_of(bytes).anchor;
-                const u32 chained = anchor != 0 && read_u16(context.bytes_at(anchor), 0x1FE) != 0 ? 1 : 0;
+                const u32 chained = anchor != 0 && actor_marker_next(context.bytes_at(anchor)) != 0 ? 1 : 0;
                 const auto aid = [&](size_t index) -> const char*
                 {
                     return message[index] == 0x5F646961 ?
@@ -321,7 +322,7 @@ void dispatch_runtime_trigger_message(RuntimeTriggerMessages& context, std::span
                     position, euler, fields_of(bytes).goal_names.data(), chained, 0, context.objects);
                 if (chained != 0)
                 {
-                    send_runtime_marker_actor_goals(read_u16(context.bytes_at(anchor), 0x1FE),
+                    send_runtime_marker_actor_goals(actor_marker_next(context.bytes_at(anchor)),
                         fields_of(bytes).goal, *object, context.objects);
                 }
                 if (object != nullptr)

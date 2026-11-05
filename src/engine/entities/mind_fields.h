@@ -144,6 +144,7 @@ static_assert(sizeof(CinemaMindRecord) == 0xD0);
 GBTG_MIND_VIEW(mind_record, MindRecord)
 GBTG_MIND_VIEW(cinema_mind_record, CinemaMindRecord)
 GBTG_MIND_VIEW(mind_target_record, MindTargetRecord)
+GBTG_MIND_VIEW(mind_target_shape, MindTargetShape)
 
 // The cinema mind's factory parameters after the base mind's.
 namespace cinema_mind_parameter

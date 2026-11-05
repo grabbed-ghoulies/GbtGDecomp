@@ -1,4 +1,5 @@
 #include "player_messages.h"
+#include "actor_fields.h"
 #include <cstddef>
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
@@ -337,7 +338,7 @@ void activate_runtime_player(RuntimePlayerActivation& context)
     const Vec3 euler = actor_world_euler(context.actor);
     player_record(actor).start_euler = euler;
     context.actor.parked_euler = euler;
-    if (read_u16(actor, 0x1FC) != 0 && player_or_mode_four(actor))
+    if (actor_marker_id(actor) != 0 && player_or_mode_four(actor))
     {
         const Vec3 point = actor_world_position(context.actor);
         const OccupancyRecord* record = find_occupancy_record(point, 0.0f, 2, nullptr, 0);

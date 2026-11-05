@@ -1,4 +1,5 @@
 #include "player_strategy_goals.h"
+#include "actor_fields.h"
 #include "weapon_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
@@ -681,9 +682,9 @@ u32 begin_runtime_player_goal(RuntimePlayerStrategyGoals& context)
 {
     std::span<u8> actor = context.entry.actor_bytes;
     const OccupancyRecord* volume;
-    if (player_record(actor).unk_988 == 0 && read_u16(actor, 0x1FC) != 0)
+    if (player_record(actor).unk_988 == 0 && actor_marker_id(actor) != 0)
     {
-        volume = find_runtime_scripted_occupancy(i16(read_u16(actor, 0x1FC)), context.script_records);
+        volume = find_runtime_scripted_occupancy(i16(actor_marker_id(actor)), context.script_records);
     }
     else
     {
@@ -1120,13 +1121,13 @@ void complete_runtime_goal_handoff(std::span<const u32> message, RuntimeBaseStra
     {
         return;
     }
-    const u16 group = read_u16(actor, 0x1FC);
+    const u16 group = actor_marker_id(actor);
     if (group == 0)
     {
         return;
     }
     const RuntimeStrategyMessageActor& other = *context.message_actor(message[2]);
-    if (read_u16(other.bytes, 0x1FC) == 0 || group != read_u16(other.bytes, 0x1FE))
+    if (actor_marker_id(other.bytes) == 0 || group != actor_marker_next(other.bytes))
     {
         return;
     }
@@ -1152,13 +1153,13 @@ void complete_runtime_goal_script(std::span<const u32> message, RuntimeBaseStrat
     {
         return;
     }
-    const u16 group = read_u16(actor, 0x1FC);
+    const u16 group = actor_marker_id(actor);
     if (group == 0)
     {
         return;
     }
     const RuntimeStrategyMessageActor& other = *context.message_actor(message[1]);
-    if (read_u16(other.bytes, 0x1FC) == 0 || group != read_u16(other.bytes, 0x1FE))
+    if (actor_marker_id(other.bytes) == 0 || group != actor_marker_next(other.bytes))
     {
         return;
     }

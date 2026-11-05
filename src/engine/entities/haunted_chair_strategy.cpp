@@ -1,4 +1,5 @@
 #include "haunted_chair_strategy.h"
+#include "actor_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -282,7 +283,7 @@ void update_asleep(RuntimeHauntedChairStrategy& context)
     {
         return;
     }
-    if (read_u16(actor, 0x1FC) != 0 && !target_within_reach(context)) // 0x000AE660
+    if (actor_marker_id(actor) != 0 && !target_within_reach(context)) // 0x000AE660
     {
         return;
     }

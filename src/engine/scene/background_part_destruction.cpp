@@ -1,4 +1,5 @@
 #include "background_part_destruction.h"
+#include "gbtg/model_nodes.h"
 #include "../entities/actor_transform.h"
 #include "../entities/player_overlay.h"
 #include "../graphics/effect_particles.h"
@@ -42,7 +43,7 @@ std::span<const u8> background_part_header(const Actor& actor)
         return {};
     }
     const auto cpu = actor.model->cpu;
-    const u32 address = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+    const u32 address = runtime_model_piece_header(cpu);
     if (address == 0)
     {
         return {};

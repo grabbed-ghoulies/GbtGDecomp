@@ -1,4 +1,5 @@
 #include "ghouly_cutscene_setup.h"
+#include "actor_fields.h"
 #include "actor_lookup.h"
 #include "actor_template_creation.h"
 #include "actor_transform.h"
@@ -174,9 +175,9 @@ void dispatch_runtime_ghouly_cutscene_setup_message(RuntimeGhoulyCutsceneSetupMe
         }
         break;
     case 0x7D:
-        if (read_u16(bytes, 0x1FE) != 0)
+        if (actor_marker_next(bytes) != 0)
         {
-            fields_of(bytes).anchor = find_runtime_actor_by_id(read_u16(bytes, 0x1FE), context.latch_owner,
+            fields_of(bytes).anchor = find_runtime_actor_by_id(actor_marker_next(bytes), context.latch_owner,
                 context.bytes_at); // 0x00129ED0
         }
         break;

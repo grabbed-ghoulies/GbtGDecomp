@@ -1,4 +1,5 @@
 #include "cinema_mind_lifecycle.h"
+#include "actor_fields.h"
 #include "mind_fields.h"
 #include <bit>
 #include <cstring>
@@ -56,7 +57,7 @@ bool initialize_runtime_cinema_mind(RuntimeCinemaMindLifecycle& context, std::sp
 {
     cinema_mind_record(context.bytes).roam_radius = get(parameters, cinema_mind_parameter::roam_radius);
     cinema_mind_record(context.bytes).target_radius = get(parameters, cinema_mind_parameter::target_radius);
-    if (read_u16(context.actor, 0x1FC) == 0)
+    if (actor_marker_id(context.actor) == 0)
     {
         mind_record(context.bytes).target_flags = mind_record(context.bytes).target_flags & 0xFFFFFFDFu;
         mind_record(context.bytes).target_range = 0.f;

@@ -1,4 +1,5 @@
 #include "background_parts.h"
+#include "gbtg/model_nodes.h"
 #include "background_part_destruction.h"
 #include "../entities/actor_live_attachments.h"
 #include "../entities/actor_model_anchors.h"
@@ -148,7 +149,7 @@ bool background_part_can_be_destroyed(const Actor& actor, std::span<const Backgr
     if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
     {
         const auto cpu = actor.model->cpu;
-        const u32 address = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+        const u32 address = runtime_model_piece_header(cpu);
         header = address != 0 ? cpu.subspan(address) : zero;
     }
     const u32 selected = read_u32(fields, 0);
@@ -218,7 +219,7 @@ const char* background_part_rumble(const Actor& actor, i32 part,
     if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
     {
         const auto cpu = actor.model->cpu;
-        const u32 offset = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+        const u32 offset = runtime_model_piece_header(cpu);
         header = offset != 0 ? cpu.subspan(offset) : zero;
     }
     const u32 strings = read_u32(header, 4);
@@ -247,7 +248,7 @@ void prepare_background_volume_navigation(const Actor& actor, std::span<Backgrou
     if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
     {
         const auto cpu = actor.model->cpu;
-        const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+        const u32 header = runtime_model_piece_header(cpu);
         if (header != 0)
         {
             count = cpu[header];

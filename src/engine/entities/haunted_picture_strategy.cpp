@@ -1,4 +1,5 @@
 #include "haunted_picture_strategy.h"
+#include "actor_fields.h"
 #include "body_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
@@ -398,7 +399,7 @@ void update_runtime_haunted_picture_strategy(RuntimeHauntedPictureStrategy& cont
             return;
         }
         const float distance = runtime_squared_target_distance(actor_of(context), target->bytes); // 0x000415A0
-        if (2500.f >= distance || read_u16(goals.entry.actor_bytes, 0x1FC) == 0) // DAT_0032B40C.
+        if (2500.f >= distance || actor_marker_id(goals.entry.actor_bytes) == 0) // DAT_0032B40C.
         {
             goals.room = nullptr; // Actor +0xCA0.
             change_state(0x417, context);

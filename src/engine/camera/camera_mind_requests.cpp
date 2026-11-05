@@ -40,7 +40,7 @@ float frame_step(const RuntimeActorClock& clock)
 u32 track_camera_follow_point(std::span<u8> mind, std::span<const u8> request, const Actor& camera, Vec3& point,
     float& near_distance, float& far_distance, const RuntimeCameraRigContext& context)
 {
-    const u32 target = read_u32(request, 0x10);
+    const u32 target = get(request, camera_follow_request::target);
     if (target == 0)
     {
         point = {0.f, 10.f, 0.f}; // DAT_0032B10C

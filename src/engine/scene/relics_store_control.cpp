@@ -1,4 +1,5 @@
 #include "relics_store_control.h"
+#include "../entities/actor_fields.h"
 #include "scene_controls.h"
 #include "trophy_heads_control.h"
 #include "scene_control_fields.h"
@@ -142,7 +143,7 @@ void pulse_runtime_relics_store_control(SceneControlBase& base, RelicsStoreContr
 // Xbox 0x00081650, EAX actor
 Vec3 runtime_relics_store_partner(u32 actor, RelicsStoreControlServices& services)
 {
-    const u16 tag = read_u16(services.bytes_at(actor), 0x1FE);
+    const u16 tag = actor_marker_next(services.bytes_at(actor));
     const u32 partner = tag == 0 ? 0 : services.find_id(tag); // The DAT_00511AA4 walk on +0x1FC.
     if (partner == 0)
     {

@@ -1,4 +1,5 @@
 #include "body_transform_state.h"
+#include "actor_fields.h"
 #include "actor_transform.h"
 #include "gbtg/model_runtime.h"
 
@@ -141,7 +142,7 @@ u32 create_result(TransformState& state, RuntimeTransformStateContext& context)
         return 0;
     }
     const float scale = context.actor.radius_xz; // Actor +0x38.
-    const i16 key = i16(read_u16(context.actor_bytes, 0x1FC));
+    const i16 key = i16(actor_marker_id(context.actor_bytes));
     std::memcpy(clone.bytes.get() + 8, &position, 12);
     std::memcpy(clone.bytes.get() + 0x14, &euler, 12);
     std::memcpy(clone.bytes.get() + 0x20, &scale, 4);

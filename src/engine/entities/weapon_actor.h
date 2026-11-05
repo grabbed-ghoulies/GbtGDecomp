@@ -139,6 +139,13 @@ struct RuntimeProjectileHitNotice
 
 // One weapon instance: the retail-layout bytes, its actor, and native storage behind the pointer fields.
 // The chair (factory type 0xAA, 0xF08 bytes), the one class weapon_actor.cpp keeps to itself.
+// The chair's parameters after the weapon's (0x000CEFE0).
+namespace chair_weapon_parameter
+{
+constexpr RetailField<u32, 0x5F8> taker_uses{};
+constexpr RetailField<u32, 0x5FC> player_uses{};
+constexpr RetailField<u32, 0x600> unk_600{}; // set: the weapon's unk_942 is 1
+} // namespace chair_weapon_parameter
 struct ChairWeaponState
 {
     WeaponBase base{}; // +0

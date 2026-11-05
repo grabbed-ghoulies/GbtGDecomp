@@ -30,20 +30,21 @@ const char* runtime_actor_tag_suffix(u16 tag, std::span<const char* const> names
 // Xbox 0x000259C0
 float runtime_body_step_speed(std::span<const u8> body, const Actor& actor, const RuntimeBodyDamageTables& tables)
 {
-    return get(body, body_field::step_speed) * runtime_class_damage_value(body[0x328], actor.damage_class, tables);
+    return body_record(body).step_speed * runtime_class_damage_value(body_record(body).move_class,
+        actor.damage_class, tables);
 }
 
 // Xbox 0x0001A020
 void format_runtime_body_step_sound(char* output, std::span<const u8> body,
     u32 alternate, std::span<const char* const> names, const FootstepSoundNames& sounds)
 {
-    const u8 surface = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
-                                                                           : get(body, body_field::surface_override);
-    const u16 tag = read_u16(body, 0x87C);
+    const u8 surface = body_record(body).surface_override_frames == 0 ? body_record(body).surface
+                                                                           : body_record(body).surface_override;
+    const u16 tag = body_record(body).sound_tag;
     output[0] = 0;
     if (surface != 0)
     {
-        const u8 mode = alternate == 0 ? body[0x2D3] : body[0x2D4];
+        const u8 mode = alternate == 0 ? body_record(body).unk_2D3 : body_record(body).unk_2D4;
         if (mode == 0)
         {
             format_footstep_sound_name(output, surface, "", runtime_actor_tag_suffix(tag, names), sounds);
@@ -60,7 +61,7 @@ void format_runtime_body_step_sound(char* output, std::span<const u8> body,
 void format_runtime_body_impact_sound(char* output, std::span<const u8> body,
     const char* kind, std::span<const char* const> names, const FootstepSoundNames& sounds)
 {
-    const u16 tag = read_u16(body, 0x87C);
+    const u16 tag = body_record(body).sound_tag;
     output[0] = 0;
     const char* name = names[tag];
     i32 last = 0;

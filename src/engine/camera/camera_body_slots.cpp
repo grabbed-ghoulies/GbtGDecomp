@@ -1,4 +1,6 @@
 #include "camera_body_slots.h"
+#include <cstddef>
+#include "../entities/body_fields.h"
 #include "entity_camera.h"
 #include "../entities/actor_transform.h"
 #include "../entities/entity_collision.h"
@@ -26,11 +28,6 @@ void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
     put_float(bytes, offset, value.x);
     put_float(bytes, offset + 4, value.y);
     put_float(bytes, offset + 8, value.z);
-}
-
-Vec3 read_vec3(std::span<const u8> bytes, size_t offset)
-{
-    return Vec3{read_f32(bytes, offset), read_f32(bytes, offset + 4), read_f32(bytes, offset + 8)};
 }
 
 float wrap_component(float value)
@@ -79,7 +76,7 @@ void aim_camera_body(RuntimeCameraBodySlots& camera)
 {
     Actor& actor = camera.actor;
     const Vec3 world = actor_world_position(actor);
-    if (camera.body[0x308] == 0)
+    if (body_record(camera.body).look_point_set == 0)
     {
         return;
     }
@@ -88,15 +85,15 @@ void aim_camera_body(RuntimeCameraBodySlots& camera)
     {
         lift = camera.tunables.real(0x00434020);
     }
-    const Vec3 aim = read_vec3(camera.body, 0x2FC);
+    const Vec3 aim = body_record(camera.body).look_point;
     float yaw = 0.f;
     float pitch = 0.f;
     direction_to_yaw_pitch(aim.x - world.x, lift + aim.y - world.y, aim.z - world.z, yaw, pitch);
     const Vec3 angles{0.f - (camera.tunables.real(0x0043401C) * kRadians + pitch), yaw + kPi,
-        read_f32(camera.body, 0x8F4)};
+        camera_body_record(camera.body).unk_8F4};
     wrap_runtime_euler(angles, actor.euler);
     actor.xform_valid = 0;
-    put_vec3(camera.body, 0x72C, actor_world_euler(actor));
+   body_record(camera.body).euler = actor_world_euler(actor);
 }
 
 // Xbox 0x00072B10
@@ -105,8 +102,8 @@ void capture_camera_body_pose(RuntimeCameraBodySlots& camera, RuntimeBodyApplyCo
     aim_camera_body(camera);
     const Vec3 position = actor_world_position(camera.actor);
     const Vec3 euler = actor_world_euler(camera.actor);
-    put_vec3(camera.body, 0x89C, position);
-    put_vec3(camera.body, 0x8A8, euler);
+    camera_body_record(camera.body).view_position = position;
+    camera_body_record(camera.body).view_euler = euler;
     // The native camera node is the record embedded at body +0x894.
     camera.view.position = position;
     camera.view.rotation.x = euler.x;
@@ -123,7 +120,7 @@ u32 probe_camera_body_support(RuntimeCameraBodySlots& camera)
     const bool saved = ((bits.bytes[2] >> 5) & 1) != 0;
     bits.bytes[1] = u8(bits.bytes[1] & 0xDF);
     Vec3 world = actor_world_position(actor);
-    Vec3 slide = read_vec3(camera.body, 0x18);
+    Vec3 slide = body_record(camera.body).position;
     Vec3 snap{};
     u32 seen = 0;
     u32 passed;
@@ -164,7 +161,7 @@ u32 probe_camera_body_support(RuntimeCameraBodySlots& camera)
             set_bit(bits, 1, 0x20, true);
             limit = 5;
         }
-        entity_copy_match_block(camera.body.data() + 0x1CC, &slot);
+        entity_copy_match_block(camera.body.data() + offsetof(BodyRecord, last_contact), &slot);
         if (index == 0 && 1.f > engine_absolute(slot.y)) // DAT_0032B0F8.
         {
             slot.y = 0.f;
@@ -188,15 +185,15 @@ u32 probe_camera_body_support(RuntimeCameraBodySlots& camera)
     }
     if (fold)
     {
-        const Vec3 start = read_vec3(camera.body, 0x18);
+        const Vec3 start = body_record(camera.body).position;
         const float separation = (snap.z - world.z) * (start.z - world.z)
             + (snap.y - world.y) * (start.y - world.y)
             + (start.x - world.x) * (snap.x - world.x);
-        if (0.f > separation || 0.f > read_f32(camera.body, 0x910))
+        if (0.f > separation || 0.f > camera_body_record(camera.body).separation)
         {
             passed = 0;
         }
-        put_float(camera.body, 0x910, separation);
+        camera_body_record(camera.body).separation = separation;
     }
     if (passed == 0)
     {
@@ -206,7 +203,7 @@ u32 probe_camera_body_support(RuntimeCameraBodySlots& camera)
     set_bit(bits, 2, 0x20, seen != 0);
     actor_set_world_position(actor, snap);
     // Actor +0x95C is this body; its +8 is the actor.
-    put_vec3(camera.body, 0x18, actor_world_position(actor));
+   body_record(camera.body).position = actor_world_position(actor);
     return passed;
 }
 }

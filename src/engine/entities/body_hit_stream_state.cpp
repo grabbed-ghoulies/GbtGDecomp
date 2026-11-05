@@ -1,4 +1,5 @@
 #include "body_hit_stream_state.h"
+#include <cstddef>
 #include "actor_live_attachments.h"
 #include "body_animation_commands.h"
 #include "body_damage_motion.h"
@@ -19,16 +20,6 @@ namespace parameter = hit_stream_state_parameter;
 
 std::function<RuntimeHitStreamStateContext&(u32)> hit_stream_context_of;
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void copy_name(char* target, const char* source)
 {
     size_t index = 0;
@@ -42,13 +33,13 @@ void copy_name(char* target, const char* source)
 // Body +0x30, +0x6B, +0x309..+0x30C and +0x338 step together.
 void step_counters(std::span<u8> body, i32 step)
 {
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + step));
-    body[0x6B] = u8(body[0x6B] + step);
+    body_record(body).move_holds = u16(body_record(body).move_holds + step);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B + step);
     for (size_t index = 0; index < 4; ++index)
     {
-        body[0x309 + index] = u8(body[0x309 + index] + step);
+        body[offsetof(BodyRecord, unk_309) + index] = u8(body[offsetof(BodyRecord, unk_309) + index] + step);
     }
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + u32(step));
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps + u32(step);
 }
 
 // {0x6E, actor, attacker, taken, `knocked`, 0, 1, 0} to every actor (0x00122C70).
@@ -131,10 +122,10 @@ bool initialize_runtime_hit_stream_state(HitStreamState& state, std::span<const 
         state.effect = effect;
     }
     step_counters(body, 1);
-    body[0x38] = 1;
-    body[0x39] = 1;
-    put_word(body, 0x330, read_u32(body, 0x334));
-    set(body, body_field::ease_rate, 7.f); // DAT_0032B284.
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    body_record(body).saved_ease_rate = body_record(body).ease_rate;
+    body_record(body).ease_rate = 7.f; // DAT_0032B284.
     context.bits.bytes[2] |= 2;
     return true;
 }
@@ -143,7 +134,7 @@ bool initialize_runtime_hit_stream_state(HitStreamState& state, std::span<const 
 void destroy_runtime_hit_stream_state(HitStreamState& state, RuntimeHitStreamStateContext& context)
 {
     const auto body = context.body;
-    put_word(body, 0x334, read_u32(body, 0x330));
+    body_record(body).ease_rate = body_record(body).saved_ease_rate;
     step_counters(body, -1);
     context.bits.bytes[2] &= 0xFD;
     if (state.sounding != 0)
@@ -170,11 +161,11 @@ void tick_runtime_hit_stream_state(HitStreamState& state, RuntimeHitStreamStateC
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    const u32 attacker = get(body, body_field::attacker);
+    const u32 attacker = body_record(body).attacker;
     state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
-    if (body[0xA6] != 0)
+    if (body_record(body).unk_A6 != 0)
     {
-        put_float(body, 0xB4, 2.f); // DAT_0032B110.
+       body_record(body).unk_B4 = 2.f; // DAT_0032B110.
     }
     if (actor.animation_pause > 0.f && state.hit == 0)
     {
@@ -230,12 +221,12 @@ void tick_runtime_hit_stream_state(HitStreamState& state, RuntimeHitStreamStateC
             Vec3 push;
             runtime_horizontal_direction(push, runtime_actor_angle_toward(actor, *source), // 0x00041900
                 state.push_speed); // 0x001060A0, ESI the push
-            std::memcpy(body.data() + 0x318, &push, sizeof(push));
+            std::memcpy(body.data() + offsetof(BodyRecord, velocity.x), &push, sizeof(push));
         }
     }
     if (facing && attacker != 0 && actor.animation_pause == 0.f)
     {
-        if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+        if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
         {
             const Actor* source = context.actor_at(attacker);
             if (source == nullptr)
@@ -338,7 +329,7 @@ u16 drain_runtime_hit_stream(HitStreamState& state, u32& taken, RuntimeHitStream
         {
             step = context.clock.dt * context.clock.scale;
         }
-        float drained = step * float(std::bit_cast<i32>(read_u32(body, 0x280))) + state.drained;
+        float drained = step * float(std::bit_cast<i32>(body_record(body).damage_amount)) + state.drained;
         state.drained = drained;
         u32 whole = 0;
         if (!(drained < 1.f)) // DAT_0032B0F8.
@@ -359,12 +350,12 @@ u16 drain_runtime_hit_stream(HitStreamState& state, u32& taken, RuntimeHitStream
             }
             if (whole != 0)
             {
-                const i32 left = i32(get(body, body_field::energy)) - i32(whole);
-                set(body, body_field::energy, left < 1 ? 0 : u16(left));
+                const i32 left = i32(body_record(body).energy) - i32(whole);
+                body_record(body).energy = left < 1 ? 0 : u16(left);
             }
         }
     }
-    return get(body, body_field::energy);
+    return body_record(body).energy;
 }
 
 void install_runtime_hit_stream_state_class(std::span<ObjectFactoryType> types,

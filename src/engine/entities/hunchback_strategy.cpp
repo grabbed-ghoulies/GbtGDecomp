@@ -1,4 +1,5 @@
 #include "hunchback_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -137,7 +138,7 @@ void hold_live_attachments(i32 step, RuntimeHunchbackStrategy& context)
         live->hold = u8(live->hold + step);
     }
     const std::span<u8> body = body_of(context);
-    body[0x6D] = u8(body[0x6D] + step);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + step);
 }
 
 void evade_goal(RuntimeHunchbackStrategy& context)
@@ -199,10 +200,10 @@ void recover_runtime_hunchback(RuntimeHunchbackStrategy& context)
 float runtime_hunchback_stun_time(RuntimeHunchbackStrategy& context)
 {
     const std::span<const u8> body = body_of(context);
-    const u16 most = get(body, body_field::max_energy);
+    const u16 most = body_record(body).max_energy;
     if (most != 0)
     {
-        const float health = float(i32(get(body, body_field::energy))) / float(i32(most));
+        const float health = float(i32(body_record(body).energy)) / float(i32(most));
         if (0.25f > health) // DAT_0032B104.
         {
             return parameter(context, 0x28);
@@ -276,7 +277,7 @@ void set_runtime_hunchback_special_phase(u32 phase, RuntimeHunchbackStrategy& co
         if (context.collision != nullptr)
         {
             activate_runtime_body_contact_shapes(*context.collision, actor, 3, 0xFF, 1.f); // 0x0013F420
-            put_u32(body, 0x2CC, 0);
+           body_record(body).contact_count = 0;
         }
         if (context.attack_resource.data() == nullptr)
         {
@@ -284,11 +285,11 @@ void set_runtime_hunchback_special_phase(u32 phase, RuntimeHunchbackStrategy& co
         }
         const u8* row = find_runtime_attachment_first_request(
             *context.attack_tables.at(context.attack_resource.data()), 0xFD); // 0x0001C560, EBX 0xFD
-        put_u32(body, 0x84, row == nullptr ? 0u : goals_of(context).address_of(row));
-        put_u32(body, 0x88, 0);
-        body[0x6A] = u8(body[0x6A] + 1);
+       body_record(body).hit_record = row == nullptr ? 0u : goals_of(context).address_of(row);
+       body_record(body).unk_88 = 0;
+        body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
         hold_live_attachments(1, context); // 0x0001D760, ECX body
-        put_u32(body, 0x74C, 1);
+       body_record(body).unk_74C = 1;
         increment_runtime_body_latches(body, actor, context.latches); // 0x0001FC40, ECX body
         const char* effect = fields_of(strategy).charge_effect.data();
         fields_of(strategy).effect = context.create_effect(effect, strategy_base(strategy).actor); // 0x0003DF40
@@ -296,13 +297,13 @@ void set_runtime_hunchback_special_phase(u32 phase, RuntimeHunchbackStrategy& co
         strategy_base(strategy).attacking = 1;
         fields_of(strategy).armed = 1u;
         fields_of(strategy).special_time = time;
-        fields_of(strategy).saved_334 = read_u32(body, 0x334);
+        fields_of(strategy).saved_334 = read_u32(body, offsetof(BodyRecord, ease_rate));
         return;
     }
     case 4:
         load_goal(context.goal_special, context);
         fields_of(strategy).special_time = roll_between(context, 0x34);
-        put_u32(body, 0x334, read_u32(context.parameters, 0x3C));
+        put_u32(body, offsetof(BodyRecord, ease_rate), read_u32(context.parameters, 0x3C));
         return;
     case 5:
         fields_of(strategy).special_time = roll_between(context, 0x40);
@@ -326,11 +327,11 @@ void disarm_runtime_hunchback(RuntimeHunchbackStrategy& context)
     {
         deactivate_runtime_body_contact_shapes(*context.collision, 3); // 0x0013F4D0, EAX 3
     }
-    body[0x6A] = u8(body[0x6A] - 1);
-    put_u32(body, 0x84, 0);
-    put_u32(body, 0x88, 0);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
+   body_record(body).hit_record = 0;
+   body_record(body).unk_88 = 0;
     hold_live_attachments(-1, context);
-    put_u32(body, 0x74C, 0);
+   body_record(body).unk_74C = 0;
     decrement_runtime_body_latches(body, actor_of(context), context.latches); // 0x0001FD20
     const u32 effect = fields_of(strategy).effect;
     if (effect == 0)
@@ -340,7 +341,7 @@ void disarm_runtime_hunchback(RuntimeHunchbackStrategy& context)
     const std::array<u32, 2> expire{5, 0};
     context.object_message(effect, expire); // Effect vtable +0xC.
     fields_of(strategy).effect = 0u;
-    put_u32(body, 0x334, fields_of(strategy).saved_334);
+    put_u32(body, offsetof(BodyRecord, ease_rate), fields_of(strategy).saved_334);
     strategy_base(strategy).attacking = 0;
     fields_of(strategy).armed = 0u;
 }
@@ -637,9 +638,9 @@ void dispatch_runtime_hunchback_message(std::span<const u32> message, RuntimeHun
             return;
         }
         const std::span<u8> body = body_of(context);
-        const float held = get(body, body_field::move_hold_time);
+        const float held = body_record(body).move_hold_time;
         const float longest = time >= held ? time : held;
-        std::memcpy(body.data() + 0x34, &longest, 4);
+        body_record(body).move_hold_time = longest;
         return;
     }
     case 0x64:
@@ -676,12 +677,12 @@ void enter_runtime_hunchback_state(u16 state, u16 previous, RuntimeHunchbackStra
             fields_of(strategy).armed = 0u;
             clear_runtime_body_bit(body_bits(context, "0x000B3490"), 0x2B); // 0x0001F030
         }
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         return;
     case 0x3FE:
         // 0x000B2BC0, ESI strategy.
         evade_goal(context);
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         return;
     case 0x401:
         // 0x000B2D90, ESI strategy.
@@ -690,7 +691,7 @@ void enter_runtime_hunchback_state(u16 state, u16 previous, RuntimeHunchbackStra
             fields_of(strategy).idle_phase = 1u;
             load_goal(context.goal_into_far, context);
         }
-        body[0x328] = 2;
+        body_record(body).move_class = 2;
         return;
     case 0x409:
     {
@@ -710,7 +711,7 @@ void enter_runtime_hunchback_state(u16 state, u16 previous, RuntimeHunchbackStra
     case 0x40C:
         // 0x000B3380, ESI strategy.
         load_goal(context.goal_into_block, context);
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         return;
     default:
         enter_runtime_base_strategy_state(goals.entry, state); // The tail jump to 0x0002BAF0.

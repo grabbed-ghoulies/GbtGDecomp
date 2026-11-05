@@ -45,7 +45,7 @@ void update_runtime_cinema_mind_sound(std::span<u8> mind,
     const i32 count = i32(get(mind, cinema_mind_field::sound_count));
     if (count != 0)
     {
-        if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+        if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
         {
             const float step = runtime_frame_step(clock);
             const float rate = runtime_actor_rate(actor);

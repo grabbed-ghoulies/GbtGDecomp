@@ -16,9 +16,9 @@ namespace
 // The inlined surface-mode scale: DAT_00217EC0[mode] when body +0x878 has the mode's bit, otherwise 1.
 float surface_mode_scale(std::span<const u8> body, std::span<const float> mode_scales)
 {
-    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
-                                                                        : get(body, body_field::surface_override);
-    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
+    const u8 mode = body_record(body).surface_override_frames == 0 ? body_record(body).surface
+                                                                        : body_record(body).surface_override;
+    if ((body_record(body).scaled_surfaces & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= mode_scales.size())
         {
@@ -98,9 +98,9 @@ i32 runtime_walk_alert_band(i32 count, std::span<const WalkAlertRow> rows, std::
 {
     for (i32 index = 0; index < count; ++index)
     {
-        const float factor = runtime_class_damage_value(body[0x328], actor.damage_class, tables);
+        const float factor = runtime_class_damage_value(body_record(body).move_class, actor.damage_class, tables);
         const float scale = surface_mode_scale(body, mode_scales);
-        if (speed >= 0.f && get(body, body_field::step_speed) * rows[size_t(index)].top_speed * factor * scale > speed)
+        if (speed >= 0.f && body_record(body).step_speed * rows[size_t(index)].top_speed * factor * scale > speed)
         {
             return index;
         }
@@ -178,8 +178,8 @@ void select_runtime_walk_alert_band(WalkAlertState& state, RuntimeWalkAlertTick&
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = get(body, body_field::velocity).x;
-    const float vz = get(body, body_field::velocity).z;
+    const float vx = body_record(body).velocity.x;
+    const float vz = body_record(body).velocity.z;
     const float speed = float(retail_square_root(x * x + z * z));
     static_cast<void>(retail_square_root(vz * vz + vx * vx)); // Popped unused.
     const i32 band = runtime_walk_alert_band(state.row_count, state.rows, body, context.actor, speed, context.tables,
@@ -203,8 +203,8 @@ void steer_runtime_walk_alert(const WalkAlertState& state, RuntimeWalkAlertTick&
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (context.input == nullptr || get(body, body_field::move_holds) != 0 ||
-        get(body, body_field::move_hold_time) != 0.f)
+    if (context.input == nullptr || body_record(body).move_holds != 0 ||
+        body_record(body).move_hold_time != 0.f)
     {
         axes = {0.f, 0.f};
     }
@@ -236,7 +236,7 @@ void steer_runtime_walk_alert(const WalkAlertState& state, RuntimeWalkAlertTick&
     float side = 0.f;
     if (magnitude > 0.f)
     {
-        set(body, body_field::euler, Vec3{0.f, angle, 0.f});
+        body_record(body).euler = Vec3{0.f, angle, 0.f};
         float heading = angle;
         if (state.settles != 0)
         {
@@ -246,13 +246,13 @@ void steer_runtime_walk_alert(const WalkAlertState& state, RuntimeWalkAlertTick&
         {
             heading = context.actor.euler.y; // Actor +0x18.
         }
-        set(body, body_field::heading, heading);
+        body_record(body).heading = heading;
         const float scale = surface_mode_scale(body, context.mode_scales);
         const float speed = runtime_body_step_speed(body, context.actor, context.tables) * scale * magnitude;
         side = float(retail_sin(heading) * speed);
         forward = float(retail_cos(heading) * speed);
     }
-    set(body, body_field::velocity, Vec3{side, 0.f, forward});
+    body_record(body).velocity = Vec3{side, 0.f, forward};
 }
 
 // Xbox 0x000A5EA0
@@ -261,8 +261,8 @@ void select_runtime_walk_alert_key(WalkAlertState& state, RuntimeWalkAlertTick& 
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = get(body, body_field::velocity).x;
-    const float vz = get(body, body_field::velocity).z;
+    const float vx = body_record(body).velocity.x;
+    const float vz = body_record(body).velocity.z;
     if ((context.flags.bytes[7] & 8) == 0 && state.alert_key != 0)
     {
         const bool alert = context.mind_present && context.mind_alert != 0;
@@ -315,8 +315,8 @@ void steer_runtime_fly_state(const FlyState& state, RuntimeWalkAlertTick& contex
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (context.input == nullptr || get(body, body_field::move_holds) != 0 ||
-        get(body, body_field::move_hold_time) != 0.f)
+    if (context.input == nullptr || body_record(body).move_holds != 0 ||
+        body_record(body).move_hold_time != 0.f)
     {
         axes = {0.f, 0.f};
     }
@@ -340,7 +340,7 @@ void steer_runtime_fly_state(const FlyState& state, RuntimeWalkAlertTick& contex
         angle = float(retail_atan2(axes[1], axes[0])); // 0x001530E0
     }
     float rise;
-    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f)
+    if (body_record(body).move_holds != 0 || body_record(body).move_hold_time != 0.f)
     {
         rise = 0.f;
     }
@@ -363,7 +363,7 @@ void steer_runtime_fly_state(const FlyState& state, RuntimeWalkAlertTick& contex
     float forward = 0.f;
     if (magnitude > 0.f)
     {
-        set(body, body_field::euler, Vec3{0.f, angle, 0.f});
+        body_record(body).euler = Vec3{0.f, angle, 0.f};
         float heading = angle;
         if (state.holds_heading != 0 && magnitude > state.hold_heading_above)
         {
@@ -376,7 +376,7 @@ void steer_runtime_fly_state(const FlyState& state, RuntimeWalkAlertTick& contex
     }
     const float scale = surface_mode_scale(body, context.mode_scales);
     const float lift = runtime_body_step_speed(body, context.actor, context.tables) * scale * rise; // 0x000259C0
-    set(body, body_field::velocity, Vec3{side, lift, forward});
+    body_record(body).velocity = Vec3{side, lift, forward};
 }
 
 // Xbox 0x00091480, EAX body, EBX state
@@ -449,8 +449,8 @@ void select_runtime_fly_band(FlyState& state, RuntimeWalkAlertTick& context)
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = get(body, body_field::velocity).x;
-    const float vz = get(body, body_field::velocity).z;
+    const float vx = body_record(body).velocity.x;
+    const float vz = body_record(body).velocity.z;
     const float speed = float(retail_square_root(x * x + z * z)); // 0x00152B30
     const float steered = float(retail_square_root(vz * vz + vx * vx));
     const i32 steered_band = runtime_walk_alert_band(state.row_count, state.rows, body, context.actor, steered,
@@ -478,9 +478,9 @@ void select_runtime_fly_key(FlyState& state, RuntimeWalkAlertTick& context)
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = get(body, body_field::velocity).x;
-    const float vy = get(body, body_field::velocity).y;
-    const float vz = get(body, body_field::velocity).z;
+    const float vx = body_record(body).velocity.x;
+    const float vy = body_record(body).velocity.y;
+    const float vz = body_record(body).velocity.z;
     if (state.alert_key != 0 && context.mind_present && context.mind_alert != 0)
     {
         context.actions.animation.retain_position = 1; // Actor +0x84.
@@ -532,7 +532,7 @@ void stop_runtime_walk_alert(std::span<u8> body, std::span<u8> message, u32 key,
     {
         return;
     }
-    if (get(body, body_field::energy) == 0)
+    if (body_record(body).energy == 0)
     {
         const u32 none = 0;
         std::memcpy(message.data() + 8, &none, 4);

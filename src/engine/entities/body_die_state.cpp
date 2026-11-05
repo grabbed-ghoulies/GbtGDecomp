@@ -44,8 +44,8 @@ bool initialize_runtime_die_state(DieState& state, std::span<const u8> parameter
         character = *name++;
         *output++ = character;
     } while (character != '\0');
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     const u32 bit = state.body_bit;
     if (bit != 0)
     {
@@ -112,9 +112,9 @@ void tick_runtime_die_state(DieState& state, RuntimeDieStateContext& context)
     state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
     if (state.moving_key != 0)
     {
-        const float x = get(body, body_field::motion).x;
-        const float y = get(body, body_field::motion).y;
-        const float z = get(body, body_field::motion).z;
+        const float x = body_record(body).motion.x;
+        const float y = body_record(body).motion.y;
+        const float z = body_record(body).motion.z;
         u16 key = 0;
         if (z * z + y * y + x * x > 0.f && (context.bits.bytes[0] & 2) != 0)
         {
@@ -134,7 +134,7 @@ void tick_runtime_die_state(DieState& state, RuntimeDieStateContext& context)
         {
             level_body_euler(body);
         }
-        else if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+        else if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
         {
             const Actor* other = context.actor_at(target);
             if (other == nullptr)

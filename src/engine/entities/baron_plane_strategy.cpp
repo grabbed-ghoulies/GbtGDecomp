@@ -1,4 +1,5 @@
 #include "baron_plane_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -73,11 +74,6 @@ EntityBitBlock& bits_of(RuntimeBaronPlaneStrategy& context, const char* reader)
     return *bits;
 }
 
-void put_u32(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // Mind +0x58: the first pending mind request.
 bool requests_pending(RuntimeBaronPlaneStrategy& context)
 {
@@ -109,7 +105,7 @@ bool can_resume(RuntimeBaronPlaneStrategy& context)
 
 u16 energy_of(RuntimeBaronPlaneStrategy& context)
 {
-    return read_u16(body_of(context), 0x94);
+    return body_record(body_of(context)).energy;
 }
 
 // The actor's pause group is held (DAT_0050E768) or its decay entry is off.
@@ -320,7 +316,7 @@ const std::array<float, 4>& runtime_baron_plane_row(std::span<const u8> body, Ru
         {1.f, 1.f, std::bit_cast<float>(5u), 250.f},
     }};
     const auto& rows = live_actives(context) > 1 ? crowded_rows : alone_rows;
-    const u16 energy = get(body, body_field::energy);
+    const u16 energy = body_record(body).energy;
     if (energy > 0x78)
     {
         return rows[0];
@@ -388,9 +384,9 @@ void start_runtime_baron_plane_flight(RuntimeBaronPlaneStrategy& context)
         if (context.collision != nullptr)
         {
             activate_runtime_body_contact_shapes(*context.collision, actor_of(context), 0x13, 7, 1.f); // 0x0013F420
-            put_u32(body, 0x2CC, 0);
+           body_record(body).contact_count = 0;
         }
-        body[0x6A] = u8(body[0x6A] + 1);
+        body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
         fields_of(strategy).flying = 1u;
     }
     // EDI body +0x5C, EBX 4: the first table's row, else the second's.
@@ -407,9 +403,9 @@ void start_runtime_baron_plane_flight(RuntimeBaronPlaneStrategy& context)
             row = find_runtime_attachment_second_request(tables, 4); // 0x0001C5A0
         }
     }
-    put_u32(body, 0x84, row == nullptr ? 0u : context.address_of(row));
-    put_u32(body, 0x88, 0);
-    put_u32(body, 0x74C, 1);
+   body_record(body).hit_record = row == nullptr ? 0u : context.address_of(row);
+   body_record(body).unk_88 = 0;
+   body_record(body).unk_74C = 1;
     EntityBitBlock& bits = bits_of(context, "0x000A9BE0");
     bits.bytes[1] = u8(bits.bytes[1] & 0xFB);
 }
@@ -425,10 +421,10 @@ void end_runtime_baron_plane_flight(RuntimeBaronPlaneStrategy& context)
         {
             deactivate_runtime_body_contact_shapes(*context.collision, 0x13); // 0x0013F4D0, EAX 0x13
         }
-        put_u32(body, 0x84, 0);
-        put_u32(body, 0x88, 0);
-        body[0x6A] = u8(body[0x6A] - 1);
-        put_u32(body, 0x74C, 0);
+       body_record(body).hit_record = 0;
+       body_record(body).unk_88 = 0;
+        body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
+       body_record(body).unk_74C = 0;
         fields_of(strategy).flying = 0u;
     }
     EntityBitBlock& bits = bits_of(context, "0x000A9C90");
@@ -792,7 +788,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     fields_of(strategy).fly = 0u;
     fields_of(strategy).sound = 0u;
@@ -826,7 +822,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         {
             effect_when_low(context);
         }
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         strategy_base(strategy).attacking = 1;
         strategy_base(strategy).unk_18 = u16(0x401);
         load_goal(context.goal_attack, context);
@@ -836,7 +832,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         enter_runtime_base_strategy_state(goals.entry, state); // 0x0002BAF0
         return;
     case 0x401:
-        body[0x328] = 2;
+        body_record(body).move_class = 2;
         load_goal(context.goal_wait_for_stand, context);
         load_goal(context.goal_far, context);
         if (runtime_baron_plane_crowded(context)) // 0x000A9B20
@@ -853,7 +849,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         fields_of(strategy).landed = 0u;
         fields_of(strategy).cutscene = 0u;
         effect_on(context);
-        body[0x328] = 2;
+        body_record(body).move_class = 2;
         ++strategy_base(strategy).pause_count;
         land_runtime_baron_plane(context); // 0x000A9D40, EAX actor, EBX mind
         increment_runtime_body_latches(body, actor_of(context), context.latches); // 0x0001FC40, ECX body
@@ -867,7 +863,7 @@ void enter_runtime_baron_plane_state(u16 state, u16 previous, RuntimeBaronPlaneS
         return;
     case 0x40C:
     {
-        body[0x328] = 2;
+        body_record(body).move_class = 2;
         load_goal(context.goal_wait_for_stand, context);
         load_goal(context.goal_far, context);
         const std::array<float, 4>& row = runtime_baron_plane_row(body, context); // 0x000A9AA0

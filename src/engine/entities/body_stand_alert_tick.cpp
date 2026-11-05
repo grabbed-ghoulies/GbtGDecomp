@@ -1,4 +1,5 @@
 #include "body_stand_alert_tick.h"
+#include <cstddef>
 #include "player_mind_requests.h"
 #include "body_state_actions.h"
 #include "body_state_fields.h"
@@ -47,9 +48,9 @@ void tick_runtime_stand_alert(StandAlertState& state, RuntimeStandAlertTick& con
     state.base.elapsed = elapsed;
     if (state.moving_key != 0)
     {
-        const float z = get(context.body, body_field::motion).z;
-        const float y = get(context.body, body_field::motion).y;
-        const float x = get(context.body, body_field::motion).x;
+        const float z = body_record(context.body).motion.z;
+        const float y = body_record(context.body).motion.y;
+        const float x = body_record(context.body).motion.x;
         u16 key = 0;
         if ((z * z + y * y) + x * x > 0.f && (context.flags.bytes[0] & 2) != 0)
         {
@@ -61,9 +62,8 @@ void tick_runtime_stand_alert(StandAlertState& state, RuntimeStandAlertTick& con
     {
         if (state.settles == 0)
         {
-            const u32 zero = 0;
-            std::memcpy(context.body.data() + 0x734, &zero, 4);
-            std::memcpy(context.body.data() + 0x72C, &zero, 4);
+            body_record(context.body).euler.z = 0.f;
+            body_record(context.body).euler.x = 0.f;
         }
         else
         {

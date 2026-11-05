@@ -332,12 +332,12 @@ void set_whack_step(u32 step, RuntimeImpFlyingStrategy& context)
     if (step == 1)
     {
         load_goal(context.goal_wing_whack_prepare, context);
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
     }
     else if (step == 2)
     {
         load_goal(context.goal_evade, context);
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
     }
 }
 
@@ -355,7 +355,7 @@ void set_dive_phase(u32 phase, RuntimeImpFlyingStrategy& context)
     {
     case 1:
         load_goal(context.goal_arrow_dive, context);
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         fields_of(strategy).lunging = 0u;
         return;
     case 2:
@@ -365,7 +365,7 @@ void set_dive_phase(u32 phase, RuntimeImpFlyingStrategy& context)
     case 3:
     {
         load_goal(context.goal_arrow_dive_unstuck, context);
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         EntityBitBlock& bits = body_bits(context, "0x000B63A0");
         bits.bytes[4] &= 0x7F;
         bits.bytes[4] &= 0xFE;
@@ -448,7 +448,7 @@ void tick_idle(RuntimeImpFlyingStrategy& context)
     }
     if (runtime_mind_target_within(parameter(context, 0), goals)) // 0x000BABF0
     {
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
         load_goal(context.goal_evade, context);
         return;
@@ -459,11 +459,11 @@ void tick_idle(RuntimeImpFlyingStrategy& context)
     }
     if (runtime_mind_target_within_second(parameter(context, 4), goals)) // 0x000B5C50
     {
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         hover_around(false, context); // 0x000B6630
         return;
     }
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     hover_around(true, context); // 0x000B6630
 }
 
@@ -619,9 +619,9 @@ void enter_rise(RuntimeImpFlyingStrategy& context)
     const std::span<const u8> body = goals.entry.body; // Actor +0x95C.
     // Without body +0x19E the height is the stack slot of the first argument: the strategy pointer's bits.
     float height = std::bit_cast<float>(goals.address_of(strategy_of(context).data()));
-    if (get(body, body_field::has_ground) != 0)
+    if (body_record(body).has_ground != 0)
     {
-        const float floor = get(body, body_field::ground_point).y;
+        const float floor = body_record(body).ground_point.y;
         height = actor_world_position(goals.entry.actor).y - floor; // 0x000412A0 on body +8
     }
     const float hover = parameter(context, 8);
@@ -777,13 +777,13 @@ void enter_runtime_imp_flying_state(u16 state, u16 previous, RuntimeImpFlyingStr
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    goals.entry.body[0x328] = 2;
+    body_record(goals.entry.body).move_class = 2;
     switch (state)
     {
     case 0x3ED:
         // The tail jump to 0x000B5D50.
         strategy_base(strategy).attacking = 1;
-        goals.entry.body[0x328] = 4;
+        body_record(goals.entry.body).move_class = 4;
         set_whack_step(1, context); // 0x000B5E20, AL 1
         return;
     case 0x3EF:

@@ -15,9 +15,9 @@ namespace gbtg
 // Xbox 0x00134650
 bool runtime_body_target_state_active(std::span<const u8> body)
 {
-    if (read_f32(body, 0x23C) != 0.f
-        && (get(body, body_field::energy) <= 1 || read_f32(body, 0x174) > 0.f
-            || get(body, body_field::stagger) == 0.f))
+    if (body_record(body).unk_23C != 0.f
+        && (body_record(body).energy <= 1 || body_record(body).unk_174 > 0.f
+            || body_record(body).stagger == 0.f))
     {
         return true;
     }
@@ -402,10 +402,10 @@ Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context)
     {
         const auto& body = *context.bodies.at(target);
         const float own_reach = context.body.body_actor.radius_xz
-            * read_f32(context.body.body, 0x888);
+            * body_record(context.body.body).radius_scale;
         const float target_radius = body.body_actor.radius_xz;
         const float margin = runtime_player_body_attachment_radius(body);
-        const float gap = distance - ((margin + read_f32(body.body, 0x888) * target_radius)
+        const float gap = distance - ((margin + body_record(body.body).radius_scale * target_radius)
             + own_reach);
         if (60.f > gap)
         {

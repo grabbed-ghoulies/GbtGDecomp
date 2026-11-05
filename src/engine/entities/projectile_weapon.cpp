@@ -1,4 +1,5 @@
 #include "projectile_weapon.h"
+#include <cstddef>
 #include "powerup_flags.h"
 #include "weapon_actor_detail.h"
 #include "weapon_breakage.h"
@@ -368,7 +369,7 @@ void leave_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state,
         // Holder +0x95C -> +0x4C and +0x14 cleared.
         weapon.services.hold_secondary(*owner, 0);
         const auto body = weapon.services.body_of(weapon.services.actor_address(*owner));
-        if (get(body, body_field::attached) == weapon.self_address())
+        if (body_record(body).attached == weapon.self_address())
         {
             weapon.services.empty_hand(*owner); // 0x0001B680, ECX the holder's body
         }

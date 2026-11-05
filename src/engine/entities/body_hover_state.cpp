@@ -20,16 +20,6 @@ std::unordered_map<const u8*, const AnimationRecord*> hover_animations;
 
 constexpr float kTau = 6.2831854820251465f; // DAT_0032B298.
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
 const RuntimeDialogueInputDevice& input_of(RuntimeHoverStateContext& context)
 {
     if (context.input == nullptr)
@@ -74,10 +64,10 @@ bool initialize_runtime_hover_state(HoverState& state, std::span<const u8> param
     const auto body = context.body;
     context.bits.bytes[6] |= 1;
     // DAT_0032B484, DAT_0032B63C, DAT_0032B218.
-    set(body, body_field::turn_rates, {1.0471975803375244f, 2.268928050994873f, 6.f});
-    body[0x38] = 1;
-    body[0x39] = 1;
-    put_u16(body, 0x160, 0);
+    body_record(body).turn_rates = {1.0471975803375244f, 2.268928050994873f, 6.f};
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+   body_record(body).unk_160 = 0;
     state.next = get(parameters, parameter::next);
     state.next_with_target = get(parameters, parameter::next_with_target);
     state.turns = get(parameters, parameter::turns);
@@ -98,7 +88,7 @@ void destroy_runtime_hover_state(const HoverState& state, RuntimeHoverStateConte
 {
     const auto body = context.body;
     // DAT_0032B220, DAT_0032B21C, DAT_0032B218.
-    set(body, body_field::turn_rates, {0.5585053563117981f, 12.566370964050293f, 6.f});
+    body_record(body).turn_rates = {0.5585053563117981f, 12.566370964050293f, 6.f};
     context.bits.bytes[6] &= 0xFE;
     if (state.animation == 0)
     {
@@ -134,11 +124,11 @@ void tick_runtime_hover_state(HoverState& state, RuntimeHoverStateContext& conte
             throw Error("0x00097CF0 reads the position of a chosen actor outside the scene");
         }
         const Vec3 point = actor_world_position(*chosen); // 0x000412A0, ESI the actor, EDI body +0x3C
-        put_float(body, 0x3C, point.x);
-        put_float(body, 0x40, point.y);
-        put_float(body, 0x44, point.z);
+       body_record(body).focus_point.x = point.x;
+       body_record(body).focus_point.y = point.y;
+       body_record(body).focus_point.z = point.z;
     }
-    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f &&
+    if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f &&
         state.turns != 0)
     {
         turn_runtime_hover_state(context); // 0x00097E60, EAX actor
@@ -173,9 +163,9 @@ void turn_runtime_hover_state(RuntimeHoverStateContext& context)
 {
     const auto body = context.body;
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
-    const Vec3 direction{get(body, body_field::focus_point).x - position.x,
-                         get(body, body_field::focus_point).y - position.y,
-                         get(body, body_field::focus_point).z - position.z};
+    const Vec3 direction{body_record(body).focus_point.x - position.x,
+                         body_record(body).focus_point.y - position.y,
+                         body_record(body).focus_point.z - position.z};
     float angle = 0.f; // 0x00105F90 leaves the slot unwritten for a zero direction.
     runtime_direction_angle(direction, angle); // 0x00105F90
     // The 0x00152BE0 remainder into [-pi, pi): the x87 remainder is compared, its float kept.
@@ -192,7 +182,7 @@ void turn_runtime_hover_state(RuntimeHoverStateContext& context)
     level_body_euler(body);
     if (std::fabs(off) > 0.8726646304130554f) // 0x00152BB0, DAT_0032B478.
     {
-        put_float(body, 0x730, angle);
+       body_record(body).euler.y = angle;
     }
 }
 

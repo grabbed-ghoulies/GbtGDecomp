@@ -1,4 +1,6 @@
 #include "scene_actor_services_state.h"
+#include <cstddef>
+#include "../entities/body_fields.h"
 #include "../entities/player_fields.h"
 
 // The State's construction: every service binding the scene's actors, bodies, minds and controls call.
@@ -1143,16 +1145,16 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             unbound("weapon holder without a body (actor +0x95C)");
         }
-        if (read_u32(player.body, 0x48) == 0)
+        if (body_record(player.body).attached == 0)
         {
             return;
         }
         const u32 zero = 0;
-        std::memcpy(player.body.data() + 0x10, &zero, 4);
+        body_record(player.body).first_receiver = zero;
         player.first_receiver = nullptr;
         player.body_flags->bytes[4] &= 0xFB;
-        player.body[0x288] = 0;
-        std::memcpy(player.body.data() + 0x48, &zero, 4);
+        body_record(player.body).variant[0] = 0;
+        body_record(player.body).attached = zero;
         player.attached = nullptr;
     };
     weapon_services->hold_secondary = [this](const Actor& holder, u32 weapon)
@@ -1178,8 +1180,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             player.secondary = &attached.object;
             player.second_receiver = &attached.receiver;
         }
-        std::memcpy(player.body.data() + 0x4C, &weapon, 4);
-        std::memcpy(player.body.data() + 0x14, &weapon, 4);
+        body_record(player.body).unk_4C = weapon;
+        body_record(player.body).second_receiver = weapon;
     };
     classes = std::make_unique<NativeSceneActorClassOwner>(NativeSceneActorClassBindings{*actors, *marker_objects,
         effects, prompt_lock, area_dialogue, random, occupancy_initial,
@@ -1359,7 +1361,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     classes->defer_release = true;
     install_runtime_move_action_classes(scene.types, [this](u32 address) -> std::span<u8>
     {
-        return scene.resolve_address(address, 0x33C); // Through +0x338.
+        return scene.resolve_address(address, sizeof(BodyRecord));
     });
     install_runtime_body_state_classes(scene.types, [this](u32 body_address)
     {
@@ -3068,7 +3070,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             player.refresh_views();
             const auto* body_actor = actors->actors.at(scene.resolve_address(player.body_actor_address, 0).data());
             const Vec3 position = actor_world_position(*body_actor); // 0x000412A0, ESI body +8
-            std::memcpy(player.body.data() + 0x18, &position, sizeof(position));
+            std::memcpy(player.body.data() + offsetof(BodyRecord, position.x), &position, sizeof(position));
         },
         super_scary_text,
         []() -> bool
@@ -3937,7 +3939,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             auto& owner = body_messages[player->body.data()];
             owner->dispatch(player->body_object, buffer); // Body vtable +0xC.
         };
-        const u32 held = read_u32(player->body, 0x48);
+        const u32 held = body_record(player->body).attached;
         if (held != 0)
         {
             auto* held_object = object_of(scene.resolve_address(held, 0).data());
@@ -4031,7 +4033,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             auto& player = players->player_at(address);
             player.refresh_views();
-            return player.body.empty() ? 0u : read_u32(player.body, 0x48); // Actor +0x95C -> +0x48.
+            return player.body.empty() ? 0u : body_record(player.body).attached; // Actor +0x95C -> +0x48.
         },
         [this](u32 address)
         {
@@ -4277,7 +4279,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                     : read_u16(ring->rows, size_t(ring->head) * ring->stride);
             }
             actors.push_back({read_u16(mark.bytes, 6), goal, read_u32(mark.bytes, 0x984), read_u32(mark.bytes, 0x98C),
-                !mark.body.empty(), mark.body.empty() ? u16(0) : read_u16(mark.body, 0x94)});
+                !mark.body.empty(), mark.body.empty() ? u16(0) : body_record(mark.body).energy});
         }
         return actors;
     };
@@ -4321,8 +4323,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             }
             const std::span<const u8> bytes = owner->actor_bytes;
             links.push_back({&owner->actor, i32(read_u32(bytes, 0xCE0)), i16(read_u16(bytes, 0xCDC)),
-                read_u32(bytes, 0x93C), Vec3{read_f32(owner->body, 0x24), read_f32(owner->body, 0x28),
-                    read_f32(owner->body, 0x2C)}});
+                read_u32(bytes, 0x93C), Vec3{body_record(owner->body).unk_24.x, body_record(owner->body).unk_24.y,
+                    body_record(owner->body).unk_24.z}});
         }
         return links;
     };
@@ -4542,7 +4544,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         auto& player = players->player_at(address_of(cases.next) - 0x93C);
         player.refresh_views();
-        if (player.body.empty() || read_u16(player.body, 0x94) == 0)
+        if (player.body.empty() || body_record(player.body).energy == 0)
         {
             return false;
         }

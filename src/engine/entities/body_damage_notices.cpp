@@ -1,4 +1,5 @@
 #include "body_damage_notices.h"
+#include <cstddef>
 #include "actor_live_attachments.h"
 #include "../scripts/script_conditions.h"
 #include "body_fields.h"
@@ -27,13 +28,13 @@ bool runtime_body_death_effect_selected(std::span<const u8> attributes, u32& ran
 // Xbox 0x00024910
 bool notify_runtime_body_death_once(std::span<u8> body, u32 actor_address, Game& game)
 {
-    if (read_u32(body, 0x284) == 0)
+    if (body_record(body).unk_284 == 0)
     {
-        const std::array<u32, 3> message{0x31, actor_address, get(body, body_field::unk_274)};
+        const std::array<u32, 3> message{0x31, actor_address, body_record(body).unk_274};
         broadcast_actor_pulse_message(reinterpret_cast<const i32*>(message.data()));
         script_queue_event(game, {reinterpret_cast<const u8*>(message.data()), sizeof(message)});
         const u32 one = 1;
-        std::memcpy(body.data() + 0x284, &one, 4);
+        body_record(body).unk_284 = one;
         return true;
     }
     return false;
@@ -43,21 +44,21 @@ bool notify_runtime_body_death_once(std::span<u8> body, u32 actor_address, Game&
 void set_runtime_body_damage_sources(std::span<u8> body, u32 kind,
     u32 amount, u32 first, u32 second, u32 third, u32 increment)
 {
-    std::memcpy(body.data() + 0x27C, &kind, 4);
-    std::memcpy(body.data() + 0x280, &amount, 4);
-    std::memcpy(body.data() + 0x26C, &first, 4);
-    std::memcpy(body.data() + 0x270, &second, 4);
-    std::memcpy(body.data() + 0x274, &third, 4);
+    body_record(body).damage_kind = kind;
+    body_record(body).damage_amount = amount;
+    body_record(body).unk_26C = first;
+    body_record(body).attacker = second;
+    body_record(body).unk_274 = third;
     const u32 zero = 0;
-    std::memcpy(body.data() + 0x278, &zero, 4);
+    body_record(body).unk_278 = zero;
     if (increment != 0)
     {
-        const u16 count = u16(read_u16(body, 0x162) + 1);
-        std::memcpy(body.data() + 0x162, &count, 2);
+        const u16 count = u16(body_record(body).unk_162 + 1);
+        body_record(body).unk_162 = count;
         return;
     }
     const u16 count = 0;
-    std::memcpy(body.data() + 0x162, &count, 2);
+    body_record(body).unk_162 = count;
 }
 
 // Xbox 0x00021120
@@ -78,9 +79,9 @@ u32 subtract_runtime_body_damage_health(std::span<u8> body, const Actor& actor,
     }
     if (amount != 0)
     {
-        const u32 difference = u32(get(body, body_field::energy)) - amount;
+        const u32 difference = u32(body_record(body).energy) - amount;
         const u16 health = std::bit_cast<i32>(difference) <= 0 ? 0 : u16(difference);
-        std::memcpy(body.data() + 0x94, &health, 2);
+        body_record(body).energy = health;
     }
     return amount;
 }

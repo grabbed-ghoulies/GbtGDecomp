@@ -81,10 +81,10 @@ void runtime_actor_overlay_anchor(const Actor& actor, Vec3& position, float& hei
 // Xbox 0x0001E2A0
 u32 runtime_body_health_color(std::span<const u8> body)
 {
-    const u16 maximum = get(body, body_field::max_energy);
+    const u16 maximum = body_record(body).max_energy;
     if (maximum != 0)
     {
-        const float ratio = float(i32(get(body, body_field::energy))) / float(i32(maximum));
+        const float ratio = float(i32(body_record(body).energy)) / float(i32(maximum));
         if (0.25f > ratio) // DAT_0032B104.
         {
             return 0xFF2020FF; // DAT_00217D60.
@@ -237,11 +237,11 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
     float lateral;
     float digit_rise;
     float size;
-    if (read_u32(body, 0xE0) != 0)
+    if (body_record(body).unk_E0 != 0)
     {
         sprite = context.counter_sprite;
         color = 0xFFFFFFFF; // DAT_00314F48.
-        value = truncate_float(read_f32(body, 0xDC));
+        value = truncate_float(body_record(body).unk_DC);
         rise = 3.0f; // DAT_0032B260.
         lateral = 3.0f;
         digit_rise = 3.0f;
@@ -249,7 +249,7 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
     }
     else
     {
-        if (body[0xA4] == 0 || body[0xA8] == 0)
+        if (body_record(body).unk_A4 == 0 || body_record(body).unk_A8 == 0)
         {
             return;
         }
@@ -258,7 +258,7 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
         {
             sprite = context.health_sprite;
         }
-        else if (body[0xA9] != 0)
+        else if (body_record(body).unk_A9 != 0)
         {
             sprite = context.active_sprite;
         }
@@ -266,11 +266,11 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
         {
             sprite = context.alternate_sprite;
         }
-        color = (runtime_body_health_color(body) & 0x00FFFFFFu) | (u32(body[0xA5]) << 24);
+        color = (runtime_body_health_color(body) & 0x00FFFFFFu) | (u32(body_record(body).unk_A5) << 24);
         lateral = 0.0f;
         digit_rise = 2.0f; // DAT_0032B110.
-        value = i32(get(body, body_field::energy));
-        size = read_f32(body, 0xBC);
+        value = i32(body_record(body).energy);
+        size = body_record(body).unk_BC;
     }
     float sprite_size[2]{size, size};
     Vec3 position;

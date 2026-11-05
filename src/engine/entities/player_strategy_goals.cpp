@@ -294,8 +294,8 @@ void alert_runtime_goal_listener(RuntimePlayerStrategyGoals& context)
         message.id = 0x63;
         message.arg_i = 0x12004; // Bytes 4, 0x20, 1 and a zero fourth byte at message +4.
         message.hit_center = actor_world_position(owner);
-        message.hit_extent_y = owner.radius_y * get(body, body_field::height_scale);
-        message.hit_radius = owner.radius_xz * get(body, body_field::radius_scale);
+        message.hit_extent_y = owner.radius_y * body_record(body).height_scale;
+        message.hit_radius = owner.radius_xz * body_record(body).radius_scale;
         node->handle_message(*node, message);
     }
 }
@@ -482,7 +482,7 @@ u32 select_runtime_carry_action(RuntimePlayerStrategyGoals& context)
     {
         u32 parameters;
         if (find_runtime_script_table_row(context.actions.table, key, parameters) != nullptr
-            && get(context.entry.body, body_field::action_key) != key)
+            && body_record(context.entry.body).action_key != key)
         {
             return select_action(key, context);
         }
@@ -535,7 +535,7 @@ u32 select_runtime_goal_kind_action(u16 kind, u32& output, RuntimePlayerStrategy
             }
             ++index;
         } while (index < 3);
-        if (context.entry.body[0x6A] != 0)
+        if (body_record(context.entry.body).unk_6A != 0)
         {
             return 1;
         }

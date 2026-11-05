@@ -92,11 +92,6 @@ std::span<const u8> target_bytes(const RuntimeMindTarget* target, const char* re
     return target->bytes;
 }
 
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     if (offset + 4 > bytes.size())
@@ -275,19 +270,19 @@ bool runtime_haunted_coat_attack_ready(RuntimeMindTarget* target, RuntimeHaunted
     const bool near = context.point_is_near(target_record); // 0x00134350
     const std::span<const u8> body = body_of(context);
     bool settled;
-    if (body[0x6B] != 0)
+    if (body_record(body).unk_6B != 0)
     {
         settled = false;
     }
-    else if (body[0x6A] != 0)
+    else if (body_record(body).unk_6A != 0)
     {
         settled = false;
     }
-    else if (get(body, body_field::unk_70) > 0.f)
+    else if (body_record(body).unk_70 > 0.f)
     {
         settled = false;
     }
-    else if (get(body, body_field::move_holds) != 0 || !(get(body, body_field::move_hold_time) == 0.f))
+    else if (body_record(body).move_holds != 0 || !(body_record(body).move_hold_time == 0.f))
     {
         settled = false;
     }
@@ -338,8 +333,8 @@ void wake_runtime_haunted_coat(u32 release, RuntimeHauntedCoatStrategy& context)
     script_queue_event(goals.game, {reinterpret_cast<const u8*>(event.data()), sizeof(event)}); // 0x00116810, EDI
     if (fields_of(strategy).on_wall != 0)
     {
-        const u32 count = get(body, body_field::holds) - 1;
-        set(body, body_field::holds, count);
+        const u32 count = body_record(body).holds - 1;
+        body_record(body).holds = count;
         if (count == 0)
         {
             const std::array<u32, 2> message{0x4A, tag}; // Word 1 is the event's stack slot.
@@ -375,11 +370,11 @@ bool initialize_runtime_haunted_coat_strategy(RuntimeHauntedCoatStrategy& contex
         fields_of(strategy).on_wall = 1u;
     }
     const u16 key = u16((fields_of(strategy).on_wall != 0 ? 1 : 0) + 0xF2);
-    put_u16(body, 0x74A, key);
+   body_record(body).default_action_key = key;
     select_runtime_body_action(body, key, context.actions); // The inlined 0x00027650 over body +0x73C.
     if (fields_of(strategy).on_wall != 0)
     {
-        set(body, body_field::holds, get(body, body_field::holds) + 1);
+        body_record(body).holds = body_record(body).holds + 1;
     }
     return true;
 }
@@ -556,13 +551,13 @@ void enter_runtime_haunted_coat_state(u16 state, u16 previous, RuntimeHauntedCoa
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
     (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3ED:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack, context);
         fields_of(strategy).turn = 0.f;
@@ -571,7 +566,7 @@ void enter_runtime_haunted_coat_state(u16 state, u16 previous, RuntimeHauntedCoa
         return;
     case 0x40C:
         strategy_base(strategy).attacking = 1;
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         return;
     case 0x413:
         load_goal(fields_of(strategy).on_wall != 0 ? context.goal_sleep_wall : context.goal_sleep, context);

@@ -1,4 +1,5 @@
 #include "camera_mind_rig.h"
+#include "../entities/body_fields.h"
 #include "../entities/mind_fields.h"
 #include "display_setup_math.h"
 #include "display_view.h"
@@ -42,11 +43,6 @@ float real(std::span<const u8> bytes, size_t offset)
 }
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put(std::span<u8> bytes, size_t offset, u32 value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
 }
@@ -978,7 +974,8 @@ void track_camera_obstruction(RuntimeCameraMindView& view, Vec3& eye, Vec3& posi
             context.tunables.real(0x004274F4), 1);
         return;
     }
-    const Vec3 pushed{real(view.body, 0x1D8), real(view.body, 0x1DC), real(view.body, 0x1E0)};
+    const Vec3 pushed{body_record(view.body).contact_push.x, body_record(view.body).contact_push.y,
+        body_record(view.body).contact_push.z};
     const Vec3 euler = actor_world_euler(view.camera);
     Vec3 forward{};
     add_sound_direction(forward, euler.x, euler.y, 1.f);
@@ -1056,9 +1053,9 @@ u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8
         Vec3 aim{};
         aim_camera_offset(aim, eye, position, target, context.tunables.real(0x004274DC), 0.f,
             context.tunables.real(0x004274E0), context);
-        put_float(view.body, 0x318, aim.x);
-        put_float(view.body, 0x31C, aim.y);
-        put_float(view.body, 0x320, aim.z);
+       body_record(view.body).velocity.x = aim.x;
+       body_record(view.body).velocity.y = aim.y;
+       body_record(view.body).velocity.z = aim.z;
     }
     else
     {
@@ -1066,10 +1063,10 @@ u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8
         const u32 message[1]{3};
         view.body_message(message);
     }
-    put_float(view.body, 0x2FC, focus.x);
-    put_float(view.body, 0x300, focus.y);
-    put_float(view.body, 0x304, focus.z);
-    view.body[0x308] = 1;
+   body_record(view.body).look_point.x = focus.x;
+   body_record(view.body).look_point.y = focus.y;
+   body_record(view.body).look_point.z = focus.z;
+    body_record(view.body).look_point_set = 1;
     return 1;
 }
 }

@@ -302,7 +302,7 @@ u32 handle_runtime_player_pause_message(std::span<u8> actor, u32 id, RuntimePlay
 // Xbox 0x00029490
 void register_runtime_player_navigation(std::span<const u8> actor, RuntimePlayerNavigationRegistration& context)
 {
-    const float radius = context.body_owner.radius_xz * get(context.body, body_field::radius_scale);
+    const float radius = context.body_owner.radius_xz * body_record(context.body).radius_scale;
     if (radius != 0.0f)
     {
         const Vec3 center = get(actor, player_field::start_position);

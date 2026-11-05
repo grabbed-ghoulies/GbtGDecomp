@@ -405,15 +405,15 @@ void apply_runtime_body_actor_bounds(std::span<const u8> body, Actor& actor,
             bound_store(second.data(), 8, position.y);
             bound_store(second.data(), 0xC, position.z);
             bound_store(second.data(), 0x10, 0.f);
-            bound_store(second.data(), 0x14, actor.radius_y * get(body, body_field::height_scale));
+            bound_store(second.data(), 0x14, actor.radius_y * body_record(body).height_scale);
             bound_store(second.data(), 0x18, 0.f);
-            bound_store(second.data(), 0x1C, actor.radius_xz * get(body, body_field::radius_scale));
+            bound_store(second.data(), 0x1C, actor.radius_xz * body_record(body).radius_scale);
             if ((flags.bytes[7] & 1) != 0)
             {
                 bound_header(first.data());
-                bound_store(first.data(), 4, read_f32(bound, 0x20) + read_f32(body, 0x704));
-                bound_store(first.data(), 8, read_f32(bound, 0x24) + read_f32(body, 0x708));
-                bound_store(first.data(), 0xC, read_f32(bound, 0x28) + read_f32(body, 0x70C));
+                bound_store(first.data(), 4, read_f32(bound, 0x20) + body_record(body).unk_704.x);
+                bound_store(first.data(), 8, read_f32(bound, 0x24) + body_record(body).unk_704.y);
+                bound_store(first.data(), 0xC, read_f32(bound, 0x28) + body_record(body).unk_704.z);
                 bound_store(first.data(), 0x10, 0.f);
                 bound_store(first.data(), 0x14, read_f32(bound, 0x30));
                 bound_store(first.data(), 0x18, 0.f);
@@ -421,12 +421,12 @@ void apply_runtime_body_actor_bounds(std::span<const u8> body, Actor& actor,
             }
             else
             {
-                build_runtime_actor_bound(actor, first.data(), read_u32(body, 0x890), true, shapes);
+                build_runtime_actor_bound(actor, first.data(), body_record(body).unk_890, true, shapes);
             }
             update_runtime_actor_bound_record(bound, first.data(), second.data(), actor.anchor,
                                               u8(get(actor_bytes, player_field::floor)));
         }
-        build_runtime_actor_bound(actor, first.data(), read_u32(body, 0x88C), false, shapes);
+        build_runtime_actor_bound(actor, first.data(), body_record(body).unk_88C, false, shapes);
         const float inverse = 1.f / actor.radius_y;
         const float low = (bound_float(first.data(), 8) - position.y) * inverse;
         const float high = ((bound_float(first.data(), 0x14) + bound_float(first.data(), 8)) - position.y) * inverse;

@@ -1,4 +1,6 @@
 #include "scene_actor_services_state.h"
+#include <cstddef>
+#include "../entities/body_fields.h"
 
 namespace gbtg
 {
@@ -1572,7 +1574,7 @@ void SceneActorServices::place_script_player(const Vec3& position, const Vec3& e
     player.refresh_views();
     actor_set_world_position(player.actor, position); // 0x00041730
     const Vec3 world = actor_world_position(player.actor); // Body +8 is the player.
-    std::memcpy(player.body.data() + 0x18, &world, sizeof(world));
+    std::memcpy(player.body.data() + offsetof(BodyRecord, position.x), &world, sizeof(world));
     set_runtime_player_actor_rotation(player.actor, player.actor, player.body, euler); // 0x0002B560
 }
 
@@ -1765,7 +1767,7 @@ void SceneActorServices::send_player_through_exit(const Vec3& position, const Ve
     FactoryObject& object = state.object_of_actor(*player);
     auto& instance = state.players->player(object);
     instance.refresh_views();
-    if (read_u32(instance.attachment.body, 0x48) != 0) // The +0x95C body's held actor.
+    if (body_record(instance.attachment.body).attached != 0) // The +0x95C body's held actor.
     {
         RuntimeBodyAttachedActor* held = instance.attachment.actions.attached;
         if (held == nullptr)

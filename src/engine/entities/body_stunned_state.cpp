@@ -1,4 +1,5 @@
 #include "body_stunned_state.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "body_walk_alert_tick.h"
 #include "../scene/scene_types.h"
@@ -24,8 +25,8 @@ void step_holds(std::span<u8> body, i32 step)
     {
         body[offset] = u8(body[offset] + step);
     }
-    const u16 count = u16(get(body, body_field::move_holds) + step);
-    std::memcpy(body.data() + 0x30, &count, 2);
+    const u16 count = u16(body_record(body).move_holds + step);
+    body_record(body).move_holds = count;
 }
 
 bool construct_stunned_state_view(FactoryObject& object, std::span<const u8> parameters)
@@ -95,7 +96,7 @@ bool initialize_runtime_stunned_state(StunnedState& state, std::span<const u8> p
 void destroy_runtime_stunned_state(StunnedState& state, RuntimeStunnedStateContext& context)
 {
     const auto body = context.body;
-    if (const u32 held = read_u32(body, 0x50); held != 0)
+    if (const u32 held = body_record(body).unk_50; held != 0)
     {
         std::array<u32, 1> message{0x54};
         context.message(held, message); // Body +0x50's vtable +0xC.

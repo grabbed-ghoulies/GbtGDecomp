@@ -54,7 +54,7 @@ u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& co
         context.target = target;
         set(movement.mind, mind_field::action_actor, target->address);
     }
-    if (read_u16(movement.body, 0x30) != 0 || read_f32(movement.body, 0x34) != 0.f)
+    if (body_record(movement.body).move_holds != 0 || body_record(movement.body).move_hold_time != 0.f)
     {
         return 0;
     }
@@ -92,13 +92,13 @@ u32 update_runtime_cinema_mind_timed_motion(RuntimeCinemaMindMovement& context,
     std::span<const u8> request, const RuntimeBodyDamageTables& tables,
     std::span<const float> mode_scales)
 {
-    if (get(context.body, body_field::move_holds) != 0 || get(context.body, body_field::move_hold_time) != 0.f)
+    if (body_record(context.body).move_holds != 0 || body_record(context.body).move_hold_time != 0.f)
     {
         return 0;
     }
-    const u8 mode = context.body[get(context.body, body_field::surface_override_frames) == 0 ? 0x874 : 0x87E];
+    const u8 mode = context.body[body_record(context.body).surface_override_frames == 0 ? 0x874 : 0x87E];
     float multiplier = 1.f;
-    if ((get(context.body, body_field::scaled_surfaces) & (1u << (mode & 31))) != 0)
+    if ((body_record(context.body).scaled_surfaces & (1u << (mode & 31))) != 0)
     {
         multiplier = mode_scales[mode]; // DAT_00217EC0.
     }
@@ -177,7 +177,7 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
     {
         return true;
     }
-    if (get(context.body, body_field::move_holds) == 0 && get(context.body, body_field::move_hold_time) == 0.f)
+    if (body_record(context.body).move_holds == 0 && body_record(context.body).move_hold_time == 0.f)
     {
         if (get(request, target_action_request::forced) != 0 || context.target->bytes[0x15] == 0)
         {
@@ -251,7 +251,7 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
     {
         const float body_radius = context.eligibility.body_actor.radius_xz;
         radius = runtime_player_body_attachment_radius(context.eligibility)
-            + get(context.body, body_field::radius_scale) * body_radius;
+            + body_record(context.body).radius_scale * body_radius;
         radius = radius + get(request, target_position_request::radius);
         radius = radius + read_f32(shape, 0x1C);
         radius = radius + 1.f;

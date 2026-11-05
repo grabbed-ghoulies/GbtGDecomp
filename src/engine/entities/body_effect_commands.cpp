@@ -47,7 +47,7 @@ void command_runtime_body_projectile(std::span<const u8> body, std::span<const u
     position.x = ((world[2] * z + world[1] * y) + world[0] * x) + world[3];
     position.y = ((world[6] * z + world[4] * x) + world[5] * y) + world[7];
     position.z = ((world[10] * z + world[8] * x) + world[9] * y) + world[11];
-    Vec3 euler{get(body, body_field::euler).x, get(body, body_field::euler).y, 0.f};
+    Vec3 euler{body_record(body).euler.x, body_record(body).euler.y, 0.f};
     auto object = create_runtime_actor_at(reinterpret_cast<const char*>(command.data() + 0x10),
         &position, &euler, 1.f, context.resources, context.factory, context.default_position, context.default_euler);
     if (object.bytes != nullptr)
@@ -103,7 +103,7 @@ bool select_runtime_body_surface_effect(std::span<const u8> body, const Vec3& po
     i32 alternate, const char* side, char* output, RuntimeBodyEffectCommands& context)
 {
     u8 surface;
-    if (get(body, body_field::surface_override_frames) == 0)
+    if (body_record(body).surface_override_frames == 0)
     {
         const auto* grid = entity_detail::g_nav_grids[context.floor];
         if (grid == nullptr)
@@ -130,9 +130,9 @@ bool select_runtime_body_surface_effect(std::span<const u8> body, const Vec3& po
     }
     else
     {
-        surface = get(body, body_field::surface_override);
+        surface = body_record(body).surface_override;
     }
-    const u16 tag = read_u16(body, 0x87C);
+    const u16 tag = body_record(body).sound_tag;
     output[0] = 0;
     if (surface == 0)
     {

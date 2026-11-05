@@ -41,7 +41,7 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
     auto body = context.body.body;
     std::array<float, 2> axes;
     runtime_input_secondary_axes(context.input, axes, context.input_state);
-    const bool active = get(body, body_field::energy) != 0 && !(get(mind, player_mind_field::control_lock) > 0.f);
+    const bool active = body_record(body).energy != 0 && !(get(mind, player_mind_field::control_lock) > 0.f);
     auto* attached = context.body.actions.attached;
     update_runtime_player_input_direction(record(mind, player_mind_field::stick), axes,
         runtime_frame_step(control.clock), attached != nullptr && attached->bytes[0x93D] == 4);
@@ -74,7 +74,7 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
         }
         else
         {
-            if (body[0x6A] != 0)
+            if (body_record(body).unk_6A != 0)
             {
                 set_runtime_mind_alert_event(events, target);
                 if ((context.flags.bytes[5] & 0x80) != 0)
@@ -106,7 +106,7 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
             set(mind, player_mind_field::target_count, 0);
         }
     }
-    if (body[0x6A] == 0)
+    if (body_record(body).unk_6A == 0)
     {
         set(mind, mind_field::action_record, 0);
         set(mind, mind_field::target_record, 0);
@@ -132,8 +132,8 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
     u32 previous;
     if (changed)
     {
-        previous = read_u32(body, 0x88);
-        write_u32(body, 0x88, 0);
+        previous = body_record(body).unk_88;
+        body_record(body).unk_88 = 0;
     }
     if (target != 0)
     {
@@ -166,7 +166,7 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
     }
     if (changed)
     {
-        write_u32(body, 0x88, previous);
+        body_record(body).unk_88 = previous;
     }
     attached = selection.requests.actions.attached;
     if (attached != nullptr && attached->bytes[0x93D] == 4
@@ -290,7 +290,7 @@ const u8* select_runtime_body_chain_target_request(RuntimeMindChainRequestSelect
     }
     const u8* selected = nullptr;
     u32 address = 0;
-    const u32 previous = read_u32(selection.requests.body, 0x88);
+    const u32 previous = body_record(selection.requests.body).unk_88;
     if (previous != 0)
     {
         address = resume_runtime_attachment_chain(context.chains, previous, shape.data(),
@@ -498,7 +498,7 @@ i32 runtime_body_target_chain_length(const RuntimeBodyChainLength& context)
     {
         return 1;
     }
-    const float scale = get(context.body, body_field::stagger);
+    const float scale = body_record(context.body).stagger;
     if (context.model_state[0x1A4] != 0 && scale == 0.f
         && (context.flags.bytes[3] & 2) == 0)
     {
@@ -961,7 +961,8 @@ bool runtime_attachment_target_row_matches(std::span<const u8> body, const Actor
     {
         return false;
     }
-    if (row[8] != 0 && body[0x2D0] != 0 && body[0x2D0] == row[8] && body[0x2D2] != 0)
+    if (row[8] != 0 && body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == row[8]
+        && body_record(body).unk_2D2 != 0)
     {
         return false;
     }
@@ -1071,7 +1072,7 @@ float runtime_body_target_surface_distance(const Actor& actor,
     const long double dz = static_cast<long double>(position.z) - get(target, mind_target_field::shape_position).z;
     const long double distance = std::sqrt((dz * dz + dx * dx) + dy * dy);
     const long double reach = static_cast<long double>(body.body_actor.radius_xz)
-        * read_f32(body.body, 0x888) + get(target, mind_target_field::shape_radius);
+        * body_record(body.body).radius_scale + get(target, mind_target_field::shape_radius);
     const long double gap = distance - reach;
     if (0.L >= gap)
     {

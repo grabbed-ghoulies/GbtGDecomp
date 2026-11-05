@@ -1,4 +1,5 @@
 #include "generic_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -141,7 +142,7 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     }
     bool changed = false;
     bool settled = false;
-    if ((body_of(context)[0x6E] & 1) != 0 && prior != 0 && elapsed)
+    if ((body_of(context)[offsetof(BodyRecord, tag)] & 1) != 0 && prior != 0 && elapsed)
     {
         select_runtime_strategy_target(output, 1, goals); // 0x00139AA0
         if (output != nullptr)
@@ -218,7 +219,7 @@ float target_gap(std::span<const u8> record, RuntimeGenericStrategy& context)
     const float dz = position.z - read_f32(record, 0x28);
     const float scale = actor.radius_xz; // Body +8, +0x38.
     const float distance = float(std::sqrt(double(dx) * dx + double(dy) * dy + double(dz) * dz));
-    float reach = get(body, body_field::reach) * scale;
+    float reach = body_record(body).reach * scale;
     float weapon_radius = 0.f;
     const RuntimeBodyAttachedActor* weapon = weapon_of(context);
     const u8 kind = weapon == nullptr ? 0 : weapon->bytes[0x93D];
@@ -234,7 +235,7 @@ float target_gap(std::span<const u8> record, RuntimeGenericStrategy& context)
         }
     }
     reach += weapon_radius;
-    const float gap = distance - (get(body, body_field::radius_scale) * scale + reach + read_f32(record, 0x38));
+    const float gap = distance - (body_record(body).radius_scale * scale + reach + read_f32(record, 0x38));
     return 0.f >= gap ? 0.f : gap;
 }
 
@@ -461,13 +462,13 @@ void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3EC:
     {
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         RuntimePlayerMindRequest& chase = allocate_request(0x2F, context); // 0x00029D90, EBX 0x2F
         put_float(chase.bytes, 0x10, kOne);
         put_float(chase.bytes, 0x14, kOne);
@@ -476,7 +477,7 @@ void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
         return;
     }
     case 0x3EE:
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         strategy_base(strategy).attacking = context.attack_resource.data() != nullptr ? 1 : 0; // Body +0x5C.
         load_attack_goal(context); // The tail jump to 0x000ABA80.
         return;
@@ -484,7 +485,7 @@ void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
         load_goal(context.goal_far, context);
         return;
     case 0x405:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         load_goal(context.goal_get_weapon, context);
         return;
     case 0x40D:

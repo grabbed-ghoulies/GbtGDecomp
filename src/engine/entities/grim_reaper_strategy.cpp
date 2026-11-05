@@ -1,4 +1,5 @@
 #include "grim_reaper_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -36,11 +37,6 @@ const GrimReaperStrategyState& fields_of(std::span<const u8> strategy)
     return strategy_view<GrimReaperStrategyState>(strategy);
 }
 
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -144,7 +140,7 @@ RuntimePlayerMindRequest& request(u16 kind, RuntimeGrimReaperStrategy& context)
 bool body_settled(RuntimeGrimReaperStrategy& context)
 {
     const std::span<const u8> body = body_of(context);
-    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f; // DAT_0032B100.
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f; // DAT_0032B100.
 }
 
 // The actor's step: the frame's (none while frozen) by its rate (none while +0x930 holds it).
@@ -248,7 +244,7 @@ void request_chase(RuntimeGrimReaperStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
     // Body +8 is his own actor; its +0x38 scales the body's +0x78 reach.
-    const float reach = actor_of(context).radius_xz * get(body, body_field::reach);
+    const float reach = actor_of(context).radius_xz * body_record(body).reach;
     const RuntimeBodyAttachedActor* held = goals_of(context).actions.attached; // Body +0x48.
     float extra = 0.f;
     if (held != nullptr && held->bytes[0x93D] == 1)
@@ -270,9 +266,9 @@ void request_chase(RuntimeGrimReaperStrategy& context)
     put_float(chase.bytes, 0x10, fields_of(strategy).speed);
     put_float(chase.bytes, 0x14, fields_of(strategy).speed);
     put_float(chase.bytes, 0x1C, 0.f);
-    put_float(body, 0x71C, fields_of(strategy).turn_speed);
-    put_float(body, 0x720, fields_of(strategy).turn_speed);
-    put_float(body, 0x724, kOne);
+    put_float(body, offsetof(BodyRecord, turn_rates), fields_of(strategy).turn_speed);
+   body_record(body).turn_rates[1] = fields_of(strategy).turn_speed;
+   body_record(body).turn_rates[2] = kOne;
     RuntimePlayerMindRequest& wait = request(0x27, context);
     put_float(wait.bytes, 0x10, 5.f); // DAT_0032B184.
 }
@@ -333,19 +329,19 @@ void start_grab(RuntimeGrimReaperStrategy& context)
         row = found == nullptr ? 0u : context.address_of(found);
     }
     strategy_base(strategy).attacking = 1;
-    set(body, body_field::hit_record, row);
-    body[0x6A] = u8(body[0x6A] + 1);
+    body_record(body).hit_record = row;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
     if (context.collision != nullptr)
     {
         activate_runtime_body_contact_shapes(*context.collision, actor, 3, 1, kOne); // 0x0013F420
-        set(body, body_field::contact_count, 0);
+        body_record(body).contact_count = 0;
     }
     if (context.collision != nullptr)
     {
         activate_runtime_body_contact_shapes(*context.collision, actor, 0xD, 1, kOne);
-        set(body, body_field::contact_count, 0);
+        body_record(body).contact_count = 0;
     }
-    put_word(body, 0x74C, 1);
+   body_record(body).unk_74C = 1;
     set_model_flag(1, context);
     dispatch_actor_attachment_records(context.resource.resource.data(), 0x2E, record_runtime_body_attachment_event, nullptr,
         context.callouts, context.address_of(strategy.data()) + offsetof(GrimReaperStrategyState, events));
@@ -364,9 +360,9 @@ void end_grab(RuntimeGrimReaperStrategy& context)
     }
     const std::span<u8> body = body_of(context);
     strategy_base(strategy).attacking = 0;
-    set(body, body_field::hit_record, 0);
-    put_word(body, 0x88, 0);
-    body[0x6A] = u8(body[0x6A] - 1);
+    body_record(body).hit_record = 0;
+   body_record(body).unk_88 = 0;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
     if (context.collision != nullptr)
     {
         deactivate_runtime_body_contact_shapes(*context.collision, 3); // 0x0013F4D0
@@ -375,7 +371,7 @@ void end_grab(RuntimeGrimReaperStrategy& context)
     {
         deactivate_runtime_body_contact_shapes(*context.collision, 0xD);
     }
-    put_word(body, 0x74C, 0);
+   body_record(body).unk_74C = 0;
     clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).events), context.lists); // 0x0013B810
     set_model_flag(0, context);
     fields_of(strategy).grabbing = 0u;
@@ -665,7 +661,7 @@ bool initialize_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
     fields_of(strategy).parameters = context.parameters_address;
     fields_of(strategy).appearing = 1u;
     fields_of(strategy).turn_speed = kOne;
-    set(body, body_field::ease_rate, 10.f); // DAT_0032B10C
+    body_record(body).ease_rate = 10.f; // DAT_0032B10C
     fields_of(strategy).grabbing = 0u;
     EntityBitBlock& bits = body_bits(context);
     bits.bytes[0] = u8(bits.bytes[0] | 0x80);

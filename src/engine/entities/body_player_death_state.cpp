@@ -61,7 +61,7 @@ void release_contacts(PlayerDeathState& state, RuntimePlayerDeathContext& contex
     if (state.contacts_raised != 0)
     {
         clear_runtime_body_contacts(context.knockdown); // 0x00025FA0, EDX body
-        context.knockdown.body[0x717] = u8(state.saved_717);
+        body_record(context.knockdown.body).collision_kind = u8(state.saved_717);
         state.contacts_raised = 0;
     }
 }
@@ -92,17 +92,17 @@ bool initialize_runtime_player_death_state(PlayerDeathState& state, std::span<co
     const std::span<u8> body = knockdown.body;
     knockdown.bits.bytes[3] |= 8;
     knockdown.bits.bytes[3] |= 0x10;
-    ++body[0x30C];
-    ++body[0x30A];
-    ++body[0x309];
-    ++body[0x30B];
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
-    body[0x38] = 1;
-    body[0x39] = 1;
+    ++body_record(body).unk_30C;
+    ++body_record(body).unk_30A;
+    ++body_record(body).unk_309;
+    ++body_record(body).unk_30B;
+    body_record(body).move_holds = u16(body_record(body).move_holds + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     increment_runtime_body_latches(body, knockdown.actor, context.latches); // 0x0001FC40, ECX body
-    body[0x715] = 1;
-    const u8 saved = body[0x717];
-    body[0x717] = 1;
+    body_record(body).unk_715 = 1;
+    const u8 saved = body_record(body).collision_kind;
+    body_record(body).collision_kind = 1;
     state.contacts_raised = 1;
     state.saved_717 = saved;
     state.death_word = get(parameters, parameter::death_word);
@@ -167,11 +167,11 @@ void destroy_runtime_player_death_state(PlayerDeathState& state, RuntimePlayerDe
 {
     auto& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
-    --body[0x309];
-    --body[0x30A];
-    --body[0x30B];
-    --body[0x30C];
+    body_record(body).move_holds = u16(body_record(body).move_holds - 1);
+    --body_record(body).unk_309;
+    --body_record(body).unk_30A;
+    --body_record(body).unk_30B;
+    --body_record(body).unk_30C;
     set_runtime_body_shape_mode(state.saved_shape_mode, knockdown.shape); // 0x0001FEB0, BL the saved mode
     release_contacts(state, context);
     decrement_runtime_body_latches(body, knockdown.actor, context.latches); // 0x0001FD20, ECX body
@@ -295,7 +295,7 @@ void tick_runtime_player_death_state(PlayerDeathState& state, RuntimePlayerDeath
     {
         const float facing = read_f32(knockdown.actor_bytes, 0x18);
         // 0x00136150
-        set(body, body_field::euler, Vec3{runtime_floor_pitch(knockdown.actor, knockdown.actor_bytes), facing, 0.f});
+        body_record(body).euler = Vec3{runtime_floor_pitch(knockdown.actor, knockdown.actor_bytes), facing, 0.f};
     }
     else
     {

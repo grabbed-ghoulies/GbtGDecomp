@@ -1,4 +1,5 @@
 #include "body_struggle_state.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "body_orientation.h"
 #include "entity.h"
@@ -87,10 +88,10 @@ bool initialize_runtime_struggle_state(StruggleState& state, std::span<const u8>
         parameter_or(rates[1], degrees, std::bit_cast<float>(0x4011361Eu)), // DAT_0032B63C.
         parameter_or(rates[2], 1.f, 6.f)}; // DAT_0032B218.
     context.bits->bytes[6] |= 1;
-    set(body, body_field::turn_rates, state.turn_rates);
-    body[0x38] = 1;
-    body[0x39] = 1;
-    std::memset(body.data() + 0x160, 0, 2);
+    body_record(body).turn_rates = state.turn_rates;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    std::memset(body.data() + offsetof(BodyRecord, unk_160), 0, 2);
     state.band_mode = 0;
     if (state.out_of_band_found != 0 || state.started == 0)
     {
@@ -106,7 +107,7 @@ void destroy_runtime_struggle_state(StruggleState& state, RuntimeBodyStateContex
 {
     const auto body = context.body;
     // DAT_0032B220, DAT_0032B21C, DAT_0032B218.
-    set(body, body_field::turn_rates, {std::bit_cast<float>(0x3F0EFA35u), std::bit_cast<float>(0x41490FDBu), 6.f});
+    body_record(body).turn_rates = {std::bit_cast<float>(0x3F0EFA35u), std::bit_cast<float>(0x41490FDBu), 6.f};
     context.bits->bytes[6] &= 0xFE;
     struggle_records.erase(body_state_key(state));
 }
@@ -135,7 +136,7 @@ void turn_runtime_struggle_body(bool targeted, StruggleState& state, RuntimeStru
             * static_cast<long double>(std::bit_cast<float>(0x3C8EFA35u)); // DAT_0032B0FC.
         if (static_cast<long double>(engine_absolute(difference)) > limit)
         {
-            set(body, body_field::euler, Vec3{0.f, heading, 0.f});
+            body_record(body).euler = Vec3{0.f, heading, 0.f};
             return;
         }
     }
@@ -146,7 +147,7 @@ void turn_runtime_struggle_body(bool targeted, StruggleState& state, RuntimeStru
 void update_runtime_struggle_animation(StruggleState& state, RuntimeStruggleTick& context)
 {
     const float facing = read_f32(context.actor_bytes, 0x18);
-    const float heading = get(context.body, body_field::euler).y;
+    const float heading = body_record(context.body).euler.y;
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.actor);
     const float timer = state.band_timer;
@@ -193,9 +194,9 @@ void select_runtime_struggle_key(StruggleState& state, RuntimeStruggleTick& cont
     const auto body = context.body;
     if (state.moving_key != 0)
     {
-        const float z = get(body, body_field::motion).z;
-        const float y = get(body, body_field::motion).y;
-        const float x = get(body, body_field::motion).x;
+        const float z = body_record(body).motion.z;
+        const float y = body_record(body).motion.y;
+        const float x = body_record(body).motion.x;
         u16 key = 0;
         if ((z * z + y * y) + x * x > 0.f && (context.flags.bytes[0] & 2) != 0) // DAT_0032B100.
         {
@@ -235,10 +236,10 @@ void tick_runtime_struggle_state(StruggleState& state, RuntimeStruggleTick& cont
         && get(context.mind, mind_field::target) != 0)
     {
         const Vec3 point = context.target_position(get(context.mind, mind_field::target));
-        std::memcpy(body.data() + 0x3C, &point, 12);
+        std::memcpy(body.data() + offsetof(BodyRecord, focus_point.x), &point, 12);
         targeted = true;
     }
-    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f &&
+    if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f &&
         (context.flags.bytes[0] & 0x40) == 0)
     {
         turn_runtime_struggle_body(targeted, state, context);

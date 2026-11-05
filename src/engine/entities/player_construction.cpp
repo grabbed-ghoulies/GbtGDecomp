@@ -1,4 +1,6 @@
 #include "player_construction.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "player_fields.h"
 #include <bit>
 #include <cstring>
@@ -73,14 +75,15 @@ bool initialize_runtime_player(std::span<u8> actor, std::span<const u8> paramete
             context.strategy_setup);
     }
     const std::span<u8> body{context.body.bytes.get(), context.body.size};
-    if (read_u32(body, 0xFC) != 0)
+    if (body_record(body).unk_FC != 0)
     {
-        body[0x90] = 2;
-        body[0x91] = 0;
-        body[0x92] = 2;
-        put(body, 0x8C, context.initial_channel_word);
+        body_record(body).channel_keys = 2;
+        body_record(body).channel_key = 0;
+        body_record(body).unk_92 = 2;
+        put(body, offsetof(BodyRecord, channel_timer), context.initial_channel_word);
         random = random * 1664525u + 1013904223u;
-        put(body, 0x8C, std::bit_cast<u32>(std::bit_cast<float>(0x3F800000u | (random & 0x7FFFFFu)) - 1.f));
+        put(body, offsetof(BodyRecord, channel_timer),
+            std::bit_cast<u32>(std::bit_cast<float>(0x3F800000u | (random & 0x7FFFFFu)) - 1.f));
     }
     FactoryObject attached;
     if (read_u32(parameters, 0x4BA) == 0x5F646961)

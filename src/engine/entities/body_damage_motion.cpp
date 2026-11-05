@@ -1,4 +1,6 @@
 #include "body_damage_motion.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "player_mind_targets.h"
 #include "player_mind_events.h"
 #include "body_damage_fields.h"
@@ -216,14 +218,14 @@ void push_runtime_body_from_damage(Actor& actor, u32 actor_address,
 void set_runtime_body_damage_motion(std::span<u8> body, const Vec3& direction,
     float first, float second, float third, float fourth)
 {
-    const u16 count = u16(read_u16(body, 0x160) + 1);
-    std::memcpy(body.data() + 0x160, &count, 2);
-    const u16 secondary = u16(read_u16(body, 0x162) + 1);
-    std::memcpy(body.data() + 0x162, &secondary, 2);
-    std::memcpy(body.data() + 0x220, &first, 4);
-    std::memcpy(body.data() + 0x224, &second, 4);
-    std::memcpy(body.data() + 0x228, &third, 4);
-    std::memcpy(body.data() + 0x22C, &fourth, 4);
-    std::memcpy(body.data() + 0x230, &direction, 12);
+    const u16 count = u16(body_record(body).unk_160 + 1);
+    body_record(body).unk_160 = count;
+    const u16 secondary = u16(body_record(body).unk_162 + 1);
+    body_record(body).unk_162 = secondary;
+    body_record(body).unk_220 = first;
+    body_record(body).unk_224 = second;
+    body_record(body).unk_228 = third;
+    body_record(body).unk_22C = fourth;
+    std::memcpy(body.data() + offsetof(BodyRecord, unk_230.x), &direction, 12);
 }
 }

@@ -1,4 +1,5 @@
 #include "body_slide_state.h"
+#include <cstddef>
 #include "body_gravity_motion.h"
 #include "player_goal_cleanup.h"
 #include "player_mind_requests.h"
@@ -20,11 +21,6 @@ std::function<RuntimeSlideStateContext&(u32)> slide_context_of;
 // Host views of the two 0x0003AAA0 records the state's +0x1C / +0x20 words point at.
 std::unordered_map<const u8*, std::array<const AnimationRecord*, 2>> slide_records;
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // The inlined phase change: a phase in 1..3 gives body +0x334 back from +0x330 and lowers +0x338, then the new phase
 // keeps +0x334 at +0x330, sets it to `speed` and raises +0x338.
 void enter_phase(SlideState& state, u32 phase, float speed, RuntimeSlideStateContext& context)
@@ -33,13 +29,13 @@ void enter_phase(SlideState& state, u32 phase, float speed, RuntimeSlideStateCon
     const i32 current = i32(state.phase);
     if (0 < current && current < 4)
     {
-        put_word(body, 0x334, read_u32(body, 0x330));
-        set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
+        body_record(body).ease_rate = body_record(body).saved_ease_rate;
+        body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps - 1;
     }
     state.phase = phase;
-    put_word(body, 0x330, read_u32(body, 0x334));
-    set(body, body_field::ease_rate, speed);
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
+    body_record(body).saved_ease_rate = body_record(body).ease_rate;
+    body_record(body).ease_rate = speed;
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps + 1;
 }
 
 // 0x0003A9E0, ECX the record at +0x1C (index 0) or +0x20 (index 1).
@@ -60,10 +56,10 @@ void start_animation(const SlideState& state, size_t index, RuntimeSlideStateCon
 void push_along_heading(RuntimeSlideStateContext& context)
 {
     const auto body = context.body;
-    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
-                                                                        : get(body, body_field::surface_override);
+    const u8 mode = body_record(body).surface_override_frames == 0 ? body_record(body).surface
+                                                                        : body_record(body).surface_override;
     float scale = 1.f; // DAT_0032B0F8.
-    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
+    if ((body_record(body).scaled_surfaces & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= context.mode_scales.size())
         {
@@ -98,7 +94,7 @@ void slide(SlideState& state, RuntimeSlideStateContext& context)
         {
             activate_runtime_body_contact_shapes(*context.collision, context.actor, state.shape_tag, 7,
                 1.f); // 0x0013F420, XMM4 DAT_0032B0F8
-            set(context.body, body_field::contact_count, 0);
+            body_record(context.body).contact_count = 0;
         }
     }
     if (!runtime_actor_animation_slot_complete(context.actions.animation, 0)) // The inlined 0x0003B290.
@@ -215,8 +211,8 @@ void destroy_runtime_slide_state(SlideState& state, RuntimeSlideStateContext& co
     const i32 phase = i32(state.phase);
     if (0 < phase && phase < 4)
     {
-        put_word(body, 0x334, read_u32(body, 0x330));
-        set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
+        body_record(body).ease_rate = body_record(body).saved_ease_rate;
+        body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps - 1;
     }
     state.phase = 0;
     if (state.sounding != 0)

@@ -1,4 +1,5 @@
 #include "vampire_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -326,8 +327,8 @@ void update_knocked(RuntimeVampireStrategy& context)
     case 1:
     {
         const std::span<const u8> body = body_of_actor(context);
-        if (get(body, body_field::move_holds) == 0 &&
-            get(body, body_field::move_hold_time) == 0.f) // DAT_0032B100; LAHF; JP.
+        if (body_record(body).move_holds == 0 &&
+            body_record(body).move_hold_time == 0.f) // DAT_0032B100; LAHF; JP.
         {
             set_knocked_stage(2, context);
         }
@@ -488,9 +489,9 @@ bool runtime_vampire_hit_from_behind(RuntimeVampireStrategy& context)
         az = float(az * scale);
     }
     const std::span<const u8> body = body_of_actor(context);
-    float bx = read_f32(body, 0x1D8); // +0x1CC +0xC.
+    float bx = body_record(body).contact_push.x; // +0x1CC +0xC.
     float by = 0.f;
-    float bz = read_f32(body, 0x1E0); // +0x1CC +0x14.
+    float bz = body_record(body).contact_push.z; // +0x1CC +0x14.
     if (bx == 0.f && bz == 0.f)
     {
         return true;
@@ -631,12 +632,12 @@ void enter_runtime_vampire_state(u16 state, u16 previous, RuntimeVampireStrategy
             load_goal(context.goal_knockback, context);
         }
         strategy_base(strategy).attacking = 1;
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         return;
     case 0x3EE:
         // Xbox 0x000C1C40, EAX strategy
         strategy_base(strategy).attacking = 1;
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         if (fields_of(strategy).knockdown_stage != 1)
         {
             fields_of(strategy).knockdown_stage = 1u;
@@ -652,11 +653,11 @@ void enter_runtime_vampire_state(u16 state, u16 previous, RuntimeVampireStrategy
             load_goal(context.goal_special, context);
         }
         strategy_base(strategy).attacking = 1;
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         return;
     case 0x401:
         fields_of(strategy).delay = kAttackDelay;
-        body[0x328] = 2;
+        body_record(body).move_class = 2;
         return;
     case 0x406:
         // Xbox 0x000C1920, EAX strategy
@@ -668,7 +669,7 @@ void enter_runtime_vampire_state(u16 state, u16 previous, RuntimeVampireStrategy
         load_goal(context.goal_waiting, context);
         body_bits(context, "0x000C1F40").bytes[8] |= 1;
         constexpr char open[] = "opencoffin"; // 0x0032431C, copied to body +0x288.
-        std::memcpy(body.data() + 0x288, open, sizeof(open));
+        std::memcpy(body.data() + offsetof(BodyRecord, variant), open, sizeof(open));
         return;
     }
     default:
@@ -719,7 +720,7 @@ void leave_runtime_vampire_state(u16 state, RuntimeVampireStrategy& context)
     case 0x416:
     {
         body_bits(context, "0x000C2420").bytes[8] &= 0xFE;
-        body_of_actor(context)[0x288] = 0;
+        body_record(body_of_actor(context)).variant[0] = 0;
         return;
     }
     default:

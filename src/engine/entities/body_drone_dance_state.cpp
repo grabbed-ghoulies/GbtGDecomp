@@ -53,7 +53,7 @@ void count_down(float& timer, const RuntimeDroneDanceStateContext& context)
 // Body +0x318 takes the glide's velocity.
 void copy_velocity(const DroneDanceState& state, const RuntimeDroneDanceStateContext& context)
 {
-    set(context.body, body_field::velocity, state.velocity);
+    body_record(context.body).velocity = state.velocity;
 }
 
 bool construct_drone_dance_state_view(FactoryObject& object, std::span<const u8> parameters)
@@ -88,9 +88,9 @@ bool initialize_runtime_drone_dance_state(DroneDanceState& state, std::span<cons
     RuntimeDroneDanceStateContext& context)
 {
     const auto body = context.body;
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
-    body[0x38] = 0;
-    body[0x39] = 0;
+    body_record(body).move_holds = u16(body_record(body).move_holds + 1);
+    body_record(body).unk_38 = 0;
+    body_record(body).unk_39 = 0;
     copy_name(state.dance.data(), context.string_at(get(parameters, parameter::dance)));
     copy_name(state.reaction.data(), context.string_at(get(parameters, parameter::reaction)));
     set_runtime_drone_dance_phase(state, 1, context);
@@ -113,7 +113,7 @@ bool initialize_runtime_drone_dance_state(DroneDanceState& state, std::span<cons
 // Xbox 0x0008E120
 void destroy_runtime_drone_dance_state(DroneDanceState&, RuntimeDroneDanceStateContext& context)
 {
-    set(context.body, body_field::move_holds, u16(get(context.body, body_field::move_holds) - 1));
+    body_record(context.body).move_holds = u16(body_record(context.body).move_holds - 1);
 }
 
 // Xbox 0x0008E130
@@ -145,7 +145,7 @@ void tick_runtime_drone_dance_state(DroneDanceState& state, RuntimeDroneDanceSta
             step_runtime_angle_toward(to.z, from.z, fraction)}; // 0x001013A0
         wrap_runtime_euler(euler, actor.euler); // 0x00105AA0
         actor.xform_valid = 0; // Actor +0x2A8.
-        set(context.body, body_field::euler, actor_world_euler(actor)); // 0x00041820 into body +0x72C
+        body_record(context.body).euler = actor_world_euler(actor); // 0x00041820 into body +0x72C
         copy_velocity(state, context);
         if (state.left == 0.f) // DAT_0032B100
         {

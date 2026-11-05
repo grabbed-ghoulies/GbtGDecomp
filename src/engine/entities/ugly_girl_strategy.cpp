@@ -1,4 +1,5 @@
 #include "ugly_girl_strategy.h"
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_goals.h"
 #include "player_strategy.h"
@@ -106,7 +107,7 @@ void enter_runtime_ugly_girl_state(u16 state, u16 previous, RuntimeUglyGirlStrat
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = goals.entry.body; // Actor +0x95C.
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     if (state == 0x3EC)
     {
         u32 token = 0;
@@ -122,7 +123,7 @@ void enter_runtime_ugly_girl_state(u16 state, u16 previous, RuntimeUglyGirlStrat
             }
         }
         fields_of(strategy).attachment_token = token;
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         load_runtime_mind_goal(context.goal_attack, goals.entry.goals); // 0x0002A8E0
         return;
     }

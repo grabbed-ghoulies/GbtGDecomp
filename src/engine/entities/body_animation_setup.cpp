@@ -1,4 +1,6 @@
 #include "body_animation_setup.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "entity_heap.h"
 #include <cstring>
 
@@ -264,15 +266,15 @@ void initialize_runtime_body_animation_settings(std::span<u8> body,
     std::span<const u8> class_rows, i32 class_count, RuntimeBodyAnimationSetup& context)
 {
     acquire_runtime_body_animation(parameters, context);
-    std::memcpy(body.data() + 0x78, parameters.data() + 0x198, 4);
-    std::memcpy(body.data() + 0x7C, parameters.data() + 0x19C, 4);
-    std::memcpy(body.data() + 0x80, parameters.data() + 0x1A0, 4);
-    std::memcpy(body.data() + 0x6E, parameters.data() + 0x1A4, 2);
+    std::memcpy(body.data() + offsetof(BodyRecord, reach), parameters.data() + 0x198, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, throw_lead), parameters.data() + 0x19C, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, unk_80), parameters.data() + 0x1A0, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, tag), parameters.data() + 0x1A4, 2);
     for (i32 i = 0; i < class_count; ++i)
     {
         if (read_u16(class_rows, size_t(i) * 8) == read_u16(actor, 6))
         {
-            std::memcpy(body.data() + 0x70, class_rows.data() + size_t(i) * 8 + 4, 4);
+            std::memcpy(body.data() + offsetof(BodyRecord, unk_70), class_rows.data() + size_t(i) * 8 + 4, 4);
             return;
         }
     }

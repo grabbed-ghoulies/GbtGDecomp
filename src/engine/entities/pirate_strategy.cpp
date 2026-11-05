@@ -1,4 +1,6 @@
 #include "pirate_strategy.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "weapon_fields.h"
 #include "mind_fields.h"
@@ -124,7 +126,7 @@ bool initialize_runtime_pirate_strategy(std::span<u8> strategy, std::span<const 
 // Xbox 0x000BEB50
 bool runtime_pirate_holds_sword(RuntimePirateStrategy& context)
 {
-    const u32 held = read_u32(body_of(context), 0x48);
+    const u32 held = body_record(body_of(context)).attached;
     if (held == 0)
     {
         return false;
@@ -438,8 +440,8 @@ void dispatch_runtime_pirate_message(std::span<const u32> message, RuntimePirate
             const char* effect = fields_of(strategy).angry_effect.data();
             fields_of(strategy).angry_object = context.create_effect(effect, actor); // 0x0003DF40
             increment_runtime_body_latch_mask(body, 0x3F, goals.entry.actor, context.latches); // 0x0001F3F0
-            std::memset(body.data() + 0x240, 0, 4);
-            std::memset(body.data() + 0x23C, 0, 4);
+            std::memset(body.data() + offsetof(BodyRecord, unk_240), 0, 4);
+            std::memset(body.data() + offsetof(BodyRecord, unk_23C), 0, 4);
             next = 0x3EF;
             RuntimeMindTarget* target = runtime_actor_active_target(*context.base.message_actor(message[2])); // 0x00042070
             if (target != nullptr)
@@ -462,7 +464,7 @@ void dispatch_runtime_pirate_message(std::span<const u32> message, RuntimePirate
         clear_runtime_player_mind_reference(strategy, offsetof(PirateStrategyState, chest), message[1]);
         return;
     case 0x7D:
-        fields_of(strategy).chest = read_u32(body_of(context), 0x48);
+        fields_of(strategy).chest = body_record(body_of(context)).attached;
         return;
     case 0x82:
         if (runtime_pirate_reacts(context))
@@ -490,7 +492,7 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
     const u32 target_address = get(mind, mind_field::target_record);
     const std::span<u8> body = body_of(context);
     RuntimeMindGoalContext& goal_context = goals.entry.goals;
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     const auto clear_hits = [&]()
     {
@@ -500,23 +502,23 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
     switch (state)
     {
     case 0x3EC:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         append_runtime_range_request(goal_context.anchor, goal_context.sizes, 40.f); // 0x00136AC0
         return;
     case 0x3ED:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack, context);
         return;
     case 0x3EE:
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         strategy_base(strategy).attacking = 1;
         load_goal(runtime_pirate_holds_sword(context) ? context.goal_knockdown : context.goal_knockdown_confused,
             context);
         clear_hits();
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         strategy_base(strategy).attacking = 1;
         if (fields_of(strategy).angry_object != 0)
         {
@@ -541,7 +543,7 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
         return;
     case 0x405:
     {
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         const bool free = runtime_pirate_chest_free(context);
         fields_of(strategy).fetching = free ? 1u : 0u;
         set(mind, mind_field::action_actor, fields_of(strategy).chest);

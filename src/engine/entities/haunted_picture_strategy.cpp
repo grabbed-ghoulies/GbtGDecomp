@@ -1,4 +1,5 @@
 #include "haunted_picture_strategy.h"
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -91,11 +92,6 @@ const RuntimeMindTarget& require_target(const RuntimeMindTarget* target, const c
         throw Error(std::string(reader) + " reads the haunted picture's target record through address zero");
     }
     return *target;
-}
-
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
 }
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
@@ -551,25 +547,25 @@ void enter_runtime_haunted_picture_state(u16 state, u16 previous, RuntimeHaunted
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
     (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3ED:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack, context);
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack_special, context);
         return;
     case 0x401:
         return;
     case 0x40C:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         fields_of(strategy).attack_wait = roll_attack_wait(context);
         return;
     case 0x413:

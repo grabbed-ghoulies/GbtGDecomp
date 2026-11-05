@@ -1,4 +1,5 @@
 #include "body_scoop_whack_state.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "actor_collision_culling.h"
 #include "actor_live_attachments.h"
@@ -22,11 +23,6 @@ std::function<RuntimeScoopWhackStateContext&(u32)> scoop_whack_context_of;
 constexpr float kStrikeStart = 0.22f; // DAT_0032B500.
 constexpr float kStrikeEnd = 0.32f; // DAT_0032B4FC.
 
-void step_byte(std::span<u8> bytes, size_t offset, i32 step)
-{
-    bytes[offset] = u8(bytes[offset] + step);
-}
-
 // The body's latches and the actor's live attachment holds (+0x8F8 records, +0x15) all move by `step`.
 void hold_body(i32 step, RuntimeScoopWhackStateContext& context)
 {
@@ -35,8 +31,8 @@ void hold_body(i32 step, RuntimeScoopWhackStateContext& context)
     {
         live->hold = u8(live->hold + step);
     }
-    step_byte(context.body, 0x6D, step);
-    step_byte(context.body, 0x6A, step);
+    body_record(context.body).unk_6D = u8(body_record(context.body).unk_6D + step);
+    body_record(context.body).unk_6A = u8(body_record(context.body).unk_6A + step);
 }
 
 // Slot 0's player of the actor's animation controller (+0x50 -> +0x58), or null.
@@ -104,13 +100,13 @@ bool initialize_runtime_scoop_whack_state(ScoopWhackState& state, std::span<cons
 {
     const auto body = context.body;
     state.callout = get(parameters, parameter::callout);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     hold_body(1, context);
-    step_byte(body, 0x309, 1);
-    step_byte(body, 0x30A, 1);
-    step_byte(body, 0x30B, 1);
-    step_byte(body, 0x30C, 1);
+    ++body_record(body).unk_309;
+    ++body_record(body).unk_30A;
+    ++body_record(body).unk_30B;
+    ++body_record(body).unk_30C;
     AnimationController* controller = context.animation.controller.get(); // Actor +0x50.
     if (controller != nullptr)
     {
@@ -125,10 +121,10 @@ bool initialize_runtime_scoop_whack_state(ScoopWhackState& state, std::span<cons
 void destroy_runtime_scoop_whack_state(RuntimeScoopWhackStateContext& context)
 {
     const auto body = context.body;
-    step_byte(body, 0x309, -1);
-    step_byte(body, 0x30A, -1);
-    step_byte(body, 0x30B, -1);
-    step_byte(body, 0x30C, -1);
+    --body_record(body).unk_309;
+    --body_record(body).unk_30A;
+    --body_record(body).unk_30B;
+    --body_record(body).unk_30C;
     hold_body(-1, context);
 }
 

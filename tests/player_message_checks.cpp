@@ -181,7 +181,7 @@ void check_pause_and_strategy()
     Messages sent;
     RuntimeBodyAttachedActor self{bytes, 0x1000, recorder(sent)};
     RuntimePlayerGoalRing*& ring = actor.goal_ring; // Actor +0x980.
-    std::vector<u8> body(0x300);
+    std::vector<u8> body(0x950);
     std::span<u8> body_view = body;
     entity_detail::LatchNode* latch = nullptr;
     std::array<u8, 2> zero{};
@@ -256,7 +256,7 @@ void check_activation_and_navigation()
     require(records == nullptr && grid.cells[4].value_6 == 0 && grid.cells[1].value_6 == 0, "release returns every counter");
 
     std::vector<u8> bytes(0xE00);
-    std::vector<u8> body(0x900);
+    std::vector<u8> body(0x950);
     Actor actor;
     actor.radius_xz = 2.0f;
     put_float(body, 0x888, 3.0f);
@@ -378,7 +378,7 @@ void check_player_overlay()
     queue_billboard(queue, digits[1], 0, 0, Vec3{}, std::array<float, 2>{1.0f, 1.0f}.data(), 0.0f);
     require(queue.count == 0x800, "a full billboard queue drops new sprites");
 
-    std::vector<u8> body(0x100);
+    std::vector<u8> body(0x950);
     body[0x96] = 100;
     body[0x94] = 24;
     require(runtime_body_health_color(body) == 0xFF2020FF, "health below a quarter is red");
@@ -404,7 +404,7 @@ void check_player_overlay()
     owner.model_size_z = 1.0f;
     std::array<u8, 0x20> counter{};
     std::array<u8, 0x20> unused{};
-    body.assign(0x100, 0);
+    body.assign(0x950, 0);
     put(body, 0xE0, 1);
     put_float(body, 0xDC, 7.9f);
     queue.count = 0;

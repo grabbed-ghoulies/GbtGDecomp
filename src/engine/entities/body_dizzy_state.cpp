@@ -1,4 +1,5 @@
 #include "body_dizzy_state.h"
+#include <cstddef>
 #include "../frontend/dialogue_input.h"
 #include "player_mind_control.h"
 #include "body_orientation.h"
@@ -91,9 +92,9 @@ void dizzy_state_object_sizes(ObjectSizes& output)
 void place_runtime_dizzy_star(const DizzyState& state, std::span<const u8> body, const Actor& actor, i32 index,
     Vec3& position, Vec3& euler)
 {
-    const float reach = actor.radius_xz * get(body, body_field::radius_scale) + 2.f; // DAT_0032B110.
+    const float reach = actor.radius_xz * body_record(body).radius_scale + 2.f; // DAT_0032B110.
     const float height =
-        actor.radius_y * get(body, body_field::height_scale) * std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
+        actor.radius_y * body_record(body).height_scale * std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
     position = Vec3{0.f, height, 0.f};
     const DizzyStar& star = state.stars[size_t(index)];
     const float orbit = star.orbit;
@@ -206,7 +207,7 @@ bool initialize_runtime_dizzy_state(DizzyState& state, std::span<const u8> param
 {
     const auto body = context.body;
     state.star_scale = get(parameters, parameter::star_scale);
-    state.time_left = read_f32(body, 0x23C);
+    state.time_left = body_record(body).unk_23C;
     state.waits_for_animation = get(parameters, parameter::waits_for_animation);
     state.settles = get(parameters, parameter::settles);
     state.body_bit = get(parameters, parameter::body_bit);
@@ -214,11 +215,11 @@ bool initialize_runtime_dizzy_state(DizzyState& state, std::span<const u8> param
         reinterpret_cast<const char*>(record(parameters, parameter::star_names, 0).data()));
     copy_name(state.star_names[1].data(),
         reinterpret_cast<const char*>(record(parameters, parameter::star_names, 1).data()));
-    body[0x6B] = u8(body[0x6B] + 1);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B + 1);
     adjust_body_counters(body, 1);
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).move_holds = u16(body_record(body).move_holds + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits.bytes[3] |= 2;
     // The two input trackers 0x00109810 runs over: cleared, their state 1.
     state.primary_tracking = {};
@@ -244,9 +245,9 @@ bool initialize_runtime_dizzy_state(DizzyState& state, std::span<const u8> param
 void destroy_runtime_dizzy_state(DizzyState& state, RuntimeDizzyStateContext& context)
 {
     const auto body = context.body;
-    body[0x6B] = u8(body[0x6B] - 1);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B - 1);
     adjust_body_counters(body, -1);
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
+    body_record(body).move_holds = u16(body_record(body).move_holds - 1);
     context.bits.bytes[3] &= 0xFD;
     for (i32 index = 0; index < 3; ++index)
     {
@@ -369,7 +370,7 @@ void tick_runtime_dizzy_state(DizzyState& state, RuntimeDizzyStateContext& conte
     const auto settings = recovery.settings;
     const u32 brake = settings.data() == nullptr ? 1 : (settings[0x1A4] == 0 ? 1 : 0);
     reset_runtime_body_turn(brake, body, recovery.first_timer);
-    put_word(body, 0x174, read_u32(body, 0x170));
+    put_word(body, offsetof(BodyRecord, unk_174), body_record(body).unk_170);
     const std::array<u32, 2> notice{0x75, context.actor_address};
     broadcast_actor_pulse_message(reinterpret_cast<const i32*>(notice.data()));
     select_runtime_body_goal_action(state.base, recovery);

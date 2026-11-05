@@ -1,4 +1,6 @@
 #include "weapon_motion.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "mind_fields.h"
 #include "weapon_actor_detail.h"
 #include "actor_shape_bounds.h"
@@ -543,7 +545,7 @@ bool steer_runtime_weapon_follow(RuntimeWeaponActor& weapon, Vec3& velocity)
         }
         entity_detail::begin_navigation_path_search(*search, cell, target_cell); // 0x00036C80
         const float elapsed = runtime_actor_step(weapon.actor, weapon.clock); // 0x00042320
-        const u32 mask = read_u32(weapon.services.body_of(holder_address), 0x878); // Holder body +0x878.
+        const u32 mask = body_record(weapon.services.body_of(holder_address)).scaled_surfaces; // Holder body +0x878.
         entity_detail::update_navigation_path_search(*search, mask, elapsed); // 0x00036CA0
         if (held != nullptr)
         {

@@ -47,11 +47,6 @@ const ObjectFactoryVtable* drone_appear_state_lifecycle()
     return &table;
 }
 
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
 }
 
 // Xbox 0x0008D330
@@ -167,9 +162,9 @@ bool initialize_runtime_drone_appear_state(DroneAppearState& state, std::span<co
     RuntimeDroneAppearStateContext& context)
 {
     const std::span<u8> body = context.body;
-    put_u16(body, 0x30, u16(get(body, body_field::move_holds) + 1));
-    body[0x38] = 1;
-    body[0x39] = 1;
+   body_record(body).move_holds = u16(body_record(body).move_holds + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
     state.time = kStartTime;
     state.appear = get(parameters, parameter::appear);
@@ -196,7 +191,7 @@ void destroy_runtime_drone_appear_state(DroneAppearState& state, RuntimeDroneApp
         scale_runtime_drone_appear(state, context.actor); // 0x0008D690
     }
     decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
-    put_u16(body, 0x30, u16(get(body, body_field::move_holds) - 1));
+   body_record(body).move_holds = u16(body_record(body).move_holds - 1);
     context.bits.bytes[1] = u8(context.bits.bytes[1] & 0xF7);
     if (state.appear == 0)
     {

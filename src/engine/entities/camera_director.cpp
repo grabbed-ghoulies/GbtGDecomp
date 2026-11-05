@@ -1,4 +1,5 @@
 #include "camera_director.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "camera_actor_classes.h"
 #include "mind_fields.h"
@@ -98,7 +99,8 @@ bool runtime_actor_strategy_waiting(const RuntimeDirectorActor& actor)
 {
     if (!actor.strategy.empty() && strategy_base(actor.strategy).attacking != 0)
     {
-        if ((read_u16(actor.body, 0x30) == 0 && read_f32(actor.body, 0x34) == 0.f) || actor.body[0x6A] != 0)
+        if ((body_record(actor.body).move_holds == 0 && body_record(actor.body).move_hold_time == 0.f)
+            || body_record(actor.body).unk_6A != 0)
         {
             return true;
         }
@@ -220,7 +222,7 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
                 i32 last_cell = 0;
                 const bool clear = navigation_path_clear(origin, position, tunables.region_mode, 0, 0, 0, nullptr,
                     &last_cell, 0);
-                const bool idle = read_u16(candidate.body, 0x94) == 0;
+                const bool idle = body_record(candidate.body).energy == 0;
                 if (candidate.address == target)
                 {
                     continue;
@@ -265,7 +267,8 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
                         add_camera_director_entry(chosen.data(), chosen_count, candidate.address, 3, kEntryLimit,
                             distance, context);
                     }
-                    else if ((candidate.body_bits->bytes[4] & 0x10) != 0 && read_u32(candidate.body, 0x270) == target
+                    else if ((candidate.body_bits->bytes[4] & 0x10) != 0
+                        && body_record(candidate.body).attacker == target
                         && extended_range > distance && tunables.carried_targets != 0)
                     {
                         add_camera_director_entry(chosen.data(), chosen_count, candidate.address, 1, kEntryLimit,
@@ -477,8 +480,8 @@ bool camera_director_scene_start_pending()
 // Xbox 0x00020000
 void release_runtime_body_hold(std::span<u8> body, const std::function<void(std::span<const u32>)>& message)
 {
-    const u32 holds = get(body, body_field::holds) - 1;
-    std::memcpy(body.data() + 0x258, &holds, 4);
+    const u32 holds = body_record(body).holds - 1;
+    body_record(body).holds = holds;
     if (holds == 0)
     {
         const u32 release[1]{0x4A};
@@ -541,8 +544,8 @@ void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
             }
             else
             {
-                const u32 holds = get(context.body, body_field::holds) + 1;
-                std::memcpy(context.body.data() + 0x258, &holds, 4);
+                const u32 holds = body_record(context.body).holds + 1;
+                body_record(context.body).holds = holds;
             }
             director.starting = read_u32(bytes, 0x2A0);
             director.first_update = 0;

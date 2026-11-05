@@ -1,4 +1,5 @@
 #include "body_grab_throw_state.h"
+#include <cstddef>
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "body_message_helpers.h"
@@ -60,26 +61,6 @@ std::function<RuntimeGrabThrowStateContext&(u32)> grab_throw_context_of;
 // The model binding (0x000408D0) behind the state's +0x20 word, held natively by the state's bytes.
 std::unordered_map<const u8*, const u8*> grab_throw_bindings;
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_half(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_vector(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, sizeof(value));
-}
-
 // Each of the actor's live attachment records (+0x8F8) holds `step` more.
 void adjust_live_holds(entity_detail::ListHead& live_attachments, i32 step)
 {
@@ -121,10 +102,10 @@ void release_victim(const GrabThrowState& state, RuntimeGrabThrowStateContext& c
         return;
     }
     const RuntimeBloodSuckTarget victim = victim_of(state, context, "grab and throw state");
-    const u32 holder = read_u32(victim.peer.body, 0x718);
+    const u32 holder = body_record(victim.peer.body).rider;
     if (holder != 0 && holder == context.actor_address)
     {
-        put_word(victim.peer.body, 0x718, 0);
+       body_record(victim.peer.body).rider = 0;
     }
 }
 
@@ -200,24 +181,24 @@ bool initialize_runtime_grab_throw_state(GrabThrowState& state, std::span<const 
     {
         state.marker = farthest_runtime_marker(kThrowMarkerKind, position, context.markers); // 0x0011F0B0
     }
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     adjust_live_holds(context.live_attachments, 1);
-    body[0x6D] = u8(body[0x6D] + 1);
-    body[0x6A] = u8(body[0x6A] + 1);
-    body[0x309] = u8(body[0x309] + 1);
-    body[0x30A] = u8(body[0x30A] + 1);
-    body[0x30B] = u8(body[0x30B] + 1);
-    body[0x30C] = u8(body[0x30C] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
+    body_record(body).unk_309 = u8(body_record(body).unk_309 + 1);
+    body_record(body).unk_30A = u8(body_record(body).unk_30A + 1);
+    body_record(body).unk_30B = u8(body_record(body).unk_30B + 1);
+    body_record(body).unk_30C = u8(body_record(body).unk_30C + 1);
     bool held = false;
     if (state.victim != 0)
     {
         const RuntimeBloodSuckTarget victim = victim_of(state, context, "grab and throw state 0x00094800");
         const std::span<u8> victim_body = victim.peer.body;
-        if ((victim.peer.bits->bytes[3] & 8) == 0 && read_u16(victim_body, 0x94) != 0
-            && read_u32(victim_body, 0x718) == 0)
+        if ((victim.peer.bits->bytes[3] & 8) == 0 && body_record(victim_body).energy != 0
+            && body_record(victim_body).rider == 0)
         {
-            put_word(victim_body, 0x718, context.actor_address);
+           body_record(victim_body).rider = context.actor_address;
             held = true;
         }
     }
@@ -239,13 +220,13 @@ bool initialize_runtime_grab_throw_state(GrabThrowState& state, std::span<const 
 void destroy_runtime_grab_throw_state(GrabThrowState& state, RuntimeGrabThrowStateContext& context)
 {
     const std::span<u8> body = context.body;
-    body[0x309] = u8(body[0x309] - 1);
-    body[0x30A] = u8(body[0x30A] - 1);
-    body[0x30B] = u8(body[0x30B] - 1);
-    body[0x30C] = u8(body[0x30C] - 1);
+    body_record(body).unk_309 = u8(body_record(body).unk_309 - 1);
+    body_record(body).unk_30A = u8(body_record(body).unk_30A - 1);
+    body_record(body).unk_30B = u8(body_record(body).unk_30B - 1);
+    body_record(body).unk_30C = u8(body_record(body).unk_30C - 1);
     adjust_live_holds(context.live_attachments, -1);
-    body[0x6D] = u8(body[0x6D] - 1);
-    body[0x6A] = u8(body[0x6A] - 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
     if (state.latched != 0)
     {
         decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
@@ -394,7 +375,7 @@ void step_runtime_grab_throw_state(GrabThrowState& state, RuntimeGrabThrowStateC
     const RuntimeBloodSuckTarget victim = victim_of(state, context, "grab and throw state 0x00094F10");
     Actor& victim_actor = *victim.peer.actor;
     actor_set_world_position(victim_actor, position); // 0x00041730, EDI victim
-    put_vector(victim.peer.body, 0x18, actor_world_position(victim_actor)); // 0x000412A0, EDI body +0x18
+   body_record(victim.peer.body).position = actor_world_position(victim_actor); // 0x000412A0, EDI body +0x18
     set_runtime_actor_body_euler(victim_actor, euler); // 0x0002B560, EAX victim
     actor_refresh_transform(victim_actor); // 0x00040DE0
 }
@@ -420,10 +401,10 @@ void message_runtime_grab_throw_state(GrabThrowState& state, std::span<const u32
         {
             throw Error("grab and throw state 0x00094FA0 reads a released victim with no body");
         }
-        const u32 holder = read_u32(released.peer.body, 0x718);
+        const u32 holder = body_record(released.peer.body).rider;
         if (holder != 0 && holder == context.actor_address)
         {
-            put_word(released.peer.body, 0x718, 0);
+           body_record(released.peer.body).rider = 0;
         }
         return;
     }
@@ -500,7 +481,7 @@ void throw_runtime_grab_throw_victim(GrabThrowState& state, RuntimeGrabThrowStat
     Vec3 place = actor_world_position(victim_actor); // 0x000412A0
     point.y = place.y;
     const EntityMaskHost host{victim_actor.mask_flag, victim_actor.goal_ring, victim_actor.mask_mode};
-    const float radius = get(context.body, body_field::radius_scale) * context.actor.radius_xz;
+    const float radius = body_record(context.body).radius_scale * context.actor.radius_xz;
     if (entity_collect_sphere_contacts(point, radius, 4, camera_collision_mask(host)) != 0) // 0x001227E0, 0x0001FE00
     {
         auto contacts = entity_merge_contact_records(); // 0x00122310
@@ -508,7 +489,7 @@ void throw_runtime_grab_throw_victim(GrabThrowState& state, RuntimeGrabThrowStat
         {
             Vec3 separated;
             separate_runtime_segment_contacts(contacts, point,
-                                              context.actor.radius_xz * get(context.body, body_field::radius_scale),
+                                              context.actor.radius_xz * body_record(context.body).radius_scale,
                                               separated, actor_transform_origin); // 0x000FC3F0
             point = separated;
         }
@@ -517,7 +498,7 @@ void throw_runtime_grab_throw_victim(GrabThrowState& state, RuntimeGrabThrowStat
     if (entity_record_sweep_probe(place, point, 4, camera_collision_mask(host)) != 0) // 0x00122480, EBX the place
     {
         actor_set_world_position(victim_actor, place); // 0x00041730, EDI victim, ESI the place
-        put_vector(victim_body, 0x18, actor_world_position(victim_actor)); // 0x000412A0, EDI body +0x18
+       body_record(victim_body).position = actor_world_position(victim_actor); // 0x000412A0, EDI body +0x18
     }
     std::array<u32, 3> release{0x57, context.actor_address, victim_address};
     context.message(context.actor_address, release); // The actor's vtable +0xC.
@@ -537,7 +518,7 @@ void throw_runtime_grab_throw_victim(GrabThrowState& state, RuntimeGrabThrowStat
             && processor.player_damage != 0;
         if (amount != 0 && live)
         {
-            amount = read_u16(victim_body, 0x94);
+            amount = body_record(victim_body).energy;
         }
     }
     if ((victim.peer.bits->bytes[0] & 0x80) != 0
@@ -548,16 +529,16 @@ void throw_runtime_grab_throw_victim(GrabThrowState& state, RuntimeGrabThrowStat
     }
     subtract_runtime_body_damage_health(victim_body, victim_actor, *victim.peer.bits, amount, 1,
         processor.player_blocked, processor.player_modes, processor.player_mode); // 0x00021120, ESI victim body
-    put_word(victim_body, 0x164, 0);
-    put_float(victim_body, 0x16C, kThrowPush);
-    put_word(victim_body, 0x280, amount);
-    put_word(victim_body, 0x278, 0);
-    put_word(victim_body, 0x27C, 3);
-    put_word(victim_body, 0x26C, context.actor_address);
-    put_word(victim_body, 0x270, context.actor_address);
-    put_word(victim_body, 0x274, context.actor_address);
+   body_record(victim_body).unk_164 = 0;
+   body_record(victim_body).stagger = kThrowPush;
+   body_record(victim_body).damage_amount = amount;
+   body_record(victim_body).unk_278 = 0;
+   body_record(victim_body).damage_kind = 3;
+   body_record(victim_body).unk_26C = context.actor_address;
+   body_record(victim_body).attacker = context.actor_address;
+   body_record(victim_body).unk_274 = context.actor_address;
     const u16 zero = 0;
-    std::memcpy(victim_body.data() + 0x162, &zero, 2);
+    body_record(victim_body).unk_162 = zero;
     auto& values = processor.parameter_scratch;
     runtime_body_damage_parameters(victim_actor, actor_class, 0x68, processor.tables, processor.push_keys,
         values[0], values[1], values[2], values[3]); // 0x00023A50, EBX victim body, ESI 0x68

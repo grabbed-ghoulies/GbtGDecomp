@@ -1,4 +1,5 @@
 #include "body_bandaged_state.h"
+#include <cstddef>
 #include "actor_render_registration.h"
 #include "actor_scare_requests.h"
 #include "actor_trail_requests.h"
@@ -89,7 +90,7 @@ Actor& actor_at(u32 address, RuntimeBandagedStateContext& context)
 // The body's held actor (+0x48) render bins.
 ActorRenderRegistration& held_render(RuntimeBandagedStateContext& context)
 {
-    return context.actor_view(get(context.body, body_field::attached)).render;
+    return context.actor_view(body_record(context.body).attached).render;
 }
 
 // The +0x309..+0x30C counts move by `step`.
@@ -153,9 +154,9 @@ bool initialize_runtime_bandaged_state(BandagedState& state, std::span<const u8>
     RuntimeBandagedStateContext& context)
 {
     const auto body = context.body;
-    state.scale = context.actor.radius_y * get(body, body_field::height_scale) * kScaleShare;
-    body[0x38] = 1;
-    body[0x39] = 1;
+    state.scale = context.actor.radius_y * body_record(body).height_scale * kScaleShare;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     release_runtime_player_attachment(0, 0, context.attachment); // 0x0001B810, EAX body
     auto& records = bandaged_records[body_state_key(state)];
     records[0] = find_animation(get(parameters, parameter::still_animation), context);
@@ -208,7 +209,7 @@ void tick_runtime_bandaged_state(BandagedState& state, RuntimeBandagedStateConte
     const float rate = runtime_actor_rate(context.actor);
     state.base.elapsed = rate * step + state.base.elapsed;
     level_body_euler(body);
-    std::memcpy(body.data() + 0x318, &context.default_position, sizeof(Vec3));
+    std::memcpy(body.data() + offsetof(BodyRecord, velocity.x), &context.default_position, sizeof(Vec3));
     if (context.input == nullptr)
     {
         throw Error("bandaged state 0x0008A5F0 reads the pad (0x001085F0, EAX) of a tick without its input device");
@@ -273,7 +274,7 @@ void tick_runtime_bandaged_state(BandagedState& state, RuntimeBandagedStateConte
     case 4:
         if (runtime_actor_animation_slot_complete(context.animation, 0)) // 0x0003B290, EAX actor, ECX 0
         {
-            if (get(body, body_field::energy) == 0)
+            if (body_record(body).energy == 0)
             {
                 select_runtime_body_recovery_action(state.base, 0, context.recovery); // 0x00133F50, EAX body
                 return;
@@ -337,10 +338,10 @@ void set_runtime_bandaged_phase(u32 phase, BandagedState& state, RuntimeBandaged
     case 1:
     {
         spawn_runtime_bandage_wrap(state, context); // 0x0008AC30
-        set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
+        body_record(body).move_holds = u16(body_record(body).move_holds + 1);
         state.held = 1u;
         request_actor_sound(actor, 5, kWrapSound, context.sounds); // 0x00041D00, EDX actor, ECX 5
-        const std::array<u32, 3> words{0x68, context.actor_address, get(body, body_field::attacker)};
+        const std::array<u32, 3> words{0x68, context.actor_address, body_record(body).attacker};
         broadcast_actor_world_message(words); // 0x00122CE0, EDI the message
         return;
     }
@@ -388,10 +389,10 @@ void hide_runtime_bandaged_body(BandagedState& state, RuntimeBandagedStateContex
     const auto body = context.body;
     context.bits.bytes[2] |= 1;
     adjust_body_counts(body, 1);
-    put_word(body, 0x310, 1);
+   body_record(body).unk_310 = 1;
     spawn_runtime_mummified_avatar(state, context); // 0x0008AE30, EBX state
     unregister_actor_render_bins(context.render); // 0x0003CBB0, EDI actor
-    if (get(body, body_field::attached) != 0)
+    if (body_record(body).attached != 0)
     {
         unregister_actor_render_bins(held_render(context)); // 0x0003CBB0, EDI body +0x48
     }
@@ -405,13 +406,13 @@ void release_runtime_bandaged_state(BandagedState& state, RuntimeBandagedStateCo
     if (state.hidden != 0)
     {
         adjust_body_counts(body, -1);
-        put_word(body, 0x310, 0);
+       body_record(body).unk_310 = 0;
         context.bits.bytes[2] &= 0xFE;
         if (context.render.child.prev == nullptr) // Actor +0x908: the actor is not being deleted.
         {
             register_actor_render_bins(context.render); // 0x0003CAE0
         }
-        if (get(body, body_field::attached) != 0)
+        if (body_record(body).attached != 0)
         {
             register_actor_render_bins(held_render(context)); // 0x0003CAE0
         }
@@ -419,7 +420,7 @@ void release_runtime_bandaged_state(BandagedState& state, RuntimeBandagedStateCo
     }
     if (state.held != 0)
     {
-        set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
+        body_record(body).move_holds = u16(body_record(body).move_holds - 1);
         state.held = 0u;
     }
     if (const u32 mummified = state.mummified; mummified != 0)
@@ -566,7 +567,7 @@ void start_runtime_bandage_bits(u32 actor_address, const BandagedState& state, R
 // Xbox 0x0008B140, EAX state, ECX body
 bool runtime_bandaged_escape_due(BandagedState& state, RuntimeBandagedStateContext& context)
 {
-    if (get(context.body, body_field::energy) == 0)
+    if (body_record(context.body).energy == 0)
     {
         return true;
     }

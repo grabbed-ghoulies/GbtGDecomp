@@ -66,7 +66,7 @@ void change_state(u16 state, RuntimeHauntedChairStrategy& context)
 bool body_settled(RuntimeHauntedChairStrategy& context)
 {
     const std::span<const u8> body = goals_of(context).entry.body;
-    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f; // DAT_0032B100.
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f; // DAT_0032B100.
 }
 
 bool selected(RuntimeHauntedChairStrategy& context)
@@ -417,17 +417,17 @@ void enter_runtime_haunted_chair_state(u16 state, u16 previous, RuntimeHauntedCh
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    goals.entry.body[0x328] = 2;
+    body_record(goals.entry.body).move_class = 2;
     switch (state)
     {
     case 0x3EE:
-        goals.entry.body[0x328] = 5;
+        body_record(goals.entry.body).move_class = 5;
         strategy_base(strategy).attacking = 1;
         fields_of(strategy).slides = 0;
         slide_at_target(context); // The tail jump to 0x000AE520.
         return;
     case 0x3EF:
-        goals.entry.body[0x328] = 6;
+        body_record(goals.entry.body).move_class = 6;
         strategy_base(strategy).attacking = 1;
         load_goal(context.goal_swing_kick, context);
         return;

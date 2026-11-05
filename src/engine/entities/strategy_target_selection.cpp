@@ -77,7 +77,7 @@ bool reactions_enabled(RuntimePlayerStrategyGoals& context, u32 force = 0)
 
 bool body_settled(std::span<const u8> body)
 {
-    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
 }
 
 bool roll(u32& random, float chance)
@@ -506,7 +506,7 @@ void queue_runtime_tutorial_notice(const Actor& actor, u32 id, RuntimeTutorialNo
 u32 notice_runtime_strategy_target(u32 id, RuntimeStrategyTargetChecks& context)
 {
     std::span<const u8> body = context.goals.entry.body;
-    if (get(body, body_field::energy) == 0 && get(body, body_field::max_energy) != 0)
+    if (body_record(body).energy == 0 && body_record(body).max_energy != 0)
     {
         return 0;
     }
@@ -1026,9 +1026,9 @@ float runtime_actor_body_gap(const Actor& first, const Actor& second, RuntimeStr
     const std::span<const u8> second_body = views.body_of(second).bytes;
     const float distance = float(runtime_actor_distance(first, second));
     const float first_scale = first.radius_xz;
-    const float reach = read_f32(second_body, 0x78) * second.radius_xz;
+    const float reach = body_record(second_body).reach * second.radius_xz;
     float held_radius = 0.f;
-    const u32 held = read_u32(second_body, 0x48);
+    const u32 held = body_record(second_body).attached;
     if (held != 0 && views.actor_bytes_at(held)[0x93D] == 1)
     {
         const Actor& weapon = *views.actor_at(held);
@@ -1037,7 +1037,8 @@ float runtime_actor_body_gap(const Actor& first, const Actor& second, RuntimeStr
             held_radius = float(actor_model_sweep_radius(weapon));
         }
     }
-    const float radii = read_f32(second_body, 0x888) * second.radius_xz + read_f32(first_body, 0x888) * first_scale
+    const float radii = body_record(second_body).radius_scale * second.radius_xz
+        + body_record(first_body).radius_scale * first_scale
         + (held_radius + reach);
     const float gap = distance - radii;
     if (0.f < gap)
@@ -1064,7 +1065,7 @@ u32 retaliate_runtime_strategy_contact(std::span<const u32> message, i32 minimum
         return 0;
     }
     const std::span<const u8> attacker_body = views.body_of(*views.actor_at(attacker)).bytes;
-    if (std::bit_cast<i32>(read_u32(attacker_body, 0x738)) < minimum || !reactions_enabled(goals))
+    if (std::bit_cast<i32>(body_record(attacker_body).unk_738) < minimum || !reactions_enabled(goals))
     {
         return 0;
     }

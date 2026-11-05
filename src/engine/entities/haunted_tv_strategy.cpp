@@ -96,24 +96,9 @@ void change_state(u16 state, RuntimeHauntedTvStrategy& context)
     change_runtime_player_strategy_state(goals_of(context).strategy, state, goals_of(context).setup);
 }
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void step_byte(std::span<u8> bytes, size_t offset, i32 step)
-{
-    bytes[offset] = u8(bytes[offset] + step);
 }
 
 bool aid_name(const char* name)
@@ -146,7 +131,7 @@ u32 address_of_resource(std::span<const u8> resource, RuntimeHauntedTvStrategy& 
 // Body +0x328, the body's mode byte the states set.
 void set_body_mode(u8 mode, RuntimeHauntedTvStrategy& context)
 {
-    body_of(context)[0x328] = mode;
+    body_record(body_of(context)).move_class = mode;
 }
 
 // The actor's frame step: actor +0x92C (zero while +0x930 is above zero) by the frame's.
@@ -210,7 +195,7 @@ void start_runtime_haunted_tv_attack(RuntimeHauntedTvStrategy& context)
     if (context.collision != nullptr)
     {
         activate_runtime_body_contact_shapes(*context.collision, actor, 0, 1, 1.f); // 0x0013F420, DAT_0032B0F8
-        set(body, body_field::contact_count, 0);
+        body_record(body).contact_count = 0;
     }
     // EAX body +0x5C, EBX 0x65.
     if (context.attack_resource.data() == nullptr)
@@ -219,16 +204,16 @@ void start_runtime_haunted_tv_attack(RuntimeHauntedTvStrategy& context)
     }
     const u8* row = find_runtime_attachment_first_request(*context.attack_tables.at(context.attack_resource.data()),
         0x65); // 0x0001C560
-    set(body, body_field::hit_record, row == nullptr ? 0u : context.address_of(row));
-    put_word(body, 0x88, 0);
-    step_byte(body, 0x6A, 1);
+    body_record(body).hit_record = row == nullptr ? 0u : context.address_of(row);
+   body_record(body).unk_88 = 0;
+    ++body_record(body).unk_6A;
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
         live->hold = u8(live->hold + 1); // Actor +0x8F8's records, +0x15.
     }
-    step_byte(body, 0x6D, 1);
-    put_word(body, 0x74C, 1);
+    ++body_record(body).unk_6D;
+   body_record(body).unk_74C = 1;
     // The inlined 0x0003DF40: the parameters' object, cloned with this actor at +8 and made.
     fields_of(strategy).effect_object = context.create_effect(fields_of(strategy).effect.data(),
         strategy_base(strategy).actor);
@@ -250,16 +235,16 @@ void end_runtime_haunted_tv_attack(RuntimeHauntedTvStrategy& context)
     {
         deactivate_runtime_body_contact_shapes(*context.collision, 0); // 0x0013F4D0, EAX 0
     }
-    set(body, body_field::hit_record, 0);
-    put_word(body, 0x88, 0);
-    step_byte(body, 0x6A, -1);
+    body_record(body).hit_record = 0;
+   body_record(body).unk_88 = 0;
+    --body_record(body).unk_6A;
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
         live->hold = u8(live->hold - 1);
     }
-    step_byte(body, 0x6D, -1);
-    put_word(body, 0x74C, 0);
+    --body_record(body).unk_6D;
+   body_record(body).unk_74C = 0;
     const u32 object = fields_of(strategy).effect_object;
     if (object != 0)
     {
@@ -484,7 +469,7 @@ bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHaun
         return false;
     }
     const std::span<const u8> body = context.views.body_of(target.actor).bytes; // Target +0x10 actor's +0x95C.
-    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f) // DAT_0032B100.
+    if (body_record(body).move_holds != 0 || body_record(body).move_hold_time != 0.f) // DAT_0032B100.
     {
         return false;
     }
@@ -547,7 +532,7 @@ bool begin_runtime_haunted_tv_generate(const RuntimeMindTarget* target, u32 jolt
     put_float(request->bytes, 0x1C, 100.f);
     if (jolt != 0)
     {
-        put_float(body_of(context), 0x32C, 2.f); // DAT_0032B110.
+       body_record(body_of(context)).step_speed = 2.f; // DAT_0032B110.
     }
     return true;
 }
@@ -1107,7 +1092,7 @@ void leave_runtime_haunted_tv_state(u16 state, u16 next, RuntimeHauntedTvStrateg
         stop_runtime_haunted_tv_timeline(context); // 0x000B1780
         return;
     case 0x3FE:
-        put_float(body_of(context), 0x32C, 1.f); // DAT_0032B0F8.
+       body_record(body_of(context)).step_speed = 1.f; // DAT_0032B0F8.
         return;
     case 0x413:
     case 0x3FC:

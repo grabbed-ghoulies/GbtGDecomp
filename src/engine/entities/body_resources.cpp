@@ -1,4 +1,6 @@
 #include "body_resources.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "entity_heap.h"
 #include "player_fields.h"
 #include <bit>
@@ -100,8 +102,8 @@ void acquire_runtime_body_resource_hashes(std::span<const u8> parameters,
 void initialize_runtime_body_friction(std::span<u8> body, std::span<const u8> parameters,
     std::span<u8> actor, std::span<const u8> curve, std::span<const u8> tags)
 {
-    body[0x244] = 1;
-    body[0x245] = parameters[0x1AA];
+    body_record(body).push_mode = 1;
+    body_record(body).shape_mode = parameters[0x1AA];
     const u16 tag = get(actor, player_field::damage_class);
     const float maximum = read_f32(curve, 8);
     float value = maximum;
@@ -134,9 +136,9 @@ void initialize_runtime_body_friction(std::span<u8> body, std::span<const u8> pa
         }
     }
     value *= 0.25f;
-    std::memcpy(body.data() + 0x170, &value, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, unk_170), &value, 4);
     const u32 damping = 0x3F7D70A4;
-    std::memcpy(body.data() + 0x16C, &damping, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, stagger), &damping, 4);
     const u32 mode = parameters[0x1AA];
     std::memcpy(actor.data() + 0x120, &mode, 4);
 }
@@ -147,7 +149,7 @@ void acquire_runtime_body_attribute_table(std::span<u8> body,
     AnimationResourceRegistry& registry, ResourceErrorState& error)
 {
     const u32 one = 1;
-    std::memcpy(body.data() + 0x278, &one, 4);
+    body_record(body).unk_278 = one;
     if (read_u32(parameters, 0x108) == 0x5F646961)
     {
         const auto acquired = acquire_animation_resource(registry,
@@ -168,9 +170,9 @@ void initialize_runtime_body_model_channels(std::span<u8> body, const u8* model)
     {
         const float one = 1.f;
         const u32 zero = 0;
-        std::memcpy(body.data() + 0xE4 + i * 12, &one, 4);
-        body[0xEC + i * 12] = 0;
-        std::memcpy(body.data() + 0xE8 + i * 12, &zero, 4);
+        std::memcpy(body.data() + offsetof(BodyRecord, aux_time_0) + i * 12, &one, 4);
+        body[offsetof(BodyRecord, aux_level_0) + i * 12] = 0;
+        std::memcpy(body.data() + offsetof(BodyRecord, aux_value_0) + i * 12, &zero, 4);
         // Both indices in DAT_00217E44 are zero, including the second probe.
         if (model != nullptr && read_u32({model, 0x1D0}, 0x1CC) != 0)
         {
@@ -178,7 +180,7 @@ void initialize_runtime_body_model_channels(std::span<u8> body, const u8* model)
         }
     }
     const u32 enabled = count != 0 && model != nullptr ? 1 : 0;
-    std::memcpy(body.data() + 0xFC, &enabled, 4);
+    body_record(body).unk_FC = enabled;
 }
 
 // Xbox 0x0001E9F0

@@ -1,4 +1,6 @@
 #include "medusa_strategy.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -263,9 +265,9 @@ void request_attack(RuntimeMedusaStrategy& context)
     }
     const u8* row = find_runtime_attachment_first_request(*context.attack_tables.at(context.attack_resource.data()),
         0xF8); // 0x0001C560, EAX body +0x5C, EBX 0xF8
-    put_u32(body, 0x84, row == nullptr ? 0u : context.address_of(row));
-    body[0x6A] = u8(body[0x6A] + 1);
-    put_u32(body, 0x74C, 1);
+   body_record(body).hit_record = row == nullptr ? 0u : context.address_of(row);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
+   body_record(body).unk_74C = 1;
     fields_of(strategy_of(context)).attack_request = 1u;
 }
 
@@ -273,10 +275,10 @@ void request_attack(RuntimeMedusaStrategy& context)
 void drop_attack(RuntimeMedusaStrategy& context)
 {
     const std::span<u8> body = body_of(context);
-    put_u32(body, 0x84, 0);
-    put_u32(body, 0x88, 0);
-    body[0x6A] = u8(body[0x6A] - 1);
-    put_u32(body, 0x74C, 0);
+   body_record(body).hit_record = 0;
+   body_record(body).unk_88 = 0;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
+   body_record(body).unk_74C = 0;
     hide_cones(context);
     fields_of(strategy_of(context)).attack_request = 0u;
 }
@@ -424,7 +426,7 @@ void gaze(RuntimeMedusaStrategy& context, u32 attacking)
             const u32 stale = 0;
             std::memcpy(goals_of(context).entry.actor_bytes.data() + 0x2A8, &stale, 4);
             actor.xform_valid = 0;
-            put_f32(body, 0x730, angle);
+           body_record(body).euler.y = angle;
         }
     }
     actor.model_flags = saved_flags;
@@ -483,7 +485,7 @@ bool face_attack(RuntimeMedusaStrategy& context)
     {
         const Vec3 point{facing_x * out + at.x, out * 0.f + at.y, facing_z * out + at.z};
         position = actor_world_position(actor_of(context)); // 0x000412A0
-        put_f32(body_of(context), 0x730, runtime_horizontal_angle_between(point, position)); // 0x00106140
+       body_record(body_of(context)).euler.y = runtime_horizontal_angle_between(point, position); // 0x00106140
     }
     return true;
 }
@@ -920,7 +922,7 @@ void dispatch_runtime_medusa_message(std::span<const u32> message, RuntimeMedusa
         switch (message[1])
         {
         case 0:
-            body[0x92] = 1;
+            body_record(body).unk_92 = 1;
             select_runtime_body_animation(context.shock_camera_first, context.actions); // 0x0001AF10
             if (fields_of(strategy).shocked != 0)
             {
@@ -959,7 +961,7 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = body_of(context);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     switch (state)
     {
     case 0x3EF:
@@ -972,7 +974,7 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
         fields_of(strategy).unk_164 = 0u;
         fields_of(strategy).shocked = 0u;
         load_goal(context.goal_special_attack, context);
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         strategy_base(strategy).attacking = 1;
         if (fields_of(strategy).gaze_phase != 1)
         {
@@ -980,9 +982,9 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
             fields_of(strategy).gaze_time = runtime_body_random_range(goals.random, parameter(context, 4),
                 parameter(context, 8)); // 0x000191C0
         }
-        put_u32(body, 0x71C, read_u32(context.parameters, 0x48));
-        put_f32(body, 0x720, parameter(context, 0x4C));
-        put_f32(body, 0x724, parameter(context, 0x50));
+        put_u32(body, offsetof(BodyRecord, turn_rates), read_u32(context.parameters, 0x48));
+       body_record(body).turn_rates[1] = parameter(context, 0x4C);
+       body_record(body).turn_rates[2] = parameter(context, 0x50);
         fields_of(strategy).gaze_toggle = 0u;
         return;
     case 0x3F0:
@@ -1035,7 +1037,7 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
         // The tail jump to 0x000BB000.
         fields_of(strategy).unk_17C = 1u;
         fields_of(strategy).unk_180 = 0u;
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         if (fields_of(strategy).dizzy_step != 1)
         {
             fields_of(strategy).dizzy_step = 1u;
@@ -1063,9 +1065,9 @@ void leave_runtime_medusa_state(u16 state, RuntimeMedusaStrategy& context)
         }
         strategy_base(strategy).attacking = 0;
         const std::span<u8> body = body_of(context);
-        put_f32(body, 0x71C, 0.5585053563117981f); // DAT_0032B220.
-        put_f32(body, 0x720, 12.566370964050293f); // DAT_0032B21C.
-        put_f32(body, 0x724, 6.f); // DAT_0032B218.
+        put_f32(body, offsetof(BodyRecord, turn_rates), 0.5585053563117981f); // DAT_0032B220.
+       body_record(body).turn_rates[1] = 12.566370964050293f; // DAT_0032B21C.
+       body_record(body).turn_rates[2] = 6.f; // DAT_0032B218.
         body_bits(context, "0x000B9CD0").bytes[5] &= 0xDF;
         release_cones(context); // 0x000BA840, EDI strategy
         if (fields_of(strategy).gaze_phase != 0)
@@ -1108,11 +1110,11 @@ void leave_runtime_medusa_state(u16 state, RuntimeMedusaStrategy& context)
 // Xbox 0x0001D9D0, ECX body
 void reset_runtime_body_flinch(std::span<u8> body, u32& random)
 {
-    body[0x90] = 2;
-    body[0x91] = 0;
-    body[0x92] = 2;
+    body_record(body).channel_keys = 2;
+    body_record(body).channel_key = 0;
+    body_record(body).unk_92 = 2;
     random = random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C; +0x8C held DAT_00338EE0 first.
-    put_f32(body, 0x8C, std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f); // DAT_0032B0F8.
+   body_record(body).channel_timer = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
 }
 
 // Xbox 0x00106140, ESI first, EDI second

@@ -1,4 +1,5 @@
 #include "player_body_messages.h"
+#include <cstddef>
 #include "actor_transform.h"
 #include "player_mind_events.h"
 #include "body_fields.h"
@@ -11,7 +12,7 @@ namespace gbtg
 void begin_runtime_player_body_control(std::span<u8> body, std::span<const u8> message,
     RuntimePlayerBodyControlMessages& context)
 {
-    if (get(message, control_message::actor) != get(body, body_field::actor))
+    if (get(message, control_message::actor) != body_record(body).actor)
     {
         return;
     }
@@ -19,41 +20,42 @@ void begin_runtime_player_body_control(std::span<u8> body, std::span<const u8> m
     {
     case 3:
     {
-        const u16 health = get(body, body_field::energy);
-        const u16 maximum = u16(get(body, body_field::max_energy) + get(message, control_message::amount));
-        set(body, body_field::energy, maximum);
-        set(body, body_field::max_energy, maximum);
+        const u16 health = body_record(body).energy;
+        const u16 maximum = u16(body_record(body).max_energy + get(message, control_message::amount));
+        body_record(body).energy = maximum;
+        body_record(body).max_energy = maximum;
         const u16 updated = u16(health + u16(get(message, control_message::amount)));
-        set(body, body_field::energy, updated);
-        if (get(body, body_field::energy_saved) != 0)
+        body_record(body).energy = updated;
+        if (player_body_record(body).energy_saved != 0)
         {
-            set(body, body_field::saved_energy, get(body, body_field::saved_energy) + get(message, control_message::amount));
+            player_body_record(body).saved_energy = player_body_record(body).saved_energy + get(message,
+                control_message::amount);
         }
         return;
     }
     case 4:
     {
-        const u16 health = get(body, body_field::energy);
+        const u16 health = body_record(body).energy;
         const u32 zero = 0;
         if (health != 0)
         {
-            if (get(body, body_field::energy_saved) == 0)
+            if (player_body_record(body).energy_saved == 0)
             {
-                set(body, body_field::saved_energy, health);
-                set(body, body_field::energy_saved, 1);
+                player_body_record(body).saved_energy = health;
+                player_body_record(body).energy_saved = 1;
             }
-            set(body, body_field::energy, 1);
+            body_record(body).energy = 1;
             return;
         }
-        set(body, body_field::saved_energy, zero);
+        player_body_record(body).saved_energy = zero;
         return;
     }
     case 8:
         if (get(message, control_message::unk_10) == 0)
         {
-            context.events.command_attachments = record(body, body_field::control_tokens);
+            context.events.command_attachments = retail_bytes(player_body_record(body).control_tokens);
             request_runtime_player_attachment_events(context.resource.resource.data(),
-                context.events, 0x2E, context.body_address + body_field::control_tokens.offset);
+                context.events, 0x2E, context.body_address + offsetof(PlayerBodyRecord, control_tokens));
         }
         return;
     case 9:
@@ -86,7 +88,7 @@ void begin_runtime_player_body_control(std::span<u8> body, std::span<const u8> m
 void end_runtime_player_body_control(std::span<u8> body, std::span<const u8> message,
     RuntimePlayerBodyControlMessages& context)
 {
-    if (get(message, control_message::actor) != get(body, body_field::actor))
+    if (get(message, control_message::actor) != body_record(body).actor)
     {
         return;
     }
@@ -94,16 +96,16 @@ void end_runtime_player_body_control(std::span<u8> body, std::span<const u8> mes
     {
     case 4:
     {
-        if (get(body, body_field::energy) != 0 && get(body, body_field::saved_energy) != 0)
+        if (body_record(body).energy != 0 && player_body_record(body).saved_energy != 0)
         {
-            set(body, body_field::energy, u16(get(body, body_field::saved_energy)));
+            body_record(body).energy = u16(player_body_record(body).saved_energy);
         }
-        set(body, body_field::saved_energy, 0);
-        set(body, body_field::energy_saved, 0);
+        player_body_record(body).saved_energy = 0;
+        player_body_record(body).energy_saved = 0;
         return;
     }
     case 8:
-        clear_runtime_player_attachment_events(record(body, body_field::control_tokens), context.lists);
+        clear_runtime_player_attachment_events(retail_bytes(player_body_record(body).control_tokens), context.lists);
         return;
     case 9:
         --context.hidden;
@@ -189,7 +191,7 @@ void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> me
 void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context)
 {
-    const u32 actor_address = get(body, body_field::actor);
+    const u32 actor_address = body_record(body).actor;
     auto& parent = context.parent;
     auto& processor = context.damage.processor;
     switch (get(message, body_message_field::id))
@@ -242,7 +244,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         return;
     case 0x23:
         dispatch_runtime_parent_body_message(body, message, views.parent, parent);
-        if (get(body, body_field::holds) == 0)
+        if (body_record(body).holds == 0)
         {
             separate_runtime_player_body_contacts(body, parent.actor, processor.flags,
                 context.mask, context.floor, parent.default_position);
@@ -254,7 +256,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
             context.goals, processor.flags, context.address_zero))
         {
             const u16 key = parent.actions.attachment.body_action_key();
-            if (key != get(body, body_field::action_key))
+            if (key != body_record(body).action_key)
             {
                 select_runtime_body_action(body, key, parent.actions.actions);
             }
@@ -308,7 +310,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         return;
     }
     case 0x4A:
-        if (get(body, body_field::holds) == 0)
+        if (body_record(body).holds == 0)
         {
             separate_runtime_player_body_contacts(body, parent.actor, processor.flags,
                 context.mask, context.floor, parent.default_position);

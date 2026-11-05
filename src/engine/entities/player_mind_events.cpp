@@ -416,25 +416,26 @@ void update_runtime_mind_alert(RuntimeMindTick& context)
     switch (get(context.events.mind, mind_field::alert_mode))
     {
     case 0x40:
-        set(context.body, body_field::alert_level, 0);
+        body_record(context.body).alert_level = 0;
         return;
     case 0x41:
-        set(context.body, body_field::alert_level, runtime_mind_alert_level(get(context.events.mind, mind_field::alert_timer)));
+        body_record(context.body).alert_level = runtime_mind_alert_level(get(context.events.mind,
+            mind_field::alert_timer));
         return;
     case 0x42:
-        set(context.body, body_field::alert_level, 4);
+        body_record(context.body).alert_level = 4;
         return;
     case 0x43:
-        set(context.body, body_field::alert_level, 9);
+        body_record(context.body).alert_level = 9;
         return;
     case 0x44:
-        set(context.body, body_field::alert_level, 7);
+        body_record(context.body).alert_level = 7;
         return;
     case 0x45:
-        set(context.body, body_field::alert_level, 8);
+        body_record(context.body).alert_level = 8;
         return;
     case 0x46:
-        set(context.body, body_field::alert_level, 6);
+        body_record(context.body).alert_level = 6;
         return;
     default:
         return;

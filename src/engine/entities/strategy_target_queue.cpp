@@ -284,8 +284,8 @@ bool runtime_strategy_target_attackable(float range, RuntimeStrategyLink& link, 
     RuntimePlayerStrategyGoals& goals = checks.goals;
     const std::span<const u8> body = goals.entry.body;
     const EntityBitBlock& bits = *goals.body_bits;
-    if (body[0x6B] != 0 || body[0x6A] != 0 || get(body, body_field::unk_70) > 0.f ||
-        get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f ||
+    if (body_record(body).unk_6B != 0 || body_record(body).unk_6A != 0 || body_record(body).unk_70 > 0.f ||
+        body_record(body).move_holds != 0 || body_record(body).move_hold_time != 0.f ||
         (bits.bytes[3] & 8) != 0)
     {
         return false;

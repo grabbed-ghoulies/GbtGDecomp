@@ -1,4 +1,5 @@
 #include "body_hit_messages.h"
+#include <cstddef>
 #include "actor_transform.h"
 #include "segment_records.h"
 #include "player_attributes.h"
@@ -26,7 +27,7 @@ u32 receive_runtime_body_collision_hit(std::span<u8> body,
     {
         return 0;
     }
-    const i32 source_state = i32(read_u16(source_body, 0x162)) + 1;
+    const i32 source_state = i32(body_record(source_body).unk_162) + 1;
     Vec3 movement;
     std::memcpy(&movement, source.bytes.data() + 0x3C, 12);
     Vec3 direction = movement;
@@ -41,7 +42,7 @@ u32 receive_runtime_body_collision_hit(std::span<u8> body,
     const float absolute = animation_absolute(dot);
     (void)absolute;
     const bool knockdown = mode == 0 && !(0.5f > dot) && source_state <= 2 &&
-        std::bit_cast<i32>(read_u32(source_body, 0x738)) >= std::bit_cast<i32>(read_u32(body, 0x738));
+        std::bit_cast<i32>(body_record(source_body).unk_738) >= std::bit_cast<i32>(body_record(body).unk_738);
     BodyDamage damage{};
     if (knockdown)
     {
@@ -70,11 +71,11 @@ u32 receive_runtime_body_collision_hit(std::span<u8> body,
     damage.normal = normal;
     damage.source = source.address;
     damage.attacker = source.address;
-    std::memcpy(&damage.holder, source_body.data() + 0x274, 4);
+    std::memcpy(&damage.holder, source_body.data() + offsetof(BodyRecord, unk_274), 4);
     damage.push = movement;
     damage.direction = movement;
-    const u32 timer = get(source_body, body_field::hit_timer) == 0 ? 0
-        : get(source_body, body_field::hit_timer_running);
+    const u32 timer = body_record(source_body).hit_timer == 0 ? 0
+        : body_record(source_body).hit_timer_running;
     damage.starts_timer = timer;
     const u16 actor_class = get(source.bytes, player_field::damage_class);
     damage.source_class = actor_class;
@@ -97,8 +98,8 @@ void reflect_runtime_body_timer_hit(std::span<const u8> body, RuntimeBodyAttache
     RuntimeBodyDamageEntry& source_context, RuntimeBodyDamageEntry& reply_context)
 {
     const u32 actor_address = read_u32(body, 8);
-    if (get(body, body_field::hit_timer) != 0 &&
-        (get(source_body, body_field::hit_timer) == 0 || get(source_body, body_field::hit_timer_running) == 0))
+    if (body_record(body).hit_timer != 0 &&
+        (body_record(source_body).hit_timer == 0 || body_record(source_body).hit_timer_running == 0))
     {
         const Vec3 push = damage.push;
         damage.push = Vec3{0.f - push.x, 0.f - push.y, 0.f - push.z};
@@ -134,8 +135,8 @@ void request_runtime_body_timer_contact(std::span<u8> body, std::span<const u8> 
     RuntimeBodyAttachedActor& source, std::span<const u8> source_body,
     std::span<const u8> bound, RuntimeBodyDamageEntry& context)
 {
-    if (get(source_body, body_field::hit_timer) != 0 && get(source_body, body_field::hit_timer_running) != 0 &&
-        get(body, body_field::hit_timer) == 0 && !(get(body, body_field::unk_75C) > 0.f))
+    if (body_record(source_body).hit_timer != 0 && body_record(source_body).hit_timer_running != 0 &&
+        body_record(body).hit_timer == 0 && !(body_record(body).unk_75C > 0.f))
     {
         receive_runtime_body_timer_contact(body, message, source, bound, context);
     }
@@ -200,7 +201,7 @@ void receive_runtime_body_timer_contact(std::span<u8> body, std::span<const u8> 
     if (result[1] != 0)
     {
         const float duration = 2.f; // DAT_0032B110, read from the retail image.
-        std::memcpy(body.data() + 0x75C, &duration, 4);
+        body_record(body).unk_75C = duration;
     }
 }
 
@@ -233,18 +234,18 @@ void receive_runtime_body_impact(std::span<u8> body, std::span<u8> message,
 {
     auto& flags = context.processor.flags;
     if ((((flags.bytes[2] & 2) == 0 && (flags.bytes[4] & 0x10) == 0) ||
-            read_u32(body, 0x26C) != read_u32(message, 8)) && (flags.bytes[3] & 0x10) == 0)
+            body_record(body).unk_26C != read_u32(message, 8)) && (flags.bytes[3] & 0x10) == 0)
     {
         const u16 tag = find_runtime_player_tag_index(0x64, tag_rows, tag_names);
         BodyDamage damage{};
-        if ((flags.bytes[4] & 0x10) == 0 && get(body, body_field::energy) != 0)
+        if ((flags.bytes[4] & 0x10) == 0 && body_record(body).energy != 0)
         {
             damage.kind = 1;
             damage.push_key = 0x65;
         }
         else
         {
-            std::memcpy(&damage.holder, body.data() + 0x274, 4);
+            std::memcpy(&damage.holder, body.data() + offsetof(BodyRecord, unk_274), 4);
             damage.kind = 3;
             damage.push_key = 0x68;
             const u32 one = 1;
@@ -396,7 +397,7 @@ void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
         throw Error("body front hit 0x00022FB0: the sender has no +0xD8C holder (retail reads its +0xCF4)");
     }
     BodyDamage damage{};
-    const u32 health = get(body, body_field::energy);
+    const u32 health = body_record(body).energy;
     const u16 actor_class = read_u16(host->bytes, 0xCF4);
     // Retail leaves this slot (the 0x1A message's +8) unwritten on the class path.
     u32 actor_amount = 0;
@@ -484,10 +485,10 @@ void receive_runtime_body_contact_health_hit(std::span<u8> body, std::span<u8> m
         normalized_segment_contact_direction(views.contacts, normal);
         damage.normal = normal;
         std::memcpy(&damage.source, message.data() + 8, 4);
-        if (read_u32(body, 0x278) == 0)
+        if (body_record(body).unk_278 == 0)
         {
-            std::memcpy(&damage.attacker, body.data() + 0x270, 4);
-            std::memcpy(&damage.holder, body.data() + 0x274, 4);
+            std::memcpy(&damage.attacker, body.data() + offsetof(BodyRecord, attacker), 4);
+            std::memcpy(&damage.holder, body.data() + offsetof(BodyRecord, unk_274), 4);
         }
         const Vec3 position = actor_world_position(context.processor.actor);
         const Vec3 direction{0.f - (read_f32(message, 0x10) - position.x),
@@ -774,7 +775,7 @@ void receive_runtime_body_knock_back(std::span<u8> body, const Actor& actor,
         facing.y = facing.y * inverse;
         facing.z = facing.z * inverse;
     }
-    Vec3 push{read_f32(body, 0x1D8), 0.f, read_f32(body, 0x1E0)};
+    Vec3 push{body_record(body).contact_push.x, 0.f, body_record(body).contact_push.z};
     if (push.x == 0.f && push.z == 0.f)
     {
         push = Vec3{0.f, kUp, 0.f};
@@ -819,9 +820,9 @@ void receive_runtime_body_health_notice(std::span<u8> body, std::span<u8> messag
     const u32 amount = read_u32(message, 8);
     if (amount != 0)
     {
-        const i32 remaining = std::bit_cast<i32>(u32(get(body, body_field::energy)) - amount);
+        const i32 remaining = std::bit_cast<i32>(u32(body_record(body).energy) - amount);
         const u16 health = u16(remaining) & u16((remaining < 1) - 1);
-        std::memcpy(body.data() + 0x94, &health, 2);
+        body_record(body).energy = health;
     }
     const u32 kind = read_u32(message, 0xC);
     if (read_u32(message, 0x10) == 0)
@@ -848,9 +849,8 @@ void receive_runtime_body_health_notice(std::span<u8> body, std::span<u8> messag
             break;
         }
     }
-    const u32 zero = 0;
-    std::memcpy(body.data() + 0x240, &zero, 4);
-    std::memcpy(body.data() + 0x23C, &zero, 4);
+    body_record(body).unk_240 = 0.f;
+    body_record(body).unk_23C = 0.f;
     const u32 notice[]{0x61, 0x7E};
     context.processor.actions.actor_message(notice);
     auto& actions = context.processor.actions.actions;
@@ -872,18 +872,18 @@ void receive_runtime_body_health_notice(std::span<u8> body, std::span<u8> messag
 // Xbox 0x00134E50
 void request_runtime_body_lethal_action(std::span<u8> body, RuntimeBodyActionSelection& actions)
 {
-    if (get(body, body_field::energy) != 0)
+    if (body_record(body).energy != 0)
     {
         u32 output;
         const u16 zero = 0;
         if (actions.table == nullptr || find_runtime_script_table_row(actions.table, 0x6B, output) == nullptr ||
-            get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f)
+            body_record(body).move_holds != 0 || body_record(body).move_hold_time != 0.f)
         {
-            std::memcpy(body.data() + 0x94, &zero, 2);
+            body_record(body).energy = zero;
         }
         else
         {
-            std::memcpy(body.data() + 0x94, &zero, 2);
+            body_record(body).energy = zero;
             if (actions.table != nullptr)
             {
                 const u8* row = find_runtime_script_table_row(actions.table, 0x6B, output);

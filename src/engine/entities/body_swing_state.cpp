@@ -41,11 +41,6 @@ std::unordered_map<const u8*, SwingRecords> swing_records;
 
 std::function<RuntimeSwingStateContext&(u32)> swing_context_of;
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void put_half(std::span<u8> bytes, size_t offset, u16 value)
 {
     std::memcpy(bytes.data() + offset, &value, 2);
@@ -132,7 +127,7 @@ u32 mind_weapon(RuntimeSwingStateContext& context)
 // Body +0x48: the attached actor's address, or 0.
 u32 held_weapon(RuntimeSwingStateContext& context)
 {
-    return read_u32(context.pickup.body, 0x48);
+    return body_record(context.pickup.body).attached;
 }
 
 const EntityBonePose* shape_pose(const Actor& actor)
@@ -383,10 +378,10 @@ void approach_runtime_swing_weapon(SwingState& state, RuntimeSwingStateContext& 
     const Vec3 moved{(point.x - start.x) * fraction + start.x, (point.y - start.y) * fraction + start.y,
         (point.z - start.z) * fraction + start.z};
     actor_set_world_position(actor, moved); // 0x00041730
-    put_body_vec3(context.pickup.body, 0x18, actor_world_position(actor)); // 0x000412A0 into body +0x18
+   body_record(context.pickup.body).position = actor_world_position(actor); // 0x000412A0 into body +0x18
     wrap_runtime_euler(euler, actor.euler); // 0x00105AA0
     actor.xform_valid = 0; // Actor +0x2A8.
-    put_body_vec3(context.pickup.body, 0x72C, actor_world_euler(actor)); // 0x00041820 into body +0x72C
+   body_record(context.pickup.body).euler = actor_world_euler(actor); // 0x00041820 into body +0x72C
 }
 
 // Xbox 0x00098E00, EAX state
@@ -443,7 +438,7 @@ u32 pick_runtime_swing_side(RuntimeSwingStateContext& context)
         {
             throw Error("0x00098980 reads a DAT_00511B38 actor without its body views");
         }
-        if (mark.body[0x69] != 0)
+        if (body_record(mark.body).unk_69 != 0)
         {
             continue;
         }
@@ -501,7 +496,7 @@ void swing_runtime_weapon(SwingState& state, const AnimationRecord& record, floa
         send_weapon(context, weapon, {0x92, 1});
     }
     start_runtime_body_animation_record(record, context.pickup.attachment.actions); // 0x0001AFA0, ESI body
-    context.pickup.body[0x6A] = u8(context.pickup.body[0x6A] + 1);
+    body_record(context.pickup.body).unk_6A = u8(body_record(context.pickup.body).unk_6A + 1);
     context.pickup.weapon_callouts(weapon, 0x4D); // 0x0003BE20 over the weapon's +0x8C
     start_runtime_swing_effects(state, context); // 0x00098F40, EAX body
     send_words(context.pickup.actor_message, {0x2B});
@@ -537,7 +532,7 @@ bool spin_runtime_swing_weapon(SwingState& state, RuntimeSwingStateContext& cont
     const float yaw = sample_spin_curve(time) * kTurn * state.direction + state.spin_euler.y;
     wrap_runtime_euler(Vec3{0.f, yaw, 0.f}, actor.euler); // 0x00105AA0
     actor.xform_valid = 0;
-    put_body_vec3(context.pickup.body, 0x72C, actor_world_euler(actor)); // 0x00041820 into body +0x72C
+   body_record(context.pickup.body).euler = actor_world_euler(actor); // 0x00041820 into body +0x72C
     return done;
 }
 
@@ -557,14 +552,14 @@ void release_runtime_swing_weapon(SwingState& state, RuntimeSwingStateContext& c
     }
     if (state.counted != 0)
     {
-        const u32 count = get(body, body_field::holds) - 1;
-        set(body, body_field::holds, count);
+        const u32 count = body_record(body).holds - 1;
+        body_record(body).holds = count;
         if (count == 0)
         {
             send_words(context.body_message, {0x4A});
         }
         state.counted = 0;
-        put_float(body, 0x1C, state.start_position.y); // Body +0x18..+0x20 keeps x and z.
+       body_record(body).position.y = state.start_position.y; // Body +0x18..+0x20 keeps x and z.
     }
     if (weapon == 0)
     {
@@ -582,7 +577,7 @@ void release_runtime_swing_weapon(SwingState& state, RuntimeSwingStateContext& c
         deactivate_all_runtime_body_contact_shapes(*markers); // 0x0013F660
         send_weapon(context, weapon, {0x92, 0});
     }
-    body[0x6A] = u8(body[0x6A] - 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
     release_runtime_swing_effects(state); // 0x00099120
 }
 
@@ -751,11 +746,11 @@ bool initialize_runtime_swing_state(SwingState& state, std::span<const u8> param
         get(parameters, parameter::drop_positive), context);
     find_animation(state, state.drop_negative, kDropNegativeAnimation,
         get(parameters, parameter::drop_negative), context);
-    state.shape_mode = body[0x244];
+    state.shape_mode = body_record(body).push_mode;
     copy_name(state.hit_sound.data(), parameters, parameter::hit_sound);
     copy_name(state.trail_effect.data(), parameters, parameter::trail_effect);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     state.phase = 1;
     start_runtime_body_animation_record(record_at(state, kGrabAnimation),
         context.pickup.attachment.actions); // 0x0001AFA0, ESI body
@@ -763,9 +758,9 @@ bool initialize_runtime_swing_state(SwingState& state, std::span<const u8> param
     state.start_euler = actor_world_euler(context.pickup.actor); // 0x00041820, EDI +0x58
     adjust_body_counters(body, 1);
     increment_runtime_body_latches(body, context.pickup.actor, *context.pickup.latches); // 0x0001FC40, ECX body
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
+    body_record(body).move_holds = u16(body_record(body).move_holds + 1);
     set_runtime_body_shape_mode(0, context.shape); // 0x0001FEB0, BL 0
-    set(body, body_field::holds, get(body, body_field::holds) + 1);
+    body_record(body).holds = body_record(body).holds + 1;
     context.pickup.bits.bytes[7] |= 2; // Body +0x15C -> +8, byte 7.
     state.trail_timer = 0.f;
     state.counted = 1;
@@ -780,7 +775,7 @@ void destroy_runtime_swing_state(SwingState& state, RuntimeSwingStateContext& co
     const auto body = context.pickup.body;
     adjust_body_counters(body, -1);
     decrement_runtime_body_latches(body, context.pickup.actor, *context.pickup.latches); // 0x0001FD20, ECX body
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
+    body_record(body).move_holds = u16(body_record(body).move_holds - 1);
     set_runtime_body_shape_mode(state.shape_mode, context.shape); // 0x0001FEB0, BL state +0x120
     context.pickup.bits.bytes[7] &= 0xFD;
     const u32 weapon = mind_weapon(context);
@@ -790,8 +785,8 @@ void destroy_runtime_swing_state(SwingState& state, RuntimeSwingStateContext& co
     }
     if (state.counted != 0)
     {
-        const u32 count = get(body, body_field::holds) - 1;
-        set(body, body_field::holds, count);
+        const u32 count = body_record(body).holds - 1;
+        body_record(body).holds = count;
         if (count == 0)
         {
             send_words(context.body_message, {0x4A});

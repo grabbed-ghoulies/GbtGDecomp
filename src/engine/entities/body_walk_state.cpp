@@ -1,4 +1,5 @@
 #include "body_walk_state.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "actor_bind_tree.h"
 #include "actor_trail_requests.h"
@@ -19,11 +20,6 @@ namespace
 namespace parameter = walk_state_parameter;
 
 std::function<RuntimeWalkStateContext&(u32)> walk_context_of;
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -104,9 +100,9 @@ void walk_state_object_sizes(ObjectSizes& output)
 void place_runtime_walk_object(const WalkState& state, std::span<const u8> body, const Actor& actor, i32 index,
     Vec3& position, Vec3& euler)
 {
-    const float reach = actor.radius_xz * get(body, body_field::radius_scale) + 2.f; // DAT_0032B110.
+    const float reach = actor.radius_xz * body_record(body).radius_scale + 2.f; // DAT_0032B110.
     const float height =
-        actor.radius_y * get(body, body_field::height_scale) * std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
+        actor.radius_y * body_record(body).height_scale * std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
     position = Vec3{0.f, height, 0.f};
     const float orbit = state.slots[size_t(index)].orbit_angle;
     const float side = float(retail_sin(orbit));
@@ -252,7 +248,7 @@ void tick_runtime_walk_state(WalkState& state, RuntimeWalkStateContext& context)
     const float yaw = state.clockwise != 0 ? state.start_yaw - turn
                                                         : turn + state.start_yaw;
     const Vec3 world = actor_world_euler(actor); // 0x00041820, EDI body +0x72C
-    std::memcpy(context.body.data() + 0x72C, &world, sizeof(world));
+    std::memcpy(context.body.data() + offsetof(BodyRecord, euler.x), &world, sizeof(world));
     Vec3 euler = actor_world_euler(actor); // 0x00041820
     euler.y = yaw;
     wrap_runtime_euler(euler, actor.euler); // 0x00105AA0, EDI actor +0x14

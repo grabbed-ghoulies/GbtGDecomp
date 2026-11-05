@@ -118,16 +118,16 @@ bool initialize_runtime_look_for_weapon_state(LookForWeaponState& state, std::sp
     state.bulb = views.bulb.data() != nullptr ? 1u : 0u;
     views.glow = acquire_sprite(field_data(parameters, parameter::glow), context);
     state.glow = views.glow.data() != nullptr ? 1u : 0u;
-    body[0x38] = 1;
-    body[0x39] = 1;
-    body[0xA7] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    body_record(body).unk_A7 = 1;
     return true;
 }
 
 // Xbox 0x0009DAE0
 void destroy_runtime_look_for_weapon_state(LookForWeaponState& state, RuntimeLookForWeaponStateContext& context)
 {
-    context.body[0xA7] = 0;
+    body_record(context.body).unk_A7 = 0;
     auto& views = look_for_weapon_views[body_state_key(state)];
     release_sprite(views.puzzled, state.puzzled, context);
     release_sprite(views.bulb, state.bulb, context);
@@ -242,7 +242,7 @@ void draw_runtime_look_for_weapon_state(const LookForWeaponState& state, Runtime
 // Xbox 0x001345B0, EBX body, ESI target
 void face_runtime_body_actor(std::span<u8> body, const Actor& actor, const Actor& target)
 {
-    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+    if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         face_runtime_body_point(body, actor, actor_world_position(target)); // 0x000412A0, 0x00134510
     }

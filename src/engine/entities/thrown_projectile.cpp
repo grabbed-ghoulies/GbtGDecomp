@@ -1,4 +1,5 @@
 #include "thrown_projectile.h"
+#include <cstddef>
 #include "weapon_actor_detail.h"
 #include "weapon_breakage.h"
 #include "actor_attachment_events.h"
@@ -339,7 +340,7 @@ void leave_runtime_thrown_projectile_state(RuntimeWeaponActor& weapon, u16 state
         // Holder +0x95C -> +0x4C and +0x14 cleared.
         weapon.services.hold_secondary(*holder, 0);
         const auto body = weapon.services.body_of(weapon.services.actor_address(*holder));
-        if (get(body, body_field::attached) == weapon.self_address())
+        if (body_record(body).attached == weapon.self_address())
         {
             weapon.services.empty_hand(*holder); // 0x0001B680, ECX the holder's body
         }
@@ -378,7 +379,7 @@ void launch_runtime_thrown_projectile(RuntimeWeaponActor& weapon, Actor* holder)
     {
         // A timed arc: holder body +0x7C seconds, shortened inside DAT_004288D8, under DAT_0032B638.
         gravity = -250.f;
-        float time = read_f32(body, 0x7C);
+        float time = body_record(body).throw_lead;
         const long double dx = static_cast<long double>(position.x) - target.x;
         const long double dy = static_cast<long double>(position.y) - target.y;
         const long double dz = static_cast<long double>(position.z) - target.z;
@@ -395,7 +396,7 @@ void launch_runtime_thrown_projectile(RuntimeWeaponActor& weapon, Actor* holder)
     else
     {
         // The holder's throw speed (body +0x80) and no gravity.
-        velocity = runtime_ballistic_velocity(target, position, read_f32(body, 0x80), 0.f); // 0x00140D80
+        velocity = runtime_ballistic_velocity(target, position, body_record(body).unk_80, 0.f); // 0x00140D80
     }
     velocity.y = step_of(weapon) * gravity + velocity.y;
     start_runtime_weapon_flight(weapon, &velocity, &weapon.default_euler, gravity, fields_of(bytes).flight_quiet,

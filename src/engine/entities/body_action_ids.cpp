@@ -13,7 +13,7 @@ u16 runtime_player_body_primary_id(std::span<const u8> body, const RuntimeBodyAc
     const RuntimePlayerGoalRing* goals, std::span<const u8> address_zero,
     const std::function<u16()>& primary_id, u16 retained_key)
 {
-    if (get(body, body_field::energy) == 0 && table != nullptr)
+    if (body_record(body).energy == 0 && table != nullptr)
     {
         u32 output;
         if (find_runtime_script_table_row(table, 0x6A, output) != nullptr)
@@ -62,7 +62,7 @@ u32 runtime_player_goal_flag_name_id(const char* name, const char* const* names)
 // Xbox 0x00024C20
 bool runtime_body_timer_is_idle(std::span<const u8> body)
 {
-    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
 }
 
 // Xbox 0x00145FF0
@@ -448,7 +448,7 @@ u16 runtime_zombie_body_primary_parameter_id(std::span<const u8> body, const Run
     const u8* parameters, const EntityBitBlock& bits,
     const RuntimeScriptLookupTable* table, u16 retained_key)
 {
-    if (body[0x2D0] != 0 && body[0x2D0] == 1 && body[0x2D2] != 0)
+    if (body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == 1 && body_record(body).unk_2D2 != 0)
     {
         return 0x116;
     }
@@ -460,7 +460,7 @@ u16 runtime_zombie_body_secondary_parameter_id(std::span<const u8> body, const R
     const u8* parameters, const EntityBitBlock& bits,
     const RuntimeScriptLookupTable* table, u16 retained_key)
 {
-    if (body[0x2D0] != 0 && body[0x2D0] == 1 && body[0x2D2] != 0)
+    if (body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == 1 && body_record(body).unk_2D2 != 0)
     {
         return 0x16D;
     }
@@ -578,7 +578,7 @@ u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
             {
                 const Vec3 source = actor_world_position(owner);
                 const Vec3 target = actor_world_position(*attached.actor);
-                const float height = (get(body, body_field::height_scale) * owner.radius_y)
+                const float height = (body_record(body).height_scale * owner.radius_y)
                     * std::bit_cast<float>(0x3F59999Au);
                 if (target.y - source.y >= height && runtime_body_has_action_id(table, 0xC7))
                 {
@@ -600,7 +600,7 @@ u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
             {
                 const Vec3 source = actor_world_position(owner);
                 const Vec3 target = actor_world_position(*attached.actor);
-                const float height = (get(body, body_field::height_scale) * owner.radius_y)
+                const float height = (body_record(body).height_scale * owner.radius_y)
                     * std::bit_cast<float>(0x3EB33333u);
                 if (target.y - source.y >= height && runtime_body_has_action_id(table, 0xC4))
                 {

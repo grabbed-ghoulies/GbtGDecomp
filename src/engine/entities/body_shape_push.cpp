@@ -1,4 +1,5 @@
 #include "body_shape_push.h"
+#include <cstddef>
 #include "actor_transform.h"
 #include "gbtg/model_runtime.h"
 #include "body_fields.h"
@@ -255,7 +256,7 @@ void transform_runtime_shape_sphere(const EntityShapeNode& node, const float* wo
 void push_runtime_player_body_shapes(std::span<u8> body, Actor& actor, Vec3& position,
     RuntimeBodyShapeStorage& shapes, RuntimeBodyShapePush& context)
 {
-    const u8 mode = body[0x244];
+    const u8 mode = body_record(body).push_mode;
     Vec3 push;
     if (mode == 0 || (mode > 1 && mode < 4))
     {
@@ -265,8 +266,8 @@ void push_runtime_player_body_shapes(std::span<u8> body, Actor& actor, Vec3& pos
     {
         const Vec3 previous = position;
         push_runtime_collision_point(position, position, &actor,
-            actor.radius_y * get(body, body_field::height_scale),
-            actor.radius_xz * get(body, body_field::radius_scale), context);
+            actor.radius_y * body_record(body).height_scale,
+            actor.radius_xz * body_record(body).radius_scale, context);
         push = Vec3{position.x - previous.x, position.y - previous.y, position.z - previous.z};
     }
     else
@@ -321,8 +322,8 @@ void push_runtime_player_body_shapes(std::span<u8> body, Actor& actor, Vec3& pos
             push = actor_transform_origin;
         }
     }
-    std::memcpy(body.data() + 0x248, &push.x, 4);
-    std::memcpy(body.data() + 0x24C, &push.y, 4);
-    std::memcpy(body.data() + 0x250, &push.z, 4);
+    body_record(body).motion.x = push.x;
+    body_record(body).motion.y = push.y;
+    body_record(body).motion.z = push.z;
 }
 }

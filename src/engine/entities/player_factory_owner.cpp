@@ -1,4 +1,5 @@
 #include "player_factory_owner.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "../scene/cutscene_scene_runtime.h"
 #include "../camera/display_view.h"
@@ -1920,9 +1921,9 @@ void NativePlayerInstance::refresh_body_views()
     actor.euler_out = body.empty() ? nullptr : &body_output;
     if (!body.empty())
     {
-        body_output.position = get(body, body_field::position);
+        body_output.position = body_record(body).position;
         body_output.euler =
-            get(body, body_field::euler);
+            body_record(body).euler;
     }
     if (body_flags != nullptr)
     {
@@ -1931,10 +1932,10 @@ void NativePlayerInstance::refresh_body_views()
     carried = body_attributes.data();
     if (!body.empty())
     {
-        std::memcpy(body.data() + 0x154, &body_hash_count, 4);
+        std::memcpy(body.data() + offsetof(BodyRecord, hash_count), &body_hash_count, 4);
     }
     strategy_entry.body = body;
-    callout.command_attachments = body.empty() ? std::span<u8>() : body.subspan(0x2D8);
+    callout.command_attachments = body.empty() ? std::span<u8>() : body.subspan(offsetof(BodyRecord, command_tokens));
 }
 
 void NativePlayerInstance::refresh_input_views()

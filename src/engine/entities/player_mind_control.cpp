@@ -1,4 +1,5 @@
 #include "player_mind_control.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "gbtg/anim.h"
 #include "actor_live_attachments.h"
@@ -18,13 +19,13 @@ std::span<u8> refresh_runtime_player_shape_target(RuntimePlayerMindShapeTarget& 
     auto body = context.body;
     auto mind = context.mind;
     auto* attachment = context.attachment;
-    if (attachment == nullptr || (body[0x6A] != 0
+    if (attachment == nullptr || (body_record(body).unk_6A != 0
         && get(mind, mind_field::action_record) != context.mind_address + 0xB8))
     {
         return {};
     }
-    if ((body[0x6B] == 0 && body[0x6A] == 0 && !(get(body, body_field::unk_70) > 0.f)
-        && get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f
+    if ((body_record(body).unk_6B == 0 && body_record(body).unk_6A == 0 && !(body_record(body).unk_70 > 0.f)
+        && body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f
         && (context.flags.bytes[3] & 8) == 0
         && !runtime_body_bit_set(context.flags, 0x2C)
         && !runtime_body_bit_set(context.flags, 0x2A)) || (context.flags.bytes[5] & 0x80) != 0)
@@ -102,7 +103,7 @@ void update_runtime_player_mind_gaze(RuntimePlayerMindGaze& context,
 {
     auto mind = context.mind;
     auto body = context.body;
-    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+    if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         if (get(mind, mind_field::gaze_point_set) == 0)
         {
@@ -123,8 +124,8 @@ void update_runtime_player_mind_gaze(RuntimePlayerMindGaze& context,
             }
             if (context.anchor != nullptr)
             {
-                std::memcpy(body.data() + 0x2FC, &context.anchor->output, sizeof(Vec3));
-                body[0x308] = 1;
+                std::memcpy(body.data() + offsetof(BodyRecord, look_point.x), &context.anchor->output, sizeof(Vec3));
+                body_record(body).look_point_set = 1;
                 return;
             }
             std::array<float, 2> axes;
@@ -137,8 +138,9 @@ void update_runtime_player_mind_gaze(RuntimePlayerMindGaze& context,
             }
             return;
         }
-        std::memcpy(body.data() + 0x2FC, field_data(mind, mind_field::gaze_point), sizeof(Vec3));
-        body[0x308] = 1;
+        std::memcpy(body.data() + offsetof(BodyRecord, look_point.x), field_data(mind, mind_field::gaze_point),
+            sizeof(Vec3));
+        body_record(body).look_point_set = 1;
     }
     set(mind, mind_field::gaze_point_set, 0u);
 }
@@ -214,13 +216,13 @@ void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
     {
         return;
     }
-    if (get(body.body, body_field::action_key) == 0x2C
+    if (body_record(body.body).action_key == 0x2C
         && runtime_actor_animation_crossed_position(animation, 0, read_f32(mind, 0x14C))
         && get(mind, mind_field::target_mode) != 0 && request_runtime_player_idle_action(mind, body, random_state))
     {
         put(0x154, 1);
     }
-    if (read_u16(body.body, 0x30) != 0 || read_f32(body.body, 0x34) != 0.f)
+    if (body_record(body.body).move_holds != 0 || body_record(body.body).move_hold_time != 0.f)
     {
         return;
     }
@@ -229,7 +231,7 @@ void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
         return;
     }
     bool request = false;
-    if (read_u32(body.body, 0x48) == 0 && read_u32(body.body, 0x50) == 0)
+    if (body_record(body.body).attached == 0 && body_record(body.body).unk_50 == 0)
     {
         request = read_f32(mind, 0x148) > 10.f && std::bit_cast<i32>(read_u32(mind, 0x150)) > 2;
     }
@@ -352,10 +354,6 @@ void randomize_runtime_player_request_value(std::span<const float, 2> range,
 namespace
 {
 void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
 }
@@ -580,13 +578,13 @@ bool update_runtime_player_boost_timer(RuntimeMindBoost& boost,
         {
             put_float(boost.boost, 4, 0.f);
             auto body = boost.attachment.body;
-            if (get(body, body_field::energy) != 0)
+            if (body_record(body).energy != 0)
             {
                 control.flags.bytes[5] &= 0xEF;
-                --body[0x309];
-                --body[0x30A];
-                --body[0x30B];
-                --body[0x30C];
+                --body_record(body).unk_309;
+                --body_record(body).unk_30A;
+                --body_record(body).unk_30B;
+                --body_record(body).unk_30C;
                 if (runtime_body_timer_is_idle(body))
                 {
                     const u16 key = control.primary_action_key();
@@ -650,13 +648,13 @@ void transform_runtime_player_mind_input(std::span<const u8> body, u32 invert,
         axes[1] = 0.f - axes[1];
         set_runtime_input_secondary_axes(writable, axes, keyboard);
     }
-    if (body[0x38] == 1)
+    if (body_record(body).unk_38 == 1)
     {
         runtime_input_axes(input, axes, state);
         rotate_runtime_player_input_axes(axes, camera_direction);
         set_runtime_input_axes(writable, axes, keyboard);
     }
-    if (body[0x39] == 1)
+    if (body_record(body).unk_39 == 1)
     {
         runtime_input_secondary_axes(input, axes, state);
         rotate_runtime_player_input_axes(axes, camera_direction);
@@ -693,7 +691,7 @@ void release_runtime_player_mind_input_attachment(RuntimePlayerMindControl& cont
         if (runtime_attachment_available(context.attachment.actions.attached->bytes, &context.attachment.host))
         {
             if (runtime_input_button_edge(context.input, 0x200, context.input_state) != 0
-                && context.attachment.body[0x6A] == 0)
+                && body_record(context.attachment.body).unk_6A == 0)
             {
                 if (release_runtime_player_attachment(0, 0, context.attachment))
                 {

@@ -1,4 +1,5 @@
 #include "../cutscenes/door_registration.h"
+#include "../entities/body_fields.h"
 #include "../scripts/script_event_sequence.h"
 #include "../scripts/script_actions.h"
 #include "gbtg/anim.h"
@@ -474,7 +475,7 @@ void scene_update_actor_marker(Game& g)
     {
         throw Error("DAT_00511B40 player is not on DAT_00511B38");
     }
-    if (read_u16(player->body, 0x94) == 0)
+    if (body_record(player->body).energy == 0)
     {
         g_flag_5d20 = 0;
         g_flag_5d24 = 0;
@@ -490,7 +491,7 @@ void scene_update_actor_marker(Game& g)
         return key == 0 ? u16(0) : find_scene_spawn_type(actors->marker_records(), key); // 0x0011F2E0
     };
     Actor& actor = *player->actor;
-    if (actor.parked_gate < 1 && read_u32(player->body, 0x258) == 0)
+    if (actor.parked_gate < 1 && body_record(player->body).holds == 0)
     {
         point = actor_world_position(actor); // 0x000412A0
         const OccupancyRecord* exit = actor.parked_gate < 1 ? find_occupancy_record(point, 0.f, 1, nullptr, 0) : nullptr;

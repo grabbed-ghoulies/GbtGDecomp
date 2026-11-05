@@ -1,4 +1,5 @@
 #include "imp_flamethrower_strategy.h"
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -424,19 +425,19 @@ void enter_runtime_imp_flamethrower_state(u16 state, u16 previous, RuntimeImpFla
     RuntimeMindGoalContext& mind = goals.entry.goals;
     const u32 target_address = get(mind_of(context), mind_field::target_record);
     const RuntimeMindTarget* target = target_address == 0 ? nullptr : goals.target_at(target_address);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3ED:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         strategy_base(strategy).attacking = 1;
         fields_of(strategy).fast = 0u;
         fields_of(strategy).in_reach = 0u;
         approach_runtime_imp_flamethrower_target(target, context); // 0x000B4FE0
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         strategy_base(strategy).attacking = 1;
         fields_of(strategy).fast = 1u;
         fields_of(strategy).in_reach = 1u;
@@ -454,7 +455,7 @@ void enter_runtime_imp_flamethrower_state(u16 state, u16 previous, RuntimeImpFla
         roam_runtime_imp_flamethrower(context); // 0x000B52B0
         return;
     case 0x40C:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         approach_runtime_imp_flamethrower_target(target, context); // 0x000B4FE0
         return;
     case 0x40D:

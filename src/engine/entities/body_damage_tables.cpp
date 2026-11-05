@@ -1,4 +1,5 @@
 #include "body_damage_tables.h"
+#include <cstddef>
 #include "gbtg/anim.h"
 #include "player_mind_events.h"
 #include "actor_shape_bounds.h"
@@ -296,7 +297,7 @@ u32 runtime_body_damage_amount(std::span<const u8> body, const Actor& actor,
     }
     if (amount != 0 && live_player)
     {
-        return get(body, body_field::energy);
+        return body_record(body).energy;
     }
     if (key == 0x3F)
     {
@@ -309,7 +310,7 @@ u32 runtime_body_damage_amount(std::span<const u8> body, const Actor& actor,
                 amount = u32(half);
             }
         }
-        if (read_u32(body, 0x750) != 0)
+        if (body_record(body).unk_750 != 0)
         {
             amount = 0;
         }
@@ -362,22 +363,21 @@ void reduce_runtime_body_damage_pulse(std::span<u8> body, const Actor& actor, i3
         if (actor.mask_mode == 2 || actor.mask_flag != 0)
         {
             const u32 duration = 0x40000000;
-            std::memcpy(body.data() + 0x168, &duration, 4);
+            std::memcpy(body.data() + offsetof(BodyRecord, unk_168), &duration, 4);
         }
-        if (get(body, body_field::stagger) > 0.f)
+        if (body_record(body).stagger > 0.f)
         {
-            const float value = get(body, body_field::stagger) - std::bit_cast<float>(0x3F7D70A4u) / float(count);
-            std::memcpy(body.data() + 0x16C, &value, 4);
+            const float value = body_record(body).stagger - std::bit_cast<float>(0x3F7D70A4u) / float(count);
+            body_record(body).stagger = value;
             if (value <= 0.f)
             {
                 const u32 zero = 0;
-                std::memcpy(body.data() + 0x16C, &zero, 4);
+                body_record(body).stagger = 0.f;
             }
         }
-        if (std::bit_cast<float>(0x3A83126Fu) > get(body, body_field::stagger))
+        if (std::bit_cast<float>(0x3A83126Fu) > body_record(body).stagger)
         {
-            const u32 zero = 0;
-            std::memcpy(body.data() + 0x16C, &zero, 4);
+            body_record(body).stagger = 0.f;
         }
     }
 }

@@ -1,4 +1,6 @@
 #include "player_mind_setup.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "actor_transform.h"
 #include "../scripts/script_chapter.h"
 #include <bit>
@@ -91,9 +93,9 @@ void build_runtime_player_camera_target(std::span<u8, 0x20> output,
     write_float(output, 8, position.y);
     write_float(output, 0xC, position.z);
     write_float(output, 0x10, 0.f);
-    write_float(output, 0x14, source.actor.radius_y * read_f32(source.body, 0x884) + height);
+    write_float(output, 0x14, source.actor.radius_y * body_record(source.body).height_scale + height);
     write_float(output, 0x18, 0.f);
-    write_float(output, 0x1C, source.actor.radius_xz * read_f32(source.body, 0x888) + radius);
+    write_float(output, 0x1C, source.actor.radius_xz * body_record(source.body).radius_scale + radius);
 }
 
 // Xbox 0x0013CCD0
@@ -171,8 +173,8 @@ bool initialize_runtime_player_mind(std::span<u8> mind, std::span<const u8> para
     if (health > 0)
     {
         const u16 value = static_cast<u16>(health);
-        std::memcpy(context.body_bytes.data() + 0x94, &value, 2);
-        std::memcpy(context.body_bytes.data() + 0x96, &value, 2);
+        body_record(context.body_bytes).energy = value;
+        body_record(context.body_bytes).max_energy = value;
         if (script_chapter_index(context.scene_name) < 9 && (context.scene_flags & 8) == 0
             && (context.runtime_flags & 0x200000) == 0 && (context.story_flags & 0x40) == 0
             && context.chapter_mode != 1)

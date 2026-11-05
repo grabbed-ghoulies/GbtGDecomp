@@ -1,4 +1,5 @@
 #include "body_jump_on_state.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "actor_bind_tree.h"
 #include "actor_live_attachments.h"
@@ -44,16 +45,6 @@ std::unordered_map<const u8*, JumpOnAnimations> jump_on_animations;
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
 }
 
 float global(RuntimeJumpOnStateContext& context, u32 address)
@@ -231,10 +222,10 @@ void place_on_leap(const JumpOnState& state, RuntimeJumpOnStateContext& context)
     const float z = state.leap.position.z;
     const float fraction = leap_fraction(state.leap);
     const long double arc = retail_sin(fraction * 3.1415927410125732f); // 0x00153320, DAT_0032B148.
-    put_float(context.body, 0x18, x);
-    put_float(context.body, 0x20, z);
-    put_float(context.body, 0x1C, float(arc * static_cast<long double>(global(context, 0x00428680))
-        + static_cast<long double>(y)));
+   body_record(context.body).position.x = x;
+   body_record(context.body).position.z = z;
+    body_record(context.body).position.y = float(arc * static_cast<long double>(global(context, 0x00428680))
+        + static_cast<long double>(y));
 }
 }
 
@@ -272,12 +263,12 @@ bool initialize_runtime_jump_on_state(JumpOnState& state, std::span<const u8> pa
     RuntimeJumpOnStateContext& context)
 {
     const std::span<u8> body = context.body;
-    put_u16(body, 0x30, u16(get(body, body_field::move_holds) + 1));
+   body_record(body).move_holds = u16(body_record(body).move_holds + 1);
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + 1);
     }
-    body[0x6A] = u8(body[0x6A] + 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
     state.knocked = 0u;
     state.keep_riding = get(parameters, parameter::keep_riding);
     state.aborted = 0u;
@@ -314,18 +305,18 @@ void destroy_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext
 {
     const std::span<u8> body = context.body;
     const u32 target = mind_target(context);
-    put_u16(body, 0x30, u16(get(body, body_field::move_holds) - 1));
+   body_record(body).move_holds = u16(body_record(body).move_holds - 1);
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] - 1);
     }
     set_runtime_body_shape_mode(u8(state.shape_mode), context.shape); // 0x0001FEB0
-    body[0x6A] = u8(body[0x6A] - 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
     if (state.released == 0)
     {
         hold_runtime_jump_on_body(1, state, context); // The inlined 0x0009A420 release.
     }
-    if (target != 0 && get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+    if (target != 0 && body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const std::span<const u8> record_bytes = context.target_at(target);
         const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
@@ -443,7 +434,7 @@ void tick_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext& c
         state.phase = 6u;
         if (state.knocked != 0)
         {
-            put_float(context.body, 0x23C, 0.75f); // DAT_0032B2AC.
+           body_record(context.body).unk_23C = 0.75f; // DAT_0032B2AC.
             state.base.next_key = context.body_slot_key(0x34);
             return;
         }
@@ -532,7 +523,7 @@ bool runtime_jump_on_target_open(u32 target, RuntimeJumpOnStateContext& context)
         return false;
     }
     const RuntimeJumpOnPeer peer = context.peer_at(actor);
-    if (head_record(peer, head_marker(context)) == nullptr || read_u16(peer.body, 0x94) == 0)
+    if (head_record(peer, head_marker(context)) == nullptr || body_record(peer.body).energy == 0)
     {
         return false;
     }
@@ -628,9 +619,9 @@ void hold_runtime_jump_on_body(u32 release, JumpOnState& state, RuntimeJumpOnSta
         }
         state.released = 1u;
         adjust_holds(-1);
-        body[0x6D] = u8(body[0x6D] - 1);
+        body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
         decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
-        body[0x69] = u8(body[0x69] - 1);
+        body_record(body).unk_69 = u8(body_record(body).unk_69 - 1);
         std::array<u8, 0x20> scratch{};
         notify_runtime_body_spatial_shape(body, scratch, context.spatial); // 0x0001D780
         return;
@@ -641,9 +632,9 @@ void hold_runtime_jump_on_body(u32 release, JumpOnState& state, RuntimeJumpOnSta
     }
     state.released = 0u;
     adjust_holds(1);
-    body[0x6D] = u8(body[0x6D] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
-    body[0x69] = u8(body[0x69] + 1);
+    body_record(body).unk_69 = u8(body_record(body).unk_69 + 1);
     auto* first = static_cast<ActorLiveAttachment*>(context.live_attachments.next); // Actor +0x8F8.
     if (first == nullptr)
     {
@@ -670,7 +661,7 @@ bool step_runtime_jump_off_leap(JumpOnState& state, RuntimeJumpOnStateContext& c
     place_on_leap(state, context);
     const u32 target = mind_target(context);
     const std::span<u8> body = context.body;
-    if (target != 0 && get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+    if (target != 0 && body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const std::span<const u8> record_bytes = context.target_at(target);
         const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
@@ -754,7 +745,7 @@ void set_runtime_jump_on_phase(u32 phase, JumpOnState& state, RuntimeJumpOnState
     case 6:
         if (state.knocked != 0)
         {
-            put_float(context.body, 0x23C, 0.75f); // DAT_0032B2AC.
+           body_record(context.body).unk_23C = 0.75f; // DAT_0032B2AC.
             state.base.next_key = context.body_slot_key(0x34);
             return;
         }
@@ -784,10 +775,10 @@ void release_runtime_jump_on_claim(JumpOnState& state, RuntimeJumpOnStateContext
     if (target != 0)
     {
         const RuntimeJumpOnPeer peer = context.peer_at(target);
-        const u32 rider = read_u32(peer.body, 0x718);
+        const u32 rider = body_record(peer.body).rider;
         if (rider != 0 && rider == context.actor_address)
         {
-            put_word(peer.body, 0x718, 0);
+           body_record(peer.body).rider = 0;
         }
     }
     state.claimed = 0u;
@@ -805,7 +796,7 @@ void start_runtime_ride(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
     ride.tracking.hold_timer = 0.f;
     attach_runtime_ride(context); // 0x00099DF0
     context.actor.model_flags &= 0xFFFDFFFDu; // Actor +0x1F0.
-    set(context.body, body_field::holds, get(context.body, body_field::holds) + 1);
+    body_record(context.body).holds = body_record(context.body).holds + 1;
     ride.phase = 0u;
     set_runtime_ride_phase(ride, 1, context); // 0x00099CA0
 }
@@ -826,8 +817,8 @@ Actor* end_runtime_ride(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
     ride.phase = 0u;
     Actor* host = detach_runtime_ride(context); // 0x00099EE0
     context.actor.model_flags |= 0x20002u;
-    const u32 count = get(context.body, body_field::holds) - 1;
-    set(context.body, body_field::holds, count);
+    const u32 count = body_record(context.body).holds - 1;
+    body_record(context.body).holds = count;
     if (count == 0)
     {
         const std::array<u32, 2> message{0x4A, 0}; // Word 1 is the caller's stack slot.
@@ -842,7 +833,7 @@ bool tick_runtime_ride(JumpOnState& state, u32 keep_riding, RuntimeJumpOnStateCo
     JumpOnRide& ride = state.ride;
     const std::span<u8> body = context.body;
     const Vec3 euler = actor_world_euler(context.actor); // 0x00041820, EDI body +0x72C
-    std::memcpy(body.data() + 0x72C, &euler, sizeof(euler));
+    std::memcpy(body.data() + offsetof(BodyRecord, euler.x), &euler, sizeof(euler));
     const std::span<const u8> actor_bytes = context.actor_bytes;
     const u32 group =
         (get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0) ? 1u : 0u;
@@ -998,7 +989,7 @@ void steer_runtime_ride_host(JumpOnRide& ride, RuntimeJumpOnStateContext& contex
         ride.wobble = 0.5f < side ? 0.f - angle : angle; // DAT_0032B0F4.
     }
     Vec3 point = actor_world_position(*host.actor); // 0x000412A0
-    point.y = host.actor->radius_y * read_f32(host.body, 0x884) + point.y; // Host +0x34, body +0x884.
+    point.y = host.actor->radius_y * body_record(host.body).height_scale + point.y; // Host +0x34, body +0x884.
     Vec3 direction{};
     add_sound_direction(direction, global(context, 0x004286C8),
         host.actor->euler.y + ride.wobble, global(context, 0x004286C4)); // 0x00106220
@@ -1074,7 +1065,7 @@ void attach_runtime_ride(RuntimeJumpOnStateContext& context)
     }
     bind_runtime_actor_marker_now(context.actor, target.actor, row, 0, context.default_position,
         context.default_euler); // 0x0003B500, ECX actor, EAX target
-    put_word(context.body, 0x728, 0);
+   body_record(context.body).unk_728 = 0;
     if (target.mind.empty())
     {
         throw Error("0x00099DF0 clears the chosen actor of a target with no mind");
@@ -1083,7 +1074,7 @@ void attach_runtime_ride(RuntimeJumpOnStateContext& context)
     normalize_euler_angles(context.actor.euler, context.default_euler); // 0x00105AA0, ESI DAT_0050DD74
     context.actor.xform_valid = 0; // Actor +0x2A8.
     const Vec3 euler = actor_world_euler(context.actor); // 0x00041820, EDI body +0x72C
-    std::memcpy(context.body.data() + 0x72C, &euler, sizeof(euler));
+    std::memcpy(context.body.data() + offsetof(BodyRecord, euler.x), &euler, sizeof(euler));
     if (context.shape.secondary != nullptr) // Actor +0x310.
     {
         context.shape.secondary_mode = 0; // Actor +0x30C.
@@ -1101,7 +1092,7 @@ Actor* detach_runtime_ride(RuntimeJumpOnStateContext& context)
     {
         detach_actor_bind(context.actor); // 0x0003B560, EBX actor
     }
-    put_word(context.body, 0x728, 1);
+   body_record(context.body).unk_728 = 1;
     if (host != nullptr)
     {
         const u32 address = context.address_of(host);
@@ -1141,7 +1132,7 @@ void strike_runtime_ride_host(JumpOnRide& ride, RuntimeJumpOnStateContext& conte
     context.message(target.address, message); // Target vtable +0xC.
     const u32 strikes = ride.strikes + 1;
     ride.strikes = strikes;
-    if (i32(strikes) >= 5 && ride.hat_intro == 0 && read_u16(target.body, 0x94) != 0
+    if (i32(strikes) >= 5 && ride.hat_intro == 0 && body_record(target.body).energy != 0
         && queue_runtime_imp_hat_intro(context.story_byte, context.intro) != 0) // 0x0013FE60
     {
         ride.hat_intro = 1u;
@@ -1244,9 +1235,9 @@ bool find_runtime_jump_landing(const RuntimeJumpOnPeer& from, float extra, Vec3&
 {
     const Vec3 center = actor_world_position(*from.actor); // 0x000412A0
     const float scale = from.actor->radius_xz; // From +0x38.
-    const float body_reach = read_f32(from.body, 0x78) * scale;
+    const float body_reach = body_record(from.body).reach * scale;
     float sword = 0.f;
-    const u32 held = read_u32(from.body, 0x48);
+    const u32 held = body_record(from.body).attached;
     if (held != 0)
     {
         const RuntimeJumpOnPeer weapon = context.peer_at(held);
@@ -1255,8 +1246,8 @@ bool find_runtime_jump_landing(const RuntimeJumpOnPeer& from, float extra, Vec3&
             sword = float(actor_model_sweep_radius(*weapon.actor)); // 0x0003D9A0, EDI the weapon
         }
     }
-    const float inner = read_f32(from.body, 0x888) * scale + (sword + body_reach);
-    const float minimum = context.actor.radius_xz * get(context.body, body_field::radius_scale) + inner;
+    const float inner = body_record(from.body).radius_scale * scale + (sword + body_reach);
+    const float minimum = context.actor.radius_xz * body_record(context.body).radius_scale + inner;
     return entity_detail::select_navigation_spawn_position(i32(get(context.actor_bytes, player_field::floor)), nullptr,
         center, minimum, minimum + extra, nullptr, nullptr, 0, 0, output, context.random,
         context.occupancy_initial); // 0x00111420, EAX 0
@@ -1265,9 +1256,9 @@ bool find_runtime_jump_landing(const RuntimeJumpOnPeer& from, float extra, Vec3&
 // Xbox 0x000265A0, EAX body
 bool claim_runtime_body_rider(std::span<u8> body, const EntityBitBlock& bits, u32 rider)
 {
-    if (read_u32(body, 0x718) == 0 && (bits.bytes[3] & 8) == 0)
+    if (body_record(body).rider == 0 && (bits.bytes[3] & 8) == 0)
     {
-        put_word(body, 0x718, rider);
+       body_record(body).rider = rider;
         return true;
     }
     return false;
@@ -1280,7 +1271,8 @@ bool claim_runtime_rider(const RuntimeJumpOnPeer* target, u32 rider)
     {
         return false;
     }
-    if ((target->bits->bytes[3] & 8) != 0 || read_u16(target->body, 0x94) == 0 || read_u32(target->body, 0x718) != 0)
+    if ((target->bits->bytes[3] & 8) != 0 || body_record(target->body).energy == 0
+        || body_record(target->body).rider != 0)
     {
         return false;
     }
@@ -1295,10 +1287,10 @@ bool release_runtime_rider(const RuntimeJumpOnPeer* target, u32 rider)
     {
         return false;
     }
-    const u32 current = read_u32(target->body, 0x718);
+    const u32 current = body_record(target->body).rider;
     if (current != 0 && current == rider)
     {
-        put_word(target->body, 0x718, 0);
+       body_record(target->body).rider = 0;
         return true;
     }
     return false;

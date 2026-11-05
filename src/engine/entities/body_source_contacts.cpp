@@ -70,7 +70,7 @@ void receive_runtime_body_source_contact(std::span<u8> body, std::span<u8> messa
                 can_override = false;
             }
         }
-        if (can_override && get(body, body_field::holds) == 0 && (processor.flags.bytes[7] & 2) == 0)
+        if (can_override && body_record(body).holds == 0 && (processor.flags.bytes[7] & 2) == 0)
         {
             const u32 one = 1;
             damage.unblockable = one;
@@ -108,13 +108,13 @@ void receive_runtime_body_source_contact(std::span<u8> body, std::span<u8> messa
     }
     damage.direction = direction;
     u32 timer;
-    if (read_u32(context.source_body, 0x760) == 0)
+    if (body_record(context.source_body).hit_timer == 0)
     {
         timer = 0;
     }
     else
     {
-        timer = read_u32(context.source_body, 0x754);
+        timer = body_record(context.source_body).hit_timer_running;
     }
     damage.starts_timer = timer;
     const u16 actor_class = get(source.bytes, player_field::damage_class);

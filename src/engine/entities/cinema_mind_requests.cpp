@@ -50,7 +50,7 @@ u32 face_runtime_cinema_mind_target(std::span<const u8> mind, std::span<u8> body
     {
         return 1;
     }
-    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+    if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
         face_runtime_body_point(body, actor, point);

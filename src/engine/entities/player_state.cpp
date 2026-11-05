@@ -1,4 +1,5 @@
 #include "player_state.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "entity_heap.h"
 #include "body_fields.h"
@@ -13,7 +14,7 @@ void activate_runtime_body_action(std::span<u8> body, u32 value, u32 mode, Runti
     if (action.object.bytes == nullptr)
     {
         auto clone = clone_executable_resource(action.child.resources,
-            reinterpret_cast<const char*>(body.data() + 0x764));
+            body_record(body).hit_timer_name.data());
         FactoryObject object;
         if (clone.bytes != nullptr)
         {
@@ -27,10 +28,10 @@ void activate_runtime_body_action(std::span<u8> body, u32 value, u32 mode, Runti
     {
         action.message(action.object, 3);
     }
-    if (read_u32(body, 0x754) == 0)
+    if (body_record(body).hit_timer_running == 0)
     {
-        std::memcpy(body.data() + 0x758, &value, 4);
-        std::memcpy(body.data() + 0x754, &mode, 4);
+        std::memcpy(body.data() + offsetof(BodyRecord, unk_758), &value, 4);
+        body_record(body).hit_timer_running = mode;
     }
 }
 
@@ -39,11 +40,13 @@ void initialize_runtime_body_action(std::span<u8> body, std::span<const u8> para
     RuntimeBodyAction& action)
 {
     const u32 kind = parameters[0x1C0];
-    std::memcpy(body.data() + 0x750, &kind, 4);
-    std::strcpy(reinterpret_cast<char*>(body.data() + 0x764), reinterpret_cast<const char*>(parameters.data() + 0x1C2));
-    std::strcpy(reinterpret_cast<char*>(body.data() + 0x7F4), reinterpret_cast<const char*>(parameters.data() + 0x242));
+    body_record(body).unk_750 = kind;
+    std::strcpy(reinterpret_cast<char*>(body.data() + offsetof(BodyRecord, hit_timer_name)),
+        reinterpret_cast<const char*>(parameters.data() + 0x1C2));
+    std::strcpy(reinterpret_cast<char*>(body.data() + offsetof(BodyRecord, second_timer_name)),
+        reinterpret_cast<const char*>(parameters.data() + 0x242));
     const u32 value = read_u32(parameters, 0x2C4);
-    std::memcpy(body.data() + 0x7EC, &value, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, unk_7EC), &value, 4);
     if (parameters[0x1C1] != 0)
     {
         activate_runtime_body_action(body, 0, 1, action);
@@ -115,8 +118,8 @@ void leave_runtime_player_strategy(std::span<u8> strategy, u16 old_state, u16 ne
         if (next_state != 0x3FB)
         {
             strategy_view<PlayerStrategyState>(strategy).move_held = 1;
-            const u16 value = u16(get(body, body_field::move_holds) + 1);
-            std::memcpy(body.data() + 0x30, &value, 2);
+            const u16 value = u16(body_record(body).move_holds + 1);
+            body_record(body).move_holds = value;
         }
         break;
     case 0x3FC:
@@ -141,7 +144,7 @@ void initialize_runtime_body_motion(std::span<u8> body)
     put(0x324, 0xC3480000); // DAT_0032B224, -200.
     put(0x338, 0);
     put(0x32C, 0x3F800000);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     put(0x340, 0);
     for (size_t i = 0; i < 0x50; ++i)
     {
@@ -247,7 +250,7 @@ void collect_runtime_body_special_shapes(std::span<u8> body, const RuntimeBodyMo
                     } while (shape != nullptr);
                     if (count != 0)
                     {
-                        body[0x714] = u8(count);
+                        body_record(body).sphere_count = u8(count);
                         storage.special = static_cast<RuntimeBodyCollisionSphere*>(
                             engine_heap_allocate(i32(count * sizeof(RuntimeBodyCollisionSphere))));
                         std::memset(static_cast<void*>(storage.special), 0, count * sizeof(RuntimeBodyCollisionSphere));
@@ -266,7 +269,7 @@ void collect_runtime_body_special_shapes(std::span<u8> body, const RuntimeBodyMo
                             }
                             shape += shape[1];
                         } while (shape != nullptr);
-                        body[0x715] = 0;
+                        body_record(body).unk_715 = 0;
                     }
                 }
                 return;

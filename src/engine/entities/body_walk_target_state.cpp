@@ -1,4 +1,5 @@
 #include "body_walk_target_state.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_hit_state.h"
@@ -28,11 +29,6 @@ const float negative_pi = std::bit_cast<float>(0xC0490FDBu); // DAT_0032B29C.
 const float half_pi = std::bit_cast<float>(0x3FC90FDBu); // DAT_0032B140.
 
 namespace parameter = walk_target_parameter;
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 // The inlined 0x00152BE0 wrap into [0, 2pi): the x87 remainder is compared, its float kept.
 float wrap_positive(float value)
@@ -65,9 +61,9 @@ float wrap_signed(float value)
 // The inlined surface-mode scale: DAT_00217EC0[mode] when body +0x878 has the mode's bit, otherwise 1.
 float surface_mode_scale(std::span<const u8> body, std::span<const float> mode_scales)
 {
-    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
-                                                                        : get(body, body_field::surface_override);
-    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
+    const u8 mode = body_record(body).surface_override_frames == 0 ? body_record(body).surface
+                                                                        : body_record(body).surface_override;
+    if ((body_record(body).scaled_surfaces & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= mode_scales.size())
         {
@@ -90,7 +86,7 @@ u32 alert_mind_target(std::span<const u8> mind)
 
 void store_target_position(std::span<u8> body, const Vec3& position)
 {
-    set(body, body_field::focus_point, position);
+    body_record(body).focus_point = position;
 }
 
 // Actor +0x3C/+0x44: the actor's horizontal speed (0x00152B30 of x*x + z*z).
@@ -240,8 +236,8 @@ bool initialize_runtime_walk_target(WalkTargetState& state, std::span<const u8> 
     state.direction = 0xFFFFFFFFu;
     state.band = 0;
     // DAT_0032B220, DAT_0032B554, DAT_0032B1B0.
-    set(body, body_field::turn_rates,
-        std::array<float, 3>{std::bit_cast<float>(0x3F0EFA35u), std::bit_cast<float>(0x40F5BE0Cu), 4.f});
+    body_record(body).turn_rates = std::array<float, 3>{std::bit_cast<float>(0x3F0EFA35u),
+        std::bit_cast<float>(0x40F5BE0Cu), 4.f};
     if (const u32 target = alert_mind_target(context.mind); target != 0)
     {
         if (!context.actor_position)
@@ -250,8 +246,8 @@ bool initialize_runtime_walk_target(WalkTargetState& state, std::span<const u8> 
         }
         store_target_position(body, context.actor_position(target)); // 0x000412A0, EDI body +0x3C.
     }
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits->bytes[6] |= 0x80;
     state.arrival_delay = 1.f; // DAT_0032B0F8.
     return true;
@@ -262,8 +258,8 @@ void destroy_runtime_walk_target(WalkTargetState& state, RuntimeBodyStateContext
 {
     const auto body = context.body;
     // DAT_0032B220, DAT_0032B21C, DAT_0032B218.
-    set(body, body_field::turn_rates,
-        std::array<float, 3>{std::bit_cast<float>(0x3F0EFA35u), std::bit_cast<float>(0x41490FDBu), 6.f});
+    body_record(body).turn_rates = std::array<float, 3>{std::bit_cast<float>(0x3F0EFA35u),
+        std::bit_cast<float>(0x41490FDBu), 6.f};
     context.bits->bytes[6] &= 0x7F;
     walk_target_records.erase(body_state_key(state));
 }
@@ -283,8 +279,8 @@ void steer_runtime_body_by_stick(RuntimeWalkTargetTick& context)
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (context.input == nullptr || get(body, body_field::move_holds) != 0 ||
-        get(body, body_field::move_hold_time) != 0.f)
+    if (context.input == nullptr || body_record(body).move_holds != 0 ||
+        body_record(body).move_hold_time != 0.f)
     {
         axes = {0.f, 0.f};
     }
@@ -311,13 +307,13 @@ void steer_runtime_body_by_stick(RuntimeWalkTargetTick& context)
     float forward = 0.f;
     if (magnitude > 0.f)
     {
-        set(body, body_field::heading, angle);
+        body_record(body).heading = angle;
         const float scale = surface_mode_scale(body, context.mode_scales);
         const float speed = runtime_body_step_speed(body, context.actor, context.tables) * scale * magnitude;
         side = float(retail_sin(angle) * speed);
         forward = float(retail_cos(angle) * speed);
     }
-    set(body, body_field::velocity, Vec3{side, 0.f, forward});
+    body_record(body).velocity = Vec3{side, 0.f, forward};
 }
 
 // Xbox 0x00091A00
@@ -359,7 +355,7 @@ u32 runtime_walk_target_side(float turn)
 u32 runtime_walk_target_direction(RuntimeWalkTargetTick& context)
 {
     // x87: body +0x33C - actor +0x18, stored as a float.
-    const float turn = float(static_cast<long double>(get(context.body, body_field::heading))
+    const float turn = float(static_cast<long double>(body_record(context.body).heading)
         - static_cast<long double>(context.actor.euler.y));
     return runtime_walk_target_side(wrap_signed(turn));
 }
@@ -369,9 +365,9 @@ long double runtime_walk_target_distance(RuntimeWalkTargetTick& context)
 {
     const auto body = context.body;
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0, ESI actor.
-    const float dx = position.x - get(body, body_field::focus_point).x;
-    const float dy = position.y - get(body, body_field::focus_point).y;
-    const float dz = position.z - get(body, body_field::focus_point).z;
+    const float dx = position.x - body_record(body).focus_point.x;
+    const float dy = position.y - body_record(body).focus_point.y;
+    const float dz = position.z - body_record(body).focus_point.z;
     const long double sum = (static_cast<long double>(dz) * dz + static_cast<long double>(dy) * dy)
         + static_cast<long double>(dx) * dx;
     return std::sqrt(sum);
@@ -382,12 +378,12 @@ void aim_runtime_walk_target(const WalkTargetState& state, RuntimeWalkTargetTick
 {
     const auto body = context.body;
     const u8 alert = context.mind.empty() ? 0 : get(context.mind, mind_field::target_mode);
-    const Vec3 target = get(body, body_field::focus_point);
+    const Vec3 target = body_record(body).focus_point;
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0, ESI actor.
     const Vec3 direction{target.x - position.x, target.y - position.y, target.z - position.z};
     float angle;
     runtime_direction_angle(direction, angle); // 0x00105F90, EAX direction, EBX angle.
-    const float heading = get(body, body_field::heading);
+    const float heading = body_record(body).heading;
     const float turned = step_runtime_angle_toward(angle, heading, float(alert != 0 ? 1 : 0));
     const long double distance = runtime_walk_target_distance(context); // Kept in x87.
     float limit = float((distance - 12.0L) // DAT_0032B470.
@@ -405,7 +401,7 @@ void aim_runtime_walk_target(const WalkTargetState& state, RuntimeWalkTargetTick
     }
     const float facing = runtime_turn_within_arc(heading, turned, limit);
     level_body_euler(body);
-    field_data(body, body_field::euler)->y = facing;
+    body_record(body).euler.y = facing;
     if (state.settle_turn != 0)
     {
         settle_runtime_body_turn(body, context.actor); // 0x00134720, ESI body.
@@ -500,14 +496,14 @@ void settle_runtime_walk_target(WalkTargetState& state, RuntimeWalkTargetTick& c
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = get(body, body_field::velocity).x;
-    const float vy = get(body, body_field::velocity).y;
-    const float vz = get(body, body_field::velocity).z;
+    const float vx = body_record(body).velocity.x;
+    const float vy = body_record(body).velocity.y;
+    const float vz = body_record(body).velocity.z;
     const bool alert = !context.mind.empty() && get(context.mind, mind_field::target_mode) != 0;
     if (!alert && state.arrival_delay == 0.f) // DAT_0032B100.
     {
         // x87: body +0x730 - actor +0x18, stored as a float.
-        const float turn = float(static_cast<long double>(get(body, body_field::euler).y)
+        const float turn = float(static_cast<long double>(body_record(body).euler.y)
             - static_cast<long double>(context.actor.euler.y));
         const float magnitude = animation_absolute(wrap_signed(turn));
         if (std::bit_cast<float>(0x3E860A92u) >= magnitude) // DAT_0032B340.
@@ -568,8 +564,8 @@ bool initialize_runtime_fly_alert(FlyAlertState& state, std::span<const u8> para
     state.direction = 0xFFFFFFFFu;
     state.band = 0;
     // DAT_0032B220, DAT_0032B640, DAT_0032B1B0.
-    set(body, body_field::turn_rates,
-        std::array<float, 3>{std::bit_cast<float>(0x3F0EFA35u), std::bit_cast<float>(0x4075BE0Cu), 4.f});
+    body_record(body).turn_rates = std::array<float, 3>{std::bit_cast<float>(0x3F0EFA35u),
+        std::bit_cast<float>(0x4075BE0Cu), 4.f};
     if (const u32 target = alert_mind_target(context.mind); target != 0)
     {
         if (!context.actor_position)
@@ -578,8 +574,8 @@ bool initialize_runtime_fly_alert(FlyAlertState& state, std::span<const u8> para
         }
         store_target_position(body, context.actor_position(target)); // 0x000412A0, EDI body +0x3C.
     }
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     state.arrival_delay = 1.f; // DAT_0032B0F8.
     // The inlined 0x0003AAA0 pair: the held actor's +0xDB0 variant first, then the plain name.
     const u32 name_address = get(parameters, fly_parameter::hover);
@@ -600,8 +596,8 @@ void destroy_runtime_fly_alert(const FlyAlertState& state, RuntimeBodyStateConte
 {
     const auto body = context.body;
     // DAT_0032B220, DAT_0032B21C, DAT_0032B218.
-    set(body, body_field::turn_rates,
-        std::array<float, 3>{std::bit_cast<float>(0x3F0EFA35u), std::bit_cast<float>(0x41490FDBu), 6.f});
+    body_record(body).turn_rates = std::array<float, 3>{std::bit_cast<float>(0x3F0EFA35u),
+        std::bit_cast<float>(0x41490FDBu), 6.f};
     if (state.hover != 0)
     {
         const AnimationRecord* hover = fly_alert_hovers[body_state_key(state)];
@@ -641,7 +637,7 @@ u32 runtime_fly_alert_side(float turn)
 u32 runtime_fly_alert_direction(RuntimeWalkTargetTick& context)
 {
     // x87: body +0x33C - actor +0x18, stored as a float.
-    const float turn = float(static_cast<long double>(get(context.body, body_field::heading))
+    const float turn = float(static_cast<long double>(body_record(context.body).heading)
         - static_cast<long double>(context.actor.euler.y));
     return runtime_fly_alert_side(wrap_signed(turn));
 }
@@ -650,7 +646,7 @@ u32 runtime_fly_alert_direction(RuntimeWalkTargetTick& context)
 void steer_runtime_fly_alert(RuntimeWalkTargetTick& context)
 {
     const auto body = context.body;
-    const bool settled = get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
+    const bool settled = body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
     std::array<float, 2> axes{};
     if (context.input != nullptr && settled)
     {
@@ -689,7 +685,7 @@ void steer_runtime_fly_alert(RuntimeWalkTargetTick& context)
     }
     const float scale = surface_mode_scale(body, context.mode_scales);
     const float rise = runtime_body_step_speed(body, context.actor, context.tables) * scale * lift; // 0x000259C0
-    set(body, body_field::velocity, Vec3{side, rise, forward});
+    body_record(body).velocity = Vec3{side, rise, forward};
 }
 
 // Xbox 0x00092280, EBX body
@@ -703,7 +699,7 @@ void aim_runtime_fly_alert(RuntimeWalkTargetTick& context)
         const float heading = runtime_body_point_heading(body, context.actor); // 0x000197B0, EAX body
         static_cast<void>(animation_remainder(heading - yaw, tau)); // 0x00152BE0; the result is discarded.
         level_body_euler(body);
-        field_data(body, body_field::euler)->y = heading;
+        body_record(body).euler.y = heading;
         float limit = float((runtime_walk_target_distance(context) - 12.0L) // 0x000A6950, DAT_0032B470.
             * static_cast<long double>(std::bit_cast<float>(0x3F490FDBu)) // DAT_0032B2D0.
             + static_cast<long double>(std::bit_cast<float>(0x3E32B8C2u))); // DAT_0032B46C.
@@ -717,7 +713,7 @@ void aim_runtime_fly_alert(RuntimeWalkTargetTick& context)
         {
             limit = lower;
         }
-        const float facing = get(body, body_field::heading);
+        const float facing = body_record(body).heading;
         static_cast<void>(runtime_turn_within_arc(facing, heading, limit)); // 0x00092120; the result is discarded.
         static_cast<void>(runtime_facing_weight(facing, heading)); // 0x000921E0; the result is discarded.
     }
@@ -769,14 +765,14 @@ void settle_runtime_fly_alert(FlyAlertState& state, RuntimeWalkTargetTick& conte
     const auto body = context.body;
     const float x = context.actor.anchor.x;
     const float z = context.actor.anchor.z;
-    const float vx = get(body, body_field::velocity).x;
-    const float vy = get(body, body_field::velocity).y;
-    const float vz = get(body, body_field::velocity).z;
+    const float vx = body_record(body).velocity.x;
+    const float vy = body_record(body).velocity.y;
+    const float vz = body_record(body).velocity.z;
     const bool alert = !context.mind.empty() && get(context.mind, mind_field::target_mode) != 0;
     if (!alert && state.arrival_delay == 0.f) // DAT_0032B100.
     {
         // x87: body +0x730 - actor +0x18, stored as a float.
-        const float turn = float(static_cast<long double>(get(body, body_field::euler).y)
+        const float turn = float(static_cast<long double>(body_record(body).euler.y)
             - static_cast<long double>(context.actor.euler.y));
         const float magnitude = animation_absolute(wrap_signed(turn));
         if (std::bit_cast<float>(0x3E860A92u) >= magnitude) // DAT_0032B340.
@@ -817,7 +813,7 @@ void tick_runtime_fly_alert(FlyAlertState& state, RuntimeWalkTargetTick& context
         store_target_position(context.body, context.actor_position(target)); // 0x000412A0, EDI body +0x3C.
     }
     steer_runtime_fly_alert(context); // 0x000923B0, EBX input
-    if (get(context.body, body_field::move_holds) == 0 && get(context.body, body_field::move_hold_time) == 0.f &&
+    if (body_record(context.body).move_holds == 0 && body_record(context.body).move_hold_time == 0.f &&
         (ground & 0x40) == 0)
     {
         aim_runtime_fly_alert(context); // 0x00092280

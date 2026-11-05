@@ -13,14 +13,14 @@ u32 drive_runtime_mind_vertical_navigation(RuntimePlayerNavigationControl& conte
     const u32 result = drive_runtime_player_navigation(context, target, target_floor,
         radius, approach, speed, keep_attachment, failed);
     const auto body = context.navigation.body;
-    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+    if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const Vec3 position = actor_world_position(context.navigation.actor);
         const i32 floor = context.navigation.floor;
         const i32 cell = entity_detail::navigation_cell_index(floor, position);
         if (cell != -1)
         {
-            const float current = get(body, body_field::position).y;
+            const float current = body_record(body).position.y;
             height = float(entity_detail::g_nav_grids[floor]->cells[size_t(cell)].bottom) + height;
             const float minimum = height - tolerance;
             float vertical = 0.f;

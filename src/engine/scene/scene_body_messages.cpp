@@ -1,4 +1,5 @@
 #include "scene_body_messages.h"
+#include "../entities/body_fields.h"
 #include "../entities/mind_fields.h"
 #include "../entities/body_orientation.h"
 #include "../camera/display_view.h"
@@ -226,7 +227,7 @@ void SceneBodyMessages::bind_action_children()
                     }
                     RuntimeHitStateMessages context{player_.body, read_u32(player_.body, 8), mind_target(),
                         id == 7 ? services_.event_at(read_u32(message, 0xC)) : std::span<const u8>(), contact,
-                        read_u32(player_.body, 0x48), services_.actor_callouts};
+                        body_record(player_.body).attached, services_.actor_callouts};
                     message_runtime_hit_state(body_state_view<HitState>({child->bytes.get(), child->size}),
                         message, context);
                 };
@@ -680,12 +681,12 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
     processor_.attributes = player_.body_attributes; // Body +0x268.
     refresh_damage_rows();
-    const u32 request = read_u32(player_.body, 0x84);
+    const u32 request = body_record(player_.body).hit_record;
     hit_view_ = request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24);
     // 0x0001A290 reads body +0x48: the held weapon and its +0x998 collision state.
     attached_shapes_.reset();
     animation_.attached_shapes = nullptr;
-    if (const u32 held = read_u32(player_.body, 0x48); held != 0)
+    if (const u32 held = body_record(player_.body).attached; held != 0)
     {
         if (!services_.weapon_attachment_at || !services_.weapon_collision)
         {
@@ -738,11 +739,11 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         contact_pool.emplace(entity_detail::SegmentPool{pool.stride, pool.grow, pool.begin, pool.cursor, pool.limit});
         auto& source = services_.source_at(message[2]);
         const auto source_body = services_.source_body_at(message[2]);
-        const u32 request = read_u32(source_body, 0x84);
+        const u32 request = body_record(source_body).hit_record;
         RuntimeBodyAttachedActor* retained = nullptr;
-        if (read_u32(player_.body, 0x278) == 0 && read_u32(player_.body, 0x270) != 0)
+        if (body_record(player_.body).unk_278 == 0 && body_record(player_.body).attacker != 0)
         {
-            retained = &services_.source_at(read_u32(player_.body, 0x270));
+            retained = &services_.source_at(body_record(player_.body).attacker);
         }
         std::span<const u8> bound_view;
         if (live_attachment_ != nullptr)
@@ -778,9 +779,9 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         contact_pool.emplace(entity_detail::SegmentPool{pool.stride, pool.grow, pool.begin, pool.cursor, pool.limit});
         auto& source = services_.source_at(message[2]);
         RuntimeBodyAttachedActor* retained = nullptr;
-        if (read_u32(player_.body, 0x278) == 0 && read_u32(player_.body, 0x270) != 0)
+        if (body_record(player_.body).unk_278 == 0 && body_record(player_.body).attacker != 0)
         {
-            retained = &services_.source_at(read_u32(player_.body, 0x270));
+            retained = &services_.source_at(body_record(player_.body).attacker);
         }
         source_contact.emplace(RuntimeBodySourceContact{
             RuntimeBodyContactHitViews{*contact_pool, message[3], source, retained}, {}, {}, {}, player_.ring,
@@ -805,7 +806,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         }
         const u32 holder = weapon.host->address;
         const auto holder_body = services_.source_body_at(holder);
-        const u32 request = read_u32(holder_body, 0x84);
+        const u32 request = body_record(holder_body).hit_record;
         std::span<const u8> bound_view;
         if (live_attachment_ != nullptr)
         {
@@ -1237,8 +1238,8 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         {
             own = &player_.input_device;
         }
-        const u32 hit_address = read_u32(player_.body, 0x84);
-        const u32 attached = read_u32(player_.body, 0x48);
+        const u32 hit_address = body_record(player_.body).hit_record;
+        const u32 attached = body_record(player_.body).attached;
         const RuntimeBodyCollisionState* attached_collision = nullptr;
         if (attached != 0)
         {
@@ -1491,7 +1492,7 @@ RuntimeBodyDamageEntry& SceneBodyMessages::damage_entry()
     mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
     processor_.attributes = player_.body_attributes; // Body +0x268.
     refresh_damage_rows();
-    const u32 request = read_u32(player_.body, 0x84);
+    const u32 request = body_record(player_.body).hit_record;
     hit_view_ = request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24);
     return damage_;
 }
@@ -1634,7 +1635,7 @@ RuntimeThrowStateContext& SceneBodyMessages::throw_context()
     {
         unbound("throw state without the body +0x15C bit block");
     }
-    const u32 hit = read_u32(player_.body, 0x84);
+    const u32 hit = body_record(player_.body).hit_record;
     const RuntimeDialogueInputDevice* own =
         get(player_.actor_bytes, player_field::input_device) != 0 ? &player_.input_device : nullptr;
     throw_.reset();
@@ -2376,11 +2377,11 @@ RuntimeShootStateContext& SceneBodyMessages::shoot_context(u32 input)
         }
         device = &player_.input_device;
     }
-    const u32 request = read_u32(player_.body, 0x84);
+    const u32 request = body_record(player_.body).hit_record;
     shoot_.reset();
     shoot_.emplace(RuntimeShootStateContext{player_.body, player_.actor, *player_.body_bits, services_.clock,
         player_.mind, services_.target_at, request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24),
-        player_.body_selection, services_.image_string, read_u32(player_.body, 0x48), services_.message,
+        player_.body_selection, services_.image_string, body_record(player_.body).attached, services_.message,
         services_.bytes_at,
         [this]() -> u32
         {

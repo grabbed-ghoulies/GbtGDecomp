@@ -15,11 +15,6 @@ std::function<RuntimeFlipStateContext&(u32)> flip_context_of;
 // The landing animation records (+0x2C), by the state's bytes.
 std::unordered_map<const u8*, const AnimationRecord*> flip_landings;
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void step_counters(std::span<u8> body, i32 step)
 {
     for (size_t offset : {0x309u, 0x30Au, 0x30Bu, 0x30Cu})
@@ -75,13 +70,13 @@ bool initialize_runtime_flip_state(FlipState& state, std::span<const u8> paramet
     state.steer_speed = get(parameters, parameter::steer_speed);
     state.phase = 1u;
     release_runtime_player_attachment(0, 0, context.attachment); // 0x0001B810, EAX body
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     step_counters(body, 1);
-    body[0x6B] = u8(body[0x6B] + 1);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B + 1);
     context.actor.anchor.y += 115.f; // Actor +0x40, DAT_0032B5AC.
-    state.gravity = get(body, body_field::gravity);
-    set(body, body_field::gravity, -200.f); // DAT_0032B224.
+    state.gravity = body_record(body).gravity;
+    body_record(body).gravity = -200.f; // DAT_0032B224.
     increment_runtime_body_latch_mask(body, 1, context.actor, context.latches); // The inlined 0x0001F3F0, byte 0.
     state.latched = 1u;
     return true;
@@ -91,8 +86,8 @@ bool initialize_runtime_flip_state(FlipState& state, std::span<const u8> paramet
 void destroy_runtime_flip_state(FlipState& state, RuntimeFlipStateContext& context)
 {
     const auto body = context.body;
-    body[0x6B] = u8(body[0x6B] - 1);
-    set(body, body_field::gravity, state.gravity);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B - 1);
+    body_record(body).gravity = state.gravity;
     step_counters(body, -1);
     if (state.latched != 0)
     {
@@ -106,8 +101,8 @@ void steer_runtime_flip_state(const FlipState& state, RuntimeFlipStateContext& c
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (context.input != nullptr && get(body, body_field::move_holds) == 0 &&
-        get(body, body_field::move_hold_time) == 0.f)
+    if (context.input != nullptr && body_record(body).move_holds == 0 &&
+        body_record(body).move_hold_time == 0.f)
     {
         runtime_input_axes(*context.input, axes, context.input_state); // 0x001085F0
     }
@@ -129,9 +124,9 @@ void steer_runtime_flip_state(const FlipState& state, RuntimeFlipStateContext& c
         across = float(retail_sin(heading) * speed); // 0x00153320
         along = float(retail_cos(heading) * speed); // 0x00153230
     }
-    put_float(body, 0x318, across);
-    put_float(body, 0x31C, 0.f);
-    put_float(body, 0x320, along);
+   body_record(body).velocity.x = across;
+   body_record(body).velocity.y = 0.f;
+   body_record(body).velocity.z = along;
     level_body_euler(body);
 }
 
@@ -170,9 +165,9 @@ void tick_runtime_flip_state(FlipState& state, RuntimeFlipStateContext& context)
     {
         return;
     }
-    put_float(body, 0x318, context.default_position.x);
-    put_float(body, 0x31C, context.default_position.y);
-    put_float(body, 0x320, context.default_position.z);
+   body_record(body).velocity.x = context.default_position.x;
+   body_record(body).velocity.y = context.default_position.y;
+   body_record(body).velocity.z = context.default_position.z;
     level_body_euler(body);
     const AnimationController* controller = context.animation.controller.get(); // Actor +0x50.
     const MinaPlayer* player = controller == nullptr || controller->slots.empty() ? nullptr

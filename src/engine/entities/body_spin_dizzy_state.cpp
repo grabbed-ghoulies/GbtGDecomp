@@ -1,4 +1,6 @@
 #include "body_spin_dizzy_state.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "gbtg/anim.h"
 #include "gbtg/sound_runtime.h"
 
@@ -14,11 +16,6 @@ namespace parameter = spin_dizzy_state_parameter;
 std::function<RuntimeSpinDizzyStateContext&(u32)> spin_dizzy_context_of;
 
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
 }
@@ -82,9 +79,9 @@ bool initialize_runtime_spin_dizzy_state(SpinDizzyState& state, std::span<const 
 void destroy_runtime_spin_dizzy_state(SpinDizzyState& state, RuntimeSpinDizzyStateContext& context)
 {
     auto& dizzy = context.dizzy;
-    put_word(dizzy.body, 0x71C, context.rest_71c[0]);
-    put_word(dizzy.body, 0x720, context.rest_71c[1]);
-    put_word(dizzy.body, 0x724, context.rest_71c[2]);
+    put_word(dizzy.body, offsetof(BodyRecord, turn_rates), context.rest_71c[0]);
+    put_word(dizzy.body, offsetof(BodyRecord, turn_rates) + 4, context.rest_71c[1]);
+    put_word(dizzy.body, offsetof(BodyRecord, turn_rates) + 8, context.rest_71c[2]);
     if (state.sounding != 0)
     {
         release_actor_sound(dizzy.actor.sound_slots[1], dizzy.sounds); // 0x0012A3D0, ESI actor +0x3EC
@@ -100,15 +97,15 @@ void tick_runtime_spin_dizzy_state(SpinDizzyState& state, RuntimeSpinDizzyStateC
     const float angle = state.turn_rate * left;
     const float reach = state.reach_rate * left;
     const float speed = state.speed;
-    put_word(dizzy.body, 0x71C, state.body_71c);
-    put_word(dizzy.body, 0x720, state.body_720);
-    put_word(dizzy.body, 0x724, state.body_724);
+    put_word(dizzy.body, offsetof(BodyRecord, turn_rates), state.body_71c);
+    put_word(dizzy.body, offsetof(BodyRecord, turn_rates) + 4, state.body_720);
+    put_word(dizzy.body, offsetof(BodyRecord, turn_rates) + 8, state.body_724);
     const float side = float(retail_sin(angle) * reach); // 0x00153320
     const float forward = float(retail_cos(angle) * reach); // 0x00153230
     const Vec3 centre = state.unk_19c;
-    put_float(dizzy.body, 0x318, ((centre.x + side) - centre.x) * speed);
-    put_float(dizzy.body, 0x31C, (centre.y - centre.y) * speed);
-    put_float(dizzy.body, 0x320, ((centre.z + forward) - centre.z) * speed);
+   body_record(dizzy.body).velocity.x = ((centre.x + side) - centre.x) * speed;
+   body_record(dizzy.body).velocity.y = (centre.y - centre.y) * speed;
+   body_record(dizzy.body).velocity.z = ((centre.z + forward) - centre.z) * speed;
 }
 
 // Xbox 0x000A24B0

@@ -1,4 +1,5 @@
 #include "mummy_cursed_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -288,11 +289,11 @@ void release_mount(RuntimeMummyCursedStrategy& context)
         return;
     }
     const std::span<u8> body = context.body_at(fields_of(strategy).mount);
-    const u32 holder = read_u32(body, 0x718);
+    const u32 holder = body_record(body).rider;
     if (holder != 0 && holder == strategy_base(strategy).actor)
     {
         const u32 none = 0;
-        std::memcpy(body.data() + 0x718, &none, 4);
+        body_record(body).rider = none;
         fields_of(strategy).riding = 0u;
         fields_of(strategy).mount = 0u;
     }
@@ -452,7 +453,7 @@ bool evade_target(RuntimeMummyCursedStrategy& context)
         return false;
     }
     const std::span<u8> strategy = strategy_of(context);
-    body_of(context)[0x328] = fields_of(strategy).curse_landed != 0 ? 3 : 2;
+    body_record(body_of(context)).move_class = fields_of(strategy).curse_landed != 0 ? 3 : 2;
     load_goal(context.goal_evade, context);
     fields_of(strategy).evading = 0u;
     return true;
@@ -537,7 +538,7 @@ void update_holding(RuntimeMummyCursedStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     if (!requests_pending(context) && !evade_target(context)) // 0x000BCB80
     {
-        body_of(context)[0x328] = 3;
+        body_record(body_of(context)).move_class = 3;
         load_goal(fields_of(strategy).curse_landed != 0 ? context.goal_random_worried_walk : context.goal_random_walk,
             context);
         fields_of(strategy).evading = 1u;
@@ -629,7 +630,7 @@ bool victim_pulled(RuntimeMummyCursedStrategy& context)
     }
     const u32 victim = fields_of(strategy).victim;
     const std::span<u8> body = context.body_at(victim);
-    if (get(body, body_field::energy) == 0)
+    if (body_record(body).energy == 0)
     {
         return false;
     }
@@ -692,16 +693,16 @@ void update_grab(RuntimeMummyCursedStrategy& context)
         const u32 victim_address = fields_of(strategy).victim;
         Actor& victim = actor_at(victim_address, context, "0x000BD006");
         const std::span<u8> victim_body = context.body_at(victim_address);
-        const float x = read_f32(victim_body, 0x18);
-        const float y = read_f32(victim_body, 0x1C);
-        const float z = read_f32(victim_body, 0x20);
+        const float x = body_record(victim_body).position.x;
+        const float y = body_record(victim_body).position.y;
+        const float z = body_record(victim_body).position.z;
         const float pull = -parameter(context, 0x28);
         const float angle = runtime_actor_angle_toward(victim, actor); // 0x00041900, EAX the victim
         const float moved_x = float(retail_sin(angle) * pull + x); // 0x00153320
         const float moved_z = float(retail_cos(angle) * pull + z); // 0x00153230
-        std::memcpy(victim_body.data() + 0x18, &moved_x, 4);
-        std::memcpy(victim_body.data() + 0x1C, &y, 4);
-        std::memcpy(victim_body.data() + 0x20, &moved_z, 4);
+        body_record(victim_body).position.x = moved_x;
+        body_record(victim_body).position.y = y;
+        body_record(victim_body).position.z = moved_z;
     }
     const u32 phase = fields_of(strategy).phase;
     const auto face_victim = [&]()
@@ -831,7 +832,7 @@ void start_grab(RuntimeMummyCursedStrategy& context)
     const bool player = target->bytes[0x14] == 0 && read_u32(victim, 0xCE0) != 0
         && (read_u16(victim, 0xCDC) == 2 || read_u32(victim, 0x93C) != 0);
     set_phase(player ? 1u : 5u, context); // 0x000BD450
-    body_of(context)[0x328] = 5;
+    body_record(body_of(context)).move_class = 5;
     strategy_base(strategy).attacking = 1;
 }
 
@@ -850,11 +851,11 @@ void end_grab(RuntimeMummyCursedStrategy& context)
     if (fields_of(strategy).mount != 0)
     {
         const std::span<u8> body = context.body_at(fields_of(strategy).mount);
-        const u32 holder = read_u32(body, 0x718);
+        const u32 holder = body_record(body).rider;
         if (holder != 0 && holder == strategy_base(strategy).actor)
         {
             const u32 none = 0;
-            std::memcpy(body.data() + 0x718, &none, 4);
+            body_record(body).rider = none;
             fields_of(strategy).riding = 0u;
             fields_of(strategy).mount = 0u;
         }
@@ -1067,7 +1068,7 @@ void dispatch_runtime_mummy_cursed_message(std::span<const u32> message, Runtime
         if (message[1] == actor)
         {
             const u32 cursed = fields_of(strategy).cursed;
-            const u16 energy = read_u16(context.body_at(cursed), 0x94); // The cursed player's body +0x94.
+            const u16 energy = body_record(context.body_at(cursed)).energy; // The cursed player's body +0x94.
             const std::array<u32, 3> curse{0x2F, cursed, actor};
             context.object_message(cursed, curse); // The cursed player's vtable +0xC.
             notify_runtime_body_damage(context.game, cursed, actor, energy, 0, 0, 0, 0, 0); // 0x00024A00
@@ -1186,7 +1187,7 @@ void enter_runtime_mummy_cursed_state(u16 state, RuntimeMummyCursedStrategy& con
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    body_of(context)[0x328] = 2;
+    body_record(body_of(context)).move_class = 2;
     switch (state)
     {
     case 0x3EE:
@@ -1194,7 +1195,7 @@ void enter_runtime_mummy_cursed_state(u16 state, RuntimeMummyCursedStrategy& con
         return;
     case 0x3EF:
         set_curse_step(1, context); // 0x000BD8B0, EAX 1
-        body_of(context)[0x328] = 6;
+        body_record(body_of(context)).move_class = 6;
         strategy_base(strategy).attacking = 1;
         return;
     case 0x401:

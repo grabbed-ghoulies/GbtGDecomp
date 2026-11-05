@@ -1,4 +1,5 @@
 #include "warlock_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "actor_clock.h"
 #include "actor_live_attachments.h"
@@ -319,7 +320,7 @@ void update_entrance(RuntimeWarlockStrategy& context)
     const Vec3 eye = fields_of(strategy).eye;
     // The look height is the body's actor (+8) Y scale times the body's +0x884 and the record's +0x54; the actor's
     // own height is not added.
-    const float dy = actor.radius_y * read_f32(body_of(context), 0x884) * kEntranceLookHeight - eye.y;
+    const float dy = actor.radius_y * body_record(body_of(context)).height_scale * kEntranceLookHeight - eye.y;
     float yaw = 0.f;
     float pitch = 0.f;
     direction_to_yaw_pitch(position.x - eye.x, dy, position.z - eye.z, yaw, pitch); // 0x00105E20, EAX direction
@@ -346,7 +347,7 @@ void move_away(RuntimeWarlockStrategy& context)
     Actor& actor = actor_of(context);
     actor_set_world_position(actor, point); // 0x00041730, ESI point, EDI actor
     const Vec3 position = actor_world_position(actor); // 0x000412A0, ESI body +8, EDI body +0x18
-    std::memcpy(body_of(context).data() + 0x18, &position, 12);
+    std::memcpy(body_of(context).data() + offsetof(BodyRecord, position.x), &position, 12);
     tell_body(0x4A, context); // Body vtable +0xC.
 }
 
@@ -433,7 +434,7 @@ void stretch(bool vanishing, RuntimeWarlockStrategy& context)
         position.y = fields_of(strategy).height + lift;
         actor_set_world_position(actor, position); // 0x00041730, ESI point, EDI actor
         const Vec3 placed = actor_world_position(actor); // 0x000412A0, ESI body +8, EDI body +0x18
-        std::memcpy(body_of(context).data() + 0x18, &placed, 12);
+        std::memcpy(body_of(context).data() + offsetof(BodyRecord, position.x), &placed, 12);
     }
     if (width != actor.scale_x || height != actor.radius_y || width != actor.radius_xz) // UCOMISS; JP sets.
     {
@@ -466,7 +467,7 @@ void begin_waiting(RuntimeWarlockStrategy& context)
     const Actor& actor = actor_of(context);
     fields_of(strategy).model_flags = actor.model_flags; // Actor +0x1F0.
     fields_of(strategy).model_mode = actor.model_mode; // Actor +0x118.
-    fields_of(strategy).shape_mode = u32(body_of(context)[0x244]);
+    fields_of(strategy).shape_mode = u32(body_record(body_of(context)).push_mode);
     fields_of(strategy).noticed = 0u;
     fields_of(strategy).height = actor_height(actor); // 0x0002B410, ESI actor
     if (fields_of(strategy).entering != 0)
@@ -565,10 +566,10 @@ void pick_attack_limit(RuntimeWarlockStrategy& context)
     const std::span<u8> body = body_of(context);
     fields_of(strategy).attacks = 0;
     size_t row = 0;
-    const u16 full = get(body, body_field::max_energy);
+    const u16 full = body_record(body).max_energy;
     if (full != 0)
     {
-        const float share = float(get(body, body_field::energy)) / float(full);
+        const float share = float(body_record(body).energy) / float(full);
         if (0.25f > share) // DAT_0032B104.
         {
             row = 3;
@@ -583,7 +584,7 @@ void pick_attack_limit(RuntimeWarlockStrategy& context)
         }
     }
     fields_of(strategy).attack_limit = kAttackLimits[row];
-    std::memcpy(body.data() + 0x80, &kAttackRates[row], 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, unk_80), &kAttackRates[row], 4);
 }
 
 // Xbox 0x000C3AC0, ESI strategy

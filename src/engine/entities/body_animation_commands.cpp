@@ -1,4 +1,5 @@
 #include "body_animation_commands.h"
+#include <cstddef>
 #include "actor_model_anchors.h"
 #include "../runtime/name_lookup.h"
 #include "actor_render_registration.h"
@@ -111,7 +112,7 @@ u32 teleport_runtime_body_secondary(std::span<u8> body, RuntimeBodyAttachedActor
     {
         if (secondary->bytes[0x93D] == 3)
         {
-            --body[0x30B];
+            --body_record(body).unk_30B;
         }
     }
     auto* attached = detach_runtime_body_secondary(body, secondary, receiver);
@@ -254,10 +255,10 @@ void command_runtime_body_attachment_list(std::span<u8> body, u32 body_address,
         clear_runtime_body_command_attachments(body, lists);
         return;
     }
-    body[0x2D2] = 1;
+    body_record(body).unk_2D2 = 1;
     if (events.actor_address != 0xFFFFFF74u)
     {
-        events.command_attachments = body.subspan(0x2D8, 36);
+        events.command_attachments = body.subspan(offsetof(BodyRecord, command_tokens), 36);
         dispatch_actor_attachment_records(record, 0x40, record_runtime_body_attachment_event,
             nullptr, events, body_address + 0x2D8);
     }
@@ -444,7 +445,7 @@ void command_runtime_body_contact_shapes(std::span<u8> body, Actor& actor,
             activate_runtime_body_contact_shapes(*state, actor, read_u16(command, 0x10),
                 u8(read_u16(command, 0x12)), read_f32(command, 0x14));
             const u32 zero = 0;
-            std::memcpy(body.data() + 0x2CC, &zero, 4);
+            body_record(body).contact_count = zero;
         }
     }
     else if (state != nullptr)
@@ -460,19 +461,19 @@ void command_runtime_body_side_counters(std::span<u8> body, u32 mask, u32 phase)
     {
         if ((mask & 1) != 0)
         {
-            ++body[0x309];
+            ++body_record(body).unk_309;
         }
         if ((mask & 2) != 0)
         {
-            ++body[0x30A];
+            ++body_record(body).unk_30A;
         }
         if ((mask & 4) != 0)
         {
-            ++body[0x30B];
+            ++body_record(body).unk_30B;
         }
         if ((mask & 8) != 0)
         {
-            ++body[0x30C];
+            ++body_record(body).unk_30C;
             return;
         }
     }
@@ -480,19 +481,19 @@ void command_runtime_body_side_counters(std::span<u8> body, u32 mask, u32 phase)
     {
         if ((mask & 1) != 0)
         {
-            --body[0x309];
+            --body_record(body).unk_309;
         }
         if ((mask & 2) != 0)
         {
-            --body[0x30A];
+            --body_record(body).unk_30A;
         }
         if ((mask & 4) != 0)
         {
-            --body[0x30B];
+            --body_record(body).unk_30B;
         }
         if ((mask & 8) != 0)
         {
-            --body[0x30C];
+            --body_record(body).unk_30C;
         }
     }
 }
@@ -544,13 +545,13 @@ float runtime_body_random_range(u32& random, float low, float high)
 void command_runtime_body_random_timer(std::span<u8> body, float low, float high, u32& random)
 {
     const float value = runtime_body_random_range(random, low, high);
-    if (get(body, body_field::move_hold_time) <= value)
+    if (body_record(body).move_hold_time <= value)
     {
-        std::memcpy(body.data() + 0x34, &value, 4);
+        body_record(body).move_hold_time = value;
         return;
     }
-    const u32 retained = read_u32(body, 0x34);
-    std::memcpy(body.data() + 0x34, &retained, 4);
+    const u32 retained = read_u32(body, offsetof(BodyRecord, move_hold_time));
+    std::memcpy(body.data() + offsetof(BodyRecord, move_hold_time), &retained, 4);
 }
 
 // Xbox 0x00019A90

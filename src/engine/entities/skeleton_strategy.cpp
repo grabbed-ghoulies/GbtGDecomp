@@ -1,4 +1,5 @@
 #include "skeleton_strategy.h"
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -26,11 +27,6 @@ SkeletonStrategyState& fields_of(std::span<u8> strategy)
 const SkeletonStrategyState& fields_of(std::span<const u8> strategy)
 {
     return strategy_view<SkeletonStrategyState>(strategy);
-}
-
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
 }
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
@@ -62,7 +58,7 @@ bool requests_pending(RuntimeSkeletonStrategy& context)
 // Body +0x48: the actor the skeleton holds.
 u32 held_actor(RuntimeSkeletonStrategy& context)
 {
-    return read_u32(body_of_actor(context), 0x48);
+    return body_record(body_of_actor(context)).attached;
 }
 
 void change_state(u16 state, RuntimeSkeletonStrategy& context)
@@ -231,7 +227,7 @@ void engage_runtime_skeleton(RuntimeSkeletonStrategy& context)
 // Xbox 0x000C0590
 void set_runtime_skeleton_stance(u8 stance, RuntimeSkeletonStrategy& context)
 {
-    body_of_actor(context)[0x328] = held_actor(context) != 0 ? 6 : stance;
+    body_record(body_of_actor(context)).move_class = held_actor(context) != 0 ? 6 : stance;
 }
 
 // Xbox 0x000BFE10
@@ -442,7 +438,7 @@ void enter_runtime_skeleton_state(u16 state, u16 previous, RuntimeSkeletonStrate
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     RuntimeMindGoalContext& mind = goals.entry.goals;
-    body_of_actor(context)[0x328] = 2;
+    body_record(body_of_actor(context)).move_class = 2;
     strategy_base(strategy).attacking = 0;
     switch (state)
     {

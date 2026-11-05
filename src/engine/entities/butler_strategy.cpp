@@ -1,4 +1,6 @@
 #include "butler_strategy.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "player_mind_events.h"
@@ -196,7 +198,7 @@ void enter_runtime_butler_state(u16 state, u16 previous, RuntimeButlerStrategy& 
         const char* name = strategy_view<ButlerStrategyState>(strategy_of(context)).scared_name.data();
         if (*name != '\0')
         {
-            std::memcpy(goals.entry.body.data() + 0x288, name, std::strlen(name) + 1);
+            std::memcpy(goals.entry.body.data() + offsetof(BodyRecord, variant), name, std::strlen(name) + 1);
         }
         return;
     }
@@ -211,7 +213,7 @@ void leave_runtime_butler_state(u16 state, RuntimeButlerStrategy& context)
 {
     if (state == 0x411)
     {
-        goals_of(context).entry.body[0x288] = 0;
+        body_record(goals_of(context).entry.body).variant[0] = 0;
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {

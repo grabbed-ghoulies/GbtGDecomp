@@ -1,4 +1,5 @@
 #include "baron_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -54,16 +55,6 @@ constexpr std::array<std::array<float, 5>, 3> kTierRows{{
 
 // The angry goal's name, written by sprintf into DAT_00508EB8.
 char angry_goal[0x40];
-
-void put_u32(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_f32(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeBaronStrategy& context)
 {
@@ -352,7 +343,7 @@ std::span<const float, 5> runtime_baron_tier_row(std::span<const u8> body)
 // Xbox 0x000A88A0
 u32 runtime_baron_tier(std::span<const u8> body)
 {
-    const u16 energy = get(body, body_field::energy);
+    const u16 energy = body_record(body).energy;
     if (energy > 0xB4)
     {
         return 0;
@@ -384,7 +375,7 @@ bool runtime_baron_target_holds_cane(const RuntimeMindTarget& target, RuntimeBar
 // Xbox 0x000A8750 (0x3EA), 0x000A87E0 (0x3EE)
 void fetch_runtime_baron_cane_for(u16 state, RuntimeBaronStrategy& context)
 {
-    if (read_u32(body_of(context), 0x48) != 0)
+    if (body_record(body_of(context)).attached != 0)
     {
         change_state(state, context);
         return;
@@ -485,7 +476,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
         change_state(fields_of(strategy).hit_target != 0 ? 0x40E : 0x3EA, context);
         return;
     case 0x3F4:
-        put_f32(body, 0x32C, runtime_baron_tier_row(body)[1]); // 0x000A8870
+       body_record(body).step_speed = runtime_baron_tier_row(body)[1]; // 0x000A8870
         target = selected_target(context, found);
         if (!found)
         {
@@ -533,7 +524,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
         }
         return;
     case 0x405:
-        put_f32(body, 0x32C, runtime_baron_tier_row(body)[2]); // 0x000A8870
+       body_record(body).step_speed = runtime_baron_tier_row(body)[2]; // 0x000A8870
         if (!weapon_free(context)) // 0x000BEB80
         {
             change_state(0x401, context);
@@ -543,7 +534,7 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
         {
             return;
         }
-        change_state(get(body, body_field::attached) != 0 ? 0x3EA : 0x401, context);
+        change_state(body_record(body).attached != 0 ? 0x3EA : 0x401, context);
         return;
     case 0x409:
         target = selected_target(context, found);
@@ -680,7 +671,7 @@ void dispatch_runtime_baron_message(std::span<u32> message, RuntimeBaronStrategy
         clear_runtime_player_mind_reference(strategy, offsetof(BaronStrategyState, cane), message[1]);
         return;
     case 0x7D:
-        fields_of(strategy).cane = get(body, body_field::attached);
+        fields_of(strategy).cane = body_record(body).attached;
         return;
     default:
         return;
@@ -695,8 +686,8 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
     const std::span<u8> mind = mind_of(context);
     const u32 target_address = get(mind, mind_field::target_record);
     const std::span<u8> body = body_of(context);
-    const bool holding = get(body, body_field::attached) != 0;
-    body[0x328] = 2;
+    const bool holding = body_record(body).attached != 0;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     switch (state)
     {
@@ -722,7 +713,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         {
             turn_effect_on(context);
         }
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         strategy_base(strategy).attacking = 1;
         strategy_base(strategy).unk_18 = u16(0x401);
         if (!holding)
@@ -751,7 +742,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         {
             begin_timeline(context);
         }
-        body[0x328] = 8;
+        body_record(body).move_class = 8;
         enter_runtime_base_strategy_state(goals.entry, state); // 0x0002BAF0
         (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
         return;
@@ -764,7 +755,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         {
             begin_timeline(context);
         }
-        body[0x328] = 8;
+        body_record(body).move_class = 8;
         load_goal(context.goal_far, context);
         return;
     case 0x402:
@@ -773,7 +764,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         return;
     case 0x405:
         turn_effect_on(context);
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         strategy_base(strategy).unk_18 = u16(0x405);
         load_goal(context.goal_get_weapon, context);
         set(mind, mind_field::action_actor, fields_of(strategy).cane);
@@ -821,12 +812,12 @@ void leave_runtime_baron_state(u16 state, RuntimeBaronStrategy& context)
         return;
     case 0x3F4:
         turn_effect_off(context);
-        put_f32(body, 0x32C, 1.f); // DAT_0032B0F8.
+       body_record(body).step_speed = 1.f; // DAT_0032B0F8.
         return;
     case 0x405:
         turn_effect_off(context);
         strategy_base(strategy).unk_18 = u16(0x401);
-        put_f32(body, 0x32C, 1.f); // DAT_0032B0F8.
+       body_record(body).step_speed = 1.f; // DAT_0032B0F8.
         return;
     case 0x409:
         turn_effect_off(context);

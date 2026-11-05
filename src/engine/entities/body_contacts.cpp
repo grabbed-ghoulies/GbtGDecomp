@@ -1,4 +1,5 @@
 #include "body_contacts.h"
+#include <cstddef>
 #include "actor_transform.h"
 #include "entity_collision.h"
 #include "entity_heap.h"
@@ -671,7 +672,7 @@ u32 report_runtime_player_contact(Actor& actor, RuntimeSegmentContactActor& obje
     context.message(&report);
     if (notice.reply != 0)
     {
-        u32 count = get(body, body_field::contact_count);
+        u32 count = body_record(body).contact_count;
         if (count == 0)
         {
             const size_t index = size_t(read_u16(context.actor, 6)) * 0x3D;
@@ -680,8 +681,8 @@ u32 report_runtime_player_contact(Actor& actor, RuntimeSegmentContactActor& obje
             ++context.session[index];
             ++context.session[0];
         }
-        count = get(body, body_field::contact_count) + 1;
-        std::memcpy(body.data() + 0x2CC, &count, 4);
+        count = body_record(body).contact_count + 1;
+        body_record(body).contact_count = count;
     }
     return 0;
 }

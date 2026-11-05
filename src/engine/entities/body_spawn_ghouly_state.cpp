@@ -119,12 +119,12 @@ bool initialize_runtime_spawn_ghouly_state(SpawnGhoulyState& state, std::span<co
 {
     const std::span<u8> body = context.body;
     step_live_holds(1, context);
-    body[0x6D] = u8(body[0x6D] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     step_inputs(body, 1);
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).move_holds = u16(body_record(body).move_holds + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     RuntimeBodyStateContext shape = context.state();
     state.shape_mode = set_runtime_body_shape_mode(2, shape); // 0x0001FEB0, BL 2, EDI body
     // The inlined 0x0003AAA0 pair over the body's held actor (+0x48) +0xDB0 variant.
@@ -145,9 +145,9 @@ void destroy_runtime_spawn_ghouly_state(SpawnGhoulyState& state, RuntimeSpawnGho
     const std::span<u8> body = context.body;
     step_inputs(body, -1);
     step_live_holds(-1, context);
-    body[0x6D] = u8(body[0x6D] - 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
     decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
+    body_record(body).move_holds = u16(body_record(body).move_holds - 1);
     RuntimeBodyStateContext shape = context.state();
     set_runtime_body_shape_mode(state.shape_mode, shape); // 0x0001FEB0, BL state +0x18
     spawn_animations.erase(body_state_key(state));

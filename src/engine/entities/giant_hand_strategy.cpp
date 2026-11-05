@@ -1,4 +1,6 @@
 #include "giant_hand_strategy.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_live_attachments.h"
@@ -265,7 +267,7 @@ void start_grab(RuntimeGiantHandStrategy& context)
         }
         actor_set_world_position(actor, target_position(*target)); // 0x00041730, ESI point, EDI actor
         const Vec3 position = actor_world_position(actor); // 0x000412A0 into body +0x18
-        std::memcpy(goals.entry.body.data() + 0x18, &position, 12);
+        std::memcpy(goals.entry.body.data() + offsetof(BodyRecord, position.x), &position, 12);
     }
 }
 
@@ -326,7 +328,7 @@ bool initialize_runtime_giant_hand_strategy(std::span<u8> strategy, std::span<co
     fields_of(strategy).parameters = 0x00302B78u;
     fields_of(strategy).model_flags = actor.model_flags; // Actor +0x1F0.
     fields_of(strategy).model_mode = actor.model_mode; // Actor +0x118.
-    fields_of(strategy).shape_mode = u32(body[0x244]);
+    fields_of(strategy).shape_mode = u32(body_record(body).push_mode);
     fields_of(strategy).solid = 1u;
     fields_of(strategy).shown = 1u;
     fields_of(strategy).held = 0;

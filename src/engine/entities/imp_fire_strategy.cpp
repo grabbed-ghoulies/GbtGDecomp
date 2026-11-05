@@ -28,11 +28,6 @@ void put(std::span<u8> bytes, size_t offset, u32 value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 constexpr u32 fire_parameters_address = 0x004287BC; // DAT_004287BC.
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeImpFireStrategy& context)
@@ -58,7 +53,7 @@ bool requests_pending(RuntimeImpFireStrategy& context)
 
 bool body_settled(std::span<const u8> body)
 {
-    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
 }
 
 void change_state(u16 state, RuntimeImpFireStrategy& context)
@@ -331,7 +326,8 @@ u32 engage_runtime_imp_fire_target(const RuntimeMindTarget& target, RuntimeImpFi
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<const u8> body = body_of_actor(context);
     const EntityBitBlock& bits = *goals.body_bits;
-    if (body[0x6B] != 0 || body[0x6A] != 0 || get(body, body_field::unk_70) > 0.f || !body_settled(body)
+    if (body_record(body).unk_6B != 0 || body_record(body).unk_6A != 0 || body_record(body).unk_70 > 0.f
+        || !body_settled(body)
         || (bits.bytes[3] & 8) != 0 || runtime_body_bit_set(bits, 0x2C) || runtime_body_bit_set(bits, 0x2A))
     {
         return 0;
@@ -396,7 +392,7 @@ void update_runtime_imp_fire_attack(RuntimeImpFireStrategy& context)
     const float maximum = read_f32(context.parameters, 0x30);
     goals.random = goals.random * 0x19660Du + 0x3C6EF35Fu;
     const float fraction = std::bit_cast<float>((goals.random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
-    put_float(body_of_actor(context), 0x70, (maximum - minimum) * fraction + minimum);
+   body_record(body_of_actor(context)).unk_70 = (maximum - minimum) * fraction + minimum;
     change_state(0x40C, context);
 }
 
@@ -646,27 +642,27 @@ void enter_runtime_imp_fire_state(u16 state, u16 previous, RuntimeImpFireStrateg
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = body_of_actor(context);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     switch (state)
     {
     case 0x3EE:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         load_runtime_mind_goal(context.goal_attack, goals.entry.goals);
         fields_of(strategy).attack_delay = read_f32(context.parameters, 0x28);
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         return;
     case 0x401:
     case 0x416:
         return;
     case 0x40B:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         set_runtime_imp_fire_effect(2, context);
         load_runtime_mind_goal(context.goal_mutate, goals.entry.goals);
         return;
     case 0x40C:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         fields_of(strategy).attack_delay = 0.f;
         return;
     default:

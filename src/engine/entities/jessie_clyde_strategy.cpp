@@ -1,4 +1,6 @@
 #include "jessie_clyde_strategy.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -198,7 +200,7 @@ void step_transform(u32 step, RuntimeJessieClydeStrategy& context)
     }
     decrement_runtime_body_latches(body, actor, context.latches); // The inlined 0x0001FD20.
     const char* flower = "noflower"; // 0x00324304.
-    std::memcpy(body.data() + 0x288, flower, std::strlen(flower) + 1);
+    std::memcpy(body.data() + offsetof(BodyRecord, variant), flower, std::strlen(flower) + 1);
     if (actor.model == nullptr)
     {
         throw Error("0x00052F80 reads Jessie Clyde's model data through address zero");
@@ -535,7 +537,7 @@ void step_special(u32 step, RuntimeJessieClydeStrategy& context)
         fields_of(strategy).unk_D0 = 1u;
         fields_of(strategy).unk_D4 = 0u;
         fields_of(strategy).special_effect = 0u;
-        body_of(context)[0x328] = 6;
+        body_record(body_of(context)).move_class = 6;
         strategy_base(strategy).attacking = 1;
         return;
     }
@@ -839,7 +841,7 @@ void enter_runtime_jessie_clyde_state(u16 state, u16 previous, RuntimeJessieClyd
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     switch (state)
     {
     case 0x3ED:
@@ -849,7 +851,7 @@ void enter_runtime_jessie_clyde_state(u16 state, u16 previous, RuntimeJessieClyd
             fields_of(strategy).shout_step = 1u;
             load_goal(context.goal_shout, context);
         }
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         strategy_base(strategy).attacking = 1;
         return;
     case 0x3EE:
@@ -858,7 +860,7 @@ void enter_runtime_jessie_clyde_state(u16 state, u16 previous, RuntimeJessieClyd
         load_goal(context.goal_knockdown, context);
         fields_of(strategy).follow_up = 0u;
         fields_of(strategy).knockdown_effect = 0u;
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         strategy_base(strategy).attacking = 1;
         const EntityBitBlock& bits = body_bits(context, "0x000B8B90");
         if ((bits.bytes[3] & 0x80) != 0 || (bits.bytes[4] & 0x10) != 0)

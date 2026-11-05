@@ -1,4 +1,5 @@
 #include "mummy_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -140,7 +141,8 @@ void approach_runtime_mummy_ring(const RuntimeMindTarget* target, RuntimeMummySt
     const std::span<const u8> actor = goals.entry.actor_bytes;
     const float radius = get(ring_target.bytes, mind_target_field::shape_radius);
     Vec3 point = actor_world_position(goals.entry.actor); // 0x000412A0
-    const float reach = goals.entry.actor.radius_xz * read_f32(body_of_actor(context), 0x888); // Body +8 actor +0x38.
+    // Body +8 actor +0x38.
+    const float reach = goals.entry.actor.radius_xz * body_record(body_of_actor(context)).radius_scale;
     const Vec3 center{get(ring_target.bytes, mind_target_field::shape_position).x, get(ring_target.bytes, mind_target_field::shape_position).y,
         get(ring_target.bytes, mind_target_field::shape_position).z};
     const i32 floor = get(ring_target.bytes, mind_target_field::floor);
@@ -216,7 +218,7 @@ bool runtime_mummy_engages(const RuntimeMindTarget* target, RuntimeMummyStrategy
 // Xbox 0x000BC580, EAX strategy
 void choose_runtime_mummy_attack(RuntimeMummyStrategy& context)
 {
-    if (read_u32(body_of_actor(context), 0x48) != 0)
+    if (body_record(body_of_actor(context)).attached != 0)
     {
         change_state(0x3EE, context);
         return;
@@ -426,7 +428,7 @@ void dispatch_runtime_mummy_message(std::span<const u32> message, RuntimeMummySt
         {
             change_state(0x3EE, context);
             fields_of(strategy).unk_3C = 1u;
-            body_of_actor(context)[0x328] = 6;
+            body_record(body_of_actor(context)).move_class = 6;
         }
         return;
     }
@@ -508,39 +510,39 @@ void enter_runtime_mummy_state(u16 state, u16 previous, RuntimeMummyStrategy& co
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of_actor(context);
     const u32 target = get(mind_of(context), mind_field::target_record);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3EC:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         append_runtime_range_request(goals.entry.goals.anchor, goals.entry.goals.sizes, 40.f); // 0x00136AC0
         return;
     case 0x3ED:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack, context);
         return;
     case 0x3EE:
         fields_of(strategy).unk_3C = 0u;
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         strategy_base(strategy).attacking = 1;
-        if (get(body, body_field::attached) == 0)
+        if (body_record(body).attached == 0)
         {
             load_goal(context.goal_ankh_getout, context);
         }
         load_goal(context.goal_ankh_whack, context);
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         strategy_base(strategy).attacking = 1;
         load_goal(context.goal_bandage, context);
         return;
     case 0x3F4:
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         break;
     case 0x3F5:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         start_runtime_mummy_ring(target == 0 ? nullptr : goals.target_at(target), context); // 0x000BB9F0
         return;
     case 0x401:

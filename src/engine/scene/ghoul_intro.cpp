@@ -310,8 +310,8 @@ void place_runtime_ghoul_intro_camera(i32 shot, const Actor& actor, float height
         heading = actor.euler.y; // Actor +0x18.
     }
     const std::span<const u8> body = context.body(actor);
-    const float reach = actor.radius_xz * get(body, body_field::radius_scale) * distance; // Body +8 +0x38.
-    const float rise = actor.radius_y * get(body, body_field::height_scale) * height; // Body +8 +0x34.
+    const float reach = actor.radius_xz * body_record(body).radius_scale * distance; // Body +8 +0x38.
+    const float rise = actor.radius_y * body_record(body).height_scale * height; // Body +8 +0x34.
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float angle = float(static_cast<long double>(heading) + turn);
     const float x = float(retail_sin(angle)) * reach + position.x; // 0x00153320

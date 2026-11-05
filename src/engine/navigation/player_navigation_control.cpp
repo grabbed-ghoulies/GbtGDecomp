@@ -46,8 +46,8 @@ bool runtime_player_motion_allows_navigation(RuntimePlayerNavigationControl& con
             z = float(static_cast<long double>(z) * reciprocal);
         }
         const auto body = context.navigation.body;
-        alignment = (read_f32(body, 0x1E0) * z + read_f32(body, 0x1D8) * x) +
-            read_f32(body, 0x1DC) * y;
+        alignment = (body_record(body).contact_push.z * z + body_record(body).contact_push.x * x) +
+            body_record(body).contact_push.y * y;
         return alignment < std::bit_cast<float>(u32(0xBF333333)); // DAT_0032B2EC.
     }
     return false;
@@ -101,8 +101,8 @@ bool runtime_player_navigation_motion(RuntimePlayerNavigationControl& context,
         return true;
     }
     const auto body = context.navigation.body;
-    if (get(body, body_field::motion).x == 0.0f && get(body, body_field::motion).y == 0.0f &&
-        get(body, body_field::motion).z == 0.0f)
+    if (body_record(body).motion.x == 0.0f && body_record(body).motion.y == 0.0f &&
+        body_record(body).motion.z == 0.0f)
     {
         return false;
     }
@@ -129,7 +129,7 @@ bool runtime_player_navigation_target_is_near(RuntimePlayerNavigationControl& co
     {
         cell = float(entity_detail::g_nav_grids[0]->cell);
     }
-    const float reach = (read_f32(context.navigation.body, 0x888) * context.body_actor.radius_xz) *
+    const float reach = (body_record(context.navigation.body).radius_scale * context.body_actor.radius_xz) *
         std::bit_cast<float>(u32(0x3FCCCCCD)) + cell; // DAT_0032B4B0.
     return distance - reach < 0.0f;
 }
@@ -189,7 +189,7 @@ u32 drive_runtime_player_navigation(RuntimePlayerNavigationControl& context,
         approach = 2.5f;
     }
     const auto body = context.navigation.body;
-    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.0f)
+    if (body_record(body).move_holds != 0 || body_record(body).move_hold_time != 0.0f)
     {
         return 0;
     }

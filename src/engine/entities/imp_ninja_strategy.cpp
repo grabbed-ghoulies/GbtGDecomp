@@ -1,4 +1,6 @@
 #include "imp_ninja_strategy.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -232,8 +234,8 @@ void tick_inner_force(RuntimeImpNinjaStrategy& context)
         throw Error("0x000B71D0 refills the big imp's health before the scene's damage tables are set");
     }
     const u16 health = u16(runtime_actor_damage_value(1, actor.damage_class, *context.damage_tables)); // 0x00028DA0
-    std::memcpy(body.data() + 0x94, &health, 2);
-    std::memcpy(body.data() + 0x96, &health, 2);
+    body_record(body).energy = health;
+    body_record(body).max_energy = health;
     end_inner_force_effect(context); // 0x000B73C0
 }
 
@@ -283,7 +285,7 @@ void choose_attack(RuntimeImpNinjaStrategy& context)
     if (fields_of(strategy).unk_C0 != 0)
     {
         const std::span<const u8> target_body = context.shared.views.body_of(target->actor).bytes;
-        if (std::bit_cast<i32>(read_u32(target_body, 0x738)) <= 1)
+        if (std::bit_cast<i32>(body_record(target_body).unk_738) <= 1)
         {
             change_state(0x3ED, context);
             fields_of(strategy).spin_kick = 1u;
@@ -558,18 +560,18 @@ void enter_runtime_imp_ninja_state(u16 state, u16 previous, RuntimeImpNinjaStrat
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = goals.entry.body; // Actor +0x95C.
-    body[0x328] = 3;
+    body_record(body).move_class = 3;
     switch (state)
     {
     case 0x3ED:
         // The tail jump to 0x000B7710.
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         strategy_base(strategy).attacking = 1;
         load_goal(fields_of(strategy).unk_C0 == 0 ? context.goal_psycheup : context.goal_psycheup_traitor, context);
         return;
     case 0x3EE:
         // The tail jump to 0x000B7800.
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         strategy_base(strategy).attacking = 1;
         if (fields_of(strategy).spin_kick != 0)
         {
@@ -582,7 +584,7 @@ void enter_runtime_imp_ninja_state(u16 state, u16 previous, RuntimeImpNinjaStrat
         // 0x000B7140.
         load_goal(context.goal_inner_force, context);
         fields_of(strategy).effect_made = 0u;
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         strategy_base(strategy).attacking = 1;
         return;
     case 0x401:

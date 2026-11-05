@@ -1,4 +1,5 @@
 #include "homing_projectile.h"
+#include <cstddef>
 #include "weapon_actor_detail.h"
 #include "weapon_breakage.h"
 #include "weapon_motion.h"
@@ -527,7 +528,7 @@ void leave_runtime_homing_projectile_state(RuntimeWeaponActor& weapon, u16 state
         // Holder +0x95C -> +0x4C and +0x14 cleared.
         weapon.services.hold_secondary(*holder, 0);
         const auto body = weapon.services.body_of(weapon.services.actor_address(*holder));
-        if (get(body, body_field::attached) == weapon.self_address())
+        if (body_record(body).attached == weapon.self_address())
         {
             weapon.services.empty_hand(*holder); // The inlined 0x0001B680 on the holder's body.
         }

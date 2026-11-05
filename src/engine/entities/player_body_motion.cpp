@@ -1,4 +1,5 @@
 #include "player_body_motion.h"
+#include <cstddef>
 #include "entity_heap.h"
 #include "actor_transform.h"
 #include "body_animation_setup.h"
@@ -16,7 +17,7 @@ namespace gbtg
 void add_runtime_player_body_movement(std::span<u8> body, const Vec3& movement,
     const Actor& actor, const RuntimeActorClock& clock)
 {
-    const Vec3 previous = get(body, body_field::position);
+    const Vec3 previous = body_record(body).position;
     const float step = runtime_frame_step(clock);
     const float rate = runtime_actor_rate(actor);
     const float maximum = float(static_cast<long double>(rate) * step * 50.f); // DAT_0032B1E0.
@@ -33,9 +34,9 @@ void add_runtime_player_body_movement(std::span<u8> body, const Vec3& movement,
         delta.z = float(static_cast<long double>(delta.z) * scale);
     }
     const Vec3 result{delta.x + previous.x, delta.y + previous.y, delta.z + previous.z};
-    std::memcpy(body.data() + 0x18, &result.x, 4);
-    std::memcpy(body.data() + 0x1C, &result.y, 4);
-    std::memcpy(body.data() + 0x20, &result.z, 4);
+    body_record(body).position.x = result.x;
+    body_record(body).position.y = result.y;
+    body_record(body).position.z = result.z;
 }
 
 // Xbox 0x000743E0
@@ -56,8 +57,8 @@ bool runtime_player_body_can_select_action(std::span<const u8> body,
             return false;
         }
     }
-    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f
-        && get(body, body_field::holds) == 0 && body[0x6A] == 0)
+    if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f
+        && body_record(body).holds == 0 && body_record(body).unk_6A == 0)
     {
         constexpr std::array<u32, 8> blockers{48, 44, 30, 49, 46, 42, 52, 54}; // DAT_002FFE80.
         for (const u32 bit : blockers)
@@ -74,11 +75,6 @@ bool runtime_player_body_can_select_action(std::span<const u8> body,
 
 namespace
 {
-void put_joint_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 float joint_angle_delta(float angle)
 {
     constexpr float circle = std::bit_cast<float>(0x40C90FDBu);
@@ -109,9 +105,10 @@ float select_runtime_player_joint_target(std::span<u8> body, size_t slot,
     float yaw_delta;
     float stack_word = std::bit_cast<float>(context.body_address);
     tracking = 0;
-    if (body[0x308] != 0 && body[0x309 + disable_offsets[slot]] == 0)
+    if (body_record(body).look_point_set != 0 && body[offsetof(BodyRecord, unk_309) + disable_offsets[slot]] == 0)
     {
-        const Vec3 target{read_f32(body, 0x2FC), read_f32(body, 0x300), read_f32(body, 0x304)};
+        const Vec3 target{body_record(body).look_point.x, body_record(body).look_point.y,
+            body_record(body).look_point.z};
         const Vec3 euler = actor_world_euler(context.actor);
         float yaw, pitch;
         direction_to_yaw_pitch(target.x - joint_position.x, target.y - joint_position.y,
@@ -119,28 +116,28 @@ float select_runtime_player_joint_target(std::span<u8> body, size_t slot,
         pitch_delta = joint_angle_delta(pitch - euler.x);
         yaw_delta = joint_angle_delta(yaw - euler.y);
         stack_word = yaw_delta; // The second remainder reuses the first argument's stack word.
-        const long double limit = static_cast<long double>(read_f32(body, 0x8A8))
+        const long double limit = static_cast<long double>(parent_body_record(body).joint_limit)
             + std::bit_cast<float>(0x3EB2B8C3u); // DAT_0032B160.
         tracking = !(std::fabs(static_cast<long double>(yaw_delta)) > limit);
     }
-    const size_t row = slot * 0x14;
-    u8& state = body[0x8B0 + row];
+    PlayerBodyJoint& joint = parent_body_record(body).joints[slot];
+    u8& state = joint.state;
     if (tracking == 0)
     {
         if (state == 1)
         {
-            const float timer = read_f32(body, 0x8B4 + row)
+            const float timer = joint.timer
                 - runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
-            put_joint_float(body, 0x8B4 + row, timer);
+            joint.timer = timer;
             if (timer <= 0.f)
             {
-                put_joint_float(body, 0x8B4 + row, 0.f);
+                joint.timer = 0.f;
                 state = 0;
             }
         }
         else if (state == 2)
         {
-            float timer = ((read_f32(body, 0x8B4 + row) - acquire_time) * acquire_inverse) * release_time;
+            float timer = ((joint.timer - acquire_time) * acquire_inverse) * release_time;
             state = 1;
             if (timer > release_time)
             {
@@ -150,12 +147,12 @@ float select_runtime_player_joint_target(std::span<u8> body, size_t slot,
             {
                 timer = 0.f;
             }
-            put_joint_float(body, 0x8B4 + row, timer);
+            joint.timer = timer;
         }
         else if (state == 3)
         {
             state = 1;
-            put_joint_float(body, 0x8B4 + row, release_time);
+            joint.timer = release_time;
         }
     }
     else
@@ -163,11 +160,11 @@ float select_runtime_player_joint_target(std::span<u8> body, size_t slot,
         if (state == 0)
         {
             state = 2;
-            put_joint_float(body, 0x8B4 + row, acquire_time);
+            joint.timer = acquire_time;
         }
         else if (state == 1)
         {
-            float timer = ((read_f32(body, 0x8B4 + row) - release_time) * release_inverse) * acquire_time;
+            float timer = ((joint.timer - release_time) * release_inverse) * acquire_time;
             state = 2;
             if (timer > acquire_time)
             {
@@ -177,16 +174,16 @@ float select_runtime_player_joint_target(std::span<u8> body, size_t slot,
             {
                 timer = 0.f;
             }
-            put_joint_float(body, 0x8B4 + row, timer);
+            joint.timer = timer;
         }
         else if (state == 2)
         {
-            const float timer = read_f32(body, 0x8B4 + row)
+            const float timer = joint.timer
                 - runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
-            put_joint_float(body, 0x8B4 + row, timer);
+            joint.timer = timer;
             if (timer <= 0.f)
             {
-                put_joint_float(body, 0x8B4 + row, 0.f);
+                joint.timer = 0.f;
                 state = 3;
             }
         }
@@ -197,7 +194,7 @@ float select_runtime_player_joint_target(std::span<u8> body, size_t slot,
     case 0:
         break;
     case 1:
-        weight = 1.f - (read_f32(body, 0x8B4 + row) - release_time) * release_inverse;
+        weight = 1.f - (joint.timer - release_time) * release_inverse;
         if (0.f > weight)
         {
             weight = 0.f;
@@ -208,7 +205,7 @@ float select_runtime_player_joint_target(std::span<u8> body, size_t slot,
         }
         break;
     case 2:
-        weight = (read_f32(body, 0x8B4 + row) - acquire_time) * acquire_inverse;
+        weight = (joint.timer - acquire_time) * acquire_inverse;
         if (weight > 1.f)
         {
             weight = 1.f;
@@ -227,8 +224,8 @@ float select_runtime_player_joint_target(std::span<u8> body, size_t slot,
     }
     if (tracking != 0)
     {
-        put_joint_float(body, 0x8B8 + row, pitch_delta);
-        put_joint_float(body, 0x8BC + row, yaw_delta);
+        joint.pitch_delta = pitch_delta;
+        joint.yaw_delta = yaw_delta;
     }
     return weight;
 }
@@ -237,7 +234,7 @@ float select_runtime_player_joint_target(std::span<u8> body, size_t slot,
 void apply_runtime_player_joint_targets(std::span<u8> body, RuntimePlayerJointTargets& context)
 {
     context.flags->bytes[4] &= 0xBF;
-    if (read_u32(body, 0x310) == 0)
+    if (body_record(body).unk_310 == 0)
     {
         for (size_t slot = 0; slot < 6; ++slot)
         {
@@ -254,20 +251,21 @@ void apply_runtime_player_joint_targets(std::span<u8> body, RuntimePlayerJointTa
                     context.flags->bytes[4] |= 0x40;
                 }
                 record = context.records[slot];
-                const u32 yaw = read_u32(body, 0x8BC + slot * 0x14);
+                const u32 yaw = std::bit_cast<u32>(parent_body_record(body).joints[slot].yaw_delta);
                 if (record != nullptr && read_u16({record, 0x30}, 0) != 0)
                 {
                     const std::span<u8> bytes{record, 0x30};
                     if (read_f32(bytes, 0x2C) != -1.f)
                     {
-                        const u32 pitch = read_u32(body, 0x8B8 + slot * 0x14);
+                        const u32 pitch = std::bit_cast<u32>(parent_body_record(body).joints[slot].pitch_delta);
                         std::memcpy(record + 0x20, &pitch, 4);
                     }
                     if (read_f32(bytes, 0x1C) != -1.f)
                     {
                         std::memcpy(record + 0x10, &yaw, 4);
                     }
-                    put_joint_float(bytes, 0xC, weight);
+                    const float stored = weight;
+                    std::memcpy(record + 0xC, &stored, 4);
                 }
             }
         }
@@ -309,14 +307,14 @@ void relay_runtime_player_body(std::span<u8> body, u32 message,
 void ease_runtime_body_rotation(std::span<u8> body, Actor& actor,
     const RuntimeActorClock& clock)
 {
-    if (read_u32(body, 0x728) != 0)
+    if (body_record(body).unk_728 != 0)
     {
         const Vec3 current = actor_world_euler(actor);
-        const Vec3 target = get(body, body_field::euler);
+        const Vec3 target = body_record(body).euler;
         const float elapsed = float(static_cast<long double>(runtime_actor_rate(actor)) * runtime_frame_step(clock));
-        const float minimum = read_f32(body, 0x71C);
-        const float maximum = read_f32(body, 0x720);
-        const float gain = read_f32(body, 0x724);
+        const float minimum = read_f32(body, offsetof(BodyRecord, turn_rates));
+        const float maximum = body_record(body).turn_rates[1];
+        const float gain = body_record(body).turn_rates[2];
         const Vec3 next{
             ease_runtime_body_angle(target.x, current.x, minimum, maximum, gain, elapsed),
             ease_runtime_body_angle(target.y, current.y, minimum, maximum, gain, elapsed),
@@ -329,7 +327,7 @@ void ease_runtime_body_rotation(std::span<u8> body, Actor& actor,
         }
         ActorEulerOut& output = *actor.euler_out;
         output.euler = actor_world_euler(*output.actor);
-        std::memcpy(body.data() + 0x72C, &output.euler, sizeof(Vec3));
+        std::memcpy(body.data() + offsetof(BodyRecord, euler.x), &output.euler, sizeof(Vec3));
     }
 }
 
@@ -401,7 +399,7 @@ void release_runtime_player_joint_motion(std::span<u8> body, std::span<u8*, 6> r
         {
             allocation = records[index];
             records[index] = nullptr;
-            std::memcpy(body.data() + 0x8AC + index * 0x14, &zero, 4);
+            parent_body_record(body).joints[index].record_word = 0;
         }
     }
     if (allocation != nullptr)
@@ -419,13 +417,13 @@ void destroy_runtime_player_body(std::span<u8> body, RuntimeBodyShapeStorage& sh
     {
         engine_heap_free(shapes.selected_state);
         shapes.selected_state = nullptr;
-        std::memcpy(body.data() + 0x89C, &zero, 4);
+        parent_body_record(body).selected_state_word = 0;
     }
     if (shapes.selected != nullptr)
     {
         engine_heap_free(shapes.selected);
         shapes.selected = nullptr;
-        std::memcpy(body.data() + 0x8A0, &zero, 4);
+        parent_body_record(body).selected_word = 0;
     }
     release_runtime_player_joint_motion(body, records);
 }
@@ -499,8 +497,8 @@ void initialize_runtime_player_joint_motion(std::span<u8> body, std::span<const 
     const u32 zero = 0;
     for (size_t i = 0; i < 6; ++i)
     {
-        body[0x8B0 + i * 0x14] = 0;
-        std::memcpy(body.data() + 0x8B4 + i * 0x14, &zero, 4);
+        parent_body_record(body).joints[i].state = 0;
+        parent_body_record(body).joints[i].timer = 0.f;
     }
     const u8 count = count_runtime_player_body_joints(context.model, parameters);
     if (count != 0)
@@ -509,7 +507,7 @@ void initialize_runtime_player_joint_motion(std::span<u8> body, std::span<const 
         float first = 0.f, second = 0.f;
         const float sum = (((read_f32(parameters, 0x814) + read_f32(parameters, 0x808))
             + read_f32(parameters, 0x7FC)) + read_f32(parameters, 0x7F0)) + read_f32(parameters, 0x7E4);
-        std::memcpy(body.data() + 0x8A8, &sum, 4);
+        parent_body_record(body).joint_limit = sum;
         constexpr std::array<size_t, 6> offsets{0x800, 0x80C, 0x7F4, 0x7E8, 0x7D0, 0x7DC};
         constexpr std::array<u32, 6> multiplier_bits{0x3DCCCCCD, 0x3E4CCCCD, 0x3F333333, 0x3F333333, 0x3F800000, 0x3F800000};
         for (size_t i = 0; i < 6; ++i)
@@ -527,16 +525,14 @@ void initialize_runtime_player_joint_motion(std::span<u8> body, std::span<const 
 bool initialize_runtime_player_body(std::span<u8> body, std::span<const u8> parameters,
     RuntimePlayerBodyMotion& context)
 {
-    const u32 first = read_u32(parameters, 0x7C8);
-    const u32 second = read_u32(parameters, 0x7CC);
-    std::memcpy(body.data() + 0x894, &first, 4);
-    std::memcpy(body.data() + 0x8A4, &second, 4);
+    parent_body_record(body).collision_radius = read_f32(parameters, 0x7C8);
+    parent_body_record(body).collision_height = read_f32(parameters, 0x7CC);
     initialize_runtime_player_joint_motion(body, parameters, context);
     collect_runtime_player_body_shapes(context.nodes, context.shapes);
     if (read_f32(parameters, 0x7C8) == 0.f)
     {
-        const u32 counter = get(body, body_field::holds) + 1u;
-        std::memcpy(body.data() + 0x258, &counter, 4);
+        const u32 counter = body_record(body).holds + 1u;
+        body_record(body).holds = counter;
     }
     return true;
 }

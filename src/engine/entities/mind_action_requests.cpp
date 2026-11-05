@@ -25,7 +25,7 @@ bool request_runtime_mind_boost(RuntimeMindBoost& context)
     {
         if ((runtime_player_can_resume_strategy(context.actor_bytes, context.resume) != 0
                 || (context.story_word & 0x80) != 0)
-            && get(body, body_field::energy) != 0 && (context.flags.bytes[7] & 2) == 0
+            && body_record(body).energy != 0 && (context.flags.bytes[7] & 2) == 0
             && (context.flags.bytes[7] & 4) == 0)
         {
             const u16 key = context.range_action_key();
@@ -54,10 +54,10 @@ bool request_runtime_mind_boost(RuntimeMindBoost& context)
                     {
                         select_runtime_body_action(body, key, context.attachment.actions);
                     }
-                    ++body[0x309];
-                    ++body[0x30A];
-                    ++body[0x30B];
-                    ++body[0x30C];
+                    ++body_record(body).unk_309;
+                    ++body_record(body).unk_30A;
+                    ++body_record(body).unk_30B;
+                    ++body_record(body).unk_30C;
                     const std::array<i32, 2> message{0x77, i32(context.actor_address)};
                     broadcast_actor_pulse_message(message.data());
                     return true;
@@ -82,9 +82,9 @@ bool request_runtime_mind_turn(RuntimeMindBoost& context, const Vec3& point)
     if ((get(context.actor_bytes, player_field::mode) == 2 || get(context.actor_bytes, player_field::case_link) != 0)
         && !(read_f32(context.boost, 4) > 0.f)
         && (context.flags.bytes[7] & 2) == 0 && (context.flags.bytes[7] & 4) == 0
-        && get(body, body_field::energy) != 0)
+        && body_record(body).energy != 0)
     {
-        if (runtime_body_timer_is_idle(body) && body[0x6A] == 0)
+        if (runtime_body_timer_is_idle(body) && body_record(body).unk_6A == 0)
         {
             const u16 key = context.contact_action_key();
             if (!runtime_body_has_action_id(context.attachment.actions.table, key))

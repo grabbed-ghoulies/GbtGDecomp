@@ -1,4 +1,6 @@
 #include "player_attachment.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "actor_render_registration.h"
 #include "../runtime/crt_format.h"
 #include <cstdarg>
@@ -11,7 +13,8 @@ void format_runtime_body_variant(std::span<u8> body, const char* format, ...)
 {
     std::va_list arguments;
     va_start(arguments, format);
-    scene_detail::crt_format_arguments(reinterpret_cast<char*>(body.data() + 0x288), format, arguments);
+    scene_detail::crt_format_arguments(reinterpret_cast<char*>(body.data() + offsetof(BodyRecord, variant)), format,
+        arguments);
     va_end(arguments);
 }
 
@@ -40,8 +43,8 @@ bool attach_runtime_player_actor(RuntimePlayerAttachmentActor& attached, i32 upd
     }
     context.ownership.attached = &attached.object;
     context.ownership.receiver = &attached.receiver;
-    std::memcpy(context.body.data() + 0x48, &attached.object.address, 4);
-    std::memcpy(context.body.data() + 0x10, &attached.object.address, 4);
+    std::memcpy(context.body.data() + offsetof(BodyRecord, attached), &attached.object.address, 4);
+    std::memcpy(context.body.data() + offsetof(BodyRecord, first_receiver), &attached.object.address, 4);
     context.ownership.flags->bytes[4] |= 4;
     const u32 kind = runtime_actor_case_class(attached.object.bytes, read_u16(context.host.bytes, 6));
     format_runtime_body_variant(context.body, "%s_%s", context.weapon_names[attached.object.bytes[0x93D]],
@@ -69,7 +72,7 @@ bool attach_runtime_player_actor(RuntimePlayerAttachmentActor& attached, i32 upd
     notify_runtime_body_animation(context.actions);
     if (attached.object.bytes[0x93D] == 3)
     {
-        ++context.body[0x30B];
+        ++body_record(context.body).unk_30B;
     }
     update_actor_animation_pose(attached.actor, attached.animation, attached.model, attached.bone,
         context.actions.registry, attached.callbacks, attached.cache, attached.reset);
@@ -102,8 +105,8 @@ bool attach_runtime_player_weapon(RuntimePlayerAttachmentActor& attached, i32 up
     }
     context.ownership.attached = &attached.object;
     context.ownership.receiver = &attached.receiver;
-    std::memcpy(context.body.data() + 0x48, &attached.object.address, 4);
-    std::memcpy(context.body.data() + 0x10, &attached.object.address, 4);
+    std::memcpy(context.body.data() + offsetof(BodyRecord, attached), &attached.object.address, 4);
+    std::memcpy(context.body.data() + offsetof(BodyRecord, first_receiver), &attached.object.address, 4);
     context.ownership.flags->bytes[4] |= 4;
     const u32 kind = runtime_actor_case_class(attached.object.bytes, read_u16(context.host.bytes, 6));
     format_runtime_body_variant(context.body, "%s_%s", context.weapon_names[attached.object.bytes[0x93D]],
@@ -129,7 +132,7 @@ bool attach_runtime_player_weapon(RuntimePlayerAttachmentActor& attached, i32 up
         context.actions.registry, attached.callbacks, attached.cache, attached.reset);
     if (attached.object.bytes[0x93D] == 3)
     {
-        ++context.body[0x30B];
+        ++body_record(context.body).unk_30B;
     }
     notify_runtime_attachment_host(context.host, attached.object);
     return true;
@@ -159,8 +162,8 @@ bool attach_runtime_player_secondary(RuntimePlayerAttachmentActor& attached, Run
     }
     context.secondary = &attached.object;
     context.actions.second_receiver = &attached.receiver;
-    std::memcpy(context.body.data() + 0x4C, &attached.object.address, 4);
-    std::memcpy(context.body.data() + 0x14, &attached.object.address, 4);
+    std::memcpy(context.body.data() + offsetof(BodyRecord, unk_4C), &attached.object.address, 4);
+    std::memcpy(context.body.data() + offsetof(BodyRecord, second_receiver), &attached.object.address, 4);
     index = 0;
     bool joint_found = false;
     if (i16(read_u16(attached.object.bytes, 0x944)) > 0)
@@ -237,8 +240,8 @@ bool release_runtime_player_attachment(i32 force, u32 reason, RuntimePlayerAttac
         context.secondary = nullptr;
         context.actions.second_receiver = nullptr;
         const u32 zero = 0;
-        std::memcpy(context.body.data() + 0x4C, &zero, 4);
-        std::memcpy(context.body.data() + 0x14, &zero, 4);
+        body_record(context.body).unk_4C = zero;
+        body_record(context.body).second_receiver = zero;
         const u32 message[]{0x97, reason};
         secondary->message(message);
     }
@@ -379,7 +382,7 @@ FactoryObject command_runtime_body_create_secondary(std::span<const u8> command,
     const std::function<void(RuntimeBodyAttachedActor&, std::span<char, 128>)>& query_name,
     RuntimePlayerAttachmentCreation& context)
 {
-    if (read_u32(context.attachment.body, 0x4C) == 0)
+    if (body_record(context.attachment.body).unk_4C == 0)
     {
         if (read_u32(command, 0x10) == 0x5F646961)
         {

@@ -1,4 +1,5 @@
 #include "generate_ghouly_state.h"
+#include <cstddef>
 #include "actor_render_registration.h"
 #include "actor_runtime_queries.h"
 #include "actor_scare_requests.h"
@@ -70,11 +71,6 @@ void put_word(std::span<u8> bytes, size_t offset, u32 value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-void put_half(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
 float random_fraction(u32 value)
 {
     return std::bit_cast<float>((value & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
@@ -107,7 +103,7 @@ bool aid_name(const char* name)
 // Body +0x30 and the four +0x309..+0x30C counters the constructor raises and the destructor drops.
 void adjust_body_counters(std::span<u8> body, i32 step)
 {
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + step));
+    body_record(body).move_holds = u16(body_record(body).move_holds + step);
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + step);
@@ -130,8 +126,8 @@ void drop_release_holds(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext
     if (state.phase == 2)
     {
         adjust_live_attachment_holds(context.live_attachments, -1);
-        context.body[0x6D] = u8(context.body[0x6D] - 1);
-        context.body[0x7E5] = u8(context.body[0x7E5] - 1);
+        body_record(context.body).unk_6D = u8(body_record(context.body).unk_6D - 1);
+        body_record(context.body).unk_7E5 = u8(body_record(context.body).unk_7E5 - 1);
     }
 }
 
@@ -535,7 +531,7 @@ void place_beam(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& contex
     if (state.spawn_found == 0)
     {
         const Vec3 origin = actor_world_position(actor); // 0x000412A0
-        const float reach = actor.radius_xz * get(context.body, body_field::radius_scale) * 3.f; // DAT_0032B260.
+        const float reach = actor.radius_xz * body_record(context.body).radius_scale * 3.f; // DAT_0032B260.
         Vec3 point = state.spawn_point;
         RuntimeNavigationHeadingSearch search{origin, i32(get(context.actor_bytes, player_field::floor)), reach,
             reach + 5.f, nullptr, nullptr, &point, 1, 0, 0, context.random, context.occupancy_initial};
@@ -795,7 +791,7 @@ void change_phase(GenerateGhoulyState& state, u32 phase, RuntimeGenerateGhoulyCo
                 state.release_sound.data(), context.sounds); // 0x0012A260, actor +0x4A4
         }
         adjust_live_attachment_holds(context.live_attachments, 1);
-        context.body[0x6D] = u8(context.body[0x6D] + 1);
+        body_record(context.body).unk_6D = u8(body_record(context.body).unk_6D + 1);
         hold_runtime_body_latches(context.body, context.hold); // 0x00027BE0, ESI body
         state.grow = 0.5f; // DAT_0032B0F4.
         release_ghouly(state, context); // 0x000933C0
@@ -860,13 +856,13 @@ bool initialize_runtime_generate_ghouly_state(GenerateGhoulyState& state, std::s
     copy_name(state.bolt_texture_name.data(), parameters, parameter::bolt_texture);
     copy_name(state.spark_texture_name.data(), parameters, parameter::spark_texture);
     const auto body = context.body;
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
+    body_record(body).move_holds = u16(body_record(body).move_holds + 1);
     for (size_t offset : {size_t(0x30B), size_t(0x309), size_t(0x30A), size_t(0x30C)})
     {
         body[offset] = u8(body[offset] + 1);
     }
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     set(context.actor_bytes, player_field::ghouly_count, u16(get(context.actor_bytes, player_field::ghouly_count) + 1));
     state.light = u8(0xFF);
     place_beam(state, context); // 0x00093800, EBX state
@@ -907,8 +903,8 @@ void tick_runtime_generate_ghouly_state(GenerateGhoulyState& state, RuntimeGener
     const auto body = context.body;
     state.base.elapsed = runtime_actor_rate(actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     const float zero = 0.f;
-    std::memcpy(body.data() + 0x734, &zero, 4);
-    std::memcpy(body.data() + 0x72C, &zero, 4);
+    body_record(body).euler.z = zero;
+    body_record(body).euler.x = zero;
     switch (state.phase)
     {
     case 1:

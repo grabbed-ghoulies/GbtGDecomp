@@ -102,7 +102,7 @@ void enter_runtime_ribs_state(u16 state, u16 previous, RuntimeRibsStrategy& cont
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = goals.entry.body; // Actor +0x95C.
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     strategy_base(strategy).unk_1B = 0;
     if (state == 0x401)
@@ -130,10 +130,10 @@ void enter_runtime_ribs_state(u16 state, u16 previous, RuntimeRibsStrategy& cont
     put_float(request->bytes, 0x14, 25.f); // DAT_00428890.
     put_float(request->bytes, 0x18, 60.f); // DAT_00428894.
     put_float(request->bytes, 0x1C, 65.f); // DAT_00428898.
-    const u16 full = get(body, body_field::max_energy);
+    const u16 full = body_record(body).max_energy;
     if (full != 0)
     {
-        const float fraction = float(get(body, body_field::energy)) / float(full);
+        const float fraction = float(body_record(body).energy) / float(full);
         if (fraction <= 0.75f) // DAT_0032B2AC.
         {
             if (fraction <= 0.5f) // DAT_0032B0F4.

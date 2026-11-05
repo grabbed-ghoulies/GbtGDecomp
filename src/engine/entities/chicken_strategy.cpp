@@ -1,4 +1,5 @@
 #include "chicken_strategy.h"
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
@@ -140,11 +141,11 @@ void enter_runtime_chicken_state(u16 state, RuntimeChickenStrategy& context)
         load_goal(context.goal_transform, context);
         return;
     case 0x3F4:
-        goals.entry.body[0x328] = 6;
+        body_record(goals.entry.body).move_class = 6;
         enter_runtime_base_strategy_state(goals.entry, state); // The jump to 0x0002BAF0.
         return;
     case 0x401:
-        goals.entry.body[0x328] = 2;
+        body_record(goals.entry.body).move_class = 2;
         load_goal(context.goal_far, context);
         return;
     default:

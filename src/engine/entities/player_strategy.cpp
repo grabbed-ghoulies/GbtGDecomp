@@ -18,11 +18,6 @@ PlayerStrategyState& fields_of(std::span<u8> strategy)
     return strategy_view<PlayerStrategyState>(strategy);
 }
 
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
 RuntimePlayerStrategyGoals& goals_of(RuntimePlayerStrategyFlow& context)
 {
     return context.base.goals;
@@ -128,7 +123,7 @@ void queue_runtime_scripted_goals(std::span<const u32> message, RuntimePlayerStr
 u32 check_runtime_player_knockout(RuntimePlayerStrategyGoals& context)
 {
     std::span<const u8> body = context.entry.body;
-    if (get(body, body_field::energy) == 0 && get(body, body_field::max_energy) != 0)
+    if (body_record(body).energy == 0 && body_record(body).max_energy != 0)
     {
         std::span<u8> strategy = context.entry.strategy;
         const u16 state = strategy_base(strategy).state;
@@ -296,7 +291,7 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
     {
         if ((goals.body_bits->bytes[6] & 1) != 0)
         {
-            put_u16(body, 0x30, u16(get(body, body_field::move_holds) - 1));
+           body_record(body).move_holds = u16(body_record(body).move_holds - 1);
             fields_of(strategy).move_held = 0;
         }
         if (fields_of(strategy).move_held != 0)
@@ -323,7 +318,7 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
             count = 5;
         }
         show_runtime_brew_count(count, context.brew);
-        set_runtime_player_health_display(context.health, i32(get(body, body_field::energy)), 0);
+        set_runtime_player_health_display(context.health, i32(body_record(body).energy), 0);
         context.health.intensity = 2.0f; // DAT_0032B110.
         acquire_runtime_player_health_textures(context.health);
         if (runtime_input_button_edge(context.input_device, 0x100, context.input_state) != 0)
@@ -333,7 +328,7 @@ void update_runtime_player_strategy(RuntimePlayerStrategyFlow& context)
             ++context.brews_taken;
             context.brew_accepted = 1;
             accept_runtime_brew_meter(context.brew);
-            put_u16(body, 0x94, u16(get(body, body_field::energy) << 1));
+           body_record(body).energy = u16(body_record(body).energy << 1);
             move_state(0x408, context);
             change_runtime_actor_pause(u8(0xFFFF), 1, context.pause);
             unlock_runtime_brew_intro(context);

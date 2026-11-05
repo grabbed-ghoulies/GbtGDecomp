@@ -54,17 +54,17 @@ bool initialize_runtime_furnace_hit_state(FurnaceHitState& state, RuntimeFurnace
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
     Actor& actor = knockdown.actor;
-    body[0x6B] = u8(body[0x6B] + 1);
-    body[0x69] = u8(body[0x69] + 1);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B + 1);
+    body_record(body).unk_69 = u8(body_record(body).unk_69 + 1);
     increment_runtime_body_latch_mask(body, 0x3F, actor, context.latches); // The inlined 0x0001F3F0, {0x47, actor}.
-    set(body, body_field::holds, get(body, body_field::holds) + 1);
-    body[0x309] = u8(body[0x309] + 1);
-    body[0x30A] = u8(body[0x30A] + 1);
-    body[0x30B] = u8(body[0x30B] + 1);
-    body[0x30C] = u8(body[0x30C] + 1);
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).holds = body_record(body).holds + 1;
+    body_record(body).unk_309 = u8(body_record(body).unk_309 + 1);
+    body_record(body).unk_30A = u8(body_record(body).unk_30A + 1);
+    body_record(body).unk_30B = u8(body_record(body).unk_30B + 1);
+    body_record(body).unk_30C = u8(body_record(body).unk_30C + 1);
+    body_record(body).move_holds = u16(body_record(body).move_holds + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     release_runtime_player_attachment(0, 0, knockdown.attachment); // 0x0001B810, EAX body
     if (RuntimeBodyAttachedActor* attached = context.state.attached; attached != nullptr) // Body +0x4C.
     {
@@ -80,7 +80,7 @@ bool initialize_runtime_furnace_hit_state(FurnaceHitState& state, RuntimeFurnace
     }
     state.start = actor_world_position(actor); // 0x000412A0
     state.start_euler = actor_world_euler(actor); // 0x00041820
-    const u32 furnace = read_u32(body, 0x26C);
+    const u32 furnace = body_record(body).unk_26C;
     state.furnace = knockdown.actor_position(furnace); // 0x000412A0, ESI body +0x26C
     const Vec3 toward = knockdown.actor_position(furnace);
     const Vec3 at = actor_world_position(actor);
@@ -110,7 +110,7 @@ bool initialize_runtime_furnace_hit_state(FurnaceHitState& state, RuntimeFurnace
     }
     state.remaining = 1.f; // DAT_0032B0F8.
     actor.anchor = knockdown.default_position; // Actor +0x3C, DAT_0050DD80.
-    set(body, body_field::velocity, knockdown.default_position);
+    body_record(body).velocity = knockdown.default_position;
     knockdown.callouts(0x2C, nullptr); // 0x0003BE20 over actor +0x8C, options 0
     return true;
 }
@@ -121,21 +121,21 @@ void destroy_runtime_furnace_hit_state(FurnaceHitState& state, RuntimeFurnaceHit
     (void)state;
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
-    body[0x6B] = u8(body[0x6B] - 1);
-    body[0x69] = u8(body[0x69] - 1);
+    body_record(body).move_holds = u16(body_record(body).move_holds - 1);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B - 1);
+    body_record(body).unk_69 = u8(body_record(body).unk_69 - 1);
     decrement_runtime_body_latch_mask(body, 0x3F, knockdown.actor, context.latches); // The inlined 0x0001F2F0.
-    const u32 count = get(body, body_field::holds) - 1;
-    set(body, body_field::holds, count);
+    const u32 count = body_record(body).holds - 1;
+    body_record(body).holds = count;
     if (count == 0)
     {
         const std::array<u32, 1> release{0x4A};
         context.state.body_message(release); // The body's vtable +0xC.
     }
-    body[0x309] = u8(body[0x309] - 1);
-    body[0x30B] = u8(body[0x30B] - 1);
-    body[0x30C] = u8(body[0x30C] - 1);
-    body[0x30A] = u8(body[0x30A] - 1);
+    body_record(body).unk_309 = u8(body_record(body).unk_309 - 1);
+    body_record(body).unk_30B = u8(body_record(body).unk_30B - 1);
+    body_record(body).unk_30C = u8(body_record(body).unk_30C - 1);
+    body_record(body).unk_30A = u8(body_record(body).unk_30A - 1);
     knockdown.bits.bytes[3] &= u8(~8u);
 }
 
@@ -187,10 +187,10 @@ void tick_runtime_furnace_hit_state(FurnaceHitState& state, RuntimeFurnaceHitSta
     const Vec3 euler{step_runtime_angle_toward(to.x, from.x, turn), step_runtime_angle_toward(to.y, from.y, turn),
         step_runtime_angle_toward(to.z, from.z, turn)}; // 0x001013A0
     actor_set_world_position(actor, position); // 0x00041730, ESI the position, EDI actor
-    set(body, body_field::position, actor_world_position(actor)); // 0x000412A0, EDI body +0x18
+    body_record(body).position = actor_world_position(actor); // 0x000412A0, EDI body +0x18
     wrap_runtime_euler(euler, actor.euler); // 0x00105AA0, EDI actor +0x14
     actor.xform_valid = 0; // Actor +0x2A8.
-    set(body, body_field::euler, actor_world_euler(actor)); // 0x00041820, EDI body +0x72C
+    body_record(body).euler = actor_world_euler(actor); // 0x00041820, EDI body +0x72C
     if (done)
     {
         finish_runtime_body_death(0, knockdown.scene_flags, knockdown.restart_requested, knockdown.death); // 0x00134AE0

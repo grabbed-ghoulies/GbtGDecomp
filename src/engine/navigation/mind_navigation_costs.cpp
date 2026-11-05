@@ -72,7 +72,7 @@ GhoulySpawnPool* suspend_runtime_mind_target_costs(std::span<const u8> actor,
 {
     // Body +8's +0x38 is its native actor's radius_xz.
     const float radius = float((static_cast<long double>(body_actor.radius_xz)
-        * get(body, body_field::radius_scale) + get(target, mind_target_field::shape_radius)) * 3.L);
+        * body_record(body).radius_scale + get(target, mind_target_field::shape_radius)) * 3.L);
     const Vec3 center{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
     auto* costs = collect_runtime_navigation_costs(target[0x19], center, radius);
     if (costs != nullptr)

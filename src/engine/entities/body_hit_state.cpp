@@ -31,11 +31,6 @@ void put_word(std::span<u8> bytes, size_t offset, u32 value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void adjust_body_counters(std::span<u8> body, i32 step)
 {
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
@@ -51,10 +46,10 @@ void update_runtime_hit_permission(const HitState& state, std::span<u8> body)
     if (state.target_hit != 0 && state.open_windows == 0
         && state.target_notice == 0)
     {
-        body[0x6C] = 1;
+        body_record(body).unk_6C = 1;
         return;
     }
-    body[0x6C] = 0;
+    body_record(body).unk_6C = 0;
 }
 
 // The slot-0 MINA player of actor +0x50, or null.
@@ -85,9 +80,9 @@ float hit_window(std::span<const u8> hit)
 // The inline surface-mode scale: DAT_00217EC0[mode] when body +0x878 has the mode's bit, otherwise 1.
 float surface_mode_scale(std::span<const u8> body, std::span<const float> mode_scales)
 {
-    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
-                                                                        : get(body, body_field::surface_override);
-    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
+    const u8 mode = body_record(body).surface_override_frames == 0 ? body_record(body).surface
+                                                                        : body_record(body).surface_override;
+    if ((body_record(body).scaled_surfaces & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= mode_scales.size())
         {
@@ -151,12 +146,12 @@ bool initialize_runtime_hit_state(HitState& state, std::span<const u8> parameter
     RuntimeHitStateLifecycle& context)
 {
     const auto body = context.body;
-    body[0x38] = 1;
-    body[0x39] = 1;
-    set(body, body_field::saved_ease_rate, get(body, body_field::ease_rate));
-    set(body, body_field::ease_rate, 7.f); // DAT_0032B284.
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
-    body[0x6A] = u8(body[0x6A] + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    body_record(body).saved_ease_rate = body_record(body).ease_rate;
+    body_record(body).ease_rate = 7.f; // DAT_0032B284.
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps + 1;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
     const auto target = context.target;
     if (target.data() != nullptr && get(target, mind_target_field::kind) == 0)
     {
@@ -166,7 +161,7 @@ bool initialize_runtime_hit_state(HitState& state, std::span<const u8> parameter
     state.start_euler = actor_world_euler(context.actor);
     state.trail_rate = get(parameters, parameter::trail_rate);
     adjust_body_counters(body, 1);
-    state.attached = get(body, body_field::attached);
+    state.attached = body_record(body).attached;
     state.hit_callout = get(parameters, parameter::hit_callout);
     state.faces_target = get(parameters, parameter::faces_target);
     state.carries_velocity = get(parameters, parameter::carries_velocity);
@@ -175,7 +170,7 @@ bool initialize_runtime_hit_state(HitState& state, std::span<const u8> parameter
     state.body_bit = get(parameters, parameter::body_bit);
     state.trail_timer = 0.f;
     state.attached_trail_timer = 0.f;
-    state.was_holding = get(body, body_field::attached) != 0 ? 1 : 0;
+    state.was_holding = body_record(body).attached != 0 ? 1 : 0;
     return true;
 }
 
@@ -188,10 +183,10 @@ void destroy_runtime_hit_state(HitState& state, RuntimeHitStateLifecycle& contex
     {
         context.bits->bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
     }
-    body[0x6A] = u8(body[0x6A] - 1);
-    set(body, body_field::ease_rate, get(body, body_field::saved_ease_rate));
-    body[0x6C] = 0;
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
+    body_record(body).ease_rate = body_record(body).saved_ease_rate;
+    body_record(body).unk_6C = 0;
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps - 1;
     adjust_body_counters(body, -1);
     put_word(context.actor_bytes, 0x11C, 0);
 }
@@ -296,15 +291,15 @@ bool runtime_actor_has_render_bins(const ActorRenderRegistration& render, u8 hid
 // Xbox 0x001346B0
 void reset_runtime_body_turn(u32 brake, std::span<u8> body, RuntimeBodyTimerRecipient* first_timer)
 {
-    if (get(body, body_field::unk_168) == 0.f) // DAT_0032B100.
+    if (body_record(body).unk_168 == 0.f) // DAT_0032B100.
     {
-        set(body, body_field::unk_164, 0);
+        body_record(body).unk_164 = 0;
         if (brake != 0)
         {
-            set(body, body_field::stagger, 0.99f); // DAT_0032B228.
+            body_record(body).stagger = 0.99f; // DAT_0032B228.
         }
     }
-    if (get(body, body_field::hit_timer) != 0 && get(body, body_field::hit_timer_running) == 0)
+    if (body_record(body).hit_timer != 0 && body_record(body).hit_timer_running == 0)
     {
         if (first_timer == nullptr)
         {
@@ -313,7 +308,7 @@ void reset_runtime_body_turn(u32 brake, std::span<u8> body, RuntimeBodyTimerReci
         const u32 message[]{5, 0};
         first_timer->message(message);
     }
-    set(body, body_field::unk_278, 1);
+    body_record(body).unk_278 = 1;
 }
 
 RuntimeBodyNextAction runtime_body_next_action(const RuntimeHitStateTick& context)
@@ -326,7 +321,7 @@ RuntimeBodyNextAction runtime_body_next_action(const RuntimeHitStateTick& contex
 void select_runtime_body_next_action(BodyStateBase& base, u32 secondary, RuntimeBodyNextAction& context)
 {
     const auto body = context.body;
-    if (get(body, body_field::energy) == 0 && context.table != nullptr) // Body +0x73C, held as its native view.
+    if (body_record(body).energy == 0 && context.table != nullptr) // Body +0x73C, held as its native view.
     {
         u32 output;
         if (find_runtime_script_table_row(context.table, 0x6A, output) != nullptr)
@@ -426,7 +421,7 @@ bool turn_runtime_body_toward(const Vec3& target, std::span<const u8> body, cons
     runtime_direction_angle(Vec3{target.x - origin.x, target.y - origin.y, target.z - origin.z}, yaw);
     if (position >= window)
     {
-        euler = Vec3{0.f, get(body, body_field::euler).y, 0.f};
+        euler = Vec3{0.f, body_record(body).euler.y, 0.f};
         return true;
     }
     float fraction;
@@ -478,8 +473,8 @@ void steer_runtime_hit_body(RuntimeHitStateTick& context)
 {
     const auto body = context.body;
     std::array<float, 2> axes{};
-    if (get(context.actor_bytes, player_field::input_device) == 0 || get(body, body_field::move_holds) != 0 ||
-        get(body, body_field::move_hold_time) != 0.f)
+    if (get(context.actor_bytes, player_field::input_device) == 0 || body_record(body).move_holds != 0 ||
+        body_record(body).move_hold_time != 0.f)
     {
         axes = {0.f, 0.f};
     }
@@ -514,16 +509,16 @@ void steer_runtime_hit_body(RuntimeHitStateTick& context)
     }
     else if (!(magnitude > 0.f))
     {
-        set(body, body_field::velocity, Vec3{0.f, 0.f, 0.f});
+        body_record(body).velocity = Vec3{0.f, 0.f, 0.f};
         return;
     }
-    set(body, body_field::euler, Vec3{0.f, angle, 0.f});
-    set(body, body_field::heading, angle);
+    body_record(body).euler = Vec3{0.f, angle, 0.f};
+    body_record(body).heading = angle;
     const float scale = surface_mode_scale(body, context.mode_scales);
     const float speed = runtime_body_step_speed(body, context.actor, context.tables) * scale * magnitude;
     side = float(retail_sin(angle) * speed);
     forward = float(retail_cos(angle) * speed);
-    set(body, body_field::velocity, Vec3{side, 0.f, forward});
+    body_record(body).velocity = Vec3{side, 0.f, forward};
 }
 
 // Xbox 0x00096060
@@ -538,7 +533,7 @@ void move_runtime_hit_body(const HitState& state, RuntimeHitStateTick& context)
     const Vec3& velocity = context.actor.anchor; // Actor +0x3C.
     if (state.carries_velocity != 0 && state.lunging == 0)
     {
-        set(body, body_field::velocity, velocity);
+        body_record(body).velocity = velocity;
         return;
     }
     if (state.lunging == 0
@@ -551,9 +546,9 @@ void move_runtime_hit_body(const HitState& state, RuntimeHitStateTick& context)
             return;
         }
         const float step = runtime_actor_step(context.actor, context.clock);
-        const Vec3 position = get(body, body_field::position);
-        set(body, body_field::position,
-            Vec3{velocity.x * step + position.x, velocity.y * step + position.y, velocity.z * step + position.z});
+        const Vec3 position = body_record(body).position;
+        body_record(body).position = Vec3{velocity.x * step + position.x, velocity.y * step + position.y,
+            velocity.z * step + position.z};
         return;
     }
     if (context.target.data() == nullptr || state.target_hit != 0 || state.lunging == 0)
@@ -562,9 +557,9 @@ void move_runtime_hit_body(const HitState& state, RuntimeHitStateTick& context)
     }
     const float step = runtime_actor_step(context.actor, context.clock);
     const Vec3 lunge = state.velocity;
-    const Vec3 position = get(body, body_field::position);
-    set(body, body_field::position,
-        Vec3{position.x + lunge.x * step, position.y + lunge.y * step, position.z + lunge.z * step});
+    const Vec3 position = body_record(body).position;
+    body_record(body).position = Vec3{position.x + lunge.x * step, position.y + lunge.y * step, position.z
+        + lunge.z * step};
 }
 
 // Xbox 0x00096390
@@ -593,7 +588,7 @@ void tick_runtime_hit_state(HitState& state, RuntimeHitStateTick& context)
     const auto body = context.body;
     Actor& actor = context.actor;
     state.base.elapsed = runtime_actor_rate(actor) * runtime_frame_step(context.clock) + state.base.elapsed;
-    if (get(body, body_field::attached) != 0 && context.attached_collision != nullptr
+    if (body_record(body).attached != 0 && context.attached_collision != nullptr
         && context.attached_collision->active != nullptr)
     {
         const i32 frequency = context.trails.pal == 0 || context.trails.pal_override != 0 ? 0x3C : 0x32;
@@ -649,13 +644,13 @@ void tick_runtime_hit_state(HitState& state, RuntimeHitStateTick& context)
     else
     {
         Vec3 velocity = state.velocity;
-        ease_runtime_planar_velocity(velocity, context.default_position, get(body, body_field::ease_rate),
+        ease_runtime_planar_velocity(velocity, context.default_position, body_record(body).ease_rate,
                                      context.motion_steps);
         state.velocity = velocity;
     }
     face_runtime_hit_target(state, context);
     move_runtime_hit_body(state, context);
-    const bool released = state.was_holding != 0 && get(body, body_field::attached) == 0;
+    const bool released = state.was_holding != 0 && body_record(body).attached == 0;
     std::array<float, 2> axes{};
     read_input_axes(context.input, axes, context.input_state, context.address_zero);
     if (axes[1] * axes[1] + axes[0] * axes[0] > 0.01f // DAT_0032B22C.
@@ -714,22 +709,22 @@ bool initialize_runtime_hit_furnace_state(HitFurnaceState& state, std::span<cons
     state.swept = 0;
     state.next_key = get(parameters, furnace_parameter::next_key);
     state.raises_bit_38 = get(parameters, furnace_parameter::raises_bit_38);
-    body[0x6B] = u8(body[0x6B] + 1);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B + 1);
     adjust_body_counters(body, 1);
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + 1));
-    set(body, body_field::saved_ease_rate, get(body, body_field::ease_rate));
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
-    set(body, body_field::ease_rate, 7.f); // DAT_0032B284.
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).move_holds = u16(body_record(body).move_holds + 1);
+    body_record(body).saved_ease_rate = body_record(body).ease_rate;
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps + 1;
+    body_record(body).ease_rate = 7.f; // DAT_0032B284.
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     bits.bytes[2] |= 2;
     if (state.raises_bit_38 != 0)
     {
         bits.bytes[7] |= 1;
     }
-    if (body[0xA6] != 0)
+    if (body_record(body).unk_A6 != 0)
     {
-        set(body, body_field::unk_B4, 2.f); // DAT_0032B110.
+        body_record(body).unk_B4 = 2.f; // DAT_0032B110.
     }
     // EAX still holds the 1 stored to body +0x38.
     return true;
@@ -738,10 +733,10 @@ bool initialize_runtime_hit_furnace_state(HitFurnaceState& state, std::span<cons
 // Xbox 0x000967F0
 void destroy_runtime_hit_furnace_state(const HitFurnaceState& state, std::span<u8> body, RuntimeBodyBitStorage& bits)
 {
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
-    set(body, body_field::ease_rate, get(body, body_field::saved_ease_rate));
-    body[0x6B] = u8(body[0x6B] - 1);
+    body_record(body).move_holds = u16(body_record(body).move_holds - 1);
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps - 1;
+    body_record(body).ease_rate = body_record(body).saved_ease_rate;
+    body_record(body).unk_6B = u8(body_record(body).unk_6B - 1);
     adjust_body_counters(body, -1);
     bits.bytes[2] &= 0xFD;
     if (state.raises_bit_38 != 0)
@@ -790,7 +785,7 @@ void select_runtime_body_goal_action(BodyStateBase& base, RuntimeBodyRecoveryAct
 void select_runtime_body_recovery_action(BodyStateBase& base, u16 key, RuntimeBodyRecoveryAction& context)
 {
     const auto body = context.body;
-    const u16 level = get(body, body_field::energy);
+    const u16 level = body_record(body).energy;
     bool table_row = false;
     if (level == 0 && context.table != nullptr) // Body +0x73C, held as its native view.
     {
@@ -798,13 +793,13 @@ void select_runtime_body_recovery_action(BodyStateBase& base, u16 key, RuntimeBo
         table_row = find_runtime_script_table_row(context.table, 0x6A, output) != nullptr;
     }
     bool secondary = false;
-    if (get(body, body_field::unk_23C) != 0.f)
+    if (body_record(body).unk_23C != 0.f)
     {
-        if (level < 2 || get(body, body_field::unk_174) > 0.f)
+        if (level < 2 || body_record(body).unk_174 > 0.f)
         {
             secondary = true;
         }
-        else if (get(body, body_field::stagger) == 0.f)
+        else if (body_record(body).stagger == 0.f)
         {
             secondary = true;
         }
@@ -823,7 +818,7 @@ void select_runtime_body_recovery_action(BodyStateBase& base, u16 key, RuntimeBo
         base.next_key = context.secondary_id();
         return;
     }
-    if (get(body, body_field::unk_240) != 0.f)
+    if (body_record(body).unk_240 != 0.f)
     {
         base.next_key = context.primary_id();
         return;
@@ -834,7 +829,7 @@ void select_runtime_body_recovery_action(BodyStateBase& base, u16 key, RuntimeBo
 // Xbox 0x000965C0
 void scorch_runtime_hit_furnace_contacts(HitFurnaceState& state, RuntimeHitFurnaceTick& context)
 {
-    const u32 holder = get(context.body, body_field::unk_274);
+    const u32 holder = body_record(context.body).unk_274;
     u32 player = 0;
     if (holder != 0)
     {

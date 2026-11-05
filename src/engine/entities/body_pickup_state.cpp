@@ -25,11 +25,6 @@ void put_word(std::span<u8> bytes, size_t offset, u32 value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void adjust_body_counters(std::span<u8> body, i32 step)
 {
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
@@ -95,7 +90,7 @@ float runtime_pickup_grab_point(std::span<const u8> weapon, u16 host_class)
 void release_runtime_pickup_weapon(RuntimePickupStateContext& context)
 {
     const auto body = context.body;
-    const u32 weapon = get(body, body_field::attached);
+    const u32 weapon = body_record(body).attached;
     if (weapon == 0)
     {
         return;
@@ -130,11 +125,11 @@ bool initialize_runtime_pickup_state(PickupState& state, std::span<const u8> par
     RuntimePickupStateContext& context)
 {
     const auto body = context.body;
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits.bytes[5] |= 4;
     adjust_live_attachment_holds(context.live_attachments, 1);
-    body[0x6D] = u8(body[0x6D] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     adjust_body_counters(body, 1);
     const Vec3 start = actor_world_position(context.actor); // 0x000412A0
     state.start_position = start;
@@ -150,7 +145,7 @@ void destroy_runtime_pickup_state(PickupState&, RuntimePickupStateContext& conte
     context.bits.bytes[5] &= 0xFB;
     adjust_body_counters(body, -1);
     adjust_live_attachment_holds(context.live_attachments, -1);
-    body[0x6D] = u8(body[0x6D] - 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
     release_runtime_pickup_weapon(context);
 }
 
@@ -159,7 +154,7 @@ void approach_runtime_pickup(const PickupState& state, RuntimePlayerAttachmentAc
     RuntimePickupStateContext& context)
 {
     const auto body = context.body;
-    const Vec3 position = get(body, body_field::position);
+    const Vec3 position = body_record(body).position;
     Vec3 point;
     float radius = 0.f;
     i32 index = 0;
@@ -174,7 +169,7 @@ void approach_runtime_pickup(const PickupState& state, RuntimePlayerAttachmentAc
     if (runtime_direction_angle(direction, angle)) // 0x00105F90
     {
         level_body_euler(body);
-        put_float(body, 0x730, angle);
+       body_record(body).euler.y = angle;
     }
     const MinaPlayer* player = first_player(context.animation);
     const float position_now = player == nullptr ? 0.f : player->position;
@@ -186,9 +181,9 @@ void approach_runtime_pickup(const PickupState& state, RuntimePlayerAttachmentAc
             offset_camera_point(point, angle + std::bit_cast<float>(0x40490FDBu), radius); // 0x001062A0, DAT_0032B148
         }
         const Vec3 start = state.start_position;
-        put_float(body, 0x18, (point.x - start.x) * ratio + start.x);
-        put_float(body, 0x1C, position.y);
-        put_float(body, 0x20, (point.z - start.z) * ratio + start.z);
+       body_record(body).position.x = (point.x - start.x) * ratio + start.x;
+       body_record(body).position.y = position.y;
+       body_record(body).position.z = (point.z - start.z) * ratio + start.z;
     }
 }
 
@@ -234,7 +229,7 @@ void tick_runtime_pickup_state(PickupState& state, RuntimePickupStateContext& co
     const MinaPlayer* player = first_player(context.animation);
     const float position = player == nullptr ? 0.f : player->position;
     const float end = state.release_point;
-    const bool taken_empty = state.taken != 0 && get(body, body_field::attached) == 0;
+    const bool taken_empty = state.taken != 0 && body_record(body).attached == 0;
     if (context.input == nullptr || context.input_state == nullptr)
     {
         throw Error("pick-up state stick check without the tick's input device");
@@ -293,11 +288,11 @@ bool initialize_runtime_lift_state(LiftState& state, std::span<const u8> paramet
     state.hands_point = get(parameters, lift_state_parameter::hands_point);
     state.release_point = get(parameters, lift_state_parameter::release_point);
     state.hold_height = get(parameters, lift_state_parameter::hold_height);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits.bytes[5] |= 4;
     adjust_live_attachment_holds(context.live_attachments, 1);
-    body[0x6D] = u8(body[0x6D] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     if (context.latches == nullptr)
     {
         throw Error("lift state has no DAT_00511AA4 latch view for 0x0001FC40");
@@ -315,13 +310,13 @@ void destroy_runtime_lift_state(LiftState& state, RuntimePickupStateContext& con
     context.bits.bytes[5] &= 0xBF;
     adjust_body_counters(body, -1);
     adjust_live_attachment_holds(context.live_attachments, -1);
-    body[0x6D] = u8(body[0x6D] - 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
     if (context.latches == nullptr)
     {
         throw Error("lift state has no DAT_00511AA4 latch view for 0x0001FD20");
     }
     decrement_runtime_body_latches(body, context.actor, *context.latches); // 0x0001FD20, ECX body
-    if (get(body, body_field::attached) != 0)
+    if (body_record(body).attached != 0)
     {
         release_runtime_pickup_weapon(context); // Inlined as in 0x0009DEA0.
         return;
@@ -362,7 +357,7 @@ void face_runtime_lift_weapon(u32 weapon, RuntimePickupStateContext& context)
     if (runtime_direction_angle(direction, angle)) // 0x00105F90
     {
         level_body_euler(body);
-        put_float(body, 0x730, angle);
+       body_record(body).euler.y = angle;
     }
 }
 

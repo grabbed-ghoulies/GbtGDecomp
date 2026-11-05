@@ -1,4 +1,5 @@
 #include "body_scrabble_state.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_gravity_motion.h"
@@ -15,16 +16,6 @@ namespace
 
 std::function<RuntimeScrabbleStateContext&(u32)> scrabble_context_of;
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // Xbox 0x0009F370, EAX actor: the body turns to face the mind's goal point (+0x70), or the actor's heading when the
 // point gives no angle.
 void face_goal_point(RuntimeScrabbleStateContext& context)
@@ -39,7 +30,7 @@ void face_goal_point(RuntimeScrabbleStateContext& context)
         angle = context.actor.euler.y; // Actor +0x18.
     }
     level_body_euler(context.body);
-    put_float(context.body, 0x730, angle);
+   body_record(context.body).euler.y = angle;
 }
 
 // Xbox 0x0009F2D0, EAX body: the body moves along the actor's heading at its motion speed (0x000259C0), scaled by its
@@ -47,10 +38,10 @@ void face_goal_point(RuntimeScrabbleStateContext& context)
 void run_along_heading(RuntimeScrabbleStateContext& context)
 {
     const auto body = context.body;
-    const u8 mode = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
-                                                                        : get(body, body_field::surface_override);
+    const u8 mode = body_record(body).surface_override_frames == 0 ? body_record(body).surface
+                                                                        : body_record(body).surface_override;
     float scale = 1.f; // DAT_0032B0F8.
-    if ((get(body, body_field::scaled_surfaces) & (1u << (mode & 0x1F))) != 0)
+    if ((body_record(body).scaled_surfaces & (1u << (mode & 0x1F))) != 0)
     {
         if (mode >= context.mode_scales.size())
         {
@@ -61,9 +52,9 @@ void run_along_heading(RuntimeScrabbleStateContext& context)
     const float speed = runtime_body_motion_speed(body, context.actor_bytes, context.damage_tables) * scale; // 0x000259C0
     const float heading = context.actor.euler.y; // Actor +0x18.
     const float across = float(retail_sin(heading) * speed); // 0x00153320
-    put_float(body, 0x320, float(retail_cos(heading) * speed)); // 0x00153230
-    put_float(body, 0x318, across);
-    put_float(body, 0x31C, 0.f);
+   body_record(body).velocity.z = float(retail_cos(heading) * speed); // 0x00153230
+   body_record(body).velocity.x = across;
+   body_record(body).velocity.y = 0.f;
 }
 
 bool construct_scrabble_state_view(FactoryObject& object, std::span<const u8>)
@@ -97,9 +88,9 @@ void scrabble_state_object_sizes(ObjectSizes& output)
 bool initialize_runtime_scrabble_state(ScrabbleState& state, RuntimeScrabbleStateContext& context)
 {
     const auto body = context.body;
-    put_word(body, 0x330, read_u32(body, 0x334));
-    set(body, body_field::ease_rate, std::bit_cast<float>(0x3E4CCCCDu)); // DAT_0032B1AC.
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
+    body_record(body).saved_ease_rate = body_record(body).ease_rate;
+    body_record(body).ease_rate = std::bit_cast<float>(0x3E4CCCCDu); // DAT_0032B1AC.
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps + 1;
     context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
     const float roll = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
     const float duration = roll * 0.f + 2.f; // DAT_0032B100, DAT_0032B110.
@@ -112,8 +103,8 @@ bool initialize_runtime_scrabble_state(ScrabbleState& state, RuntimeScrabbleStat
 void destroy_runtime_scrabble_state(RuntimeScrabbleStateContext& context)
 {
     const auto body = context.body;
-    put_word(body, 0x334, read_u32(body, 0x330));
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
+    body_record(body).ease_rate = body_record(body).saved_ease_rate;
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps - 1;
 }
 
 // Xbox 0x0009F170

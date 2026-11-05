@@ -1,4 +1,5 @@
 #include "super_scary_control.h"
+#include <cstddef>
 #include "scene_controls.h"
 #include "scene_control_fields.h"
 #include "gbtg/sound_runtime.h"
@@ -66,11 +67,10 @@ void clear_shiver_voice(SuperScaryControlState& control)
     control.shiver_voice = -1;
 }
 
-// Player body +0x728, cleared while Cooper is bound to the head and set again after. The body's own layout is
-// not named yet.
+// Player body +0x728, cleared while Cooper is bound to the head and set again after.
 void set_body_word_728(std::span<u8> body, u32 value)
 {
-    std::memcpy(body.data() + 0x728, &value, 4);
+    body_record(body).unk_728 = value;
 }
 
 // Modes 2 and 3 bind Cooper to the head.
@@ -717,7 +717,7 @@ void tick_runtime_super_scary_control(SceneControlBase& base, SuperScaryControlS
     if (control.player != 0)
     {
         const std::span<u8> body = services.player_body(control.player);
-        set_runtime_player_health_display(services.health, i32(get(body, body_field::energy)), 0); // 0x00130710, EDI
+        set_runtime_player_health_display(services.health, i32(body_record(body).energy), 0); // 0x00130710, EDI
         services.health_intensity = 2.f; // DAT_0032B110
         acquire_runtime_player_health_textures(services.health); // 0x0012FE10
     }

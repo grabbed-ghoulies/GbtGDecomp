@@ -1,4 +1,5 @@
 #include "body_shocked_state.h"
+#include <cstddef>
 #include "player_goal_cleanup.h"
 #include "gbtg/object_factory.h"
 #include "body_fields.h"
@@ -22,12 +23,6 @@ void step_counters(std::span<u8> body, i32 step)
     {
         body[offset] = u8(body[offset] + step);
     }
-}
-
-void step_half(std::span<u8> body, size_t offset, i32 step)
-{
-    const u16 value = u16(read_u16(body, offset) + step);
-    std::memcpy(body.data() + offset, &value, 2);
 }
 
 const MinaPlayer* first_player(const ActorAnimationState& animation)
@@ -69,12 +64,12 @@ bool initialize_runtime_shocked_state(ShockedState& state, std::span<const u8> p
 {
     const auto body = context.body;
     release_runtime_player_attachment(0, 0, context.attachment); // 0x0001B810, EAX body
-    body[0x6B] = u8(body[0x6B] + 1);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B + 1);
     step_counters(body, 1);
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
-    step_half(body, 0x30, 1);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    ++body_record(body).move_holds;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits.bytes[2] |= 4;
     auto clone = clone_executable_resource(context.resources,
         field_data(parameters, parameter::effect)); // 0x00107720, EAX parameters +0xC
@@ -94,8 +89,8 @@ bool initialize_runtime_shocked_state(ShockedState& state, std::span<const u8> p
 void destroy_runtime_shocked_state(ShockedState& state, RuntimeShockedStateContext& context)
 {
     const auto body = context.body;
-    step_half(body, 0x30, -1);
-    body[0x6B] = u8(body[0x6B] - 1);
+    --body_record(body).move_holds;
+    body_record(body).unk_6B = u8(body_record(body).unk_6B - 1);
     decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
     hold_runtime_body_latch_timer(body, kLatchHold, context.actor, context.latches); // 0x0001F4F0, ESI body
     step_counters(body, -1);

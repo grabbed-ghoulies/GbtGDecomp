@@ -1,4 +1,5 @@
 #include "player_mind_feedback.h"
+#include <cstddef>
 #include "player_mind_control.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -38,7 +39,7 @@ void set_runtime_player_actor_rotation(Actor& actor, const Actor& body_actor,
     normalize_euler_angles(actor.euler, rotation);
     actor.xform_valid = 0;
     const Vec3 world_rotation = actor_world_euler(body_actor);
-    std::memcpy(body.data() + 0x72C, &world_rotation, sizeof(world_rotation));
+    std::memcpy(body.data() + offsetof(BodyRecord, euler.x), &world_rotation, sizeof(world_rotation));
 }
 
 // Xbox 0x00140A40
@@ -82,9 +83,9 @@ void select_runtime_player_mind_alert(std::span<u8> mind, std::span<const u8> bo
         set(mind, mind_field::alert_mode, 0x42);
         return;
     }
-    const u16 maximum = get(body, body_field::max_energy);
+    const u16 maximum = body_record(body).max_energy;
     const bool low_health = maximum != 0 &&
-        float(get(body, body_field::energy)) / float(maximum) <= 0.25f;
+        float(body_record(body).energy) / float(maximum) <= 0.25f;
     if (player_link == 0)
     {
         if ((flags.bytes[4] & 0x40) != 0)
@@ -133,12 +134,13 @@ void update_runtime_player_mind_health_display(std::span<const u8> mind,
     std::span<const u8> body, const EntityBitBlock& flags, RuntimePlayerHealthDisplay& display)
 {
     if (get(mind, mind_field::target_mode) != 0 || (flags.bytes[5] & 1) != 0 || display.override_health != 0 ||
-        get(body, body_field::energy) <= 10)
+        body_record(body).energy <= 10)
     {
         display.intensity = 2.f;
         acquire_runtime_player_health_textures(display);
     }
-    set_runtime_player_health_display(display, get(body, body_field::energy), get(mind, player_mind_field::control_lock) > 0.f ? 1 : 0);
+    set_runtime_player_health_display(display, body_record(body).energy, get(mind,
+        player_mind_field::control_lock) > 0.f ? 1 : 0);
 }
 
 // Xbox 0x0007FB10
@@ -182,9 +184,9 @@ void tick_runtime_player_mind(RuntimePlayerMindTick& context, std::span<u8> inpu
 // Xbox 0x0007DAC0
 void clear_runtime_player_mind_body_event(std::span<u8> body)
 {
-    if (body[0x6A] == 0)
+    if (body_record(body).unk_6A == 0)
     {
-        put(body, 0x88, 0);
+       body_record(body).unk_88 = 0;
     }
 }
 
@@ -306,7 +308,7 @@ void reset_runtime_player_mind_body_event(RuntimePlayerMindFeedback& context,
         const float y = position.y - get(target, mind_target_field::shape_position).y;
         if (900.f > (z * z + x * x) + y * y)
         {
-            put(context.body, 0x88, 0);
+           body_record(context.body).unk_88 = 0;
             return;
         }
     }
@@ -315,7 +317,7 @@ void reset_runtime_player_mind_body_event(RuntimePlayerMindFeedback& context,
     {
         put(context.mind, 0xA0, 0x3F666666u);
     }
-    put(context.body, 0x88, 0);
+   body_record(context.body).unk_88 = 0;
 }
 
 // Xbox 0x0007DEE0

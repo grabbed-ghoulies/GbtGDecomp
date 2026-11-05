@@ -1,4 +1,5 @@
 #include "body_damage_dispatch.h"
+#include "body_fields.h"
 #include "body_damage_fields.h"
 
 namespace gbtg
@@ -24,7 +25,7 @@ void receive_runtime_body_damage(std::span<u8> body, BodyDamage& damage,
                 runtime_body_latches_block(body, processor.actor, damage.latch_mask)))
         {
             if ((processor.actor.mask_mode != 2 && processor.actor.mask_flag == 0) ||
-                body[0x6A] == 0 || (processor.flags.bytes[7] & 2) != 0)
+                body_record(body).unk_6A == 0 || (processor.flags.bytes[7] & 2) != 0)
             {
                 notify_runtime_body_blocked_damage(
                     context.game, processor.actor_address, damage.attacker,

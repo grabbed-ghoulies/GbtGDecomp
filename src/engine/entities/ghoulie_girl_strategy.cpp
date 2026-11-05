@@ -1,4 +1,5 @@
 #include "ghoulie_girl_strategy.h"
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -177,7 +178,7 @@ void stop_mode(RuntimeGhoulieGirlStrategy& context)
 void enter_hold(RuntimeGhoulieGirlStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    body_of(context)[0x328] = 2;
+    body_record(body_of(context)).move_class = 2;
     if (fields_of(strategy).woken == 0)
     {
         set_mode(1, context); // 0x000ABE80, EAX 1
@@ -280,7 +281,7 @@ void enter_knockdown(RuntimeGhoulieGirlStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     load_goal(context.goal_knockdown, context);
     fields_of(strategy).knockdown_time = kKnockdownTime; // Record +8.
-    body_of(context)[0x328] = 4;
+    body_record(body_of(context)).move_class = 4;
     strategy_base(strategy).attacking = 1;
 }
 

@@ -1,4 +1,5 @@
 #include "player_mind_messages.h"
+#include "body_fields.h"
 #include "player_mind_control.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -30,7 +31,7 @@ std::span<const u8> message_bytes(std::span<const u32> message)
 
 void notify_health_event(RuntimePlayerMindMessages& context)
 {
-    const u16 health = read_u16(context.feedback.body, 0x94);
+    const u16 health = body_record(context.feedback.body).energy;
     bool warn;
     if (!scene_end_flag_set())
     {

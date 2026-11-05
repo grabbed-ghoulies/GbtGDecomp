@@ -116,7 +116,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
 {
     {
         std::array<u8, 0xE00> actor_bytes{};
-        std::array<u8, 0x900> body_bytes{};
+        std::array<u8, 0x950> body_bytes{};
         std::span<u8> body = body_bytes;
         Actor native_actor;
         RuntimeBodyAttachedActor actor{actor_bytes, 0x12345678, {}};
@@ -245,7 +245,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         entity_detail::release_navigation_cell_registration(registration, 0xFFFFFFFF);
     }
     {
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 0xE00> host_bytes{};
         std::array<u8, 0xE00> attached_bytes{};
         std::array<u8, 0xE00> secondary_bytes{};
@@ -568,7 +568,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         engine_heap_free(flags);
     }
     {
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 0x7C8> parameters{};
         std::array<u8, 8> first_bytes{};
         std::array<u8, 16> second_bytes{};
@@ -786,7 +786,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         destroy_runtime_parent_body(body, cleanup);
     }
     {
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 0x108> row{};
         row[0] = 7;
         const RuntimeScriptLookupTable action_table{1, row.data()};
@@ -894,7 +894,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         RuntimeBodyAnimationSetup setup{resource, sequences, groups, group_count, bits,
             cache, cache_count, registry, error};
         std::array<u8, 0x200> parameters{};
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 8> actor{};
         actor[6] = 5;
         std::array<u8, 16> classes{};
@@ -945,7 +945,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
             "model-kind count must use node two and 0x34-byte records");
     }
     {
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 0xD00> actor{};
         std::array<u8, 0x200> parameters{};
         std::array<u8, 12> curve{};
@@ -1354,7 +1354,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         u32 block = 0, decay_index = 0;
         std::array<u8, 1> decay{1};
         RuntimeActorClock clock{freeze, dt, scale, block, decay, decay_index};
-        std::array<u8, 0x738> rotation_body{};
+        std::array<u8, 0x950> rotation_body{};
         put(rotation_body, 0x720, std::bit_cast<u32>(2.f));
         put(rotation_body, 0x724, std::bit_cast<u32>(1.f));
         put(rotation_body, 0x72C, std::bit_cast<u32>(1.f));
@@ -1390,7 +1390,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
     const auto preserved = matrix;
     adjust_runtime_body_yaw(matrix.data(), -2.f, 0.f);
     require(matrix == preserved, "zero yaw adjustment weight preserves the matrix");
-    std::array<u8, 0x900> body{};
+    std::array<u8, 0x950> body{};
     std::array<u8, 0x1B0> parameters{};
     std::array<u8, 0xD00> actor{};
     std::array<u8, 12> curve{};
@@ -1555,7 +1555,7 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
 
         std::array<u8, 0x38> strategy{};
         std::array<u8, 0xDB4> actor_bytes{};
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 0x7C> mind{};
         std::array<u8, 0x20> goal_row{};
         std::array<u8, 0x20> zero{};
@@ -2284,7 +2284,7 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
         Actor actor;
         std::array<u8, 0x38> strategy_bytes{};
         std::array<u8, 0xDB4> actor_bytes{};
-        std::array<u8, 0x900> body_bytes{};
+        std::array<u8, 0x950> body_bytes{};
         std::array<u8, 0x7C> mind_bytes{};
         std::array<u8, 0x20> ring_bytes{};
         std::array<u8, 0x20> zero{};

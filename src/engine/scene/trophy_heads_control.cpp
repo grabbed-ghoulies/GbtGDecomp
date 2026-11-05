@@ -1,4 +1,6 @@
 #include "trophy_heads_control.h"
+#include <cstddef>
+#include "../entities/body_fields.h"
 #include "scene_controls.h"
 #include "scene_control_fields.h"
 #include "gbtg/sound_runtime.h"
@@ -431,7 +433,7 @@ void set_runtime_trophy_heads_state(u8 next, TrophyHeadsControlState& control,
         control.player = services.spawn_player(); // 0x00134920, EAX 0, the position and euler DAT_0050DD80
         std::span<u8> body = services.player_body(control.player); // +0x95C
         const u16 health = u16(control.health); // MOV DX, [+0x34]: the word's low half
-        std::memcpy(body.data() + 0x94, &health, 2); // Body +0x94, which waits for the body's layout.
+        body_record(body).energy = health; // Body +0x94.
         const std::int8_t index = find_runtime_cutscene_track(services.cutscenes, head_track_id(control));
         Actor* head = row_of(current_cutscene(services), index, services).actor;
         const i32 count = control.attacks;

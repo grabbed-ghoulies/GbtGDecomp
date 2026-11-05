@@ -127,8 +127,8 @@ bool runtime_mind_target_climbing(const RuntimeMindTarget& target, RuntimeSpider
         return false;
     }
     const std::span<const u8> body = context.views.body_of(target.actor).bytes; // Target +0x10 actor's +0x95C.
-    const u8 kind = get(body, body_field::surface_override_frames) == 0 ? get(body, body_field::surface)
-                                                                        : get(body, body_field::surface_override);
+    const u8 kind = body_record(body).surface_override_frames == 0 ? body_record(body).surface
+                                                                        : body_record(body).surface_override;
     return kind == 0xC;
 }
 
@@ -218,7 +218,7 @@ void roam_runtime_spider(RuntimeSpiderStrategy& context)
     if (count == 0)
     {
         const float minimum = float(static_cast<long double>(goals.entry.actor.radius_xz)
-            * read_f32(body_of_actor(context), 0x888));
+            * body_record(body_of_actor(context)).radius_scale);
         candidates[0].clear = clear_point(floor, nullptr, position, minimum, 40.f, 0xC, candidates[0].point, context);
         count = candidates[0].clear ? 1 : 0;
         if (count == 0)
@@ -309,7 +309,7 @@ void choose_runtime_spider_attack(const RuntimeMindTarget& target, RuntimeSpider
 void end_runtime_spider_web(const RuntimeMindTarget& target, RuntimeSpiderStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f) // DAT_0032B100.
+    if (body_record(body).move_holds != 0 || body_record(body).move_hold_time != 0.f) // DAT_0032B100.
     {
         return;
     }
@@ -527,22 +527,22 @@ void enter_runtime_spider_state(u16 state, u16 previous, RuntimeSpiderStrategy& 
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = body_of_actor(context);
     const u32 target_address = get(mind_of(context), mind_field::target_record);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3EC:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         approach_runtime_spider_target(*goals.target_at(target_address), context); // 0x000C0620
         return;
     case 0x3ED:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         fields_of(strategy).reached = 0u;
         strategy_base(strategy).attacking = 1;
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         fields_of(strategy).reached = 0u;
         strategy_base(strategy).unk_1B = 1;
         return;

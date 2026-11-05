@@ -1,4 +1,5 @@
 #include "body_slam_smash_state.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "actor_render_registration.h"
 #include "actor_shape_bounds.h"
@@ -158,7 +159,7 @@ void set_phase(SlamSmashState& state, u32 phase, RuntimeSlamSmashStateContext& c
         {
             activate_runtime_body_contact_shapes(*context.collision, actor, state.shape_tag, 0xFF,
                 state.shape_scale); // 0x0013F420, XMM4 +0x30
-            put_float(context.body, 0x2CC, 0.f);
+            put_float(context.body, offsetof(BodyRecord, contact_count), 0.f);
         }
         state.shapes_active = 1u;
         state.timer = kCrouchTime;
@@ -185,9 +186,9 @@ float share(float timer, float rate)
 
 void place_body(const Vec3& point, RuntimeSlamSmashStateContext& context)
 {
-    put_float(context.body, 0x18, point.x);
-    put_float(context.body, 0x1C, point.y);
-    put_float(context.body, 0x20, point.z);
+   body_record(context.body).position.x = point.x;
+   body_record(context.body).position.y = point.y;
+   body_record(context.body).position.z = point.z;
 }
 
 bool construct_slam_smash_state_view(FactoryObject& object, std::span<const u8> parameters)
@@ -235,12 +236,12 @@ bool initialize_runtime_slam_smash_state(SlamSmashState& state, std::span<const 
     std::array<char, 0x80> effect{};
     std::strncpy(effect.data(), source.data(), effect.size() - 1); // The inlined strcpy.
     state.effect = effect;
-    body[0x6A] = u8(body[0x6A] + 1);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     state.shape_mode = u32(set_runtime_body_shape_mode(4, context.shape)); // 0x0001FEB0, BL 4
-    const u32 holds = get(body, body_field::holds) + 1;
-    std::memcpy(body.data() + 0x258, &holds, 4);
+    const u32 holds = body_record(body).holds + 1;
+    body_record(body).holds = holds;
     state.start = actor_world_position(context.actor); // 0x000412A0
     state.phase = 1u;
     start_animation(state, 0, state.take_off_animation, context);
@@ -251,10 +252,10 @@ bool initialize_runtime_slam_smash_state(SlamSmashState& state, std::span<const 
 void destroy_runtime_slam_smash_state(SlamSmashState& state, RuntimeSlamSmashStateContext& context)
 {
     const auto body = context.body;
-    body[0x6A] = u8(body[0x6A] - 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
     set_runtime_body_shape_mode(u8(state.shape_mode), context.shape); // 0x0001FEB0, BL +0x3C
-    const u32 holds = get(body, body_field::holds) - 1;
-    std::memcpy(body.data() + 0x258, &holds, 4);
+    const u32 holds = body_record(body).holds - 1;
+    body_record(body).holds = holds;
     if (holds == 0)
     {
         std::array<u32, 0x42> message{0x4A};

@@ -203,7 +203,7 @@ bool runtime_sss_door_triggered(RuntimeSssDoor& context)
         return false;
     }
     const auto body = context.player_body(*player); // Player +0x95C.
-    if (get(body, body_field::move_holds) != 0 || get(body, body_field::move_hold_time) != 0.f)
+    if (body_record(body).move_holds != 0 || body_record(body).move_hold_time != 0.f)
     {
         return false;
     }

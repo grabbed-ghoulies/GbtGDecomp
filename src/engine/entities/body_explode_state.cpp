@@ -1,4 +1,5 @@
 #include "body_explode_state.h"
+#include <cstddef>
 #include "actor_render_registration.h"
 #include "actor_runtime_queries.h"
 #include "actor_transform.h"
@@ -33,16 +34,6 @@ constexpr float kBlastShrinkScale = 17.f; // DAT_0032B518.
 constexpr float kBlastNearest = 8.f; // DAT_0032B26C.
 constexpr float kHalf = 0.5f; // DAT_0032B0F4.
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_vector(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, sizeof(value));
-}
-
 GhoulySpawnPool*& overrides_of(const ExplodeState& state)
 {
     return explode_overrides[body_state_key(state)];
@@ -56,11 +47,11 @@ void sync_overrides(ExplodeState& state)
 // The body's +0x309..+0x30C counts and +0x6A move by `step`.
 void step_counters(std::span<u8> body, i32 step)
 {
-    body[0x6A] = u8(body[0x6A] + step);
-    body[0x309] = u8(body[0x309] + step);
-    body[0x30B] = u8(body[0x30B] + step);
-    body[0x30A] = u8(body[0x30A] + step);
-    body[0x30C] = u8(body[0x30C] + step);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + step);
+    body_record(body).unk_309 = u8(body_record(body).unk_309 + step);
+    body_record(body).unk_30B = u8(body_record(body).unk_30B + step);
+    body_record(body).unk_30A = u8(body_record(body).unk_30A + step);
+    body_record(body).unk_30C = u8(body_record(body).unk_30C + step);
 }
 
 bool construct_explode_state_view(FactoryObject& object, std::span<const u8>)
@@ -98,12 +89,12 @@ bool initialize_runtime_explode_state(ExplodeState& state, RuntimeExplodeStateCo
     const std::span<u8> body = knockdown.body;
     step_counters(body, 1);
     increment_runtime_body_latches(body, knockdown.actor, context.latches); // The inlined 0x0001FC40.
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) + 1);
-    put_word(body, 0x330, read_u32(body, 0x334));
-    set(body, body_field::ease_rate, 0.f);
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps + 1;
+    body_record(body).saved_ease_rate = body_record(body).ease_rate;
+    body_record(body).ease_rate = 0.f;
     unregister_actor_segment_probes(context.render); // 0x0003E850
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     state.phase = 0u;
     return true;
 }
@@ -115,8 +106,8 @@ void destroy_runtime_explode_state(ExplodeState& state, RuntimeExplodeStateConte
     const std::span<u8> body = knockdown.body;
     step_counters(body, -1);
     decrement_runtime_body_latches(body, knockdown.actor, context.latches); // The inlined 0x0001FD20.
-    put_word(body, 0x334, read_u32(body, 0x330));
-    set(body, body_field::ease_rate_swaps, get(body, body_field::ease_rate_swaps) - 1);
+    body_record(body).ease_rate = body_record(body).saved_ease_rate;
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps - 1;
     GhoulySpawnPool*& overrides = overrides_of(state);
     if (overrides != nullptr)
     {
@@ -133,7 +124,7 @@ void tick_runtime_explode_state(ExplodeState& state, RuntimeExplodeStateContext&
     RuntimeKnockdownContext& knockdown = context.knockdown;
     Actor& actor = knockdown.actor;
     state.base.elapsed = runtime_actor_rate(actor) * runtime_frame_step(knockdown.clock) + state.base.elapsed;
-    put_vector(knockdown.body, 0x318, knockdown.default_position); // DAT_0050DD80.
+   body_record(knockdown.body).velocity = knockdown.default_position; // DAT_0050DD80.
     switch (state.phase)
     {
     case 0:
@@ -192,7 +183,7 @@ bool blast_runtime_explode_contacts(ExplodeState& state, Actor& actor, RuntimeEx
         }
     }
     Vec3 center = actor_world_position(actor); // 0x000412A0, ESI actor
-    center.y = knockdown.actor.radius_y * get(body, body_field::height_scale) * kHalf + center.y;
+    center.y = knockdown.actor.radius_y * body_record(body).height_scale * kHalf + center.y;
     GhoulySpawnPool*& overrides = overrides_of(state);
     if (overrides != nullptr)
     {

@@ -1,4 +1,6 @@
 #include "fx_anim_emitter.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "actor_attachment_requests.h"
 #include "actor_model_anchors.h"
 #include "actor_render_registration.h"
@@ -360,9 +362,9 @@ u32 collect_runtime_fx_anim_emitter(const EntityCylinderBound& bounds, RuntimeFx
     reach.y = position.y;
     reach.z = position.z;
     reach.pad0 = 0.f;
-    reach.height = player.body_actor.radius_y * read_f32(player.body, 0x884);
+    reach.height = player.body_actor.radius_y * body_record(player.body).height_scale;
     reach.pad1 = 0.f;
-    reach.radius = player.body_actor.radius_xz * read_f32(player.body, 0x888);
+    reach.radius = player.body_actor.radius_xz * body_record(player.body).radius_scale;
     const bool overlapping = !runtime_cylinders_apart(bounds, reach);
     bool touching = false;
     const Actor* carried = player.case_actor;
@@ -464,7 +466,7 @@ void scan_runtime_fx_emitter_players(RuntimeFxAnimEmitter& context)
         }
         // Both remaining cases select reference group 1.
         if (context.resume.references[1] != 0 || context.resume.decay_enabled[context.resume.decay_index] == 0
-            || read_u16(player->body, 0x94) == 0)
+            || body_record(player->body).energy == 0)
         {
             continue;
         }

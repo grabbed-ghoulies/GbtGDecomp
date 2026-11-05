@@ -1,4 +1,6 @@
 #include "body_action_selection.h"
+#include <cstddef>
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -161,21 +163,21 @@ bool select_runtime_body_action_row(std::span<u8> body, const u8* row,
     }
     context.row = nullptr;
     const u16 zero = 0;
-    std::memcpy(body.data() + 0x748, &zero, 2);
+    body_record(body).action_key = zero;
     const u32 name = read_u32({row, 0x108}, 0x104);
     if (name != 0)
     {
         select_runtime_body_animation(context.names.at(name), context);
     }
     context.row = row;
-    std::memcpy(body.data() + 0x748, &key, 2);
+    body_record(body).action_key = key;
     create_runtime_body_first_action(reinterpret_cast<const char*>(row + 0x82), parameters, context);
     create_runtime_body_second_action(reinterpret_cast<const char*>(row + 2), parameters, context);
-    if (read_u32(body, 0x74C) == 0)
+    if (body_record(body).unk_74C == 0)
     {
-        body[0x6C] = 0;
+        body_record(body).unk_6C = 0;
         const u32 zero_word = 0;
-        std::memcpy(body.data() + 0x84, &zero_word, 4);
+        body_record(body).hit_record = zero_word;
     }
     return true;
 }

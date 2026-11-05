@@ -1,4 +1,5 @@
 #include "scoreboard_update.h"
+#include "../entities/body_fields.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../runtime/rare_replay.h"
 #endif
@@ -762,7 +763,7 @@ bool runtime_baddie_meter_running(RuntimeScoreboardUpdate& context)
         return false;
     }
     NativePlayerInstance& target = baddie_meter_target(context);
-    if ((target.body_bits->bytes[3] & 8) != 0 || read_u16(target.body, 0x94) == 0) // Body +0x15C, +0x94
+    if ((target.body_bits->bytes[3] & 8) != 0 || body_record(target.body).energy == 0) // Body +0x15C, +0x94
     {
         return false;
     }

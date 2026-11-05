@@ -138,7 +138,7 @@ float runtime_player_target_radius(std::span<const u8> body, const Actor& body_a
     const RuntimeBodyAttachedActor* attached, const Actor& target)
 {
     const float radius = body_actor.radius_xz;
-    const float margin = get(body, body_field::reach) * radius;
+    const float margin = body_record(body).reach * radius;
     float model_radius = 0.f;
     const u8 category = attached == nullptr ? 0 : attached->bytes[0x93D];
     if (category == 1 && attached->actor->model != nullptr &&
@@ -147,7 +147,7 @@ float runtime_player_target_radius(std::span<const u8> body, const Actor& body_a
         model_radius = actor_model_radius(*attached->actor);
     }
     const float model_margin = model_radius + margin;
-    return get(body, body_field::radius_scale) * radius + model_margin + target.radius_xz;
+    return body_record(body).radius_scale * radius + model_margin + target.radius_xz;
 }
 
 // Xbox 0x00129C20
@@ -188,7 +188,7 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
             float radius;
             if (get(request, reach_request::uses_target_radius) == 0)
             {
-                radius = context.body_actor.radius_xz * get(body, body_field::radius_scale) +
+                radius = context.body_actor.radius_xz * body_record(body).radius_scale +
                     get(context.target_bytes, mind_target_field::shape_radius);
             }
             else
@@ -234,8 +234,8 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
         return notice[1] != 0 ? 3 : 1;
     }
     case 0x1E:
-        set(body, body_field::unk_70, runtime_body_random_range(context.random,
-            get(request, body_range_request::low), get(request, body_range_request::high)));
+        body_record(body).unk_70 = runtime_body_random_range(context.random, get(request, body_range_request::low),
+            get(request, body_range_request::high));
         return 1;
     case 0x1F:
         select_runtime_body_action(body, runtime_body_action_name_id(field_data(request, named_request::name),

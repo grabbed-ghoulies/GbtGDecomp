@@ -1,4 +1,5 @@
 #include "body_orientation.h"
+#include <cstddef>
 #include "player_mind_targets.h"
 #include "player_mind_feedback.h"
 #include "player_mind_events.h"
@@ -32,11 +33,11 @@ float runtime_actor_relative_point_angle(const Actor& actor, const Vec3& point)
 // Xbox 0x00134510
 void face_runtime_body_point(std::span<u8> body, const Actor& actor, const Vec3& point)
 {
-    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+    if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const float angle = runtime_actor_direction_to_point(actor, point);
         const Vec3 rotation{0.f, angle, 0.f};
-        std::memcpy(body.data() + 0x72C, &rotation, sizeof(rotation));
+        std::memcpy(body.data() + offsetof(BodyRecord, euler.x), &rotation, sizeof(rotation));
     }
 }
 
@@ -44,7 +45,7 @@ void face_runtime_body_point(std::span<u8> body, const Actor& actor, const Vec3&
 void face_runtime_body_target(std::span<u8> body, const Actor& actor,
     std::span<const u8> target)
 {
-    if (get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f)
+    if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
         face_runtime_body_point(body, actor, point);
@@ -139,22 +140,23 @@ i32 runtime_direction_lean(const Vec3& direction, float heading, float& tilt, fl
 void settle_runtime_body_turn(std::span<u8> body, const Actor& actor)
 {
     float x = 0.f;
-    float y = get(body, body_field::euler).y;
+    float y = body_record(body).euler.y;
     float z = 0.f;
-    if (get(body, body_field::has_ground) != 0)
+    if (body_record(body).has_ground != 0)
     {
-        const Vec3 direction{read_f32(body, 0x184), read_f32(body, 0x188), read_f32(body, 0x18C)};
+        const Vec3 direction{body_record(body).ground_normal.x, body_record(body).ground_normal.y,
+            body_record(body).ground_normal.z};
         runtime_direction_lean(direction, actor.euler.y, x, z); // 0x001068E0, actor +0x18
     }
-    std::memcpy(body.data() + 0x72C, &x, 4);
-    std::memcpy(body.data() + 0x730, &y, 4);
-    std::memcpy(body.data() + 0x734, &z, 4);
+    body_record(body).euler.x = x;
+    body_record(body).euler.y = y;
+    body_record(body).euler.z = z;
 }
 
 // Xbox 0x000197B0
 float runtime_body_point_heading(std::span<const u8> body, const Actor& actor)
 {
-    const Vec3 point = get(body, body_field::focus_point);
+    const Vec3 point = body_record(body).focus_point;
     const Vec3 position = actor_world_position(actor);
     const Vec3 direction{point.x - position.x, point.y - position.y, point.z - position.z};
     float angle = 0.f;

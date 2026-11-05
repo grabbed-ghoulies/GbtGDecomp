@@ -91,7 +91,7 @@ float randomize_runtime_navigation_heading(float heading, float width, u32& rand
 // Xbox 0x0007F980
 bool avoid_runtime_player_navigation(RuntimePlayerNavigationAvoidance& context)
 {
-    if (get(context.body, body_field::move_holds) != 0 || get(context.body, body_field::move_hold_time) != 0.f)
+    if (body_record(context.body).move_holds != 0 || body_record(context.body).move_hold_time != 0.f)
     {
         return false;
     }

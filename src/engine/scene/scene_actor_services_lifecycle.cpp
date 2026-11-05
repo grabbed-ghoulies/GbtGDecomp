@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../entities/body_fields.h"
 #include "../entities/player_fields.h"
 
 // Scene begin and end, teardown, and the transition, pause, book and game-select service bindings.
@@ -735,7 +736,7 @@ void SceneActorServices::State::bind_gameselect_services()
         [case_player]() -> i32
         {
             NativePlayerInstance* player = case_player();
-            return player == nullptr || player->body.empty() ? -1 : i32(read_u16(player->body, 0x94)); // Body +0x94
+            return player == nullptr || player->body.empty() ? -1 : i32(body_record(player->body).energy); // Body +0x94
         },
         [case_player]()
         {
@@ -757,7 +758,7 @@ void SceneActorServices::State::bind_gameselect_services()
         [case_player]()
         {
             NativePlayerInstance* player = case_player(); // 0x001292D0
-            return player != nullptr && !player->body.empty() && read_u16(player->body, 0x94) == 0;
+            return player != nullptr && !player->body.empty() && body_record(player->body).energy == 0;
         },
         *scoreboard_hud, *scoreboard_resources, data(0x00314170, 0x10), *dialogue, audio.streams,
         [](u8 mask, i32 release)
@@ -787,7 +788,7 @@ void SceneActorServices::State::bind_gameselect_services()
                 auto& player = players->player_at(mark.address);
                 player.refresh_body_views();
                 if (get(player.actor_bytes, player_field::mode) != 1 || player.body.empty()
-                    || read_u16(player.body, 0x94) == 0)
+                    || body_record(player.body).energy == 0)
                 {
                     continue;
                 }

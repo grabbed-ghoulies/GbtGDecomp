@@ -1,4 +1,5 @@
 #include "player_body_collision.h"
+#include <cstddef>
 #include "entity_collision.h"
 #include "entity.h"
 #include "entity_heap.h"
@@ -16,7 +17,7 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
 {
     auto& body = context.body;
     auto& actor = context.actor;
-    const u8 surface = get(body, body_field::surface);
+    const u8 surface = body_record(body).surface;
     const bool was_grounded = (context.flags->bytes[5] & 2) != 0;
     const bool was_supported = (context.flags->bytes[2] & 0x20) != 0;
     i32 maximum_passes = 3;
@@ -33,12 +34,12 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
     }
     const Vec3 start = actor_world_position(actor);
     const float actor_radius = actor.radius_xz;
-    Vec3 proposed = get(body, body_field::position);
+    Vec3 proposed = body_record(body).position;
     push_runtime_player_body_shapes(body, actor, proposed, context.shapes, context.push);
-    const float radius = read_f32(body, 0x894) * actor_radius;
-    const float height = (read_f32(body, 0x8A4) * actor_radius + radius) + 0.5f;
+    const float radius = parent_body_record(body).collision_radius * actor_radius;
+    const float height = (parent_body_record(body).collision_height * actor_radius + radius) + 0.5f;
     Vec3 reference{start.x, start.y + height, start.z};
-    body[0x874] = 0;
+    body_record(body).surface = 0;
     context.flags->bytes[1] &= 0xDF;
     bool had_contact = false;
     bool handled = false;
@@ -73,8 +74,8 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
                     const float dz = first.z - other.z;
                     if (low > dx || dx > high || low > dy || dy > high || low > dz || dz > high)
                     {
-                        Vec3 desired{get(body, body_field::position).x - start.x, 0.f,
-                                     get(body, body_field::position).z - start.z};
+                        Vec3 desired{body_record(body).position.x - start.x, 0.f,
+                                     body_record(body).position.z - start.z};
                         Vec3 actual{upper.x - start.x, 0.f, upper.z - start.z};
                         float squared = desired.x * desired.x + desired.z * desired.z;
                         if (squared != 0.f)
@@ -142,7 +143,7 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
             slide = true;
             context.flags->bytes[1] |= 0x20;
         }
-        entity_copy_match_block(body.data() + 0x1CC, record);
+        entity_copy_match_block(body.data() + offsetof(BodyRecord, last_contact), record);
         if (slide)
         {
             if (flatten && animation_absolute(contact.y) > std::bit_cast<float>(0x3456BF95u))
@@ -198,7 +199,7 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
         }
         actor.xform_valid = 0;
         const Vec3 world = actor_world_position(actor);
-        std::memcpy(body.data() + 0x18, &world, 12);
+        std::memcpy(body.data() + offsetof(BodyRecord, position.x), &world, 12);
     }
     else
     {
@@ -219,11 +220,11 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
             context.flags->bytes[2] &= 0xDF;
         }
         context.flags->bytes[1] &= 0xDF;
-        body[0x874] = surface;
+        body_record(body).surface = surface;
     }
-    if ((context.flags->bytes[5] & 2) == 0 && get(body, body_field::has_ground) != 0)
+    if ((context.flags->bytes[5] & 2) == 0 && body_record(body).has_ground != 0)
     {
-        const float floor_y = get(body, body_field::ground_point).y;
+        const float floor_y = body_record(body).ground_point.y;
         const Vec3 world = actor_world_position(actor);
         if (floor_y + 5.f >= world.y)
         {
@@ -242,26 +243,26 @@ bool update_runtime_player_body_collision(RuntimePlayerBodyCollision& context)
                     }
                 }
             }
-            body[0x874] = kind;
+            body_record(body).surface = kind;
         }
     }
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(actor);
     const Vec3 delta{final.x - start.x, final.y - start.y, final.z - start.z};
-    size_t sample = 0x344 + size_t(read_u32(body, 0x340)) * 12;
+    size_t sample = 0x344 + size_t(body_record(body).motion_sample) * 12;
     std::memcpy(body.data() + sample, &delta, 12);
     if (rate * step > 0.f)
     {
         const float inverse = 1.f / (rate * step);
-        sample = 0x344 + size_t(read_u32(body, 0x340)) * 12;
+        sample = 0x344 + size_t(body_record(body).motion_sample) * 12;
         const Vec3 velocity{inverse * read_f32(body, sample), inverse * read_f32(body, sample + 4),
             inverse * read_f32(body, sample + 8)};
         std::memcpy(body.data() + sample, &velocity, 12);
     }
-    const i32 index = std::bit_cast<i32>(read_u32(body, 0x340)) + 1;
+    const i32 index = std::bit_cast<i32>(body_record(body).motion_sample) + 1;
     const u32 next = u32(index % 0x50);
-    std::memcpy(body.data() + 0x340, &next, 4);
-    std::memcpy(body.data() + 0x704, &delta, 12);
+    body_record(body).motion_sample = next;
+    std::memcpy(body.data() + offsetof(BodyRecord, unk_704.x), &delta, 12);
     return handled;
 }
 }

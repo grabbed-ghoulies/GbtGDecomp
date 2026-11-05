@@ -1,4 +1,5 @@
 #include "weapon_actor.h"
+#include <cstddef>
 #include "powerup_flags.h"
 #include "thrown_projectile.h"
 #include "homing_projectile.h"
@@ -875,8 +876,8 @@ void break_runtime_weapon_by_player(RuntimeWeaponActor& weapon, std::span<u32> m
     {
         // The player's body +0x270 / +0x274 name its two partners; a live one picks the category.
         const auto body = weapon.services.body_of(message[4]);
-        const Actor* first = weapon.actor_or_null(get(body, body_field::attacker));
-        const Actor* second = weapon.actor_or_null(get(body, body_field::unk_274));
+        const Actor* first = weapon.actor_or_null(body_record(body).attacker);
+        const Actor* second = weapon.actor_or_null(body_record(body).unk_274);
         if (first != nullptr && (first->mask_mode == 2 || first->mask_flag != 0))
         {
             weapon_base(bytes).break_category = 2;
@@ -1670,7 +1671,7 @@ void push_runtime_weapon_marker(RuntimeWeaponActor& weapon, Actor& holder, std::
     auto contacts = entity_merge_contact_records(); // 0x00122310
     Vec3 eye = actor_world_position(holder); // 0x000412A0
     const auto body = weapon.services.body_of(weapon.services.actor_address(holder)); // Holder +0x95C.
-    eye.y = holder.radius_y * get(body, body_field::height_scale) * 0.5f + eye.y; // DAT_0032B0F4.
+    eye.y = holder.radius_y * body_record(body).height_scale * 0.5f + eye.y; // DAT_0032B0F4.
     cull_back_facing_segment_contacts(contacts, eye); // 0x000FC840
     // Without rows 0x000FC3F0 does not run and the push gains nothing here.
     Vec3 separated = probe;
@@ -2081,8 +2082,8 @@ void notify_runtime_marks_in_cylinder(RuntimeWeaponActor& weapon, std::span<u32>
         // The node's +0x28 is the body; body +8 is the actor it scales.
         const Actor& actor = *mark.actor;
         const Vec3 position = actor_world_position(actor); // 0x000412A0
-        const float top_extent = actor.radius_y * read_f32(mark.body, 0x884);
-        float radius = actor.radius_xz * read_f32(mark.body, 0x888);
+        const float top_extent = actor.radius_y * body_record(mark.body).height_scale;
+        float radius = actor.radius_xz * body_record(mark.body).radius_scale;
         if (position.y > high)
         {
             continue;

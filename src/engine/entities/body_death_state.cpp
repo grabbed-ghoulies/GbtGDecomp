@@ -1,4 +1,5 @@
 #include "body_death_state.h"
+#include <cstddef>
 #include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "body_damage_notices.h"
@@ -20,23 +21,12 @@ namespace parameter = death_state_parameter;
 
 std::function<RuntimeDeathStateContext&(u32)> death_context_of;
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void step_counters(std::span<u8> body, i32 step)
 {
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + step);
     }
-}
-
-void step_half(std::span<u8> body, size_t offset, i32 step)
-{
-    const u16 value = u16(read_u16(body, offset) + step);
-    std::memcpy(body.data() + offset, &value, 2);
 }
 
 const MinaPlayer* first_player(const ActorAnimationState& animation)
@@ -81,17 +71,17 @@ bool initialize_runtime_death_state(DeathState& state, std::span<const u8> param
     const auto body = knockdown.body;
     knockdown.bits.bytes[3] |= 8;
     step_counters(body, 1);
-    step_half(body, 0x30, 1);
-    body[0x92] = 1;
+    ++body_record(body).move_holds;
+    body_record(body).unk_92 = 1;
     const float hold = 0.09f; // DAT_0032B2D8.
-    body[0xF8] = 5;
-    put_float(body, 0xF0, hold);
-    body[0xEC] = 5;
-    put_float(body, 0xE4, hold);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).aux_level_1 = 5;
+   body_record(body).aux_time_1 = hold;
+    body_record(body).aux_level_0 = 5;
+   body_record(body).aux_time_0 = hold;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     increment_runtime_body_latches(body, knockdown.actor, context.latches); // 0x0001FC40, ECX body
-    body[0x715] = 1;
+    body_record(body).unk_715 = 1;
     if (get(parameters, parameter::release_attachments) != 0)
     {
         // Actor +0x8F8: each live attachment is released (0x0012B0B0, ESI the record).
@@ -133,19 +123,19 @@ void destroy_runtime_death_state(DeathState& state, RuntimeDeathStateContext& co
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const auto body = knockdown.body;
-    step_half(body, 0x30, -1);
+    --body_record(body).move_holds;
     step_counters(body, -1);
     set_runtime_body_shape_mode(state.shape_mode, knockdown.shape); // 0x0001FEB0, BL state +0x20
     if (knockdown.spheres != nullptr) // Body +0x710.
     {
-        RuntimeBodyCollisionSphere* end = knockdown.spheres + body[0x714];
+        RuntimeBodyCollisionSphere* end = knockdown.spheres + body_record(body).sphere_count;
         for (RuntimeBodyCollisionSphere* sphere = knockdown.spheres; sphere < end; ++sphere)
         {
             sphere->contact[0x26] = 0;
         }
     }
-    body[0x715] = 0;
-    body[0x716] = 0;
+    body_record(body).unk_715 = 0;
+    body_record(body).unk_716 = 0;
     decrement_runtime_body_latches(body, knockdown.actor, context.latches); // The tail jump to 0x0001FD20.
 }
 

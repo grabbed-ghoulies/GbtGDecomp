@@ -54,9 +54,9 @@ void sync_overrides(FlamethrowerState& state)
 // Body +0x72C..+0x734: the euler the body turns its actor to.
 void set_body_turn(std::span<u8> body, float pitch, float yaw, float roll)
 {
-    put_float(body, 0x72C, pitch);
-    put_float(body, 0x730, yaw);
-    put_float(body, 0x734, roll);
+   body_record(body).euler.x = pitch;
+   body_record(body).euler.y = yaw;
+   body_record(body).euler.z = roll;
 }
 
 // The inlined 0x00042360 over a state timer.
@@ -152,13 +152,13 @@ bool initialize_runtime_flamethrower_state(FlamethrowerState& state, std::span<c
     state.effect_joint = 0xFFFFFFFFu;
     copy_name(state.sound.data(), parameters, parameter::sound);
     copy_name(state.effect.data(), parameters, parameter::effect);
-    body[0x38] = 1;
-    body[0x39] = 1;
-    ++body[0x309];
-    ++body[0x30A];
-    ++body[0x30B];
-    ++body[0x30C];
-    ++body[0x6A];
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    ++body_record(body).unk_309;
+    ++body_record(body).unk_30A;
+    ++body_record(body).unk_30B;
+    ++body_record(body).unk_30C;
+    ++body_record(body).unk_6A;
     state.timer = 1.25f; // DAT_0032B114.
     state.yaw = actor.euler.y;
     state.phase = 0u;
@@ -179,11 +179,11 @@ bool initialize_runtime_flamethrower_state(FlamethrowerState& state, std::span<c
 void destroy_runtime_flamethrower_state(FlamethrowerState& state, RuntimeFlamethrowerStateContext& context)
 {
     const auto body = context.body;
-    --body[0x309];
-    --body[0x30A];
-    --body[0x30B];
-    --body[0x30C];
-    --body[0x6A];
+    --body_record(body).unk_309;
+    --body_record(body).unk_30A;
+    --body_record(body).unk_30B;
+    --body_record(body).unk_30C;
+    --body_record(body).unk_6A;
     if (state.sound.data()[0] != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds); // 0x0012A3D0, ESI actor +0x614
@@ -316,7 +316,7 @@ float runtime_flamethrower_aim_pitch(RuntimeFlamethrowerStateContext& context)
     const auto target = context.target_at(address);
     const Actor& actor = context.actor;
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const float eye = get(context.body, body_field::height_scale) * actor.radius_y + position.y;
+    const float eye = body_record(context.body).height_scale * actor.radius_y + position.y;
     const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x,
         (get(target, mind_target_field::shape_height) * 0.25f + get(target, mind_target_field::shape_position).y) - eye, // DAT_0032B104.
         get(target, mind_target_field::shape_position).z - position.z};

@@ -1,4 +1,5 @@
 #include "player_update.h"
+#include <cstddef>
 #include "actor_attachment_requests.h"
 #include "actor_transform.h"
 #include "actor_world_lists.h"
@@ -71,8 +72,8 @@ void track_runtime_player_room(RuntimePlayerRoomTracking& context)
         {
             set(actor, player_field::left_room, 1);
         }
-        else if (get(context.body, body_field::move_holds) == 0 &&
-                 get(context.body, body_field::move_hold_time) == 0.0f)
+        else if (body_record(context.body).move_holds == 0 &&
+                 body_record(context.body).move_hold_time == 0.0f)
         {
             set(actor, player_field::saved_position, position);
         }
@@ -212,7 +213,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     context.body_bits->bytes[0] &= 0xFD;
     if (paused == 0)
     {
-        if (get(body, body_field::holds) == 0)
+        if (body_record(body).holds == 0)
         {
             const u32 filter = actor.model_flags;
             actor.model_flags = 0;
@@ -221,7 +222,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
             register_actor_shape_probe(actor, context.shape_probe);
             push_runtime_body_spheres(context.body);
             const Vec3 position = actor_world_position(actor);
-            set(body, body_field::unk_24, position);
+            body_record(body).unk_24 = position;
             if (context.body_supported(context.body_object) == 0)
             {
                 context.body_bits->bytes[1] |= 0x10;
@@ -236,15 +237,16 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         }
         else
         {
-            set(body, body_field::unk_716, 0);
-            const Vec3 local = get(body, body_field::position);
+            body_record(body).unk_716 = 0;
+            const Vec3 local = body_record(body).position;
             const Vec3 world = actor_world_position(actor);
             const Vec3 delta{local.x - world.x, local.y - world.y, local.z - world.z};
-            record_runtime_body_motion(body.subspan(0x340, 4 + 0x50 * 12), delta, owner, clock);
-            set(body, body_field::unk_704, delta);
+            record_runtime_body_motion(body.subspan(offsetof(BodyRecord, motion_sample), 4 + 0x50 * 12), delta,
+                owner, clock);
+            body_record(body).unk_704 = delta;
             actor_set_world_position(actor, local);
             const Vec3 settled = actor_world_position(owner);
-            set(body, body_field::position, settled);
+            body_record(body).position = settled;
         }
     }
     actor_refresh_transform(actor);
@@ -298,11 +300,11 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         }
     }
     const Vec3 settled = actor_world_position(owner);
-    set(body, body_field::position, settled);
-    set(body, body_field::velocity, Vec3{0.0f, 0.0f, 0.0f});
-    set(body, body_field::heading, owner.euler.y);
+    body_record(body).position = settled;
+    body_record(body).velocity = Vec3{0.0f, 0.0f, 0.0f};
+    body_record(body).heading = owner.euler.y;
     const Vec3 euler = actor_world_euler(owner);
-    set(body, body_field::euler, euler);
+    body_record(body).euler = euler;
     tick_runtime_player_status_timers(self, clock);
     track_runtime_player_room(context.room);
     if (entity_detail::g_nav_grids[0] != nullptr)
@@ -315,7 +317,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         }
         else
         {
-            radius = owner.radius_xz * get(body, body_field::radius_scale);
+            radius = owner.radius_xz * body_record(body).radius_scale;
         }
         entity_detail::NavigationPathSearch* search;
         i32 preferred;

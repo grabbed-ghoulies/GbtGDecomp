@@ -1,4 +1,6 @@
 #include "player_goal_cleanup.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "../scripts/script_conditions.h"
 #include "actor_live_attachments.h"
 #include "entity_heap.h"
@@ -78,10 +80,10 @@ u16 current_kind(const RuntimePlayerGoalRing* ring, std::span<const u8> address_
 // Xbox 0x0001F7A0
 u8 runtime_body_latch_mask(std::span<const u8> body)
 {
-    u8 mask = body[0x260] != 0;
+    u8 mask = body_record(body).unk_260 != 0;
     for (u32 index = 1; index < 6; ++index)
     {
-        if (body[0x260 + index] != 0)
+        if (body[offsetof(BodyRecord, unk_260) + index] != 0)
         {
             mask = u8(mask + (1u << index));
         }
@@ -98,7 +100,7 @@ void decrement_runtime_body_latch_mask(std::span<u8> body, u8 mask, Actor& owner
     {
         if ((mask & (1u << index)) != 0)
         {
-            body[0x260 + index] = u8(body[0x260 + index] - 1);
+            body[offsetof(BodyRecord, unk_260) + index] = u8(body[offsetof(BodyRecord, unk_260) + index] - 1);
         }
     }
     notify_latch_change(before, body, owner, first);
@@ -113,7 +115,7 @@ void increment_runtime_body_latch_mask(std::span<u8> body, u8 mask, Actor& owner
     {
         if ((mask & (1u << index)) != 0)
         {
-            body[0x260 + index] = u8(body[0x260 + index] + 1);
+            body[offsetof(BodyRecord, unk_260) + index] = u8(body[offsetof(BodyRecord, unk_260) + index] + 1);
         }
     }
     notify_latch_change(before, body, owner, first);
@@ -147,12 +149,12 @@ void decrement_runtime_body_latches(std::span<u8> body, Actor& owner,
 void hold_runtime_body_latch_timer(std::span<u8> body, float seconds, Actor& owner,
     entity_detail::LatchNode*& first)
 {
-    if (read_f32(body, 0x25C) == 0.f) // DAT_0032B100.
+    if (body_record(body).unk_25C == 0.f) // DAT_0032B100.
     {
         // 0x0001FC40's six raises and their {0x47, actor} notice, inlined.
         increment_runtime_body_latches(body, owner, first);
     }
-    std::memcpy(body.data() + 0x25C, &seconds, 4);
+    body_record(body).unk_25C = seconds;
 }
 
 // Xbox 0x000283D0

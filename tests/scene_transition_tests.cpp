@@ -1,4 +1,6 @@
 #include <unordered_set>
+#include <cstddef>
+#include "../src/engine/entities/body_fields.h"
 #include "../src/engine/entities/strategy_fields.h"
 #include "gbtg/engine_internal.h"
 #include "../src/engine/runtime/throw_trace.h"
@@ -2733,7 +2735,7 @@ void check_spawn_receiver_dependencies()
             }};
         RuntimeScriptActorQueryContext query{[] { return std::vector<RuntimeScriptActorQueryView>{}; },
             zero.data()}; // An empty DAT_00511B38.
-        std::vector<u8> body_storage(0x900);
+        std::vector<u8> body_storage(0x950);
         std::span<u8> body_view = body_storage;
         entity_detail::LatchNode* latch = nullptr;
         RuntimePlayerGoalCleanup goals{self, ring, body_view, player_actor, latch, zero, overrides};
@@ -7406,9 +7408,9 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
             actor.radius_y = 3.f;
             actor.radius_xz = 4.f;
             actor.class_key = 42;
-            std::array<u8, 0x890> body_bytes{};
+            std::array<u8, 0x950> body_bytes{};
             const float factors[]{2.f, 3.f};
-            std::memcpy(body_bytes.data() + 0x884, factors, 8);
+            std::memcpy(body_bytes.data() + offsetof(gbtg::BodyRecord, height_scale), factors, 8);
             std::array<u8, 0x970> link{};
             const i16 count = 2;
             const u16 slots[]{11, 3, 42, 2};
@@ -7562,15 +7564,16 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
                 setup.animation_table = variant == 3 ? nullptr : &animations;
                 mind_bytes.fill(0xA6);
                 const u16 prior_health = 0xA6A6;
-                std::memcpy(body_bytes.data() + 0x94, &prior_health, 2);
-                std::memcpy(body_bytes.data() + 0x96, &prior_health, 2);
+                gbtg::body_record(std::span<gbtg::u8>(body_bytes)).energy = prior_health;
+                gbtg::body_record(std::span<gbtg::u8>(body_bytes)).max_energy = prior_health;
                 intro_enabled = 0;
                 if (!initialize_runtime_player_mind(mind_bytes, mind_parameters, setup))
                 {
                     throw Error("translated player mind constructor changed its return");
                 }
                 const u16 expected_health = variant == 1 || variant == 2 ? 10 : variant == 3 ? prior_health : 7;
-                if (read_u16(body_bytes, 0x94) != expected_health || read_u16(body_bytes, 0x96) != expected_health
+                if (gbtg::body_record(std::span<gbtg::u8>(body_bytes)).energy != expected_health
+                    || gbtg::body_record(std::span<gbtg::u8>(body_bytes)).max_energy != expected_health
                     || intro_enabled != (variant == 0 ? 1u : 0u)
                     || read_u32(actor_bytes, 0xCE0) != 1 || actor_bytes[0x331] != 1
                     || read_u32(mind_bytes, 0x144) != (variant == 3 ? 0u : 1u)
@@ -8082,7 +8085,7 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
                 cooper = gbtg::actor_world_position(*mark.actor);
             }
             else if (mark.actor->class_key == 52 && !mark.strategy.empty() && !mark.body.empty()
-                && gbtg::read_u16(mark.body, 0x94) != 0)
+                && gbtg::body_record(mark.body).energy != 0)
             {
                 // The skeletons (class 52, strategy type 0x51) with energy left.
                 skeletons.push_back(mark);
@@ -8805,13 +8808,13 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
             {
                 cooper = gbtg::actor_world_position(*mark.actor);
                 // A lost skeleton fight: Cooper's energy (body +0x94) runs out and the event goes back to Free Play.
-                fainted = fainted || (picked >= 0 && !mark.body.empty() && gbtg::read_u16(mark.body, 0x94) == 0);
+                fainted = fainted || (picked >= 0 && !mark.body.empty() && gbtg::body_record(mark.body).energy == 0);
             }
         }
         for (const auto& mark : actors.marked_actors())
         {
             if (cooper && mark.actor != nullptr && mark.actor->class_key == 52 && !mark.body.empty()
-                && gbtg::read_u16(mark.body, 0x94) != 0)
+                && gbtg::body_record(mark.body).energy != 0)
             {
                 const gbtg::Vec3 at = gbtg::actor_world_position(*mark.actor);
                 const float d = (at.x - cooper->x) * (at.x - cooper->x) + (at.z - cooper->z) * (at.z - cooper->z);
@@ -9069,7 +9072,7 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                         continue;
                     }
                     const gbtg::u32 body = game.factory_scene->address_of(mark.body.data());
-                    std::cout << label << " frame " << frame << ": Cooper energy " << gbtg::read_u16(mark.body, 0x94)
+                    std::cout << label << " frame " << frame << ": Cooper energy " << gbtg::body_record(mark.body).energy
                               << ", states";
                     std::span<const gbtg::u8> second_bytes;
                     const auto [first_action, second_action] = actors.player_action_types(*mark.actor, &second_bytes);
@@ -9079,9 +9082,9 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                         std::cout << " cutscenes " << stack->index << " stop " << stack->stop << " linked " << stack->linked;
                     }
                     std::cout << " bound " << (mark.actor->bind != nullptr && mark.actor->bind->parent != nullptr)
-                              << " held 0x" << std::hex << gbtg::read_u32(mark.body, 0x48) << " +0x4C 0x"
-                              << gbtg::read_u32(mark.body, 0x4C) << std::dec << " +0x30 " << gbtg::read_u16(mark.body, 0x30)
-                              << " +0x258 " << gbtg::read_u32(mark.body, 0x258) << " +0x6A " << int(mark.body[0x6A]);
+                              << " held 0x" << std::hex << gbtg::body_record(mark.body).attached << " +0x4C 0x"
+                              << gbtg::body_record(mark.body).unk_4C << std::dec << " +0x30 " << gbtg::body_record(mark.body).move_holds
+                              << " +0x258 " << gbtg::body_record(mark.body).holds << " +0x6A " << int(gbtg::body_record(mark.body).unk_6A);
                     if (second_action == 0x7A && second_bytes.size() > 0x60)
                     {
                         std::cout << " knockdown phase " << gbtg::read_u32(second_bytes, 0x18) << " +0x34 "
@@ -9091,15 +9094,16 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                                   << " rate " << mark.actor->animation_rate << " pause " << mark.actor->animation_pause
                                   << " +0x5E " << gbtg::read_u16(second_bytes, 0x5E) << " +0xC "
                                   << gbtg::read_u16(second_bytes, 0xC) << " body +0x73C "
-                                  << gbtg::read_u32(mark.body, 0x73C);
+                                  << gbtg::body_record(mark.body).unk_73C;
                     }
                     for (const auto& object : game.factory_scene->objects)
                     {
                         const gbtg::u32 at = object.bytes == nullptr ? 0 : game.factory_scene->address_of(object.bytes.get());
-                        if (at != 0 && (at == gbtg::read_u32(mark.body, 0x740) || at == gbtg::read_u32(mark.body, 0x744)))
+                        if (at != 0 && (at == gbtg::body_record(mark.body).unk_740
+                            || at == gbtg::body_record(mark.body).unk_744))
                         {
                             std::cout << " 0x" << std::hex << object.type << std::dec
-                                      << (at == gbtg::read_u32(mark.body, 0x744) ? " (+0x744)" : " (+0x740)");
+                                      << (at == gbtg::body_record(mark.body).unk_744 ? " (+0x744)" : " (+0x740)");
                         }
                     }
                     std::cout << "\n";
@@ -9208,7 +9212,7 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
             for (const auto& mark : actors.marked_actors())
             {
                 if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
-                    || gbtg::read_u16(mark.body, 0x94) == 0)
+                    || gbtg::body_record(mark.body).energy == 0)
                 {
                     continue;
                 }
@@ -9502,9 +9506,10 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             if (mark.actor != nullptr && mark.actor->class_key == player_class)
             {
                 cooper = gbtg::actor_world_position(*mark.actor);
-                holding = !mark.body.empty() && gbtg::read_u32(mark.body, 0x48) != 0; // Body +0x48, the held weapon.
-                held_weapon = mark.body.empty() ? 0u : gbtg::read_u32(mark.body, 0x48);
-                energy = mark.body.empty() ? 0 : gbtg::read_u16(mark.body, 0x94); // Body +0x94.
+                // Body +0x48, the held weapon.
+                holding = !mark.body.empty() && gbtg::body_record(mark.body).attached != 0;
+                held_weapon = mark.body.empty() ? 0u : gbtg::body_record(mark.body).attached;
+                energy = mark.body.empty() ? 0 : gbtg::body_record(mark.body).energy; // Body +0x94.
                 // A driver cheat, not game behaviour: with `invincible`, Cooper's energy goes back to the most he has
                 // had each frame, so a fight the driver cannot win safely still reaches its later phases.
                 if (invincible && !mark.body.empty())
@@ -9721,7 +9726,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 // Cooper goes on to the goal when he is the only one (scene 5_13's front gate).
                 if (mark.actor == nullptr || unreachable.contains(mark.actor) || mark.actor->class_key == player_class
                     || mark.body.empty()
-                    || gbtg::read_u16(mark.body, 0x94) == 0
+                    || gbtg::body_record(mark.body).energy == 0
                     || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37
                     || mark.actor->class_key == 8 || mark.actor->class_key == 6 || mark.actor->class_key == 0xB
                     || (mark.actor->class_key == 0x33 && goal))
@@ -9737,7 +9742,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     ghouly = at;
                     ghouly_class = mark.actor->class_key;
                     ghouly_actor = mark.actor;
-                    ghouly_energy = gbtg::read_u16(mark.body, 0x94);
+                    ghouly_energy = gbtg::body_record(mark.body).energy;
                 }
             }
         }
@@ -9756,7 +9761,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     continue;
                 }
                 const gbtg::u32 dropped = gbtg::strategy_view<gbtg::CarriedWeaponStrategy>(mark.strategy).weapon;
-                if (dropped == 0 || gbtg::read_u32(mark.body, 0x48) == dropped)
+                if (dropped == 0 || gbtg::body_record(mark.body).attached == dropped)
                 {
                     continue;
                 }
@@ -9788,8 +9793,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             {
                 if (mark.actor != nullptr && mark.actor->class_key == player_class && !mark.body.empty())
                 {
-                    health = gbtg::read_u16(mark.body, 0x94);
-                    full = gbtg::read_u16(mark.body, 0x96);
+                    health = gbtg::body_record(mark.body).energy;
+                    full = gbtg::body_record(mark.body).max_energy;
                 }
             }
             std::optional<gbtg::Vec3> soup;
@@ -10321,7 +10326,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         for (const auto& mark : actors.marked_actors())
         {
             if (mark.actor != nullptr && mark.actor->class_key == player_class && !mark.body.empty()
-                && gbtg::read_u32(mark.body, 0x718) != 0)
+                && gbtg::body_record(mark.body).rider != 0)
             {
                 input.pads[0].lx = frame % 2 == 0 ? gbtg::i16(32767) : gbtg::i16(-32767);
                 input.pads[0].ly = 0;
@@ -13792,7 +13797,7 @@ int main(int argc, char** argv)
                     {
                         if (mark.actor->class_key == 4)
                         {
-                            const int health = gbtg::read_u16(mark.body, 0x94);
+                            const int health = gbtg::body_record(mark.body).energy;
                             if (cooper_start_health < 0)
                             {
                                 cooper_start_health = health;
@@ -13803,8 +13808,8 @@ int main(int argc, char** argv)
                         {
                             continue;
                         }
-                        const gbtg::u16 action = gbtg::read_u16(mark.body, 0x748);
-                        const gbtg::u16 health = gbtg::read_u16(mark.body, 0x94);
+                        const gbtg::u16 action = gbtg::body_record(mark.body).action_key;
+                        const gbtg::u16 health = gbtg::body_record(mark.body).energy;
                         const auto found = reactions.find(mark.address);
                         if (found != reactions.end() && found->second.first == 0x7E && found->second.second != 0
                             && health == 0)
@@ -13833,7 +13838,7 @@ int main(int argc, char** argv)
                         {
                             if (mark.actor->class_key == 4)
                             {
-                                return gbtg::read_u16(mark.body, 0x94);
+                                return gbtg::body_record(mark.body).energy;
                             }
                         }
                         return -1;

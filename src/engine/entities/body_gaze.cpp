@@ -1,4 +1,5 @@
 #include "body_gaze.h"
+#include <cstddef>
 #include "gbtg/model_runtime.h"
 #include "body_fields.h"
 #include <bit>
@@ -49,7 +50,7 @@ Vec3 runtime_body_gaze_origin(std::span<const u8> body, const Actor& actor)
         }
     }
     Vec3 output = actor_world_position(actor);
-    output.y = ((get(body, body_field::height_scale) * actor.radius_y)
+    output.y = ((body_record(body).height_scale * actor.radius_y)
         * std::bit_cast<float>(0x3F4CCCCDu)) + output.y;
     return output;
 }
@@ -95,10 +96,10 @@ void set_runtime_body_gaze_angle(std::span<u8> body, const Actor& actor, float a
         }
         const Vec3 origin = actor_world_position(actor);
         const Vec3 target{float(retail_sin(angle) * 50.f + origin.x),
-            actor.radius_y * get(body, body_field::height_scale) + origin.y,
+            actor.radius_y * body_record(body).height_scale + origin.y,
             float(retail_cos(angle) * 50.f + origin.z)};
-        std::memcpy(body.data() + 0x2FC, &target, sizeof(target));
-        body[0x308] = 1;
+        std::memcpy(body.data() + offsetof(BodyRecord, look_point.x), &target, sizeof(target));
+        body_record(body).look_point_set = 1;
     }
 }
 }

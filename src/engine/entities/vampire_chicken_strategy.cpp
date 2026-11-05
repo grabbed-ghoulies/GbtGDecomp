@@ -1,4 +1,5 @@
 #include "vampire_chicken_strategy.h"
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "body_message_helpers.h"
@@ -395,19 +396,19 @@ void enter_runtime_vampire_chicken_state(u16 state, u16 previous, RuntimeVampire
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = goals.entry.body; // Actor +0x95C.
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     switch (state)
     {
     case 0x3ED:
         // 0x000C26E0.
         load_goal(context.goal_grab, context);
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         strategy_base(strategy).attacking = 1;
         return;
     case 0x3EE:
         // 0x000C27F0.
         load_goal(context.goal_knockdown, context);
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         strategy_base(strategy).attacking = 1;
         return;
     case 0x3FD:

@@ -64,7 +64,7 @@ bool requests_pending(RuntimeZombieStrategy& context)
 bool body_settled(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
 }
 
 // Mind +0x10: the current target record, or null.
@@ -122,9 +122,9 @@ bool initialize_runtime_zombie_strategy(std::span<u8> strategy)
 bool runtime_zombie_body_state_shown(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    if (body[0x2D0] != 0 && body[0x2D0] == 1)
+    if (body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == 1)
     {
-        return body[0x2D2] != 0;
+        return body_record(body).unk_2D2 != 0;
     }
     return false;
 }
@@ -133,9 +133,9 @@ bool runtime_zombie_body_state_shown(RuntimeZombieStrategy& context)
 bool runtime_zombie_body_state_hidden(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    if (body[0x2D0] != 0 && body[0x2D0] == 1)
+    if (body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == 1)
     {
-        return body[0x2D2] == 0;
+        return body_record(body).unk_2D2 == 0;
     }
     return true;
 }
@@ -274,7 +274,7 @@ void set_runtime_zombie_approach(u32 mode, RuntimeZombieStrategy& context)
         request = request_runtime_zombie_roam(context);
         stance = 2;
     }
-    body_of_actor(context)[0x328] = stance;
+    body_record(body_of_actor(context)).move_class = stance;
     if (request == nullptr)
     {
         return;
@@ -533,19 +533,19 @@ void enter_runtime_zombie_state(u16 state, u16 previous, RuntimeZombieStrategy& 
     {
         goals.room = nullptr; // Actor +0xCA0.
     }
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     switch (state)
     {
     case 0x3ED:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         load_runtime_mind_goal(context.goal_swipe, mind);
         return;
     case 0x3EE:
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         load_runtime_mind_goal(context.goal_kick, mind);
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         begin_runtime_zombie_special(context);
         return;
     case 0x405:

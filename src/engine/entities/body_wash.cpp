@@ -1,4 +1,5 @@
 #include "body_wash.h"
+#include <cstddef>
 #include "body_timers.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
@@ -67,11 +68,11 @@ bool tick_runtime_body_oscillator(std::span<u8> oscillator, float elapsed,
 // Xbox 0x0001E270
 float runtime_body_health_fraction(std::span<const u8> body)
 {
-    if (get(body, body_field::max_energy) == 0)
+    if (body_record(body).max_energy == 0)
     {
         return 1.f;
     }
-    return float(get(body, body_field::energy)) / float(get(body, body_field::max_energy));
+    return float(body_record(body).energy) / float(body_record(body).max_energy);
 }
 
 // Xbox 0x0001E770
@@ -95,9 +96,9 @@ bool runtime_body_actor_requires_wash(std::span<const u8> actor, const u8* bound
 // Xbox 0x0001E300
 void update_runtime_body_wash_health(std::span<const u8> body, std::span<u8> wash)
 {
-    if (get(body, body_field::max_energy) != 0)
+    if (body_record(body).max_energy != 0)
     {
-        const float fraction = float(get(body, body_field::energy)) / float(get(body, body_field::max_energy));
+        const float fraction = float(body_record(body).energy) / float(body_record(body).max_energy);
         if (0.25f > fraction)
         {
             wash_store(wash, 0x40, 4.f);
@@ -161,11 +162,11 @@ void tick_runtime_body_wash_flashes(std::span<u8> wash, const RuntimeActorClock&
 void tick_runtime_body_wash(std::span<u8> body, std::span<const u8> actor,
     const u8* bound, const RuntimeActorClock& clock)
 {
-    if (body[0xA6] == 0)
+    if (body_record(body).unk_A6 == 0)
     {
         return;
     }
-    auto wash = body.subspan(0x94);
+    auto wash = body.subspan(offsetof(BodyRecord, energy));
     switch (wash[0x10])
     {
     case 0:

@@ -317,6 +317,23 @@ custom effects are on `FxCustomBase` (the base object's header, the node words, 
 `fx_custom_view<T>`. `FxFadeState`'s +0x24 is a union: the fade-to-grey's texture or the fade-out's switch. Plain fxCustom
 (type 0xC) and the fade-out (type 0x33) haven't run in the regular modes since.
 
+`BodyRecord` replaces `body_field`. The record's size was listed as unsettled, but 0x0001DA30's sizes function gives 0x894,
+0x00076180 gives the parent player body's 0x924, 0x00075AD0 the player body's 0x950 and 0x00073170 the camera body's 0x914.
+About 1,500 sites moved. A site became a member access only where the accessor's type matched the member; otherwise it
+keeps its accessor with `offsetof`, so nothing changes bit for bit. Those 100 or so are worth reading: they show retail using
+a field as two types (`ease_rate` copied as words, a float zero written into `contact_count`), or a computed offset
+(`offsetof(BodyRecord, unk_309) + index`), or a block copy.
+
+The names are only as good as the evidence. Most fields new to this pass stay `unk_<offset>`, and counters raised and
+dropped by many states (+0x69, +0x6A, +0x6B, +0x6D, +0x309..+0x30C, +0x7E5) are prime targets for a real name once someone
+reads them against the dumps. +0x15C is one word, a pointer to the bit block, so "byte 7 of +0x15C" means a byte of that
+block, not of the record. The two 0x54-byte blocks at +0x178 and +0x1CC are contact match blocks (0x000FCD70), the same size
+as the weapon's `contact_match`; only their parts the code names are split out.
+
+The layout checks in `tests/*_checks.cpp` keep their literal offsets. They run at the start of every player mode, so
+`--player-death`, `--player-fight` and `--player-opening` exercise them; some of their fixtures grew to 0x950 bytes, as the
+record views check the whole size.
+
 The scene controls come in two kinds. Those with no host pointers (walkabout, chapter 2 scene 4, chapter 5 countdown,
 scene fx, final score) are overlays like the body states, on `SceneControlBase`. Those whose retail words hold pointers can't lay
 them out in the factory bytes on a 64-bit host, so their fields join the host struct that already holds the pointers,
@@ -365,7 +382,10 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Bg-break key (factory type 0x1E, 0x0006CC70), its own part | 0xA70, parameters 0x3B4 | `BgBreakKeyState`, `bg_break_key_parameter` | `src/engine/entities/bg_break_key.h` |
 | Save record, one field | — | `save_record_field::unk_184` (0x0010DC20 / 0x0010E2C0) | `src/engine/saves/save_scan.h` |
 | Base mind (0x00029D10), shared by every mind type | 0x7C, parameters 0xA0 | `mind_field`: actor, target, target record, action record, action actor, path search, target mode, gaze anchor and point, alert mode and timer, last request result, target flags, categories and range, goal point; unk_2C, unk_34, unk_38 | `src/engine/entities/mind_fields.h` |
-| Body record (actor +0x95C, built by 0x00024C50), two passes | not settled | `body_field`: position, move holds and move hold time, focus point, attached actor, unk_70, reach, hit record, energy and its maximum, stagger, ground point and has-ground, motion, holds, attacker, unk_274, contact count, velocity, gravity, step speed, heading, ease rate (and its saved value and swap count), turn rates, euler (and `level_body_euler`), surface (and its override and frames), scaled surfaces, height and radius scales | `src/engine/entities/body_fields.h` |
+| Body record (`BodyRecord`, actor +0x95C, built by 0x00024C50): every offset the code reads, viewed with `body_record` | 0x894 | `src/engine/entities/body_fields.h` |
+| Parent player body (`ParentPlayerBodyRecord`, factory type 0x27, 0x00076180): collision radius and height, the selection words, joint limit, six tracking joints (`PlayerBodyJoint`) | 0x924 | `src/engine/entities/body_fields.h` |
+| Player body (`PlayerBodyRecord`, factory type 0x2A, 0x00075AD0): control tokens, saved energy | 0x950 | `src/engine/entities/body_fields.h` |
+| Camera body (`CameraBodyRecord`, factory type 0x28, 0x00073170): view position and euler, separation | 0x914 | `src/engine/entities/body_fields.h` |
 | Knockdown state parameters (factory type 0x7A; the state is a struct, above) | parameters 0x50 | `knockdown_state_parameter` | `src/engine/entities/body_knockdown_state.h` |
 | Hit and furnace-hit state parameters (factory types 0x73 and 0x74; the states are structs, above) | parameters 0x28 / 0x14 | `hit_state_parameter`, `hit_furnace_state_parameter` | `src/engine/entities/body_hit_state.h` |
 | Struggle state parameters (factory type 0x88; the state is a struct, above) | parameters 0x34 | `struggle_state_parameter` | `src/engine/entities/body_struggle_state.h` |
@@ -599,10 +619,8 @@ the offset, size and span length. All ten regular modes are byte-identical to th
 - The 0x30-byte screen texture (0x000533A0) is the engine's texture resource (width +8, height +0xA, header offset
   +4, data +0x14, size +0x18), which the widgets' `texture_width` helpers and the presenter also read. It belongs
   with the texture resource's own layout.
-- The entities. The body (`body_field`),
-  base mind (`mind_field`), mind target records (`mind_target_field`) and the player's
+- The entities. The base mind (`mind_field`), mind target records (`mind_target_field`) and the player's
   part (`player_field`) are named now. The actor's own 0x934 bytes are mostly read through the native `Actor`; the
-  raw reads left on them (+0x18, +0xB8, +0x1FC) are few. The body's first pass leaves most offsets literal; player
-  body +0x728 (written by Super Scary through `set_body_word_728`) is one of them. The player part's writes through
-  local `put` / `memcpy` helpers are still by offset.
+  raw reads left on them (+0x18, +0xB8, +0x1FC) are few. The player part's writes through local `put` / `memcpy` helpers are still
+  by offset.
 - `DAT_` globals, with the same evidence rule.

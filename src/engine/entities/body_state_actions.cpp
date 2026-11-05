@@ -1,4 +1,5 @@
 #include "body_state_actions.h"
+#include <cstddef>
 #include "body_message_helpers.h"
 #include "body_move_actions.h"
 #include "actor_world_lists.h"
@@ -461,7 +462,7 @@ u8 set_runtime_body_shape_mode(u8 mode, RuntimeBodyStateContext& context)
     case 1:
         actor.model_mode = mode == 0 ? 0 : 4;
         register_actor_shape_probe(actor, context.shape);
-        actor.shape_mode = context.body[0x245];
+        actor.shape_mode = body_record(context.body).shape_mode;
         break;
     case 2:
     case 3:
@@ -473,8 +474,8 @@ u8 set_runtime_body_shape_mode(u8 mode, RuntimeBodyStateContext& context)
     default:
         break;
     }
-    const u8 previous = context.body[0x244];
-    context.body[0x244] = mode;
+    const u8 previous = body_record(context.body).push_mode;
+    body_record(context.body).push_mode = mode;
     return previous;
 }
 
@@ -511,9 +512,9 @@ bool initialize_runtime_stand_alert(StandAlertState& state, std::span<const u8> 
     state.clears_secondary_mode = get(parameters, stand_parameter::clears_secondary_mode);
     state.saved_secondary_mode = context.secondary_mode;
     context.bits->bytes[6] |= 1;
-    body[0x38] = 1;
-    body[0x39] = 1;
-    std::memset(body.data() + 0x160, 0, 2);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    std::memset(body.data() + offsetof(BodyRecord, unk_160), 0, 2);
     if (state.pauses_animation != 0)
     {
         adjust_animation_pause(context.animation, 1);
@@ -551,7 +552,7 @@ bool initialize_runtime_stand_alert(StandAlertState& state, std::span<const u8> 
     }
     if (get(parameters, stand_parameter::shape_mode) == 0)
     {
-        state.saved_shape_mode = body[0x244];
+        state.saved_shape_mode = body_record(body).push_mode;
     }
     else
     {
@@ -559,7 +560,7 @@ bool initialize_runtime_stand_alert(StandAlertState& state, std::span<const u8> 
     }
     if (state.holds != 0)
     {
-        set(body, body_field::holds, get(body, body_field::holds) + 1);
+        body_record(body).holds = body_record(body).holds + 1;
     }
     if (state.clears_secondary_mode != 0 && context.secondary != nullptr)
     {
@@ -605,8 +606,8 @@ void destroy_runtime_stand_alert(StandAlertState& state, RuntimeBodyStateContext
     set_runtime_body_shape_mode(u8(state.saved_shape_mode), context);
     if (state.holds != 0)
     {
-        const u32 count = get(body, body_field::holds) - 1;
-        set(body, body_field::holds, count);
+        const u32 count = body_record(body).holds - 1;
+        body_record(body).holds = count;
         if (count == 0)
         {
             const u32 message[]{0x4A};
@@ -694,8 +695,8 @@ bool initialize_runtime_walk_alert(WalkAlertState& state, std::span<const u8> pa
     start_actor_animation(context.actions.animation, *records[band], context.actions.registry,
         context.actions.error, context.actions.random);
     notify_runtime_body_animation(context.actions);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     return true;
 }
 
@@ -784,8 +785,8 @@ bool initialize_runtime_fly_state(FlyState& state, std::span<const u8> parameter
     start_actor_animation(context.actions.animation, *records[band], context.actions.registry,
         context.actions.error, context.actions.random);
     notify_runtime_body_animation(context.actions); // 0x0001B020
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits->bytes[6] |= 0x80;
     return true;
 }

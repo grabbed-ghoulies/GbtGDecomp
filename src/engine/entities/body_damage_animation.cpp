@@ -1,4 +1,6 @@
 #include "body_damage_animation.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "body_message_helpers.h"
 #include <bit>
 #include <cstdio>
@@ -122,7 +124,7 @@ const AnimationRecord* find_runtime_body_damage_animation(std::span<const u8> bo
 {
     const char* direction = runtime_damage_animation_direction(rows, angle);
     const char* part = runtime_damage_animation_joint(joint);
-    const char* body_variant = reinterpret_cast<const char*>(body.data() + 0x288);
+    const char* body_variant = body_record(body).variant.data();
     if (context.body_address != 0xFFFFFD78u && *body_variant != '\0')
     {
         std::sprintf(buffer.data(), "%s_%s_%s", direction, body_variant, part);
@@ -165,15 +167,15 @@ void select_runtime_body_damage_reaction(std::span<u8> body, u16 key,
     std::span<const u8> attributes, const RuntimeDamageAnimationRows& rows,
     std::span<char> buffer, RuntimeBodyActionMessages& context)
 {
-    const i32 count = std::bit_cast<i32>(read_u32(body, 0x164) - 1);
+    const i32 count = std::bit_cast<i32>(body_record(body).unk_164 - 1);
     float factor = float(count) * std::bit_cast<float>(0x3F000000u);
     if (!(std::bit_cast<float>(0x40A00000u) > factor))
     {
         factor = std::bit_cast<float>(0x40A00000u);
     }
     const float timer = factor * duration + duration;
-    std::memcpy(body.data() + 0x240, &timer, 4);
-    std::memcpy(body.data() + 0x23C, &pause, 4);
+    body_record(body).unk_240 = timer;
+    body_record(body).unk_23C = pause;
     if (notify_runtime_body_action_key(body, key, context) && attributes.data() != nullptr && animate != 0)
     {
         const AnimationRecord* record = find_runtime_body_damage_animation(body, rows, angle, joint, buffer, context.actions);

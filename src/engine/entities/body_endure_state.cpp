@@ -1,4 +1,5 @@
 #include "body_endure_state.h"
+#include "body_fields.h"
 #include "mind_fields.h"
 #include "player_mind_requests.h"
 #include "gbtg/anim.h"
@@ -24,11 +25,6 @@ struct EndureRecords
 };
 std::unordered_map<const u8*, EndureRecords> endure_records;
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 void copy_name(char* target, const char* source)
 {
     size_t index = 0;
@@ -51,8 +47,8 @@ void start_animation(const AnimationRecord* record, RuntimeEndureStateContext& c
 // Body +0x890 holds 0x20000 while the state lasts; its earlier value goes to state +0x12C.
 void hold_890(EndureState& state, RuntimeEndureStateContext& context)
 {
-    state.saved_890 = read_u32(context.body, 0x890);
-    put_word(context.body, 0x890, 0x20000);
+    state.saved_890 = body_record(context.body).unk_890;
+   body_record(context.body).unk_890 = 0x20000;
 }
 
 bool construct_endure_state_view(FactoryObject& object, std::span<const u8> parameters)
@@ -118,7 +114,7 @@ void destroy_runtime_endure_state(EndureState& state, RuntimeEndureStateContext&
 {
     context.bits.bytes[5] &= 0xF7;
     context.bits.bytes[1] &= 0xFD;
-    put_word(context.body, 0x890, state.saved_890);
+   body_record(context.body).unk_890 = state.saved_890;
     if (state.sounding != 0)
     {
         release_actor_sound(context.actor.sound_slots[1], context.sounds); // 0x0012A3D0, ESI actor +0x3EC

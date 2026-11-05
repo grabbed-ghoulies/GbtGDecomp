@@ -1,4 +1,5 @@
 #include "body_hold_state.h"
+#include <cstddef>
 #include "actor_live_attachments.h"
 #include "body_orientation.h"
 #include "body_fields.h"
@@ -15,9 +16,9 @@ namespace
 // Body +0x6B, +0x30 (a word) and +0x309..+0x30C move together.
 void adjust_hold_counters(std::span<u8> body, i32 step)
 {
-    body[0x6B] = u8(body[0x6B] + step);
-    const u16 held = u16(get(body, body_field::move_holds) + step);
-    std::memcpy(body.data() + 0x30, &held, 2);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B + step);
+    const u16 held = u16(body_record(body).move_holds + step);
+    body_record(body).move_holds = held;
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + step);
@@ -37,14 +38,14 @@ bool initialize_runtime_hold_state(HoldState& state, RuntimeBodyStateContext& co
 {
     const auto body = context.body;
     adjust_hold_counters(body, 1);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits->bytes[6] |= 4;
-    state.timer = read_f32(body, 0x240); // The word copied as a float: the same bits.
+    state.timer = body_record(body).unk_240; // The word copied as a float: the same bits.
     // The base's +0xC word (next_key and the +0xE half), copied whole.
     state.settle_turn = u32(state.base.next_key) | u32(state.base.unk_E) << 16;
     const float scale = std::bit_cast<float>(0x3E19999Au); // DAT_0032B168.
-    state.timer = (1.f - get(body, body_field::stagger)) * scale + state.timer; // DAT_0032B0F8.
+    state.timer = (1.f - body_record(body).stagger) * scale + state.timer; // DAT_0032B0F8.
     const u32 bit = state.body_bit;
     if (bit != 0)
     {
@@ -90,7 +91,7 @@ void tick_runtime_hold_state(HoldState& state, RuntimeHoldStateTick& context)
         return;
     }
     auto& recovery = context.recovery;
-    if (read_f32(body, 0x168) == 0.f)
+    if (body_record(body).unk_168 == 0.f)
     {
         const auto settings = recovery.settings; // Body +0x268.
         const u32 brake = settings.data() == nullptr ? 1 : (settings[0x1A4] == 0 ? 1 : 0);

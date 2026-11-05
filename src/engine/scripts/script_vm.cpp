@@ -1,4 +1,5 @@
 #include "gbtg/anim.h"
+#include "../entities/body_fields.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/entity.h"
 #include "gbtg/gfx.h"
@@ -1058,7 +1059,7 @@ void script_tick_actor_count_condition(ScriptCond& rec)
         {
             throw Error("DAT_00511B48 node has no body view");
         }
-        if (read_u16(g_alt_node_body(node), 0x94) != 0)
+        if (body_record(g_alt_node_body(node)).energy != 0)
         {
             count = count + 1;
         }

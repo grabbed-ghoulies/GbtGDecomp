@@ -1,4 +1,5 @@
 #include "cinema_mind_tick.h"
+#include "body_fields.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
@@ -137,24 +138,24 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         }
     }
     const u32 target_address = get(mind, mind_field::target_record);
-    if (target_address != 0 && body[0x6A] != 0)
+    if (target_address != 0 && body_record(body).unk_6A != 0)
     {
         const float angle = runtime_actor_bound_angle(messages.target_at(target_address).bytes, base.actor);
         const std::array<float, 2> axes{float(retail_sin(angle)), float(retail_cos(angle))};
         set_runtime_input_secondary_axes(context.writable, axes, context.keyboard);
     }
-    if (body[0x6A] == 0)
+    if (body_record(body).unk_6A == 0)
     {
-        word(body, 0x88, 0);
+        body_record(body).unk_88 = 0;
         set(mind, mind_field::action_record, 0);
     }
-    body[0xAA] = 0;
+    body_record(body).unk_AA = 0;
     if (target_address != 0 && (get(messages.actor_bytes, player_field::countdown_56) > 0.f
         || messages.actor_bytes[0x969] != 0)
         && !runtime_mind_target_is_eligible(mind, messages.actor_bytes, base.actor,
             messages.actor_address, messages.target_at(target_address), true))
     {
-        body[0xAA] = 1;
+        body_record(body).unk_AA = 1;
     }
     update_runtime_player_boost_timer(messages.boost, context.control, nullptr, 1.f);
     const i32 notices = get(mind, cinema_mind_field::notices);

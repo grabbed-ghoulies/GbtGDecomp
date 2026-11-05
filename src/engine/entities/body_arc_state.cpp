@@ -1,4 +1,6 @@
 #include "body_arc_state.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "actor_transform.h"
 #include "body_action_selection.h"
 #include "body_animation_commands.h"
@@ -65,11 +67,6 @@ const ObjectFactoryVtable* arc_state_lifecycle()
     return &table;
 }
 
-void put_body_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, 12);
-}
-
 void send_word(const std::function<void(std::span<const u32>)>& send, u32 id)
 {
     const std::array<u32, 1> message{id};
@@ -84,9 +81,9 @@ void release_count(ArcState& state, RuntimeArcStateContext& context)
         return;
     }
     i32 count;
-    std::memcpy(&count, context.body.data() + 0x258, 4);
+    std::memcpy(&count, context.body.data() + offsetof(BodyRecord, holds), 4);
     --count;
-    std::memcpy(context.body.data() + 0x258, &count, 4);
+    std::memcpy(context.body.data() + offsetof(BodyRecord, holds), &count, 4);
     if (count == 0)
     {
         send_word(context.body_message, 0x4A);
@@ -119,7 +116,7 @@ void fly_runtime_arc_state(ArcState& state, RuntimeArcStateContext& context)
     (void)std::cos(double(angle)); // 0x00153230, its result dropped.
     position.y = lift * height + position.y;
     actor_set_world_position(context.actor, position); // 0x00041730, EDI actor
-    put_body_vec3(context.body, 0x18, actor_world_position(context.actor)); // 0x000412A0 into body +0x18
+   body_record(context.body).position = actor_world_position(context.actor); // 0x000412A0 into body +0x18
     const Vec3 from = state.start_euler;
     const Vec3 to = state.target_euler;
     const Vec3 euler{step_runtime_angle_toward(to.x, from.x, fraction),
@@ -127,7 +124,7 @@ void fly_runtime_arc_state(ArcState& state, RuntimeArcStateContext& context)
         step_runtime_angle_toward(to.z, from.z, fraction)}; // 0x001013A0
     wrap_runtime_euler(euler, context.actor.euler); // 0x00105AA0
     context.actor.xform_valid = 0; // Actor +0x2A8.
-    put_body_vec3(context.body, 0x72C, actor_world_euler(context.actor)); // 0x00041820 into body +0x72C
+   body_record(context.body).euler = actor_world_euler(context.actor); // 0x00041820 into body +0x72C
     if (!landed)
     {
         return;
@@ -168,11 +165,11 @@ bool initialize_runtime_arc_state(ArcState& state, std::span<const u8> parameter
 {
     const auto body = context.body;
     u16 users;
-    std::memcpy(&users, body.data() + 0x30, 2);
+    users = body_record(body).move_holds;
     ++users;
-    std::memcpy(body.data() + 0x30, &users, 2);
-    body[0x38] = 0;
-    body[0x39] = 0;
+    body_record(body).move_holds = users;
+    body_record(body).unk_38 = 0;
+    body_record(body).unk_39 = 0;
     auto& records = arc_records[body_state_key(state)];
     // The inlined 0x0003AAA0 pairs: the attached actor's +0xDB0 variant first, then the plain name.
     records.flight = find_runtime_body_animation(name_at(get(parameters, parameter::flight), context),
@@ -216,14 +213,14 @@ bool initialize_runtime_arc_state(ArcState& state, std::span<const u8> parameter
     dispatch_actor_attachment_records(context.resource.resource.data(), i32(get(parameters, parameter::callout)),
         nullptr, nullptr, context.callouts, 0); // 0x0003BE20, EAX actor +0x8C
     i32 count;
-    std::memcpy(&count, body.data() + 0x258, 4);
+    std::memcpy(&count, body.data() + offsetof(BodyRecord, holds), 4);
     ++count;
-    std::memcpy(body.data() + 0x258, &count, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, holds), &count, 4);
     state.counted = 1;
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
     state.latched = 1;
     context.actor.anchor = Vec3{0.f, 0.f, 0.f}; // DAT_0050DD80 into actor +0x3C.
-    put_body_vec3(body, 0x318, Vec3{0.f, 0.f, 0.f}); // DAT_0050DD80 into body +0x318.
+   body_record(body).velocity = Vec3{0.f, 0.f, 0.f}; // DAT_0050DD80 into body +0x318.
     send_word(context.actor_message, 0x30);
     return true;
 }
@@ -233,9 +230,9 @@ void destroy_runtime_arc_state(ArcState& state, RuntimeArcStateContext& context)
 {
     const auto body = context.body;
     u16 users;
-    std::memcpy(&users, body.data() + 0x30, 2);
+    users = body_record(body).move_holds;
     --users;
-    std::memcpy(body.data() + 0x30, &users, 2);
+    body_record(body).move_holds = users;
     release_count(state, context);
     if (state.latched != 0)
     {

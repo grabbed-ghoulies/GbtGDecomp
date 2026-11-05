@@ -1,4 +1,6 @@
 #include "body_attachment_cleanup.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "entity_heap.h"
 #include "../graphics/actor_effect_nodes.h"
 #include <bit>
@@ -56,37 +58,37 @@ bool remove_runtime_body_attachment(u16 token, RuntimeBodyAttachmentLists& lists
 // Xbox 0x000250E0
 void clear_runtime_body_command_attachments(std::span<u8> body, RuntimeBodyAttachmentLists& lists)
 {
-    body[0x2D2] = 0;
+    body_record(body).unk_2D2 = 0;
     i32 index = 0;
-    if (std::bit_cast<i32>(read_u32(body, 0x2D8)) < 1)
+    if (std::bit_cast<i32>(read_u32(body, offsetof(BodyRecord, command_tokens))) < 1)
     {
         const u32 zero = 0;
-        std::memcpy(body.data() + 0x2D8, &zero, 4);
+        std::memcpy(body.data() + offsetof(BodyRecord, command_tokens), &zero, 4);
         return;
     }
     do
     {
         remove_runtime_body_attachment(u16(read_u32(body, 0x2DC + size_t(index) * 4)), lists);
         ++index;
-    } while (index < std::bit_cast<i32>(read_u32(body, 0x2D8)));
+    } while (index < std::bit_cast<i32>(read_u32(body, offsetof(BodyRecord, command_tokens))));
     const u32 zero = 0;
-    std::memcpy(body.data() + 0x2D8, &zero, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, command_tokens), &zero, 4);
 }
 
 // Xbox 0x00025090
 void clear_runtime_body_attachments(std::span<u8> body, RuntimeBodyAttachmentLists& lists)
 {
     i32 index = 0;
-    if (std::bit_cast<i32>(read_u32(body, 0x2D8)) > 0)
+    if (std::bit_cast<i32>(read_u32(body, offsetof(BodyRecord, command_tokens))) > 0)
     {
         do
         {
             remove_runtime_body_attachment(u16(read_u32(body, 0x2DC + size_t(index) * 4)), lists);
             ++index;
-        } while (index < std::bit_cast<i32>(read_u32(body, 0x2D8)));
+        } while (index < std::bit_cast<i32>(read_u32(body, offsetof(BodyRecord, command_tokens))));
     }
     const u32 zero = 0;
-    std::memcpy(body.data() + 0x2D8, &zero, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, command_tokens), &zero, 4);
 }
 
 // Xbox 0x0001B4C0
@@ -94,21 +96,21 @@ RuntimeBodyAttachedActor* detach_runtime_body_actor(std::span<u8> body, RuntimeB
 {
     auto* attached = context.attached;
     const u32 zero = 0;
-    std::memcpy(body.data() + 0x10, &zero, 4);
+    body_record(body).first_receiver = zero;
     context.receiver = nullptr;
     context.flags->bytes[4] &= 0xFB;
     const u32 actor_address = context.actor_address;
-    body[0x288] = 0;
+    body_record(body).variant[0] = 0;
     std::array<u32, 3> message{0x9D, actor_address, 0};
     attached->message(message);
     detach_actor_bind(*attached->actor);
     context.attached = nullptr;
-    std::memcpy(body.data() + 0x48, &zero, 4);
+    body_record(body).attached = zero;
     message = {0x9C, actor_address, 0};
     attached->message(message);
     if (attached->bytes[0x93D] == 3)
     {
-        --body[0x30B];
+        --body_record(body).unk_30B;
     }
     message = {0x73, context.actor_address, attached->address};
     broadcast_actor_pulse_message(reinterpret_cast<const i32*>(message.data()));
@@ -167,7 +169,7 @@ void destroy_runtime_parent_body(std::span<u8> body, RuntimeParentBodyCleanup& c
     {
         engine_heap_free(context.shapes.special);
         context.shapes.special = nullptr;
-        body[0x714] = 0;
+        body_record(body).sphere_count = 0;
     }
     release_runtime_body_health(context.health);
     release_runtime_body_actions(body, context.first_action, context.second_action,

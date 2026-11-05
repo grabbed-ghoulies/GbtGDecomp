@@ -67,8 +67,8 @@ bool initialize_runtime_anim_state(AnimState& state, std::span<const u8> paramet
         }
         select_runtime_body_animation(name, context.actions); // 0x0001AF10
     }
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     return true;
 }
 
@@ -121,7 +121,7 @@ void tick_runtime_anim_state(AnimState& state, RuntimeAnimStateContext& context)
         const Vec3 direction{to.x - from.x, to.y - from.y, to.z - from.z};
         float angle = 0.f;
         runtime_direction_angle(direction, angle);
-        set(body, body_field::euler, Vec3{0.f, state.heading_offset + angle, 0.f});
+        body_record(body).euler = Vec3{0.f, state.heading_offset + angle, 0.f};
     }
     else
     {
@@ -133,7 +133,7 @@ void tick_runtime_anim_state(AnimState& state, RuntimeAnimStateContext& context)
     }
     if (state.carries_velocity != 0)
     {
-        set(body, body_field::velocity, actor.anchor); // Actor +0x3C.
+        body_record(body).velocity = actor.anchor; // Actor +0x3C.
     }
     const AnimationController* controller = context.animation.controller.get();
     const MinaPlayer* player = controller == nullptr ? nullptr : controller->slots.at(0).player.get();

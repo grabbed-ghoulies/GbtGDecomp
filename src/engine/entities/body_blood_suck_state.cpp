@@ -1,4 +1,5 @@
 #include "body_blood_suck_state.h"
+#include <cstddef>
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_collision_culling.h"
@@ -51,16 +52,6 @@ std::function<RuntimeBloodSuckStateContext&(u32)> blood_suck_context_of;
 
 // The four animation records the state found (0x0003AAA0), held natively beside the state's +0x3C .. +0x48 flags.
 std::unordered_map<const u8*, std::array<const AnimationRecord*, 4>> blood_suck_records;
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 // The inlined 0x0003AAA0 pair (the attached actor's +0xDB0 variant first, then the plain name).
 const AnimationRecord* find_animation(u32 name, RuntimeBloodSuckStateContext& context)
@@ -120,7 +111,7 @@ void hide_target(RuntimeBloodSuckTarget& target)
 
 float target_hold_height(const RuntimeBloodSuckTarget& target)
 {
-    return target.peer.actor->radius_y * read_f32(target.peer.body, 0x884);
+    return target.peer.actor->radius_y * body_record(target.peer.body).height_scale;
 }
 
 bool construct_blood_suck_state_view(FactoryObject& object, std::span<const u8> parameters)
@@ -185,11 +176,11 @@ bool initialize_runtime_blood_suck_state(BloodSuckState& state, std::span<const 
         records[3] = find_animation(get(parameters, parameter::throw_animation), context);
         state.throw_animation = records[3] != nullptr ? 1u : 0u;
     }
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     adjust_live_holds(context.live_attachments, 1);
-    body[0x6D] = u8(body[0x6D] + 1);
-    body[0x6A] = u8(body[0x6A] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
     adjust_body_counts(body, 1);
     state.tracking.axes[1] = 0.f;
     state.tracking.axes[0] = 0.f;
@@ -213,8 +204,8 @@ bool initialize_runtime_blood_suck_state(BloodSuckState& state, std::span<const 
     if (state.target != 0)
     {
         const RuntimeBloodSuckTarget target = target_of(state, context, "blood suck state 0x0008B260");
-        grab = (target.peer.bits->bytes[3] & 8) == 0 && read_u16(target.peer.body, 0x94) != 0
-            && read_u32(target.peer.body, 0x718) == 0;
+        grab = (target.peer.bits->bytes[3] & 8) == 0 && body_record(target.peer.body).energy != 0
+            && body_record(target.peer.body).rider == 0;
         if (grab)
         {
             claim_runtime_body_rider(target.peer.body, *target.peer.bits, context.actor_address); // 0x000265A0
@@ -231,8 +222,8 @@ void destroy_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckSta
     const auto body = context.body;
     adjust_body_counts(body, -1);
     adjust_live_holds(context.live_attachments, -1);
-    body[0x6D] = u8(body[0x6D] - 1);
-    body[0x6A] = u8(body[0x6A] - 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
     if (state.latched != 0)
     {
         decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
@@ -259,15 +250,15 @@ void destroy_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckSta
         if (state.held != 0)
         {
             const std::span<u8> target_body = target.peer.body;
-            const u32 holds = read_u32(target_body, 0x258) - 1;
-            put_word(target_body, 0x258, holds);
+            const u32 holds = body_record(target_body).holds - 1;
+           body_record(target_body).holds = holds;
             if (holds == 0)
             {
                 const std::array<u32, 1> release{0x4A};
                 target.body_message(release); // Target body vtable +0xC.
             }
-            const u16 count = u16(read_u16(target_body, 0x30) - 1);
-            std::memcpy(target_body.data() + 0x30, &count, 2);
+            const u16 count = u16(body_record(target_body).move_holds - 1);
+            body_record(target_body).move_holds = count;
             adjust_live_holds(target.view->live_attachments, -1);
             register_actor_model_anchors(*target.peer.actor, target.view->anchors); // 0x0003EEB0, EBX target
             target.peer.bits->bytes[7] &= 0xFB;
@@ -280,10 +271,10 @@ void destroy_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckSta
         if (state.target != 0)
         {
             const RuntimeBloodSuckTarget rider = target_of(state, context, "blood suck state 0x0008B530");
-            const u32 claimed = read_u32(rider.peer.body, 0x718);
+            const u32 claimed = body_record(rider.peer.body).rider;
             if (claimed != 0 && claimed == context.actor_address)
             {
-                put_word(rider.peer.body, 0x718, 0);
+               body_record(rider.peer.body).rider = 0;
             }
         }
     }
@@ -331,9 +322,9 @@ void tick_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckStateC
                     if (state.held == 0)
                     {
                         const std::span<u8> target_body = target.peer.body;
-                        put_word(target_body, 0x258, read_u32(target_body, 0x258) + 1);
-                        const u16 count = u16(read_u16(target_body, 0x30) + 1);
-                        std::memcpy(target_body.data() + 0x30, &count, 2);
+                       body_record(target_body).holds = body_record(target_body).holds + 1;
+                        const u16 count = u16(body_record(target_body).move_holds + 1);
+                        body_record(target_body).move_holds = count;
                         adjust_live_holds(target.view->live_attachments, 1); // 0x00042090, EAX target
                         clear_actor_model_anchors(target.view->anchors); // 0x0003EF40, EAX target
                         set_runtime_body_bit(*target.peer.bits, 0x3A); // 0x0001EFD0, EAX target body
@@ -409,7 +400,7 @@ void step_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckStateC
         }
         RuntimeBloodSuckTarget target = target_of(state, context, "blood suck state 0x0008B9C0");
         const Vec3 position = actor_world_position(context.actor); // 0x000412A0
-        const float height = context.actor.radius_y * get(context.body, body_field::height_scale) * kHoldHeight;
+        const float height = context.actor.radius_y * body_record(context.body).height_scale * kHoldHeight;
         const float slot = runtime_actor_animation_slot_position(context.animation, 0); // The inlined 0x0003B1B0.
         const Vec3 start = state.grab_start;
         const float from = state.grab_position;
@@ -420,11 +411,11 @@ void step_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckStateC
         Actor& held = *target.peer.actor;
         actor_set_world_position(held, point); // 0x00041730, EDI target, ESI point
         const Vec3 placed = actor_world_position(held); // 0x000412A0, EDI target body +0x18
-        std::memcpy(target.peer.body.data() + 0x18, &placed, sizeof(placed));
+        std::memcpy(target.peer.body.data() + offsetof(BodyRecord, position.x), &placed, sizeof(placed));
         normalize_euler_angles(held.euler, euler); // 0x00105AA0, ESI euler, EDI target +0x14
         held.xform_valid = 0; // Target +0x2A8.
         const Vec3 world = actor_world_euler(held); // 0x00041820, EDI target body +0x72C
-        std::memcpy(target.peer.body.data() + 0x72C, &world, sizeof(world));
+        std::memcpy(target.peer.body.data() + offsetof(BodyRecord, euler.x), &world, sizeof(world));
         return;
     }
     if (phase <= 1 || phase > 3)
@@ -433,12 +424,12 @@ void step_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckStateC
     }
     RuntimeBloodSuckTarget target = target_of(state, context, "blood suck state 0x0008B9C0");
     Vec3 point = actor_world_position(context.actor); // 0x000412A0
-    point.y = context.actor.radius_y * get(context.body, body_field::height_scale) * kHoldHeight;
+    point.y = context.actor.radius_y * body_record(context.body).height_scale * kHoldHeight;
     const Vec3 euler{0.f, context.actor.euler.y + kPi, 0.f};
     Actor& held = *target.peer.actor;
     actor_set_world_position(held, point); // 0x00041730, EDI target, ESI point
     const Vec3 placed = actor_world_position(held); // 0x000412A0, EDI target body +0x18
-    std::memcpy(target.peer.body.data() + 0x18, &placed, sizeof(placed));
+    std::memcpy(target.peer.body.data() + offsetof(BodyRecord, position.x), &placed, sizeof(placed));
     set_runtime_player_actor_rotation(held, held, target.peer.body, euler); // 0x0002B560, EAX target, ECX euler
 }
 
@@ -498,8 +489,8 @@ void set_runtime_blood_suck_phase(u32 phase, BloodSuckState& state, RuntimeBlood
         if (state.held != 0)
         {
             release_runtime_body_hold(target.peer.body, target.body_message); // 0x00020000, EAX target body
-            const u16 count = u16(read_u16(target.peer.body, 0x30) - 1);
-            std::memcpy(target.peer.body.data() + 0x30, &count, 2);
+            const u16 count = u16(body_record(target.peer.body).move_holds - 1);
+            body_record(target.peer.body).move_holds = count;
             adjust_live_holds(target.view->live_attachments, -1); // 0x000420B0, EAX target
             register_actor_model_anchors(*target.peer.actor, target.view->anchors); // 0x0003EEB0, EBX target
             clear_runtime_body_bit(*target.peer.bits, 0x3A); // 0x0001F030, EAX target body
@@ -632,9 +623,9 @@ bool drain_runtime_blood_suck_target(BloodSuckState& state, RuntimeBloodSuckStat
     if (!runtime_body_down_or_unhurtable(target_body, *target.peer.actor, *target.peer.bits,
             processor.player_blocked, processor.player_modes, processor.player_mode)) // 0x00021190, ECX target body
     {
-        const i32 energy = i32(read_u16(target_body, 0x94)) - 1;
+        const i32 energy = i32(body_record(target_body).energy) - 1;
         const u16 left = energy <= 0 ? u16(0) : u16(energy);
-        std::memcpy(target_body.data() + 0x94, &left, 2);
+        body_record(target_body).energy = left;
         if (left == 0)
         {
             set_runtime_blood_suck_phase(4, state, context); // 0x0008BBD0, EDI state
@@ -683,7 +674,7 @@ void throw_runtime_blood_suck_target(BloodSuckState& state, RuntimeBloodSuckStat
             && processor.player_damage != 0;
         if (amount != 0 && live)
         {
-            amount = read_u16(target_body, 0x94);
+            amount = body_record(target_body).energy;
         }
     }
     if ((target.peer.bits->bytes[0] & 0x80) != 0
@@ -694,16 +685,16 @@ void throw_runtime_blood_suck_target(BloodSuckState& state, RuntimeBloodSuckStat
     }
     subtract_runtime_body_damage_health(target_body, target_actor, *target.peer.bits, amount, 1,
         processor.player_blocked, processor.player_modes, processor.player_mode); // 0x00021120, ESI target body
-    put_word(target_body, 0x164, 0);
-    put_float(target_body, 0x16C, kThrowPush);
-    put_word(target_body, 0x278, 0);
-    put_word(target_body, 0x27C, 6);
-    put_word(target_body, 0x280, amount);
-    put_word(target_body, 0x26C, context.actor_address);
-    put_word(target_body, 0x270, context.actor_address);
-    put_word(target_body, 0x274, context.actor_address);
+   body_record(target_body).unk_164 = 0;
+   body_record(target_body).stagger = kThrowPush;
+   body_record(target_body).unk_278 = 0;
+   body_record(target_body).damage_kind = 6;
+   body_record(target_body).damage_amount = amount;
+   body_record(target_body).unk_26C = context.actor_address;
+   body_record(target_body).attacker = context.actor_address;
+   body_record(target_body).unk_274 = context.actor_address;
     const u16 zero = 0;
-    std::memcpy(target_body.data() + 0x162, &zero, 2);
+    body_record(target_body).unk_162 = zero;
     auto& values = processor.parameter_scratch;
     runtime_body_damage_parameters(target_actor, actor_class, 0x6A, processor.tables, processor.push_keys,
         values[0], values[1], values[2], values[3]); // 0x00023A50, EBX target body, ESI 0x6A

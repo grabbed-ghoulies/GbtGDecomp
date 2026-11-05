@@ -15,7 +15,7 @@ namespace
 {
 void step_holds(std::span<u8> body, entity_detail::ListHead& live_attachments, i32 step)
 {
-    set(body, body_field::move_holds, u16(get(body, body_field::move_holds) + step));
+    body_record(body).move_holds = u16(body_record(body).move_holds + step);
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + step);
@@ -25,7 +25,7 @@ void step_holds(std::span<u8> body, entity_detail::ListHead& live_attachments, i
     {
         live->hold = u8(live->hold + step);
     }
-    body[0x6D] = u8(body[0x6D] + step);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + step);
 }
 
 const MinaPlayer* first_player(const ActorAnimationState& animation)
@@ -70,8 +70,8 @@ bool initialize_runtime_grabbed_state(GrabbedState& state, std::span<const u8> p
     auto& pickup = context.pickup;
     const std::span<u8> body = pickup.body;
     step_holds(body, pickup.live_attachments, 1);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     pickup.bits.bytes[4] |= 0x20;
     pickup.bits.bytes[3] |= 0x80;
     state.move_hold = 1;
@@ -87,7 +87,7 @@ bool initialize_runtime_grabbed_state(GrabbedState& state, std::span<const u8> p
     {
         pickup.bits.bytes[bit >> 3] |= u8(1u << (bit & 7));
     }
-    body[0x715] = 1;
+    body_record(body).unk_715 = 1;
     const std::array<u32, 1> message{0x39};
     pickup.actor_message(message); // Actor vtable +0xC.
     return true;
@@ -100,7 +100,7 @@ void destroy_runtime_grabbed_state(GrabbedState& state, RuntimeGrabbedStateConte
     const std::span<u8> body = pickup.body;
     if (state.move_hold != 0)
     {
-        set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
+        body_record(body).move_holds = u16(body_record(body).move_holds - 1);
         state.move_hold = 0;
     }
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
@@ -112,12 +112,12 @@ void destroy_runtime_grabbed_state(GrabbedState& state, RuntimeGrabbedStateConte
     {
         live->hold = u8(live->hold - 1);
     }
-    --body[0x6D];
+    --body_record(body).unk_6D;
     pickup.bits.bytes[4] &= 0xDF;
     pickup.bits.bytes[3] &= 0x7F;
     if (state.holds_latches != 0)
     {
-        --body[0x7E5];
+        --body_record(body).unk_7E5;
     }
     const u32 bit = state.body_bit;
     if (bit != 0)
@@ -126,14 +126,14 @@ void destroy_runtime_grabbed_state(GrabbedState& state, RuntimeGrabbedStateConte
     }
     if (context.spheres != nullptr) // Body +0x710.
     {
-        RuntimeBodyCollisionSphere* end = context.spheres + body[0x714];
+        RuntimeBodyCollisionSphere* end = context.spheres + body_record(body).sphere_count;
         for (RuntimeBodyCollisionSphere* sphere = context.spheres; sphere < end; ++sphere)
         {
             sphere->contact[0x26] = 0;
         }
     }
-    body[0x715] = 0;
-    body[0x716] = 0;
+    body_record(body).unk_715 = 0;
+    body_record(body).unk_716 = 0;
 }
 
 // Xbox 0x00094530
@@ -169,7 +169,7 @@ void tick_runtime_grabbed_state(GrabbedState& state, RuntimeGrabbedStateContext&
     }
     if (crossed(*player, state.release_mark) && state.move_hold != 0)
     {
-        set(body, body_field::move_holds, u16(get(body, body_field::move_holds) - 1));
+        body_record(body).move_holds = u16(body_record(body).move_holds - 1);
         state.move_hold = 0;
     }
     player = first_player(pickup.animation);

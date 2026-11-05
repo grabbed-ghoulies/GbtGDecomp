@@ -1,4 +1,6 @@
 #include "worm_strategy.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -96,20 +98,15 @@ RuntimeMindTarget* mind_target(RuntimeWormStrategy& context)
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // Body +0xE0 / +0xDC and the +0xA4..+0xA6 bytes: the body's rest timer.
 void set_body_timer(std::span<u8> body, float value)
 {
     const u32 one = 1;
-    std::memcpy(body.data() + 0xE0, &one, 4);
-    put_float(body, 0xDC, value);
-    body[0xA4] = 0;
-    body[0xA6] = 0;
-    body[0xA5] = 0;
+    body_record(body).unk_E0 = one;
+   body_record(body).unk_DC = value;
+    body_record(body).unk_A4 = 0;
+    body_record(body).unk_A6 = 0;
+    body_record(body).unk_A5 = 0;
 }
 
 // The old mode's object goes (0x0003DE30) and its mark is undone: mode 1's bit, mode 2's latches.
@@ -392,7 +389,7 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
                     && (ring->tail == ring->capacity ? read_u16(goals.entry.address_zero, 0)
                                                      : read_u16(ring->rows, size_t(ring->stride) * ring->head))
                         != 0;
-                if (!queued && read_u16(body_of_actor(context), 0x94) != 0)
+                if (!queued && body_record(body_of_actor(context)).energy != 0)
                 {
                     if (strategy_base(strategy).state != 0x3EF)
                     {
@@ -438,13 +435,13 @@ void enter_runtime_worm_state(u16 state, u16 previous, RuntimeWormStrategy& cont
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of_actor(context);
     const std::span<u8> mind = goals.entry.events.mind;
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     const u32 target = get(mind, mind_field::target_record);
     switch (state)
     {
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         strategy_base(strategy).attacking = 1;
         if (!emerged(context, "0x000C4B20"))
         {

@@ -1,4 +1,5 @@
 #include "body_message_helpers.h"
+#include <cstddef>
 #include "body_fields.h"
 #include "player_fields.h"
 #include <cstring>
@@ -44,13 +45,13 @@ void clear_runtime_body_bit(EntityBitBlock& flags, u32 index)
 void clear_runtime_body_message_receivers(std::span<u8> body, u32 address)
 {
     const u32 zero = 0;
-    if (read_u32(body, 0x10) == address)
+    if (body_record(body).first_receiver == address)
     {
-        std::memcpy(body.data() + 0x10, &zero, 4);
+        body_record(body).first_receiver = zero;
     }
-    if (read_u32(body, 0x14) == address)
+    if (body_record(body).second_receiver == address)
     {
-        std::memcpy(body.data() + 0x14, &zero, 4);
+        body_record(body).second_receiver = zero;
     }
 }
 
@@ -58,13 +59,13 @@ void clear_runtime_body_message_receivers(std::span<u8> body, u32 address)
 void clear_runtime_body_damage_sources(std::span<u8> body, u32 address)
 {
     const u32 zero = 0;
-    if (get(body, body_field::unk_274) == address)
+    if (body_record(body).unk_274 == address)
     {
-        std::memcpy(body.data() + 0x274, &zero, 4);
+        body_record(body).unk_274 = zero;
     }
-    if (get(body, body_field::attacker) == address)
+    if (body_record(body).attacker == address)
     {
-        std::memcpy(body.data() + 0x270, &zero, 4);
+        body_record(body).attacker = zero;
     }
 }
 
@@ -72,15 +73,15 @@ void clear_runtime_body_damage_sources(std::span<u8> body, u32 address)
 void clear_runtime_body_timer_recipient(std::span<u8> body, u32 address)
 {
     const u32 zero = 0;
-    if (read_u32(body, 0x760) == address)
+    if (body_record(body).hit_timer == address)
     {
-        std::memcpy(body.data() + 0x760, &zero, 4);
-        std::memcpy(body.data() + 0x758, &zero, 4);
+        body_record(body).hit_timer = zero;
+        body_record(body).unk_758 = 0.f;
     }
-    if (read_u32(body, 0x7F0) == address)
+    if (body_record(body).second_timer == address)
     {
-        std::memcpy(body.data() + 0x7F0, &zero, 4);
-        std::memcpy(body.data() + 0x7E8, &zero, 4);
+        body_record(body).second_timer = zero;
+        body_record(body).unk_7E8 = 0.f;
     }
 }
 
@@ -92,14 +93,14 @@ RuntimeBodyAttachedActor* detach_runtime_body_secondary(std::span<u8> body,
     const u32 address = read_u32(body, 8);
     const u32 zero = 0;
     receiver = nullptr;
-    std::memcpy(body.data() + 0x14, &zero, 4);
+    body_record(body).second_receiver = zero;
     std::array<u32, 3> message{0x9D, address, 0};
     attached->message(message);
     detach_actor_bind(*attached->actor);
     secondary = nullptr;
     receiver = nullptr;
-    std::memcpy(body.data() + 0x4C, &zero, 4);
-    std::memcpy(body.data() + 0x14, &zero, 4);
+    body_record(body).unk_4C = zero;
+    body_record(body).second_receiver = zero;
     message = {0x9C, address, 0};
     attached->message(message);
     return attached;
@@ -138,21 +139,21 @@ void clear_runtime_body_actor_reference(std::span<u8> body, u32 address,
     }
     else
     {
-        if (get(body, body_field::attached) == address)
+        if (body_record(body).attached == address)
         {
             primary.attached = nullptr;
-            std::memcpy(body.data() + 0x48, &zero, 4);
+            body_record(body).attached = zero;
         }
-        if (read_u32(body, 0x4C) == address)
+        if (body_record(body).unk_4C == address)
         {
             secondary = nullptr;
-            std::memcpy(body.data() + 0x4C, &zero, 4);
+            body_record(body).unk_4C = zero;
         }
     }
-    if (read_u32(body, 0x50) == address)
+    if (body_record(body).unk_50 == address)
     {
-        std::memcpy(body.data() + 0x50, &zero, 4);
-        std::memcpy(body.data() + 0x54, &zero, 4);
+        body_record(body).unk_50 = zero;
+        body_record(body).unk_54 = zero;
     }
 }
 
@@ -163,17 +164,17 @@ void clear_runtime_body_action_children(std::span<u8> body, RuntimeBodyActionSel
     if (context.first.bytes != nullptr)
     {
         release_factory_object(context.child.factory, context.first);
-        std::memcpy(body.data() + 0x314, &zero, 4);
+        body_record(body).unk_314 = zero;
     }
     if (context.second.bytes != nullptr)
     {
         release_factory_object(context.child.factory, context.second);
-        std::memcpy(body.data() + 0x744, &zero, 4);
+        body_record(body).unk_744 = zero;
     }
     context.row = nullptr;
-    std::memcpy(body.data() + 0x740, &zero, 4);
+    body_record(body).unk_740 = zero;
     const u16 key = 0;
-    std::memcpy(body.data() + 0x748, &key, 2);
+    body_record(body).action_key = key;
 }
 
 // Xbox 0x000277E0
@@ -194,11 +195,11 @@ void reselect_runtime_body_action(std::span<u8> body, RuntimeBodyActionMessages&
 // Xbox 0x0001F750
 bool runtime_body_latches_block(std::span<const u8> body, const Actor& actor, u32 mask)
 {
-    if (get(body, body_field::energy) == 0 || !(actor.animation_pause > 0.f))
+    if (body_record(body).energy == 0 || !(actor.animation_pause > 0.f))
     {
         for (u32 index = 0; index < 6; ++index)
         {
-            if (((mask >> index) & 1) != 0 && body[0x260 + index] != 0)
+            if (((mask >> index) & 1) != 0 && body[offsetof(BodyRecord, unk_260) + index] != 0)
             {
                 return true;
             }
@@ -223,7 +224,7 @@ void receive_runtime_body_push(std::span<const u8> body, Actor& actor,
     std::span<const u8> actor_bytes, std::span<const u8> source,
     const u8* parameters, const Vec3& push)
 {
-    if (body[0x6A] != 0)
+    if (body_record(body).unk_6A != 0)
     {
         const u8 mode = parameters != nullptr ? parameters[6] : 1;
         if (runtime_body_can_receive_push(actor_bytes, source, mode))
@@ -259,7 +260,7 @@ bool notify_runtime_body_action_key(std::span<u8> body, u16 key, RuntimeBodyActi
 void reset_runtime_body_action(std::span<u8> body, std::span<const u8> settings,
     RuntimeBodyActionMessages& context)
 {
-    if (get(body, body_field::energy) != 0)
+    if (body_record(body).energy != 0)
     {
         const u32 second = read_u32(settings, 0x1AC);
         const u32 first = read_u32(settings, 0x1A8);

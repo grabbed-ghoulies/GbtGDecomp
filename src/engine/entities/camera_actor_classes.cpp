@@ -1,4 +1,5 @@
 #include "camera_actor_classes.h"
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -32,8 +33,8 @@ bool initialize_runtime_camera_body(RuntimeCameraBodyContext& context)
     camera_bind_named_view(0, "cameron");
     const Vec3 position = actor_world_position(context.actor);
     const Vec3 euler = actor_world_euler(context.actor);
-    std::memcpy(body.data() + 0x89C, &position, sizeof(position));
-    std::memcpy(body.data() + 0x8A8, &euler, sizeof(euler));
+    camera_body_record(body).view_position = position;
+    camera_body_record(body).view_euler = euler;
     // The native camera node is the record embedded at body +0x894 (position +8, Euler rotation +0x14).
     context.view.position = position;
     context.view.rotation.x = euler.x;

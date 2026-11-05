@@ -1,4 +1,5 @@
 #include "body_move_actions.h"
+#include <cstddef>
 #include "player_children.h"
 #include "body_fields.h"
 #include <cstring>
@@ -90,19 +91,19 @@ bool initialize_runtime_weapon_action(FactoryObject& object, std::span<const u8>
 // Xbox 0x0007FD30
 void raise_runtime_body_speed_limit(std::span<u8> body)
 {
-    std::memcpy(body.data() + 0x330, body.data() + 0x334, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, saved_ease_rate), body.data() + offsetof(BodyRecord, ease_rate), 4);
     const float limit = 70.f; // DAT_0032B2C4.
-    std::memcpy(body.data() + 0x334, &limit, 4);
-    const u32 holders = get(body, body_field::ease_rate_swaps) + 1;
-    std::memcpy(body.data() + 0x338, &holders, 4);
+    body_record(body).ease_rate = limit;
+    const u32 holders = body_record(body).ease_rate_swaps + 1;
+    body_record(body).ease_rate_swaps = holders;
 }
 
 // Xbox 0x0009F150
 void restore_runtime_body_speed_limit(std::span<u8> body)
 {
-    std::memcpy(body.data() + 0x334, body.data() + 0x330, 4);
-    const u32 holders = get(body, body_field::ease_rate_swaps) - 1;
-    std::memcpy(body.data() + 0x338, &holders, 4);
+    std::memcpy(body.data() + offsetof(BodyRecord, ease_rate), body.data() + offsetof(BodyRecord, saved_ease_rate), 4);
+    const u32 holders = body_record(body).ease_rate_swaps - 1;
+    body_record(body).ease_rate_swaps = holders;
 }
 
 void install_runtime_move_action_classes(std::span<ObjectFactoryType> types, std::function<std::span<u8>(u32)> body_at)

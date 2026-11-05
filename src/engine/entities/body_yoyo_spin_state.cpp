@@ -1,4 +1,5 @@
 #include "body_yoyo_spin_state.h"
+#include <cstddef>
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -26,11 +27,6 @@ struct YoYoSpinAnimations
     const AnimationRecord* catch_animation = nullptr;
 };
 std::unordered_map<const u8*, YoYoSpinAnimations> yoyo_spin_animations;
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 void copy_name(char* output, const char* source)
 {
@@ -73,7 +69,7 @@ void begin_hold(YoyoSpinState& state, RuntimeYoYoSpinStateContext& context)
     {
         activate_runtime_body_contact_shapes(*context.collision, context.actor, state.shape_tag, 0xFF,
             state.shape_scale); // 0x0013F420, XMM4 +0x1B4
-        std::memset(context.body.data() + 0x2CC, 0, 4);
+        std::memset(context.body.data() + offsetof(BodyRecord, contact_count), 0, 4);
     }
     state.shapes_active = 1u;
     state.timer = .5f; // DAT_0032B0F4.
@@ -110,9 +106,9 @@ void place_runtime_yoyo_spin_point(const YoyoSpinState& state, RuntimeYoYoSpinSt
     const float weight = float((retail_sin(angle) + 1.0L) * .5L); // 0x00153320, DAT_0032B0F8, DAT_0032B0F4
     const Vec3 start = state.start;
     const Vec3 aim = state.aim;
-    put_float(context.body, 0x18, (aim.x - start.x) * weight + start.x);
-    put_float(context.body, 0x1C, (aim.y - start.y) * weight + start.y);
-    put_float(context.body, 0x20, (aim.z - start.z) * weight + start.z);
+   body_record(context.body).position.x = (aim.x - start.x) * weight + start.x;
+   body_record(context.body).position.y = (aim.y - start.y) * weight + start.y;
+   body_record(context.body).position.z = (aim.z - start.z) * weight + start.z;
 }
 
 // Xbox 0x000A70C0
@@ -217,9 +213,9 @@ bool initialize_runtime_yoyo_spin_state(YoyoSpinState& state, std::span<const u8
     copy_name(state.throw_sound.data(), field_data(parameters, parameter::throw_sound));
     copy_name(state.spin_sound.data(), field_data(parameters, parameter::spin_sound));
     copy_name(state.hold_sound.data(), field_data(parameters, parameter::hold_sound));
-    body[0x6A] = u8(body[0x6A] + 1);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     RuntimeBodyStateContext shape = context.state();
     state.shape_mode = u32(set_runtime_body_shape_mode(4, shape)); // 0x0001FEB0, BL 4, EDI body
     state.start = actor_world_position(context.actor); // 0x000412A0, EDI state +0x1C4
@@ -236,7 +232,7 @@ bool initialize_runtime_yoyo_spin_state(YoyoSpinState& state, std::span<const u8
 void destroy_runtime_yoyo_spin_state(YoyoSpinState& state, RuntimeYoYoSpinStateContext& context)
 {
     const std::span<u8> body = context.body;
-    body[0x6A] = u8(body[0x6A] - 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
     RuntimeBodyStateContext shape = context.state();
     set_runtime_body_shape_mode(u8(state.shape_mode), shape); // 0x0001FEB0, BL state +0x1BC
     if (state.shapes_active != 0)

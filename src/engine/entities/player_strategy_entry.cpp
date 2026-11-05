@@ -1,4 +1,5 @@
 #include "player_strategy_entry.h"
+#include "body_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "player_fields.h"
@@ -29,7 +30,7 @@ void enter_runtime_player_goal(RuntimePlayerStrategyEntry& context)
     {
         return;
     }
-    context.body[0x328] = 7;
+    body_record(context.body).move_class = 7;
     u16 kind;
     if (context.ring == nullptr)
     {
@@ -102,7 +103,7 @@ void enter_runtime_base_strategy_state(RuntimePlayerStrategyEntry& context, u16 
         load_runtime_mind_goal(context.goal_default, context.goals);
         return;
     case 0x3F4:
-        context.body[0x328] = 8;
+        body_record(context.body).move_class = 8;
         load_runtime_mind_goal(context.goal_3f4, context.goals);
         return;
     case 0x3FB:
@@ -121,7 +122,7 @@ void enter_runtime_base_strategy_state(RuntimePlayerStrategyEntry& context, u16 
         ++strategy_base(context.strategy).pause_count;
         return;
     case 0x3FF:
-        context.body[0x328] = 7;
+        body_record(context.body).move_class = 7;
         [[fallthrough]];
     case 0x415:
         ++strategy_base(context.strategy).pause_count;

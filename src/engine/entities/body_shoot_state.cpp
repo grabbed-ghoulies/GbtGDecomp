@@ -1,4 +1,5 @@
 #include "body_shoot_state.h"
+#include <cstddef>
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
@@ -168,14 +169,14 @@ bool initialize_runtime_shoot_state(ShootState& state, std::span<const u8> param
     }
     while (sound[index++] != 0);
     state.last_target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::action_record);
-    body[0x38] = 1;
-    body[0x39] = 1;
-    ++body[0x6A];
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    ++body_record(body).unk_6A;
     for (u32 counter = 0; counter < 4; ++counter)
     {
         if (((1u << counter) & 0xFFFFu) != 0)
         {
-            ++body[0x309 + counter];
+            ++body[offsetof(BodyRecord, unk_309) + counter];
         }
     }
     context.bits.bytes[5] |= 0x80;
@@ -200,11 +201,11 @@ void destroy_runtime_shoot_state(ShootState& state, RuntimeShootStateContext& co
         state.aimed = 0u;
     }
     state.phase = 0u;
-    --body[0x6A];
-    --body[0x309];
-    --body[0x30A];
-    --body[0x30C];
-    --body[0x30B];
+    --body_record(body).unk_6A;
+    --body_record(body).unk_309;
+    --body_record(body).unk_30A;
+    --body_record(body).unk_30C;
+    --body_record(body).unk_30B;
     context.bits.bytes[5] &= 0x7F;
     AnimationController* controller = context.actions.animation.controller.get(); // Actor +0x50.
     if (controller != nullptr)
@@ -263,7 +264,7 @@ void tick_runtime_shoot_state(ShootState& state, RuntimeShootStateContext& conte
     {
         if (target != 0)
         {
-            set(body, body_field::euler, runtime_shoot_turn(context.target_at(target), context)); // 0x000A0320
+            body_record(body).euler = runtime_shoot_turn(context.target_at(target), context); // 0x000A0320
         }
         else
         {
@@ -297,7 +298,7 @@ void tick_runtime_shoot_state(ShootState& state, RuntimeShootStateContext& conte
         const Vec3 point{read_f32(record, 0x20), read_f32(record, 0x30) * 0.5f + read_f32(record, 0x24),
             read_f32(record, 0x28)}; // DAT_0032B0F4.
         fire_runtime_shoot_state(state, target, read_f32(record, 0x38), point, context); // 0x0009FF90
-        set(body, body_field::euler, runtime_shoot_turn(record, context)); // 0x000A0320
+        body_record(body).euler = runtime_shoot_turn(record, context); // 0x000A0320
         bool changed = false;
         if (target != state.last_target)
         {
@@ -433,7 +434,7 @@ void aim_runtime_shoot_state(ShootState& state, std::span<const u8> target, Runt
     const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_height) * 0.75f + get(target, mind_target_field::shape_position).y,
         get(target, mind_target_field::shape_position).z}; // DAT_0032B2AC.
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const float eye = actor.radius_y * get(context.body, body_field::height_scale) * 0.75f + position.y;
+    const float eye = actor.radius_y * body_record(context.body).height_scale * 0.75f + position.y;
     const Vec3 direction{point.x - position.x, point.y - eye, point.z - position.z};
     float pitch = 0.f;
     runtime_direction_pitch(direction, pitch); // 0x00106000

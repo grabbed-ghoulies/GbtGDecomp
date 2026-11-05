@@ -110,26 +110,11 @@ bool join_queue(RuntimeMindTarget* target, RuntimeHauntedDoorStrategy& context)
         &actor_of(context), context.queue); // 0x0002B910
 }
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
-void step_byte(std::span<u8> bytes, size_t offset, i32 step)
-{
-    bytes[offset] = u8(bytes[offset] + step);
-}
-
 // Body +0x30 clear and +0x34 zero: nothing moves the body.
 bool body_settled(RuntimeHauntedDoorStrategy& context)
 {
     const std::span<const u8> body = body_of(context);
-    return get(body, body_field::move_holds) == 0 && get(body, body_field::move_hold_time) == 0.f;
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
 }
 
 const AnimationRecord& overlay_record(RuntimeHauntedDoorStrategy& context, const char* reader)
@@ -293,11 +278,11 @@ void begin_runtime_haunted_door_attack(RuntimeHauntedDoorStrategy& context)
             row = find_runtime_attachment_second_request(tables, 0xCF); // 0x0001C5A0, EBX 0xCF
         }
     }
-    set(body, body_field::hit_record, row == nullptr ? 0u : context.address_of(row));
-    put_word(body, 0x88, 0);
-    step_byte(body, 0x6A, 1);
+    body_record(body).hit_record = row == nullptr ? 0u : context.address_of(row);
+   body_record(body).unk_88 = 0;
+    ++body_record(body).unk_6A;
     start_runtime_body_animation_record(overlay_record(context, "0x000AFB20"), context.actions); // 0x0001AFA0
-    put_word(body, 0x74C, 1);
+   body_record(body).unk_74C = 1;
     fields_of(strategy).timeline_row = fields_of(strategy).timeline;
     fields_of(strategy).row_time = 0.f;
     fields_of(strategy).attacking = 1u;
@@ -312,9 +297,9 @@ void end_runtime_haunted_door_attack(RuntimeHauntedDoorStrategy& context)
         return;
     }
     const std::span<u8> body = body_of(context);
-    set(body, body_field::hit_record, 0);
-    put_word(body, 0x88, 0);
-    step_byte(body, 0x6A, -1);
+    body_record(body).hit_record = 0;
+   body_record(body).unk_88 = 0;
+    --body_record(body).unk_6A;
     const i32 slot = i32(overlay_record(context, "0x000AFB90").slot);
     AnimationController* controller = context.actions.animation.controller.get(); // Actor +0x50.
     if (controller != nullptr && slot != 0)
@@ -325,7 +310,7 @@ void end_runtime_haunted_door_attack(RuntimeHauntedDoorStrategy& context)
         }
         controller->dirty = true; // +0x5C.
     }
-    put_word(body, 0x74C, 0);
+   body_record(body).unk_74C = 0;
     fields_of(strategy).attacking = 0u;
 }
 
@@ -621,23 +606,23 @@ void enter_runtime_haunted_door_state(u16 state, u16 previous, RuntimeHauntedDoo
     const std::span<u8> body = body_of(context);
     RuntimeMindGoalContext& mind = goals.entry.goals;
     (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3EC:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         append_runtime_range_request(mind.anchor, mind.sizes, 40.f); // 0x00136AC0, EAX mind
         return;
     case 0x3EE:
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         strategy_base(strategy).attacking = 1;
         start_runtime_haunted_door_overlay(context); // 0x000AFA80
         load_goal(context.goal_knockdown, context);
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack_special, context);
         return;

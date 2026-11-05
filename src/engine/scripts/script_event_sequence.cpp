@@ -1,4 +1,5 @@
 #include "script_event_sequence.h"
+#include "../entities/body_fields.h"
 #include "script_event_step_fields.h"
 #include "script_actions.h"
 #include "script_conditions.h"
@@ -1214,7 +1215,7 @@ i32 run_script_event_kill_step(std::span<u8> step)
         {
             throw Error("DAT_00511B48 node has no body view");
         }
-        if (read_u16(g_alt_node_body(node), 0x94) != 0)
+        if (body_record(g_alt_node_body(node)).energy != 0)
         {
             ++alive;
         }

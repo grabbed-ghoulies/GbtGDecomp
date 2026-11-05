@@ -126,8 +126,8 @@ long double distance(const Vec3& to, const Vec3& from)
 
 Vec3 point_of(RuntimeBackgroundCloth& cloth, u32 index)
 {
-    const float* point = cloth.point(index);
-    return {point[0], point[1], point[2]};
+    const PointGraphPoint& point = cloth.point(index);
+    return {point.position.x, point.position.y, point.position.z};
 }
 
 // 0x00151C08: the length squared through SSE lanes, (x^2 + y^2) + z^2 in single precision.
@@ -320,17 +320,17 @@ void draw_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBackgro
         push += 3;
         for (u32 column = 0; column < columns; ++column)
         {
-            const float* top = cloth.point(base + column);
-            const float* bottom = cloth.point(columns + base + column);
-            push[0] = std::bit_cast<u32>(top[0]);
-            push[1] = std::bit_cast<u32>(top[1]);
-            push[2] = std::bit_cast<u32>(top[2]);
+            const PointGraphPoint& top = cloth.point(base + column);
+            const PointGraphPoint& bottom = cloth.point(columns + base + column);
+            push[0] = std::bit_cast<u32>(top.position.x);
+            push[1] = std::bit_cast<u32>(top.position.y);
+            push[2] = std::bit_cast<u32>(top.position.z);
             push[3] = colors[base + column];
             push[4] = std::bit_cast<u32>(row_coordinate);
             push[5] = std::bit_cast<u32>(column_coordinate);
-            push[6] = std::bit_cast<u32>(bottom[0]);
-            push[7] = std::bit_cast<u32>(bottom[1]);
-            push[8] = std::bit_cast<u32>(bottom[2]);
+            push[6] = std::bit_cast<u32>(bottom.position.x);
+            push[7] = std::bit_cast<u32>(bottom.position.y);
+            push[8] = std::bit_cast<u32>(bottom.position.z);
             push[9] = colors[columns + base + column];
             push[10] = std::bit_cast<u32>(next_row);
             push[11] = std::bit_cast<u32>(column_coordinate);
@@ -399,20 +399,20 @@ void draw_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgro
         for (u32 column = 0; column < cloth_header(bytes).columns; column = (column + 1) & 0xFFFF)
         {
             const u32 count = cloth_header(bytes).columns;
-            const float* upper = cloth.point(base + column);
-            push[0] = std::bit_cast<u32>(upper[0]);
-            push[1] = std::bit_cast<u32>(upper[1]);
-            push[2] = std::bit_cast<u32>(upper[2]);
+            const PointGraphPoint& upper = cloth.point(base + column);
+            push[0] = std::bit_cast<u32>(upper.position.x);
+            push[1] = std::bit_cast<u32>(upper.position.y);
+            push[2] = std::bit_cast<u32>(upper.position.z);
             push[3] = colors[base + column];
             push[4] = std::bit_cast<u32>(top);
             const float across = float(std::cos((long double)i32(column) / (long double)i32(count)
                 * (long double)20.f + phase) * (long double)0.02f + column_coordinate);
             column_coordinate = column_coordinate + column_step;
             push[5] = std::bit_cast<u32>(across);
-            const float* lower = cloth.point(cloth_header(bytes).columns + base + column);
-            push[6] = std::bit_cast<u32>(lower[0]);
-            push[7] = std::bit_cast<u32>(lower[1]);
-            push[8] = std::bit_cast<u32>(lower[2]);
+            const PointGraphPoint& lower = cloth.point(cloth_header(bytes).columns + base + column);
+            push[6] = std::bit_cast<u32>(lower.position.x);
+            push[7] = std::bit_cast<u32>(lower.position.y);
+            push[8] = std::bit_cast<u32>(lower.position.z);
             push[9] = colors[cloth_header(bytes).columns + base + column];
             push[10] = std::bit_cast<u32>(bottom);
             push[11] = std::bit_cast<u32>(across);

@@ -21,8 +21,8 @@ namespace
 
 Vec3 point_position(RuntimeBackgroundCloth& cloth, u32 index)
 {
-    const float* point = cloth.point(index);
-    return {point[0], point[1], point[2]};
+    const PointGraphPoint& point = cloth.point(index);
+    return {point.position.x, point.position.y, point.position.z};
 }
 
 // x87 _ftol (0x001673D8): truncation toward zero.
@@ -46,9 +46,9 @@ void settle_when_still(RuntimeBackgroundCloth& cloth)
     {
         for (u32 index = 0; index < (count - 1) / 10 + 1; ++index)
         {
-            const float* point = cloth.point(index * 10);
-            total = (point[2] - point[5]) * (point[2] - point[5]) + (point[0] - point[3]) * (point[0] - point[3])
-                + (point[1] - point[4]) * (point[1] - point[4]) + total;
+            const PointGraphPoint& point = cloth.point(index * 10);
+            total = (point.position.z - point.previous.z) * (point.position.z - point.previous.z) + (point.position.x - point.previous.x) * (point.position.x - point.previous.x)
+                + (point.position.y - point.previous.y) * (point.position.y - point.previous.y) + total;
         }
     }
     float scale = float(i32(count));
@@ -268,9 +268,9 @@ float runtime_background_cloth_motion(RuntimeBackgroundCloth& cloth)
     float total = 0.f;
     for (u32 index = 0; index < count; ++index)
     {
-        const float* point = cloth.point(index);
-        total = (point[2] - point[5]) * (point[2] - point[5]) + (point[0] - point[3]) * (point[0] - point[3])
-            + (point[1] - point[4]) * (point[1] - point[4]) + total;
+        const PointGraphPoint& point = cloth.point(index);
+        total = (point.position.z - point.previous.z) * (point.position.z - point.previous.z) + (point.position.x - point.previous.x) * (point.position.x - point.previous.x)
+            + (point.position.y - point.previous.y) * (point.position.y - point.previous.y) + total;
     }
     long double scale = (long double)i32(count);
     if (i32(count) < 0)
@@ -502,15 +502,15 @@ RuntimeBackgroundCloth* build_runtime_background_cloth(u16 rows, u16 columns, u1
                 / ((long double)i32(count_rows) * (long double)0.33333334f) * (long double)6.2831855f) * 2.0L;
             const float across = float(row) / float(i32(count_rows - 1));
             const float down = float(column) / float(i32(count_columns - 1));
-            float* point = cloth->point(row * count_columns + column);
-            point[0] = float((long double)normal.x * wave) + ((quad[0] + ax * across) + bx * down);
-            point[1] = ((quad[1] + ay * across) + by * down) + float((long double)normal.y * wave);
-            point[2] = ((quad[2] + az * across) + bz * down) + float((long double)normal.z * wave);
-            reinterpret_cast<PointGraphPoint*>(point)->pinned = 0;
-            point[6] = gravity.x;
-            point[7] = gravity.y;
-            point[8] = gravity.z;
-            point[9] = 1.f; // DAT_0032B0F8
+            PointGraphPoint& point = cloth->point(row * count_columns + column);
+            point.position.x = float((long double)normal.x * wave) + ((quad[0] + ax * across) + bx * down);
+            point.position.y = ((quad[1] + ay * across) + by * down) + float((long double)normal.y * wave);
+            point.position.z = ((quad[2] + az * across) + bz * down) + float((long double)normal.z * wave);
+            point.pinned = 0;
+            point.force.x = gravity.x;
+            point.force.y = gravity.y;
+            point.force.z = gravity.z;
+            point.inverse_mass = 1.f; // DAT_0032B0F8
         }
     }
     const float per_row = 1.f / float(count_rows);
@@ -530,18 +530,18 @@ RuntimeBackgroundCloth* build_runtime_background_cloth(u16 rows, u16 columns, u1
     cloth->graph.point((count_rows - 1) * count_columns).pinned = 1;
     for (u32 index = 0; index < cloth_header(bytes).points; ++index)
     {
-        float* point = cloth->point(index);
-        point[3] = point[0];
-        point[4] = point[1];
-        point[5] = point[2];
+        PointGraphPoint& point = cloth->point(index);
+        point.previous.x = point.position.x;
+        point.previous.y = point.position.y;
+        point.previous.z = point.position.z;
     }
     const auto add_edge = [&](u32 first, u32 second)
     {
-        const float* a = cloth->point(first);
-        const float* b = cloth->point(second);
-        const float dx = a[0] - b[0];
-        const float dy = a[1] - b[1];
-        const float dz = a[2] - b[2];
+        const PointGraphPoint& a = cloth->point(first);
+        const PointGraphPoint& b = cloth->point(second);
+        const float dx = a.position.x - b.position.x;
+        const float dy = a.position.y - b.position.y;
+        const float dz = a.position.z - b.position.z;
         const float length = float(std::sqrt(double(dy * dy + dz * dz + dx * dx)));
         if (cloth_header(bytes).sorted == 0)
         {
@@ -711,16 +711,16 @@ RuntimeBackgroundCloth* build_runtime_background_water_sheet(u16 size, u16 edges
         {
             const float across = float(i32(row)) / float(i32(rows - 1));
             const float down = float(i32(column)) / float(i32(columns - 1));
-            float* point = cloth->point(row * columns + column);
-            point[0] = (quad[0] + ax * across) + bx * down;
-            point[1] = (quad[1] + across * 0.f) + down * 0.f;
-            point[2] = (quad[2] + az * across) + bz * down;
+            PointGraphPoint& point = cloth->point(row * columns + column);
+            point.position.x = (quad[0] + ax * across) + bx * down;
+            point.position.y = (quad[1] + across * 0.f) + down * 0.f;
+            point.position.z = (quad[2] + az * across) + bz * down;
             const bool edge = row == 0 || i32(rows - 1) <= i32(row) || column == 0 || i32(columns - 1) <= i32(column);
-            reinterpret_cast<PointGraphPoint*>(point)->pinned = edge ? 1 : 0;
-            point[6] = context.origin.x; // DAT_0050DD80
-            point[7] = context.origin.y;
-            point[8] = context.origin.z;
-            point[9] = 1.f; // DAT_0032B0F8
+            point.pinned = edge ? 1 : 0;
+            point.force.x = context.origin.x; // DAT_0050DD80
+            point.force.y = context.origin.y;
+            point.force.z = context.origin.z;
+            point.inverse_mass = 1.f; // DAT_0032B0F8
         }
     }
     const float per_row = 1.f / float(rows);
@@ -737,19 +737,19 @@ RuntimeBackgroundCloth* build_runtime_background_water_sheet(u16 size, u16 edges
         + (long double)column_y * column_y) + (long double)column_x * column_x));
     for (u32 index = 0; index < cloth_header(bytes).points; ++index)
     {
-        float* point = cloth->point(index);
-        point[3] = point[0];
-        point[4] = point[1];
-        point[5] = point[2];
+        PointGraphPoint& point = cloth->point(index);
+        point.previous.x = point.position.x;
+        point.previous.y = point.position.y;
+        point.previous.z = point.position.z;
     }
     // `vertical` sums the squares z, y, x (the edge to the next row), else x, z, y.
     const auto add_edge = [&](u32 first, u32 second, bool vertical)
     {
-        const float* a = cloth->point(first);
-        const float* b = cloth->point(second);
-        const long double dx = (long double)a[0] - b[0];
-        const long double dy = (long double)a[1] - b[1];
-        const long double dz = (long double)a[2] - b[2];
+        const PointGraphPoint& a = cloth->point(first);
+        const PointGraphPoint& b = cloth->point(second);
+        const long double dx = (long double)a.position.x - b.position.x;
+        const long double dy = (long double)a.position.y - b.position.y;
+        const long double dz = (long double)a.position.z - b.position.z;
         const float length = float(std::sqrt(vertical ? (dz * dz + dy * dy) + dx * dx : (dx * dx + dz * dz) + dy * dy));
         if (cloth_header(bytes).sorted == 0)
         {
@@ -818,16 +818,16 @@ RuntimeBackgroundCloth* build_runtime_background_water(std::span<const u8> part,
 // Xbox 0x00114580
 void level_runtime_background_water(RuntimeBackgroundCloth& cloth)
 {
-    const float level = cloth.point(0)[1];
+    const float level = cloth.point(0).position.y;
     for (u32 index = 0; index < cloth_header(cloth.bytes).points; index = (index + 1) & 0xFFFF)
     {
-        float* point = cloth.point(index);
-        const float offset = level - point[1];
+        PointGraphPoint& point = cloth.point(index);
+        const float offset = level - point.position.y;
         const float pull = offset * offset * 0.2f; // DAT_0032B1AC
-        point[7] = pull;
-        if (point[1] > level)
+        point.force.y = pull;
+        if (point.position.y > level)
         {
-            point[7] = 0.f - pull;
+            point.force.y = 0.f - pull;
         }
     }
 }
@@ -868,33 +868,33 @@ void ripple_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackg
             {
                 const float radius = float(std::sin((long double)context.scene_time * 5.0L) * (long double)0.4f
                     + (long double)4.4f); // DAT_004312CC, DAT_0032B184, DAT_0032B11C, DAT_0032B4D8
-                float* point = cloth.point(cloth_header(bytes).columns * row + column);
-                const float dx = point[0] - position.x;
-                const float dy = point[1] - surface;
-                const float dz = point[2] - position.z;
+                PointGraphPoint& point = cloth.point(cloth_header(bytes).columns * row + column);
+                const float dx = point.position.x - position.x;
+                const float dy = point.position.y - surface;
+                const float dz = point.position.z - position.z;
                 if (!(radius * radius > (dy * dy + dx * dx) + dz * dz))
                 {
                     continue;
                 }
-                point[0] = dx;
-                point[1] = dy;
-                point[2] = dz;
+                point.position.x = dx;
+                point.position.y = dy;
+                point.position.z = dz;
                 if (dx == 0.f && dy == 0.f && dz == 0.f)
                 {
                     continue;
                 }
                 Vec3 away{dx, dy, dz};
                 normalize_runtime_graphics_vector(away, away); // 0x00184F99, in place
-                point[0] = away.x * radius + position.x;
-                point[1] = away.y * radius + surface;
-                point[2] = away.z * radius + position.z;
+                point.position.x = away.x * radius + position.x;
+                point.position.y = away.y * radius + surface;
+                point.position.z = away.z * radius + position.z;
             }
         }
     }
 }
 
 // Xbox 0x001025E0
-bool push_runtime_point_from_capsule(float* point, const Vec3& start, const Vec3& end, float radius)
+bool push_runtime_point_from_capsule(PointGraphPoint& point, const Vec3& start, const Vec3& end, float radius)
 {
     const float dx = start.x - end.x;
     const float dz = start.z - end.z;
@@ -904,7 +904,7 @@ bool push_runtime_point_from_capsule(float* point, const Vec3& start, const Vec3
     {
         return false;
     }
-    const Vec3 p{point[0], point[1], point[2]};
+    const Vec3 p{point.position.x, point.position.y, point.position.z};
     const float along = (((start.x * start.x + start.y * start.y) + start.z * start.z)
         - ((p.z * dz + p.y * dy) + p.x * dx)
         - ((start.x * end.x + end.z * start.z) + end.y * start.y)) / squared;
@@ -928,43 +928,43 @@ bool push_runtime_point_from_capsule(float* point, const Vec3& start, const Vec3
     const float reach = float((long double)radius - runtime_point_distance(p, nearest)); // 0x00146CE0
     if (reach * reach > (ez * ez + ey * ey) + ex * ex)
     {
-        point[0] = p.x + ex;
-        point[1] = p.y + ey;
-        point[2] = p.z + ez;
+        point.position.x = p.x + ex;
+        point.position.y = p.y + ey;
+        point.position.z = p.z + ez;
         return true;
     }
     Vec3 away{p.x - nearest.x, p.y - nearest.y, p.z - nearest.z};
     normalize_runtime_graphics_vector(away, away); // 0x00184F99
-    point[0] = away.x * radius + nearest.x;
-    point[1] = away.y * radius + nearest.y;
-    point[2] = radius * away.z + nearest.z;
+    point.position.x = away.x * radius + nearest.x;
+    point.position.y = away.y * radius + nearest.y;
+    point.position.z = radius * away.z + nearest.z;
     return true;
 }
 
 // Xbox 0x00102860
 void push_runtime_cloth_point_from_sphere(RuntimeBackgroundCloth& cloth, u32 index, const Vec3& center, float radius)
 {
-    float* point = cloth.point(index);
-    const float dy = point[1] - center.y;
-    const float dx = point[0] - center.x;
-    const float dz = point[2] - center.z;
+    PointGraphPoint& point = cloth.point(index);
+    const float dy = point.position.y - center.y;
+    const float dx = point.position.x - center.x;
+    const float dz = point.position.z - center.z;
     if (!(dx * dx + dy * dy + dz * dz < radius * radius))
     {
         return;
     }
-    point[0] = dx;
-    point[1] = point[1] - center.y;
-    const float z = point[2] - center.z;
-    point[2] = z;
-    if (dx == 0.f && point[1] == 0.f && z == 0.f)
+    point.position.x = dx;
+    point.position.y = point.position.y - center.y;
+    const float z = point.position.z - center.z;
+    point.position.z = z;
+    if (dx == 0.f && point.position.y == 0.f && z == 0.f)
     {
         return;
     }
-    Vec3 away{point[0], point[1], point[2]};
+    Vec3 away{point.position.x, point.position.y, point.position.z};
     normalize_runtime_graphics_vector(away, away); // 0x00184F99
-    point[0] = center.x + away.x * radius;
-    point[1] = center.y + away.y * radius;
-    point[2] = center.z + away.z * radius;
+    point.position.x = center.x + away.x * radius;
+    point.position.y = center.y + away.y * radius;
+    point.position.z = center.z + away.z * radius;
 }
 
 namespace
@@ -989,18 +989,18 @@ Vec3 capsule_vec(const std::array<u8, 0x40>& record, size_t offset)
 // pushing pass), else x, y, z.
 void push_from_planes(RuntimeBackgroundCloth& cloth, u32 index, bool y_first)
 {
-    float* point = cloth.point(index);
+    PointGraphPoint& point = cloth.point(index);
     for (const auto& plane : cloth.planes)
     {
         const float distance = y_first
-            ? point[1] * plane[1] + point[2] * plane[2] + point[0] * plane[0] + plane[3]
-            : point[0] * plane[0] + point[1] * plane[1] + point[2] * plane[2] + plane[3];
+            ? point.position.y * plane[1] + point.position.z * plane[2] + point.position.x * plane[0] + plane[3]
+            : point.position.x * plane[0] + point.position.y * plane[1] + point.position.z * plane[2] + plane[3];
         if (distance < 0.f)
         {
             const float depth = 0.f - distance;
-            point[0] = depth * plane[0] + point[0];
-            point[1] = depth * plane[1] + point[1];
-            point[2] = depth * plane[2] + point[2];
+            point.position.x = depth * plane[0] + point.position.x;
+            point.position.y = depth * plane[1] + point.position.y;
+            point.position.z = depth * plane[2] + point.position.z;
         }
     }
 }

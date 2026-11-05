@@ -110,9 +110,9 @@ struct RuntimeBackgroundCloth
     std::span<u8> normals;
     std::vector<std::array<float, 16>> planes; // +0x150's pool (stride 0x40, growth 2): planes it collides with.
     std::uintptr_t shadow_surface = 0; // +0xB0's surface handle.
-    float* point(u32 index)
+    PointGraphPoint& point(u32 index)
     {
-        return reinterpret_cast<float*>(graph.points.data() + size_t(index) * 0x30);
+        return graph.point(index);
     }
 };
 struct RuntimeBackgroundClothContext
@@ -185,7 +185,7 @@ void level_runtime_background_water(RuntimeBackgroundCloth& cloth); // Xbox 0x00
 void ripple_runtime_background_water(RuntimeBackgroundCloth& cloth,
     RuntimeBackgroundClothContext& context); // Xbox 0x001145F0
 // The point (ESI) pushed out of the capsule from `start` (ECX) to `end` (EDI); true when it was inside.
-bool push_runtime_point_from_capsule(float* point, const Vec3& start, const Vec3& end,
+bool push_runtime_point_from_capsule(PointGraphPoint& point, const Vec3& start, const Vec3& end,
     float radius); // Xbox 0x001025E0
 // The cloth's point (EAX) pushed out of the sphere at `center` (EDI).
 void push_runtime_cloth_point_from_sphere(RuntimeBackgroundCloth& cloth, u32 index, const Vec3& center,

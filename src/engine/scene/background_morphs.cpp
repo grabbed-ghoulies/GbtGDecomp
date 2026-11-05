@@ -12,7 +12,7 @@ namespace gbtg
 namespace
 {
 
-float* point_of(RuntimeBackgroundCloth& cloth, u32 index)
+PointGraphPoint& point_of(RuntimeBackgroundCloth& cloth, u32 index)
 {
     return cloth.point(index);
 }
@@ -30,25 +30,25 @@ float row_share(i32 numerator, u16 rows)
 
 // Moves the handle by `pull` scaled by `share`, then puts it back at its old distance from its rail point, with no
 // velocity. `zx_first` sums the distance z, x, y (the closing pass of the second half), else y, z, x.
-void pull_handle(float* handle, const float* rail, const Vec3& pull, float share, bool zx_first)
+void pull_handle(PointGraphPoint& handle, const PointGraphPoint& rail, const Vec3& pull, float share, bool zx_first)
 {
-    const float dx = handle[0] - rail[0];
-    const float dy = handle[1] - rail[1];
-    const float dz = handle[2] - rail[2];
+    const float dx = handle.position.x - rail.position.x;
+    const float dy = handle.position.y - rail.position.y;
+    const float dz = handle.position.z - rail.position.z;
     const float distance = zx_first ? float(std::sqrt(double(dz * dz + dx * dx + dy * dy)))
                                     : float(std::sqrt(double(dy * dy + dz * dz + dx * dx)));
-    handle[0] = pull.x * share + handle[0];
-    handle[1] = handle[1] + pull.y * share;
-    handle[2] = handle[2] + pull.z * share;
-    Vec3 offset{handle[0] - rail[0], handle[1] - rail[1], handle[2] - rail[2]};
+    handle.position.x = pull.x * share + handle.position.x;
+    handle.position.y = handle.position.y + pull.y * share;
+    handle.position.z = handle.position.z + pull.z * share;
+    Vec3 offset{handle.position.x - rail.position.x, handle.position.y - rail.position.y, handle.position.z - rail.position.z};
     normalize_runtime_graphics_vector(offset, offset); // 0x00184F99
     offset = {offset.x * distance, offset.y * distance, offset.z * distance};
-    handle[0] = rail[0] + offset.x;
-    handle[1] = offset.y + rail[1];
-    handle[2] = rail[2] + offset.z;
-    handle[3] = handle[0];
-    handle[4] = handle[1];
-    handle[5] = handle[2];
+    handle.position.x = rail.position.x + offset.x;
+    handle.position.y = offset.y + rail.position.y;
+    handle.position.z = rail.position.z + offset.z;
+    handle.previous.x = handle.position.x;
+    handle.previous.y = handle.position.y;
+    handle.previous.z = handle.position.z;
 }
 
 // One pass over the rows: the second half's handles move by `second_pull` (rows - u - 2 shares), the first half's by
@@ -120,14 +120,14 @@ void add_runtime_background_morph(RuntimeBackgroundMorphs* morphs, RuntimeBackgr
         const u32 columns = cloth_header(first.bytes).columns;
         morph.first_handles[row] = (columns * 2) / 3 + columns * row;
         morph.first_rail[row] = columns * row;
-        reinterpret_cast<u8*>(first.point(morph.first_handles[row]))[0x28] = 1;
+        first.point(morph.first_handles[row]).pinned = 1;
     }
     for (u32 row = 0; row < cloth_header(second.bytes).rows; ++row)
     {
         const u32 columns = cloth_header(second.bytes).columns;
         morph.second_handles[row] = (columns * 2) / 3 + columns * row;
         morph.second_rail[row] = columns * row;
-        reinterpret_cast<u8*>(second.point(morph.second_handles[row]))[0x28] = 1;
+        second.point(morph.second_handles[row]).pinned = 1;
     }
     prepare_runtime_point_graph_edges(first.graph); // 0x001024A0, EAX first
     prepare_runtime_point_graph_edges(second.graph); // 0x001024A0, EAX second
@@ -164,12 +164,12 @@ void step_runtime_background_morphs(RuntimeBackgroundMorphs* morphs)
             cloth_header(morph.first->bytes).awake = u8(1);
             cloth_header(morph.second->bytes).awake = u8(1);
             const u16 rows = cloth_header(morph.first->bytes).rows;
-            const float* top = morph.first->point(morph.first_rail[0]);
-            const float* bottom = morph.first->point(morph.first_rail[rows - 1]);
-            const Vec3 first_pull{(top[0] - bottom[0]) * kRate, (top[1] - bottom[1]) * kRate,
-                (top[2] - bottom[2]) * kRate};
-            const Vec3 second_pull{(bottom[0] - top[0]) * kRate, (bottom[1] - top[1]) * kRate,
-                (bottom[2] - top[2]) * kRate};
+            const PointGraphPoint& top = morph.first->point(morph.first_rail[0]);
+            const PointGraphPoint& bottom = morph.first->point(morph.first_rail[rows - 1]);
+            const Vec3 first_pull{(top.position.x - bottom.position.x) * kRate, (top.position.y - bottom.position.y) * kRate,
+                (top.position.z - bottom.position.z) * kRate};
+            const Vec3 second_pull{(bottom.position.x - top.position.x) * kRate, (bottom.position.y - top.position.y) * kRate,
+                (bottom.position.z - top.position.z) * kRate};
             ++morph.steps;
             pull_rows(morph, first_pull, second_pull, false);
         }
@@ -183,12 +183,12 @@ void step_runtime_background_morphs(RuntimeBackgroundMorphs* morphs)
             cloth_header(morph.first->bytes).awake = u8(1);
             cloth_header(morph.second->bytes).awake = u8(1);
             const u16 rows = cloth_header(morph.first->bytes).rows;
-            const float* bottom = morph.first->point(morph.first_rail[rows - 1]);
-            const float* top = morph.first->point(morph.first_rail[0]);
-            const Vec3 first_pull{(bottom[0] - top[0]) * kRate, (bottom[1] - top[1]) * kRate,
-                (bottom[2] - top[2]) * kRate};
-            const Vec3 second_pull{(top[0] - bottom[0]) * kRate, (top[1] - bottom[1]) * kRate,
-                (top[2] - bottom[2]) * kRate};
+            const PointGraphPoint& bottom = morph.first->point(morph.first_rail[rows - 1]);
+            const PointGraphPoint& top = morph.first->point(morph.first_rail[0]);
+            const Vec3 first_pull{(bottom.position.x - top.position.x) * kRate, (bottom.position.y - top.position.y) * kRate,
+                (bottom.position.z - top.position.z) * kRate};
+            const Vec3 second_pull{(top.position.x - bottom.position.x) * kRate, (top.position.y - bottom.position.y) * kRate,
+                (top.position.z - bottom.position.z) * kRate};
             --morph.steps;
             pull_rows(morph, first_pull, second_pull, true);
         }

@@ -14,7 +14,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = background_cloth_field;
 
 // The ramp's grey for texel `index` of 256 (DAT_0032B430.. thresholds, DAT_0032B414 scale).
 u8 ramp_level(u32 index)
@@ -168,11 +167,11 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
                 continue;
             }
             auto bytes = cloth->bytes;
-            set(bytes, field::constrain_hook, 0x00114910u);
-            set(bytes, field::constrain_enabled, 1u);
-            set(bytes, field::awake_hook, 0x001151F0u);
-            set(bytes, field::asleep_hook, 0x001152C0u);
-            const Vec3 center = get(bytes, field::center);
+            cloth_header(bytes).constrain_hook = 0x00114910u;
+            cloth_header(bytes).constrain_enabled = 1u;
+            cloth_header(bytes).awake_hook = 0x001151F0u;
+            cloth_header(bytes).asleep_hook = 0x001152C0u;
+            const Vec3 center = cloth_header(bytes).center;
             Vec3 light{center.x - room.x, center.y - room.y, center.z - room.z};
             const float squared = (light.z * light.z + light.y * light.y) + light.x * light.x;
             if (squared != 0.f) // DAT_0032B100
@@ -180,11 +179,11 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
                 const long double scale = retail_reciprocal_sqrt(squared); // 0x001534C0
                 light = {float(light.x * scale), float(light.y * scale), float(light.z * scale)};
             }
-            set(bytes, field::faces_room, u8(1));
-            set(bytes, field::light, light);
+            cloth_header(bytes).faces_room = u8(1);
+            cloth_header(bytes).light = light;
             if (part[0x30] == 8)
             {
-                set(bytes, field::casts_shadow, u8(0));
+                cloth_header(bytes).casts_shadow = u8(0);
             }
             register_runtime_background_cloth(*cloth, scene); // 0x00115A40
         }
@@ -195,15 +194,15 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
             if (cloth != nullptr)
             {
                 auto bytes = cloth->bytes;
-                set(bytes, field::casts_shadow, u8(0));
-                set(bytes, field::constrain_hook, 0x001145F0u);
-                set(bytes, field::constrain_enabled, 1u);
-                set(bytes, field::before_hook, 0x00114580u);
-                set(bytes, field::own_shaders, u8(0));
-                set(bytes, field::second_draw, u8(1));
-                set(bytes, field::damping, 0.01f); // DAT_0032B124
-                set(bytes, field::layer, u8(1));
-                set(bytes, field::specular, u8(1));
+                cloth_header(bytes).casts_shadow = u8(0);
+                cloth_header(bytes).constrain_hook = 0x001145F0u;
+                cloth_header(bytes).constrain_enabled = 1u;
+                cloth_header(bytes).before_hook = 0x00114580u;
+                cloth_header(bytes).own_shaders = u8(0);
+                cloth_header(bytes).second_draw = u8(1);
+                cloth_header(bytes).damping = 0.01f; // DAT_0032B124
+                cloth_header(bytes).layer = u8(1);
+                cloth_header(bytes).specular = u8(1);
                 register_runtime_background_cloth(*cloth, scene); // 0x00115A40
             }
         }
@@ -215,12 +214,12 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
             for (u32 strip = 0; strip < count; ++strip)
             {
                 auto bytes = strips[strip]->bytes;
-                set(bytes, field::constrain_hook, 0x00114910u);
-                set(bytes, field::constrain_enabled, 1u);
-                set(bytes, field::awake_hook, 0x001151F0u);
-                set(bytes, field::asleep_hook, 0x001152C0u);
-                set(bytes, field::casts_shadow, u8(0));
-                set(bytes, field::damping, std::bit_cast<float>(0x3D4CCCCDu)); // DAT_0032B250
+                cloth_header(bytes).constrain_hook = 0x00114910u;
+                cloth_header(bytes).constrain_enabled = 1u;
+                cloth_header(bytes).awake_hook = 0x001151F0u;
+                cloth_header(bytes).asleep_hook = 0x001152C0u;
+                cloth_header(bytes).casts_shadow = u8(0);
+                cloth_header(bytes).damping = std::bit_cast<float>(0x3D4CCCCDu); // DAT_0032B250
                 register_runtime_background_cloth(*strips[strip], scene); // 0x00115A40
             }
         }
@@ -234,12 +233,12 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
             settle_runtime_background_cloth(*second, scene.cloth); // 0x0004C0B0
             register_runtime_background_cloth(*first, scene); // 0x00115A40
             register_runtime_background_cloth(*second, scene); // 0x00115A40
-            set(first->bytes, field::awake_hook, 0x001151F0u);
-            set(second->bytes, field::awake_hook, 0x001151F0u);
-            set(first->bytes, field::asleep_hook, 0x001152C0u);
-            set(second->bytes, field::asleep_hook, 0x001152C0u);
-            set(first->bytes, field::own_shaders, u8(0));
-            set(second->bytes, field::own_shaders, u8(0));
+            cloth_header(first->bytes).awake_hook = 0x001151F0u;
+            cloth_header(second->bytes).awake_hook = 0x001151F0u;
+            cloth_header(first->bytes).asleep_hook = 0x001152C0u;
+            cloth_header(second->bytes).asleep_hook = 0x001152C0u;
+            cloth_header(first->bytes).own_shaders = u8(0);
+            cloth_header(second->bytes).own_shaders = u8(0);
             add_runtime_background_morph(scene.morphs, *first, *second, [&scene](RuntimeBackgroundCloth& cloth)
                 {
                     settle_runtime_background_cloth(cloth, scene.cloth); // 0x0004C0B0
@@ -276,8 +275,8 @@ void build_runtime_background_cloths(RuntimeBackgroundClothScene& scene)
         const Vec3 p3{plane[13], plane[14], plane[15]};
         for (auto* cloth : scene.cloths.list)
         {
-            const Vec3 center = get(cloth->bytes, field::center);
-            const float radius = get(cloth->bytes, field::radius);
+            const Vec3 center = cloth_header(cloth->bytes).center;
+            const float radius = cloth_header(cloth->bytes).radius;
             if (!runtime_sphere_intersects_triangle(center, radius, p0, p1, p2) // 0x0015A440
                 && !runtime_sphere_intersects_triangle(center, radius, p1, p2, p3))
             {
@@ -317,38 +316,38 @@ void tick_runtime_background_cloths(float step, RuntimeBackgroundClothScene& sce
     for (auto* cloth : scene.cloths.list)
     {
         auto bytes = cloth->bytes;
-        if (get(bytes, field::always_stepped) == 0
-            && classify_runtime_box_frustum(scene.frustum(), get(bytes, field::low), get(bytes, field::high),
+        if (cloth_header(bytes).always_stepped == 0
+            && classify_runtime_box_frustum(scene.frustum(), cloth_header(bytes).low, cloth_header(bytes).high,
                 scene.frustum_hint()) == 0) // 0x00159BA0
         {
             continue;
         }
         step_runtime_background_cloth(*cloth, step, scene.cloth); // 0x0004C000
-        if (get(bytes, field::awake) == 0)
+        if (cloth_header(bytes).awake == 0)
         {
             continue;
         }
         measure_runtime_background_cloth(*cloth); // 0x0004C0E0
-        if (get(bytes, field::rustles) == 0)
+        if (cloth_header(bytes).rustles == 0)
         {
             continue;
         }
-        if (0.f < get(bytes, field::sound_wait))
+        if (0.f < cloth_header(bytes).sound_wait)
         {
-            set(bytes, field::sound_wait, get(bytes, field::sound_wait) - step);
+            cloth_header(bytes).sound_wait = cloth_header(bytes).sound_wait - step;
             continue;
         }
         if (!(runtime_background_cloth_motion(*cloth) > 1.f)) // 0x0004C1B0
         {
             continue;
         }
-        set(bytes, field::sound_wait, 5.f); // DAT_0032B184
-        const Vec3 low = get(bytes, field::low);
-        const Vec3 high = get(bytes, field::high);
+        cloth_header(bytes).sound_wait = 5.f; // DAT_0032B184
+        const Vec3 low = cloth_header(bytes).low;
+        const Vec3 high = cloth_header(bytes).high;
         const Vec3 middle{(high.x + low.x) * 0.5f, (high.y + low.y) * 0.5f, (high.z + low.z) * 0.5f};
-        const i16 voice = request_positioned_audio_event_voice(field_data(bytes, field::sound), 1, middle,
+        const i16 voice = request_positioned_audio_event_voice(cloth_header(bytes).sound.data(), 1, middle,
             scene.voices); // 0x00039580
-        set(bytes, field::sound_voice, u16(voice));
+        cloth_header(bytes).sound_voice = u16(voice);
     }
     step_runtime_background_morphs(scene.morphs); // 0x001137E0
 }

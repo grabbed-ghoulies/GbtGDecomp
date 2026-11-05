@@ -11,7 +11,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = background_cloth_field;
 
 float* point_of(RuntimeBackgroundCloth& cloth, u32 index)
 {
@@ -58,7 +57,7 @@ void pull_rows(RuntimeBackgroundMorph& morph, const Vec3& first_pull, const Vec3
 {
     RuntimeBackgroundCloth& first = *morph.first;
     RuntimeBackgroundCloth& second = *morph.second;
-    if (get(first.bytes, field::rows) == 0)
+    if (cloth_header(first.bytes).rows == 0)
     {
         return;
     }
@@ -67,7 +66,7 @@ void pull_rows(RuntimeBackgroundMorph& morph, const Vec3& first_pull, const Vec3
     do
     {
         next = row + 1;
-        const u16 second_rows = get(second.bytes, field::rows);
+        const u16 second_rows = cloth_header(second.bytes).rows;
         if (next < second_rows)
         {
             pull_handle(point_of(second, morph.second_handles[row]), point_of(second, morph.second_rail[row]),
@@ -76,10 +75,10 @@ void pull_rows(RuntimeBackgroundMorph& morph, const Vec3& first_pull, const Vec3
         if (row != 0)
         {
             pull_handle(point_of(first, morph.first_handles[row]), point_of(first, morph.first_rail[row]),
-                first_pull, row_share(i32(row), get(first.bytes, field::rows)), false);
+                first_pull, row_share(i32(row), cloth_header(first.bytes).rows), false);
         }
         row = next;
-    } while (next < get(first.bytes, field::rows));
+    } while (next < cloth_header(first.bytes).rows);
 }
 }
 
@@ -108,32 +107,32 @@ void add_runtime_background_morph(RuntimeBackgroundMorphs* morphs, RuntimeBackgr
     morph.first = &first;
     morph.second = &second;
     morph.playing = 0;
-    morph.first_handles.resize(get(first.bytes, field::rows));
-    morph.second_handles.resize(get(second.bytes, field::rows));
-    morph.first_rail.resize(get(first.bytes, field::rows));
-    morph.second_rail.resize(get(second.bytes, field::rows));
+    morph.first_handles.resize(cloth_header(first.bytes).rows);
+    morph.second_handles.resize(cloth_header(second.bytes).rows);
+    morph.first_rail.resize(cloth_header(first.bytes).rows);
+    morph.second_rail.resize(cloth_header(second.bytes).rows);
     settle(first); // 0x0004C0B0, EDI first
     settle(second); // 0x0004C0B0, EDI second
-    set(first.bytes, field::sorted, u8(0));
-    set(second.bytes, field::sorted, u8(0));
-    for (u32 row = 0; row < get(first.bytes, field::rows); ++row)
+    cloth_header(first.bytes).sorted = u8(0);
+    cloth_header(second.bytes).sorted = u8(0);
+    for (u32 row = 0; row < cloth_header(first.bytes).rows; ++row)
     {
-        const u32 columns = get(first.bytes, field::columns);
+        const u32 columns = cloth_header(first.bytes).columns;
         morph.first_handles[row] = (columns * 2) / 3 + columns * row;
         morph.first_rail[row] = columns * row;
         reinterpret_cast<u8*>(first.point(morph.first_handles[row]))[0x28] = 1;
     }
-    for (u32 row = 0; row < get(second.bytes, field::rows); ++row)
+    for (u32 row = 0; row < cloth_header(second.bytes).rows; ++row)
     {
-        const u32 columns = get(second.bytes, field::columns);
+        const u32 columns = cloth_header(second.bytes).columns;
         morph.second_handles[row] = (columns * 2) / 3 + columns * row;
         morph.second_rail[row] = columns * row;
         reinterpret_cast<u8*>(second.point(morph.second_handles[row]))[0x28] = 1;
     }
     prepare_runtime_point_graph_edges(first.graph); // 0x001024A0, EAX first
     prepare_runtime_point_graph_edges(second.graph); // 0x001024A0, EAX second
-    const Vec3 a = get(second.bytes, field::center);
-    const Vec3 b = get(first.bytes, field::center);
+    const Vec3 a = cloth_header(second.bytes).center;
+    const Vec3 b = cloth_header(first.bytes).center;
     morph.center = {(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, (a.z + b.z) * 0.5f}; // DAT_0032B0F4
     morph.steps = 0;
 }
@@ -162,9 +161,9 @@ void step_runtime_background_morphs(RuntimeBackgroundMorphs* morphs)
                 morph.playing = 0;
                 continue;
             }
-            set(morph.first->bytes, field::awake, u8(1));
-            set(morph.second->bytes, field::awake, u8(1));
-            const u16 rows = get(morph.first->bytes, field::rows);
+            cloth_header(morph.first->bytes).awake = u8(1);
+            cloth_header(morph.second->bytes).awake = u8(1);
+            const u16 rows = cloth_header(morph.first->bytes).rows;
             const float* top = morph.first->point(morph.first_rail[0]);
             const float* bottom = morph.first->point(morph.first_rail[rows - 1]);
             const Vec3 first_pull{(top[0] - bottom[0]) * kRate, (top[1] - bottom[1]) * kRate,
@@ -181,9 +180,9 @@ void step_runtime_background_morphs(RuntimeBackgroundMorphs* morphs)
                 morph.playing = 0;
                 continue;
             }
-            set(morph.first->bytes, field::awake, u8(1));
-            set(morph.second->bytes, field::awake, u8(1));
-            const u16 rows = get(morph.first->bytes, field::rows);
+            cloth_header(morph.first->bytes).awake = u8(1);
+            cloth_header(morph.second->bytes).awake = u8(1);
+            const u16 rows = cloth_header(morph.first->bytes).rows;
             const float* bottom = morph.first->point(morph.first_rail[rows - 1]);
             const float* top = morph.first->point(morph.first_rail[0]);
             const Vec3 first_pull{(bottom[0] - top[0]) * kRate, (bottom[1] - top[1]) * kRate,

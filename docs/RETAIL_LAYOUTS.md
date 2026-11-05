@@ -209,6 +209,8 @@ For one object type:
 | Colour channels (`EffectColourChannels`; an effect particle's +0x60, a debris record's +0x24, a trail record's +0x10; run by 0x000F1F60, 0x000F22F0, 0x000F23E0, 0x000F2430): five values, targets and rates as arrays, with `red()`, `alpha_rate()` and so on for single channels | 0x3C | `src/engine/graphics/effect_colour_channels.h` |
 | Scene light record (`LightRecord`, 0x00051BC0; DAT_00509B7C): position, direction, local point and joint, kind, flags and swing flags, the two ranges, colour, the colour and range limits and periods. `light_record(u8*)` views a record. | 0x98 | `include/gbtg/model_runtime.h` |
 | Light cones (`RuntimeLightCone`, 16 in DAT_0050EF20, 0x0011AF90) and their rim points (`LightConeRim`). The host adds the actor's native view. | 0x160, rim 0x14 | `src/engine/graphics/light_cones.h` |
+| Event step (`EventStep`, a DAT_005064E0 pool row, built by script nodes 0x19..0x88, run by 0x000D0B40): type, delay block (`EventStepDelay`: left, started, waits for cutscene), icon, icon shown, and a union of one struct per type: tag, kill count, timed, done, spare tag, next different, unhit since, one type, number, key carrier, attack limit, tag kill count | 0x88 | `src/engine/scripts/script_event_step_fields.h` |
+| Background cloth header (`BackgroundClothHeader`, the start of a cloth's block, 0x0004B5F0, viewed with `cloth_header`): the point graph's descriptor, grid, light, bounds, hooks, shadow state, sound, draw switches. The points, edges, colours and normals follow it. | 0x1F0 | `src/engine/graphics/background_cloth.h` |
 | Candle flame block (`CandleFlameBlock`, 0x000C6C80..0x000C7540; the candle's +0xE5C and the relics store's +0x40): lit, light slot, point light; its pointer words are `RuntimeCandleFlame`'s references | 0x18 | `src/engine/entities/candle_weapon.h` |
 
 
@@ -379,6 +381,12 @@ registration), which settled two names: 0x00120FE0 reads +0x58 as a local point 
 set, so `unk_68` is `joint`. The colour channels' arrays stay arrays, as their functions loop over them, with accessors for the
 single channels most other code wants.
 
+Every event step row is 0x88 bytes and every builder fills a full-size buffer (0x000D05D0 then copies only the type's size,
+which DAT_0042890C gives), so one struct with a union of the per-type bodies is safe here, unlike the mind events. In a run
+of 41 modes 13 step types ran: 0, 1, 2, 3, 4, 5, 7, 8, 9, 0xA, 0xC, 0xE and 0x10. Types 6, 0xB, 0xD, 0xF (the key carrier),
+0x11 and 0x12 did not. The cloth's old `unk_40` and `unk_44` were `light.y` and `light.z`, which its creator zeroes after
+setting the whole Vec3.
+
 `ActorBytes` became `ActorBase` once it had named fields. Parameter rows, presets and other read-only script and XBE data stay
 on descriptors, as elsewhere: `walk_alert_row_field`, `strategy_move_settings_field`, `input_tracking_preset_field`,
 `cutscene_event_field` and `animation_event_field`. So do messages and mind requests, whose layout depends on an id or kind.
@@ -454,7 +462,6 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Mind target record (a live attachment record, 0x0012AFE0, in the DAT_00545988 pool) | 0x68 | `MindTargetRecord`, viewed with `mind_target_record`: actor, kind, hold, flags, unk_18, floor, the two 0x20-byte shapes (and the shape position, height and radius and the secondary radius by name), direction | `src/engine/entities/player_mind_targets.h` |
 | Motion-blur avatar (entityAvatarFxMotionBlur, type 15, 0x00066E20): a dying actor's fading copy | 0xA50, parameters 0x4B8 | `AvatarMotionBlurState`: height scale, timer, fade, light, phase, pixel shader, resource, effect, ignite effect; `avatar_motion_blur_parameter`: source, resource, effect, ignite effect | `src/engine/entities/avatar_fields.h` |
 | After-image avatar (type 16, 0x000690F0): the swing trail's fading copy | 0x968, parameters 0x354 | `AvatarAfterimageState`: time left, life, alpha, start alpha, start and end scale, texture parameter, texture, glow; `avatar_afterimage_parameter`: source, life, alpha, end scale, glow, texture record (built by 0x0013B030) | `src/engine/entities/avatar_fields.h` |
-| Event step (a DAT_005064E0 pool row, built by script nodes 0x19..0x88, run by 0x000D0B40) | 0x88 | `event_step_field` (type, delay and its block, icon, icon shown), `event_step_delay_field` (the +4 block: left, started, waits for cutscene) and one namespace per type with fields after +0x18: tag (2), kill count (3), timed (4, 5), done (6), spare tag (7), next different (8), unhit since (10), one type (0xD), number (0xE), key carrier (0xF), attack limit (0x10), tag kill count (0x12) | `src/engine/scripts/script_event_step_fields.h` |
 | Anim emitter (entityAvatarFxAnimEmitter, type 0xD, 0x00109FC0): a powerup pickup that flies out, waits and fades once collected | 0x9E4, parameters 0x3C4 | `AnimEmitterState`: state, kind, amount, extra, id, callout tokens (count, ids), origin, landing, flight timer, bounces, sprite size, two pulse phases, sprite alpha, fade timer; `anim_emitter_parameter`: kind, amount, extra, sprite, id | `src/engine/entities/fx_anim_emitter.h` |
 | Debris type (DAT_005068E8, ten types from aid_misc_ghoulies_fx_cheap_splat; resource data) | 0xAC | `effect_debris_type_field`: texture and its address, colour, size, growth, and the grow, hold and fade time ranges; `effect_debris_types` | `src/engine/graphics/effect_debris.h` |
 | Trail type (DAT_005068E0, four types from aid_misc_ghoulies_fx_cheap_dust; resource data) | 0xA0 | `effect_trail_type_field`: texture address and name, two colours, start and end size, frame rate; `effect_trail_types` | `src/engine/graphics/effect_trails.h` |

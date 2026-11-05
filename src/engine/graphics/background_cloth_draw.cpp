@@ -20,7 +20,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = background_cloth_field;
 using Matrix = std::array<float, 16>;
 
 DialogueD3DBoundaries& d3d(RuntimeBackgroundClothDraw& context)
@@ -212,7 +211,7 @@ void draw_runtime_background_cloths(u32 layer, std::vector<RuntimeBackgroundClot
     for (auto* cloth : cloths)
     {
         auto bytes = cloth->bytes;
-        if (get(bytes, field::layer) != layer || get(bytes, field::casts_shadow) == 0
+        if (cloth_header(bytes).layer != layer || cloth_header(bytes).casts_shadow == 0
             || !runtime_background_cloth_in_view(*cloth, view_frustum(context), view_hint(context))) // 0x00114090
         {
             continue;
@@ -226,17 +225,17 @@ void draw_runtime_background_cloths(u32 layer, std::vector<RuntimeBackgroundClot
     for (auto* cloth : cloths)
     {
         auto bytes = cloth->bytes;
-        if (get(bytes, field::layer) != layer)
+        if (cloth_header(bytes).layer != layer)
         {
             continue;
         }
-        if (get(bytes, field::always_drawn) == 0
-            && classify_runtime_box_frustum(view_frustum(context), get(bytes, field::low), get(bytes, field::high),
+        if (cloth_header(bytes).always_drawn == 0
+            && classify_runtime_box_frustum(view_frustum(context), cloth_header(bytes).low, cloth_header(bytes).high,
                 view_hint(context)) == 0) // 0x00159BA0
         {
             continue;
         }
-        if (get(bytes, field::second_draw) != 0)
+        if (cloth_header(bytes).second_draw != 0)
         {
             draw_runtime_background_water(*cloth, context); // 0x0005D710
         }
@@ -282,21 +281,21 @@ void begin_runtime_background_cloth_pass(RuntimeBackgroundClothDraw& context)
 void draw_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBackgroundClothDraw& context)
 {
     auto bytes = cloth.bytes;
-    const u32 rows = get(bytes, field::rows);
-    const u32 columns = get(bytes, field::columns);
+    const u32 rows = cloth_header(bytes).rows;
+    const u32 columns = cloth_header(bytes).columns;
     const float row_step = 1.f / float(i32(rows));
     const float column_step = 1.f / float(i32(columns));
-    if (get(bytes, field::unk_1e4) == 1)
+    if (cloth_header(bytes).unk_1e4 == 1)
     {
         simple(context, 0x40344, 1, 0x00181C68);
         simple(context, 0x40348, 1, 0x00181C6C);
         simple(context, 0x4035C, 0, 0x00181C70);
     }
-    if (get(bytes, field::own_shaders) == 0)
+    if (cloth_header(bytes).own_shaders == 0)
     {
         bind_shaders(context, 0x00425EBC, 0x0042732C, 0x00427320);
     }
-    const u32 texture = get(bytes, field::texture);
+    const u32 texture = cloth_header(bytes).texture;
     if (texture == 0)
     {
         return;
@@ -344,7 +343,7 @@ void draw_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBackgro
         base += columns;
         row_coordinate = next_row;
     }
-    if (get(bytes, field::own_shaders) == 0)
+    if (cloth_header(bytes).own_shaders == 0)
     {
         bind_shaders(context, 0x00425ECC, 0x00427344, 0x00427338);
     }
@@ -354,19 +353,19 @@ void draw_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBackgro
 void draw_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgroundClothDraw& context)
 {
     auto bytes = cloth.bytes;
-    const float row_step = 1.f / float(i32(get(bytes, field::rows)));
-    const float column_step = 1.f / float(i32(get(bytes, field::columns)));
-    if (get(bytes, field::unk_1e4) == 1)
+    const float row_step = 1.f / float(i32(cloth_header(bytes).rows));
+    const float column_step = 1.f / float(i32(cloth_header(bytes).columns));
+    if (cloth_header(bytes).unk_1e4 == 1)
     {
         simple(context, 0x40344, 1, 0x00181C68);
         simple(context, 0x40348, 1, 0x00181C6C);
         simple(context, 0x4035C, 0, 0x00181C70);
     }
-    if (get(bytes, field::own_shaders) == 0)
+    if (cloth_header(bytes).own_shaders == 0)
     {
         bind_shaders(context, 0x00425EBC, 0x0042732C, 0x00427320);
     }
-    const u32 texture = get(bytes, field::texture);
+    const u32 texture = cloth_header(bytes).texture;
     if (texture == 0)
     {
         return;
@@ -382,7 +381,7 @@ void draw_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgro
     const auto* colors = reinterpret_cast<const u32*>(cloth.colors.data());
     float row_coordinate = 0.f;
     u32 base = 0;
-    u32 rows = get(bytes, field::rows);
+    u32 rows = cloth_header(bytes).rows;
     for (u32 row = 0; i32(row) < i32(rows) - 1; row = (row + 1) & 0xFFFF)
     {
         const float top = float(std::sin((long double)i32(row) / (long double)i32(rows) * (long double)20.f + phase)
@@ -390,16 +389,16 @@ void draw_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgro
         const float next_row = float((long double)row_coordinate + row_step);
         const float bottom = float(std::sin((long double)i32(row + 1) / (long double)i32(rows) * (long double)20.f
             + phase) * (long double)0.02f + next_row);
-        const u32 columns = get(bytes, field::columns);
+        const u32 columns = cloth_header(bytes).columns;
         float column_coordinate = 0.f;
         u32* push = d3d(context).begin_push(columns * 0xC + 5); // D3DDevice_BeginPush (0x00171E20)
         push[0] = 0x417FC; // NV097_SET_BEGIN_END
         push[1] = 6; // A triangle strip.
         push[2] = columns * 0x300000 + 0x40001818; // NV097_INLINE_ARRAY, twelve words a column.
         push += 3;
-        for (u32 column = 0; column < get(bytes, field::columns); column = (column + 1) & 0xFFFF)
+        for (u32 column = 0; column < cloth_header(bytes).columns; column = (column + 1) & 0xFFFF)
         {
-            const u32 count = get(bytes, field::columns);
+            const u32 count = cloth_header(bytes).columns;
             const float* upper = cloth.point(base + column);
             push[0] = std::bit_cast<u32>(upper[0]);
             push[1] = std::bit_cast<u32>(upper[1]);
@@ -410,11 +409,11 @@ void draw_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgro
                 * (long double)20.f + phase) * (long double)0.02f + column_coordinate);
             column_coordinate = column_coordinate + column_step;
             push[5] = std::bit_cast<u32>(across);
-            const float* lower = cloth.point(get(bytes, field::columns) + base + column);
+            const float* lower = cloth.point(cloth_header(bytes).columns + base + column);
             push[6] = std::bit_cast<u32>(lower[0]);
             push[7] = std::bit_cast<u32>(lower[1]);
             push[8] = std::bit_cast<u32>(lower[2]);
-            push[9] = colors[get(bytes, field::columns) + base + column];
+            push[9] = colors[cloth_header(bytes).columns + base + column];
             push[10] = std::bit_cast<u32>(bottom);
             push[11] = std::bit_cast<u32>(across);
             push += 12;
@@ -422,11 +421,11 @@ void draw_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgro
         push[0] = 0x417FC;
         push[1] = 0;
         d3d(context).end_push(push + 2); // D3DDevice_EndPush
-        rows = get(bytes, field::rows);
-        base += get(bytes, field::columns);
+        rows = cloth_header(bytes).rows;
+        base += cloth_header(bytes).columns;
         row_coordinate = next_row;
     }
-    if (get(bytes, field::own_shaders) == 0)
+    if (cloth_header(bytes).own_shaders == 0)
     {
         bind_shaders(context, 0x00425ECC, 0x00427344, 0x00427338);
     }
@@ -444,34 +443,34 @@ void capture_runtime_background_cloth_shadow(RuntimeBackgroundCloth& cloth, Runt
     d3d(context).stencil_enable(0);
     simple(context, 0x4035C, 0, 0x00181C70);
     simple(context, 0x40354, 0x207, 0x00181C54);
-    if (get(bytes, field::shadow_texture) == 0)
+    if (cloth_header(bytes).shadow_texture == 0)
     {
-        set(bytes, field::shadow_texture, context.pass.address_of(context.pass.pages.page_texture)); // DAT_005047DC
+        cloth_header(bytes).shadow_texture = context.pass.address_of(context.pass.pages.page_texture); // DAT_005047DC
         cloth.shadow_surface = context.pass.pages.page_surface; // DAT_005047E0
-        set(bytes, field::shadow_surface, u32(cloth.shadow_surface));
+        cloth_header(bytes).shadow_surface = u32(cloth.shadow_surface);
     }
     outer.render_target(cloth.shadow_surface, 0); // D3DDevice_SetRenderTarget
     outer.clear(0, nullptr, 0xF0, 0, 1.f, 0); // D3DDevice_Clear
-    const Vec3 low = get(bytes, field::low);
-    const Vec3 high = get(bytes, field::high);
+    const Vec3 low = cloth_header(bytes).low;
+    const Vec3 high = cloth_header(bytes).high;
     const Vec3 at{(high.x + low.x) * 0.5f, (high.y + low.y) * 0.5f, (high.z + low.z) * 0.5f}; // DAT_0032B0F4
-    set(bytes, field::shadow_at, at);
+    cloth_header(bytes).shadow_at = at;
     const long double dx = (long double)low.x - high.x;
     const long double dy = (long double)low.y - high.y;
     const long double dz = (long double)low.z - high.z;
-    set(bytes, field::shadow_radius, float(std::sqrt(dy * dy + dz * dz + dx * dx) * 0.5L));
-    const Vec3 light = get(bytes, field::light);
+    cloth_header(bytes).shadow_radius = float(std::sqrt(dy * dy + dz * dz + dx * dx) * 0.5L);
+    const Vec3 light = cloth_header(bytes).light;
     Vec3 eye{light.x * -30.f + at.x, light.y * -30.f + at.y, light.z * -30.f + at.z}; // DAT_0032B3FC
     eye.y = eye.y + 30.f; // DAT_0032B108
-    set(bytes, field::shadow_eye, eye);
-    const long double field_of_view = runtime_arc_sine((long double)get(bytes, field::shadow_radius)
+    cloth_header(bytes).shadow_eye = eye;
+    const long double field_of_view = runtime_arc_sine((long double)cloth_header(bytes).shadow_radius
         / distance(at, eye)) * 2.0L; // 0x001706E0
     std::array<float, 16> projection{};
     perspective_runtime_graphics_matrix(projection.data(), float(field_of_view), 1.f, 0.1f, 100.1f); // 0x00152425
-    set(bytes, field::shadow_projection, projection);
+    cloth_header(bytes).shadow_projection = projection;
     std::array<float, 16> view{};
     look_at_runtime_xmath_matrix(view.data(), eye, at, up); // 0x0015233A
-    set(bytes, field::shadow_view, view);
+    cloth_header(bytes).shadow_view = view;
     reset_dialogue_sprite_state(context.pass.outer.draw); // 0x0005E110
     deferred(context, 0x00181968) |= 0x800;
     deferred(context, 0x001819A0) = 2;
@@ -490,8 +489,8 @@ void capture_runtime_background_cloth_shadow(RuntimeBackgroundCloth& cloth, Runt
     d3d(context).set_transform(0, view.data());
     d3d(context).set_transform(1, projection.data());
     d3d(context).cull(0);
-    const u32 rows = get(bytes, field::rows);
-    const u32 columns = get(bytes, field::columns);
+    const u32 rows = cloth_header(bytes).rows;
+    const u32 columns = cloth_header(bytes).columns;
     u32 base = 0;
     for (u32 row = 0; i32(row) < i32(rows) - 1; ++row)
     {
@@ -549,8 +548,8 @@ void project_runtime_background_cloth_shadow(RuntimeBackgroundCloth& cloth, u32 
     RuntimeBackgroundClothDraw& context)
 {
     auto bytes = cloth.bytes;
-    project_runtime_texture_on_grid(grid, get(bytes, field::shadow_at), get(bytes, field::shadow_eye),
-        get(bytes, field::shadow_texture), get(bytes, field::shadow_radius), 0xB4000000u, false, 1,
+    project_runtime_texture_on_grid(grid, cloth_header(bytes).shadow_at, cloth_header(bytes).shadow_eye,
+        cloth_header(bytes).shadow_texture, cloth_header(bytes).shadow_radius, 0xB4000000u, false, 1,
         context); // 0x00064820
 }
 

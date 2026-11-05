@@ -26,7 +26,7 @@ static_assert(retail_fits(kSize, glow));
 } // namespace animated_light_parameter
 struct AnimatedLightState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     std::array<u8, 4> binding_word{}; // +0x934, the binding, which the host keeps as RuntimeAnimatedLight::binding
     i32 light = 0; // +0x938, its DAT_00511B70 record, -1 for none
     std::array<u8, 4> glow_word{}; // +0x93C, the glow sprite, which the host keeps as RuntimeAnimatedLight::glow

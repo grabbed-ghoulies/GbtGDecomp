@@ -27,7 +27,7 @@ static_assert(retail_fits(kSize, fade));
 } // namespace anim_delete_parameter
 struct AnimDeleteState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     float fade = 0.f; // +0x934
 };
 static_assert(sizeof(AnimDeleteState) == 0x938);

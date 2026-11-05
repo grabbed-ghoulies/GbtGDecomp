@@ -33,7 +33,7 @@ static_assert(retail_fits(kSize, slot_count));
 } // namespace trigger_parameter
 struct TriggerState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     // +0x934: the spawn distance from the trigger: an annulus (0x00106670) or the navigation spawn's band (0x00111420).
     float min_radius = 0.f;
     float max_radius = 0.f; // +0x938

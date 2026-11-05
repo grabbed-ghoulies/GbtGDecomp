@@ -29,7 +29,7 @@ void configure_actor_effect_bounded_channels(EffectParticle& particle, const Vec
         channel.value = 0.f;
         channel.mode = 0;
     }
-    const auto channels = retail_bytes(particle.bounded_channels);
+    auto& channels = particle.bounded_channels;
     set_runtime_bounded_channel_limits(channels, first, second, pal, override_pal);
     set_runtime_bounded_channel_rates(channels, rates, pal, override_pal);
     Vec3 initial;

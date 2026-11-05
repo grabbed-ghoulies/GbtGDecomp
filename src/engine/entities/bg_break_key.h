@@ -28,7 +28,7 @@ static_assert(retail_fits(kSize, unk_334));
 } // namespace bg_break_key_parameter
 struct BgBreakKeyState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     std::array<char, 0x80> unk_934{}; // +0x934
     u32 background = 0; // +0x9B4, the background whose part hides the key
     i32 part = 0; // +0x9B8

@@ -33,7 +33,7 @@ static_assert(retail_fits(kSize, spawn_slots));
 } // namespace ghouly_bg_break_parameter
 struct GhoulyBgBreakState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     std::array<char, 0x80> box{}; // +0x934, empty unless 0x0006A350 / 0x0006A120 keep it
     std::array<char, 0x80> attributes{}; // +0x9B4
     u16 spawn_tag = 0; // +0xA34

@@ -30,11 +30,11 @@ u32 simulate_actor_effect_particle(EffectParticle& particle, ActorEffectNode& ow
     {
         if ((particle.frames.mode & 2) != 0)
         {
-            decrease_runtime_bounded_channel(retail_bytes(particle.frames), step);
+            decrease_runtime_bounded_channel(particle.frames, step);
         }
         else if ((particle.frames.mode & 1) != 0)
         {
-            increase_runtime_bounded_channel(retail_bytes(particle.frames), step);
+            increase_runtime_bounded_channel(particle.frames, step);
         }
     }
     const bool hit = move_actor_effect_particle(particle, context.movement, [&]()
@@ -76,7 +76,7 @@ u32 simulate_actor_effect_particle(EffectParticle& particle, ActorEffectNode& ow
     }
     if ((particle.channel_flags & 8) != 0)
     {
-        tick_runtime_bounded_channels(retail_bytes(particle.bounded_channels), step, nullptr);
+        tick_runtime_bounded_channels(particle.bounded_channels, step, nullptr);
     }
     if (particle.unk_108 > 0.f)
     {

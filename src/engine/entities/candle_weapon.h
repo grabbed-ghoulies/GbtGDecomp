@@ -15,26 +15,27 @@ namespace gbtg
 // kind-2 scene light (DAT_00509B7C), a point light (DAT_00511B70), the torch sound on sound slot 4 and two billboards.
 // Its fuel (+0xE54) gives the flame's strength; a lit swing that lands costs 0.225 of it once, an empty candle
 // relights after 5 s and refills at 0.075 a second, and the scoreboard meter shows it while a live player holds it.
+// The flame block 0x000C6C80..0x000C7540 work on (EDI): the candle's +0xE5C and the scene 10 control's +0x40.
+struct CandleFlameBlock
+{
+    u32 lit = 0; // +0
+    std::array<u8, 4> binding_word{}; // +4, the model binding; the host keeps RuntimeCandleFlame's reference
+    std::int8_t light = 0; // +8, its DAT_00509B7C slot, -1 for none (host record: RuntimeCandleFlame::light)
+    std::array<u8, 3> unk_9{}; // +9, never read or written
+    i32 point_light = 0; // +0xC, its DAT_00511B70 record, -1 for none
+    std::array<u8, 8> sprite_words{}; // +0x10, flame and glow; the host keeps RuntimeCandleFlame's references
+};
+static_assert(sizeof(CandleFlameBlock) == 0x18);
 struct CandleWeaponState
 {
     WeaponBase base{}; // +0
     float fuel = 0.f; // +0xE54, 1 at construction
     float relight = 0.f; // +0xE58, seconds before the fuel refills, 5 once it runs out
-    std::array<u8, 0x18> flame{}; // +0xE5C, the flame block (candle_flame_field)
+    CandleFlameBlock flame{}; // +0xE5C
     u32 burning = 0; // +0xE74, messages 0x11 / 0x12: the flame may burn
     u32 spent = 0; // +0xE78, a landed swing took its fuel; message 0x92 (a new swing) clears it
 };
 static_assert(sizeof(CandleWeaponState) == 0xE7C);
-// The flame block 0x000C6C80..0x000C7540 work on (EDI): the candle's +0xE5C and the scene 10 control's +0x40. +4 is
-// the model binding and +0x10 / +0x14 the flame and glow sprites (host: RuntimeCandleFlame's references).
-namespace candle_flame_field
-{
-constexpr RetailField<u32, 0x00> lit{};
-constexpr RetailField<std::int8_t, 0x08> light{}; // its DAT_00509B7C slot, -1 for none (host record: light)
-constexpr RetailField<i32, 0x0C> point_light{}; // its DAT_00511B70 record, -1 for none
-constexpr u32 kSize = 0x18;
-static_assert(retail_fits(kSize, point_light));
-} // namespace candle_flame_field
 // DAT_0050D740..DAT_0050D74C: set while the candle's flame burns, the flame point raised 40.
 struct RuntimeCandleFlameSpot
 {
@@ -57,7 +58,7 @@ struct RuntimeCandleServices
 // One flame block and the actor whose model binding carries it (ECX / EBX in the flame functions).
 struct RuntimeCandleFlame
 {
-    std::span<u8> block; // candle_flame_field.
+    CandleFlameBlock& block;
     Actor& actor;
     const u8*& binding; // +4, 0x000408D0's binding 0 of the actor.
     std::unique_ptr<std::array<u8, 0x98>>& light; // The +8 slot's record.

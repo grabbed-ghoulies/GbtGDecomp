@@ -36,7 +36,7 @@ static_assert(retail_fits(kSize, move_player));
 } // namespace sss_door_parameter
 struct SssDoorState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     float reach = 0.f; // +0x934
     std::array<u8, 4> unk_938{}; // +0x938, never read or written by translated code
     u32 phase = 0; // +0x93C, 0 waiting, 1 coming out, 2 scaring, 3 going in, 4 out of sight

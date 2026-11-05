@@ -212,7 +212,7 @@ void set_runtime_mind_alert_event(RuntimeMindEvents& events, u32 target)
     if (target != 0)
     {
         RuntimeMindEvent* event = allocate_runtime_mind_event(events, 3, 0.5f);
-        put(event->bytes, 0x20, target);
+        mind_subject_event(event->bytes).subject = target;
         return;
     }
     for (LiveScript* node = events.anchor.next; node != nullptr; node = node->next)

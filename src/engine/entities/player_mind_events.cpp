@@ -54,10 +54,10 @@ RuntimeMindEvent* allocate_runtime_mind_event(RuntimeMindEvents& context, u16 ki
     event->bytes = {block + sizeof(RuntimeMindEvent), size};
     std::memset(event->bytes.data(), 0, size);
     event->type = kind;
-    set(event->bytes, mind_event_field::kind, kind);
-    set(event->bytes, mind_event_field::time_left, duration);
-    set(event->bytes, mind_event_field::duration, duration);
-    set(event->bytes, mind_event_field::cooldown, mind_record(context.mind).unk_2C);
+    mind_event(event->bytes).kind = kind;
+    mind_event(event->bytes).time_left = duration;
+    mind_event(event->bytes).duration = duration;
+    mind_event(event->bytes).cooldown = mind_record(context.mind).unk_2C;
     prepend(context.anchor, *event);
     return event;
 }
@@ -65,10 +65,10 @@ RuntimeMindEvent* allocate_runtime_mind_event(RuntimeMindEvents& context, u16 ki
 // Xbox 0x0002A280
 RuntimeMindEvent* refresh_runtime_mind_event(RuntimeMindEvents& context, RuntimeMindEvent& event)
 {
-    set(event.bytes, mind_event_field::time_left, get(event.bytes, mind_event_field::duration));
-    set(event.bytes, mind_event_field::cooldown, mind_record(context.mind).unk_2C);
-    set(event.bytes, mind_event_field::unk_1C, 0);
-    set(event.bytes, mind_event_field::unk_0A, 0);
+    mind_event(event.bytes).time_left = mind_event(event.bytes).duration;
+    mind_event(event.bytes).cooldown = mind_record(context.mind).unk_2C;
+    mind_event(event.bytes).unk_1C = 0;
+    mind_event(event.bytes).unk_0A = 0;
     if (event.prev != nullptr)
     {
         event.prev->next = event.next;
@@ -94,7 +94,7 @@ u32 runtime_mind_engaged_actor(const RuntimeMindEvents* context)
     {
         if (u16(event->type) == 3)
         {
-            return get(static_cast<const RuntimeMindEvent*>(event)->bytes, mind_event_field::subject);
+            return mind_subject_event(static_cast<const RuntimeMindEvent*>(event)->bytes).subject;
         }
     }
     return 0;
@@ -108,7 +108,7 @@ void refresh_runtime_mind_target_event(RuntimeMindEvents& context)
         if (u16(event->type) == 4)
         {
             auto& target_event = *static_cast<RuntimeMindEvent*>(event);
-            if (get(target_event.bytes, mind_event_field::subject) == mind_record(context.mind).target_record)
+            if (mind_subject_event(target_event.bytes).subject == mind_record(context.mind).target_record)
             {
                 refresh_runtime_mind_event(context, target_event);
                 return;
@@ -116,7 +116,7 @@ void refresh_runtime_mind_target_event(RuntimeMindEvents& context)
         }
     }
     auto* event = allocate_runtime_mind_event(context, 4, 20.f);
-    set(event->bytes, mind_event_field::subject, mind_record(context.mind).target_record);
+    mind_subject_event(event->bytes).subject = mind_record(context.mind).target_record;
 }
 
 // Xbox 0x0002A030
@@ -142,21 +142,21 @@ void record_runtime_mind_contact(RuntimeMindEvents& context, u32 first, u32 seco
         if (u16(node->type) == 1)
         {
             auto& event = *static_cast<RuntimeMindEvent*>(node);
-            if (get(event.bytes, mind_event_field::subject) == first && get(event.bytes, mind_event_field::other) == second)
+            if (mind_contact_event(event.bytes).subject == first && mind_contact_event(event.bytes).other == second)
             {
-                set(event.bytes, mind_event_field::payload, payload);
-                set(event.bytes, mind_event_field::other, second);
-                set(event.bytes, mind_event_field::count, get(event.bytes, mind_event_field::count) + 1);
+                mind_contact_event(event.bytes).payload = payload;
+                mind_contact_event(event.bytes).other = second;
+                mind_contact_event(event.bytes).count = mind_contact_event(event.bytes).count + 1;
                 refresh_runtime_mind_event(context, event);
                 return;
             }
         }
     }
     auto* event = allocate_runtime_mind_event(context, 1, 2.f);
-    set(event->bytes, mind_event_field::count, 1);
-    set(event->bytes, mind_event_field::subject, first);
-    set(event->bytes, mind_event_field::other, second);
-    set(event->bytes, mind_event_field::payload, payload);
+    mind_contact_event(event->bytes).count = 1;
+    mind_contact_event(event->bytes).subject = first;
+    mind_contact_event(event->bytes).other = second;
+    mind_contact_event(event->bytes).payload = payload;
 }
 
 // Xbox 0x0002A460
@@ -183,7 +183,7 @@ void clear_runtime_mind_actor_events(RuntimeMindEvents& context, u32 actor)
             next = next->next;
         }
         auto& event = *static_cast<RuntimeMindEvent*>(node);
-        if (get(event.bytes, mind_event_field::subject) == actor || get(event.bytes, mind_event_field::other) == actor)
+        if (mind_contact_event(event.bytes).subject == actor || mind_contact_event(event.bytes).other == actor)
         {
             script_release_event(node);
         }
@@ -202,7 +202,7 @@ void clear_runtime_mind_actor_events(RuntimeMindEvents& context, u32 actor)
             next = next->next;
         }
         auto& event = *static_cast<RuntimeMindEvent*>(node);
-        if (get(event.bytes, mind_event_field::subject) == actor)
+        if (mind_subject_event(event.bytes).subject == actor)
         {
             if (node->prev != nullptr)
             {
@@ -248,7 +248,7 @@ void end_runtime_mind_target(RuntimeMindEvents& context, std::span<const u32> me
     {
         event = event->next;
     }
-    const u32 actor = event == nullptr ? 0 : get(static_cast<RuntimeMindEvent*>(event)->bytes, mind_event_field::subject);
+    const u32 actor = event == nullptr ? 0 : mind_subject_event(static_cast<RuntimeMindEvent*>(event)->bytes).subject;
     if (actor == message[1] && head != nullptr)
     {
         event = head;
@@ -354,32 +354,32 @@ void update_runtime_mind_events(RuntimeMindTick& context)
     {
         LiveScript* next = node->next;
         auto& event = *static_cast<RuntimeMindEvent*>(node);
-        float timer = get(event.bytes, mind_event_field::cooldown);
+        float timer = mind_event(event.bytes).cooldown;
         if (timer > 0.f)
         {
             timer -= elapsed;
-            set(event.bytes, mind_event_field::cooldown, timer);
+            mind_event(event.bytes).cooldown = timer;
             if (0.f > timer)
             {
-                set(event.bytes, mind_event_field::cooldown, 0.f);
+                mind_event(event.bytes).cooldown = 0.f;
             }
         }
-        timer = get(event.bytes, mind_event_field::time_left);
+        timer = mind_event(event.bytes).time_left;
         if (timer > 0.f)
         {
             timer -= elapsed;
-            set(event.bytes, mind_event_field::time_left, timer);
+            mind_event(event.bytes).time_left = timer;
             // COMISS zero,timer; JC retains unordered values too.
             if (!(0.f < timer) && !std::isnan(timer))
             {
-                set(event.bytes, mind_event_field::time_left, 0.f);
+                mind_event(event.bytes).time_left = 0.f;
                 script_release_event(node);
                 node = next;
                 continue;
             }
         }
-        set(event.bytes, mind_event_field::age, get(event.bytes, mind_event_field::age) + elapsed);
-        set(event.bytes, mind_event_field::unk_1C, get(event.bytes, mind_event_field::unk_1C) + elapsed);
+        mind_event(event.bytes).age = mind_event(event.bytes).age + elapsed;
+        mind_event(event.bytes).unk_1C = mind_event(event.bytes).unk_1C + elapsed;
         node = next;
     }
 }

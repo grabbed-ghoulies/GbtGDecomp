@@ -32,7 +32,7 @@ static_assert(retail_fits(kSize, camera_mode));
 } // namespace ghouly_cutscene_parameter
 struct GhoulyCutsceneState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     u16 spawn_tag = 0; // +0x934, the tag the cutscene's spawns get (0x0006B390)
     std::array<u8, 2> unk_936{}; // +0x936, padding
     u32 hold_last_frame = 0; // +0x938, set: the cutscene holds its last frame

@@ -65,7 +65,7 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
         {
             if (u16(event->type) == 3)
             {
-                target = read_u32(static_cast<RuntimeMindEvent*>(event)->bytes, 0x20);
+                target = mind_subject_event(static_cast<RuntimeMindEvent*>(event)->bytes).subject;
                 break;
             }
         }
@@ -140,7 +140,7 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
     if (target != 0)
     {
         auto* event = allocate_runtime_mind_event(events, 3, .5f);
-        write_u32(event->bytes, 0x20, target);
+        mind_subject_event(event->bytes).subject = target;
     }
     else
     {

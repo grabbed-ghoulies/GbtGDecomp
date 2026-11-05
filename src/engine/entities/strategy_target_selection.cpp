@@ -121,7 +121,7 @@ bool keep_selected_target(RuntimeMindTarget* target, RuntimeMindTarget*& output,
     RuntimePlayerStrategyGoals& context)
 {
     RuntimeMindEvent* event = allocate_runtime_mind_event(context.entry.events, 3, 0.5f);
-    set(event->bytes, mind_event_field::subject, target->address);
+    mind_subject_event(event->bytes).subject = target->address;
     if (mind_target_record(target->bytes).kind == 0)
     {
         mind_record(mind_of(context)).target = mind_target_record(target->bytes).actor;
@@ -814,9 +814,9 @@ i32 runtime_mind_contact_count(const RuntimeMindEvents& events, u32 attacker)
             continue;
         }
         const auto& event = *static_cast<RuntimeMindEvent*>(node);
-        if (get(event.bytes, mind_event_field::subject) == owner && get(event.bytes, mind_event_field::other) == attacker)
+        if (mind_contact_event(event.bytes).subject == owner && mind_contact_event(event.bytes).other == attacker)
         {
-            return std::bit_cast<i32>(get(event.bytes, mind_event_field::count));
+            return std::bit_cast<i32>(mind_contact_event(event.bytes).count);
         }
     }
     return 0;
@@ -827,7 +827,7 @@ bool runtime_mind_watches_actor(const RuntimeMindEvents& events, u32 actor)
 {
     for (LiveScript* node = events.anchor.next; node != nullptr; node = node->next)
     {
-        if (u16(node->type) == 4 && get(static_cast<RuntimeMindEvent*>(node)->bytes, mind_event_field::subject) == actor)
+        if (u16(node->type) == 4 && mind_subject_event(static_cast<RuntimeMindEvent*>(node)->bytes).subject == actor)
         {
             return true;
         }

@@ -20,7 +20,7 @@ static_assert(retail_fits(kSize, ignite_effect));
 // entityAvatarFxMotionBlur's own part (0x934..0xA50): the fading copy of a dying actor, in phases.
 struct AvatarMotionBlurState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     float height_scale = 0.f; // +0x934, the copy's +0x34 at the start
     float timer = 0.f; // +0x938, the phase's time left
     float fade = 0.f; // +0x93C
@@ -49,7 +49,7 @@ static_assert(retail_fits(kSize, texture_record));
 // The after-image's own part (0x934..0x968): a copy of an actor's look that fades and rescales over its life.
 struct AvatarAfterimageState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     float time_left = 0.f; // +0x934
     float life = 0.f; // +0x938
     u32 alpha = 0; // +0x93C, its low byte is the model's alpha

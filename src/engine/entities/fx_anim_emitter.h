@@ -40,7 +40,7 @@ static_assert(retail_fits(kSize, id));
 // entityAvatarFxAnimEmitter's own part (0x934..0x9E4). The list link (+0x934) and sprite (+0x994) are native views.
 struct AnimEmitterState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     std::array<u8, 8> unk_934{}; // +0x934, never read or written by translated code
     u32 state = 0; // +0x93C, 0 in flight, 1 waiting to be collected, 2 collected and fading
     u32 kind = 0; // +0x940

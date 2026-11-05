@@ -31,7 +31,7 @@ static_assert(retail_fits(kSize, unk_444));
 } // namespace ghouly_swap_parameter
 struct GhoulySwapState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     u32 anchor = 0; // +0x934, the actor message 0x7D looks up by +0x1FE; 0xA7 asks it for the pose
     u32 load = 0; // +0x938, the ghoulybox load (0x000F39A0); its native view is the context's
     u32 source = 0; // +0x93C, the actor the ghouly replaces

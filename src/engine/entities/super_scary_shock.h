@@ -34,7 +34,7 @@ static_assert(retail_fits(kSize, challenge_word));
 } // namespace super_scary_shock_parameter
 struct SuperScaryShockState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     u32 ghouly = 0; // +0x934, the spawned ghouly's address, zero until the player comes near
     float reach = 0.f; // +0x938, parameters +0x340
     float clip_time = 0.f; // +0x93C, drawn for each challenge; -1 when +0xA40 is -1

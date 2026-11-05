@@ -18,7 +18,7 @@ struct Actor;
 // to 0x0003EF70).
 struct GhoulyKeyState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     float ditty_delay = 0.f; // +0x934, seconds to the find-key ditty
 };
 static_assert(sizeof(GhoulyKeyState) == 0x938);

@@ -41,7 +41,7 @@ constexpr RetailField<i32, 0x570> facing_states{};
 } // namespace scare_figure_parameter
 struct ScareFigureState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     Vec3 trigger{}; // +0x934, the point the player must come within +0x954 of
     std::array<u8, 4> unk_940{}; // +0x940, never read or written by translated code
     i32 alpha = 0; // +0x944, 0..+0xB6C; 0xFF draws without the glow pass

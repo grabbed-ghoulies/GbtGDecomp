@@ -13,7 +13,7 @@ namespace gbtg
 // (`WeaponBase`). See docs/RETAIL_LAYOUTS.md.
 struct PlayerRecord
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     std::array<u8, 8> unk_934{}; // +0x934
     // +0x93C: the actor's node on the case list (DAT_00511B3C / DAT_00511B40), nonzero for a player (native: mask_flag).
     u32 case_link = 0;

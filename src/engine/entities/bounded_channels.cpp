@@ -7,7 +7,7 @@
 namespace gbtg
 {
 // Xbox 0x00101B00
-void set_runtime_bounded_channel_limits(std::span<u8> channel, float first,
+void set_runtime_bounded_channel_limits(BoundedChannel& channel, float first,
     float second, const i32& pal, const i32& override_pal)
 {
     float lower, upper;
@@ -23,25 +23,25 @@ void set_runtime_bounded_channel_limits(std::span<u8> channel, float first,
     }
     else
     {
-        set(channel, bounded_channel_field::mode, u8(get(channel, bounded_channel_field::mode) & 0xFC));
+        channel.mode = u8(channel.mode & 0xFC);
         lower = second;
         upper = first;
     }
-    set(channel, bounded_channel_field::lower, lower);
-    set(channel, bounded_channel_field::upper, upper);
-    if (get(channel, bounded_channel_field::value) > upper)
+    channel.lower = lower;
+    channel.upper = upper;
+    if (channel.value > upper)
     {
-        set(channel, bounded_channel_field::value, upper);
+        channel.value = upper;
     }
-    else if (lower > get(channel, bounded_channel_field::value))
+    else if (lower > channel.value)
     {
-        set(channel, bounded_channel_field::value, lower);
+        channel.value = lower;
     }
     const i32 frequency = pal != 0 && override_pal == 0 ? 50 : 60;
     const float maximum = (float(frequency) * .5f) * (upper - lower);
-    if (get(channel, bounded_channel_field::rate) > maximum)
+    if (channel.rate > maximum)
     {
-        set(channel, bounded_channel_field::rate, maximum);
+        channel.rate = maximum;
     }
 }
 
@@ -126,14 +126,14 @@ bool runtime_wrapped_angles_equal(float first, float second)
 }
 
 // Xbox 0x001063D0
-void set_runtime_bounded_channel_limits(std::span<u8> channels, const Vec3& first,
+void set_runtime_bounded_channel_limits(std::array<BoundedChannel, 3>& channels, const Vec3& first,
     const Vec3& second, const i32& pal, const i32& override_pal)
 {
     const float* a[] = {&first.x, &first.y, &first.z};
     const float* b[] = {&second.x, &second.y, &second.z};
     for (size_t index = 0; index < 3; ++index)
     {
-        auto row = channels.subspan(index * bounded_channel_field::kSize, bounded_channel_field::kSize);
+        BoundedChannel& row = channels[index];
         float lower, upper;
         if (*a[index] > *b[index])
         {
@@ -147,148 +147,146 @@ void set_runtime_bounded_channel_limits(std::span<u8> channels, const Vec3& firs
         }
         else
         {
-            set(row, bounded_channel_field::mode, u8(get(row, bounded_channel_field::mode) & 0xFC));
+            row.mode = u8(row.mode & 0xFC);
             lower = *b[index];
             upper = *a[index];
         }
-        set(row, bounded_channel_field::lower, lower);
-        set(row, bounded_channel_field::upper, upper);
-        const float value = get(row, bounded_channel_field::value);
+        row.lower = lower;
+        row.upper = upper;
+        const float value = row.value;
         if (value > upper)
         {
-            set(row, bounded_channel_field::value, upper);
+            row.value = upper;
         }
         else if (lower > value)
         {
-            set(row, bounded_channel_field::value, lower);
+            row.value = lower;
         }
         const i32 frequency = pal != 0 && override_pal == 0 ? 50 : 60;
         const float maximum = (float(frequency) * .5f) *
-            (get(row, bounded_channel_field::upper) - get(row, bounded_channel_field::lower));
-        if (get(row, bounded_channel_field::rate) > maximum)
+            (row.upper - row.lower);
+        if (row.rate > maximum)
         {
-            set(row, bounded_channel_field::rate, maximum);
+            row.rate = maximum;
         }
     }
 }
 
 // Xbox 0x00106590
-void set_runtime_bounded_channel_rates(std::span<u8> channels, const Vec3& rates,
+void set_runtime_bounded_channel_rates(std::array<BoundedChannel, 3>& channels, const Vec3& rates,
     const i32& pal, const i32& override_pal)
 {
     const float* values[] = {&rates.x, &rates.y, &rates.z};
     for (size_t index = 0; index < 3; ++index)
     {
-        auto row = channels.subspan(index * bounded_channel_field::kSize, bounded_channel_field::kSize);
+        BoundedChannel& row = channels[index];
         const float value = *values[index];
-        const float width = get(row, bounded_channel_field::upper) - get(row, bounded_channel_field::lower);
-        set(row, bounded_channel_field::rate, value);
+        const float width = row.upper - row.lower;
+        row.rate = value;
         const i32 frequency = pal != 0 && override_pal == 0 ? 50 : 60;
         const float maximum = (float(frequency) * .5f) * width;
         if (value > maximum)
         {
-            set(row, bounded_channel_field::rate, maximum);
+            row.rate = maximum;
         }
     }
 }
 
 // Xbox 0x00101980
-void decrease_runtime_bounded_channel(std::span<u8> channel, float step)
+void decrease_runtime_bounded_channel(BoundedChannel& channel, float step)
 {
-    const float value = get(channel, bounded_channel_field::value) - get(channel, bounded_channel_field::rate) * step;
-    set(channel, bounded_channel_field::value, value);
-    if (get(channel, bounded_channel_field::lower) > value)
+    const float value = channel.value - channel.rate * step;
+    channel.value = value;
+    if (channel.lower > value)
     {
-        const u8 flags = get(channel, bounded_channel_field::mode);
+        const u8 flags = channel.mode;
         if ((flags & 4) != 0)
         {
-            set(channel, bounded_channel_field::mode, u8((flags & 0xFD) | 1));
-            set(channel, bounded_channel_field::value,
-                (get(channel, bounded_channel_field::lower) - value) + get(channel, bounded_channel_field::lower));
+            channel.mode = u8((flags & 0xFD) | 1);
+            channel.value = (channel.lower - value) + channel.lower;
         }
         else if ((flags & 8) != 0)
         {
-            if (get(channel, bounded_channel_field::lower) > value)
+            if (channel.lower > value)
             {
                 const float width =
-                    get(channel, bounded_channel_field::upper) - get(channel, bounded_channel_field::lower);
+                    channel.upper - channel.lower;
                 do
                 {
-                    set(channel, bounded_channel_field::value, width + get(channel, bounded_channel_field::value));
+                    channel.value = width + channel.value;
                 }
-                while (get(channel, bounded_channel_field::lower) > get(channel, bounded_channel_field::value));
+                while (channel.lower > channel.value);
             }
         }
         else
         {
-            set(channel, bounded_channel_field::mode, u8(flags & 2));
-            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::lower));
+            channel.mode = u8(flags & 2);
+            channel.value = channel.lower;
             return;
         }
-        if (get(channel, bounded_channel_field::value) > get(channel, bounded_channel_field::upper))
+        if (channel.value > channel.upper)
         {
-            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::upper));
+            channel.value = channel.upper;
             return;
         }
-        if (get(channel, bounded_channel_field::lower) > get(channel, bounded_channel_field::value))
+        if (channel.lower > channel.value)
         {
-            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::lower));
+            channel.value = channel.lower;
         }
     }
 }
 
 // Xbox 0x00101A40
-void increase_runtime_bounded_channel(std::span<u8> channel, float step)
+void increase_runtime_bounded_channel(BoundedChannel& channel, float step)
 {
-    const float value = get(channel, bounded_channel_field::rate) * step + get(channel, bounded_channel_field::value);
-    set(channel, bounded_channel_field::value, value);
-    if (value > get(channel, bounded_channel_field::upper))
+    const float value = channel.rate * step + channel.value;
+    channel.value = value;
+    if (value > channel.upper)
     {
-        const u8 flags = get(channel, bounded_channel_field::mode);
+        const u8 flags = channel.mode;
         if ((flags & 4) != 0)
         {
-            set(channel, bounded_channel_field::mode, u8((flags & 0xFE) | 2));
-            set(channel, bounded_channel_field::value,
-                get(channel, bounded_channel_field::upper) - (value - get(channel, bounded_channel_field::upper)));
+            channel.mode = u8((flags & 0xFE) | 2);
+            channel.value = channel.upper - (value - channel.upper);
         }
         else if ((flags & 8) != 0)
         {
-            if (value > get(channel, bounded_channel_field::upper))
+            if (value > channel.upper)
             {
                 const float width =
-                    get(channel, bounded_channel_field::upper) - get(channel, bounded_channel_field::lower);
+                    channel.upper - channel.lower;
                 do
                 {
-                    set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::value) - width);
+                    channel.value = channel.value - width;
                 }
-                while (get(channel, bounded_channel_field::value) > get(channel, bounded_channel_field::upper));
+                while (channel.value > channel.upper);
             }
         }
         else
         {
-            set(channel, bounded_channel_field::mode, u8(flags & 1));
-            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::upper));
+            channel.mode = u8(flags & 1);
+            channel.value = channel.upper;
             return;
         }
-        if (get(channel, bounded_channel_field::value) > get(channel, bounded_channel_field::upper))
+        if (channel.value > channel.upper)
         {
-            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::upper));
+            channel.value = channel.upper;
             return;
         }
-        if (get(channel, bounded_channel_field::lower) > get(channel, bounded_channel_field::value))
+        if (channel.lower > channel.value)
         {
-            set(channel, bounded_channel_field::value, get(channel, bounded_channel_field::lower));
+            channel.value = channel.lower;
         }
     }
 }
 
 // Xbox 0x001062E0
-void tick_runtime_bounded_channels(std::span<u8> channels, float step, float* output)
+void tick_runtime_bounded_channels(std::array<BoundedChannel, 3>& channels, float step, float* output)
 {
     for (size_t index = 0; index < 3; ++index)
     {
-        auto channel = channels.subspan(index * bounded_channel_field::kSize, bounded_channel_field::kSize);
-        const u8 flags = get(channel, bounded_channel_field::mode);
+        BoundedChannel& channel = channels[index];
+        const u8 flags = channel.mode;
         if ((flags & 2) != 0)
         {
             decrease_runtime_bounded_channel(channel, step);
@@ -299,7 +297,7 @@ void tick_runtime_bounded_channels(std::span<u8> channels, float step, float* ou
         }
         if (output != nullptr)
         {
-            const float value = get(channel, bounded_channel_field::value);
+            const float value = channel.value;
             std::memcpy(output + index, &value, 4);
         }
     }

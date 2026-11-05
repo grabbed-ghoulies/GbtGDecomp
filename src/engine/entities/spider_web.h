@@ -29,7 +29,7 @@ constexpr u32 kSize = 0x334;
 } // namespace spider_web_parameter
 struct SpiderWebState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     u32 state = 0; // +0x934, 0 expanding, 1 holding, 2 shrinking
     i32 joint = 0; // +0x938, the model's joint 0 (0x00052FC0), -1 without one
     float timer = 0.f; // +0x93C, state 1's hold

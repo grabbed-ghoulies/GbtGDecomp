@@ -198,7 +198,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     context.body_bits->bytes[0] &= 0xF7;
     float step = runtime_frame_step(clock);
     float rate = runtime_actor_rate(actor);
-    const bool root_bone = get(bytes, actor_field::bone) == 0;
+    const bool root_bone = actor_record_view<ActorBase>(bytes).bone == 0;
     if (context.animation.controller != nullptr)
     {
         tick_animation_controller(*context.animation.controller, rate * step, root_bone,
@@ -258,16 +258,16 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         update = next;
     }
     update_actor_attachment_effects(actor, context.attachments, context.pending, context.frame.effects);
-    Vec3 eased = get(bytes, actor_field::ease_target);
+    Vec3 eased = actor_record_view<ActorBase>(bytes).ease_target;
     if (context.frame.ease != 0)
     {
         constexpr float kFraction = std::bit_cast<float>(0x3DCCCCCDu); // DAT_0032B254.
-        const Vec3 previous = get(bytes, actor_field::eased);
+        const Vec3 previous = actor_record_view<ActorBase>(bytes).eased;
         eased.x = (eased.x - previous.x) * kFraction + previous.x;
         eased.y = (eased.y - previous.y) * kFraction + previous.y;
         eased.z = (eased.z - previous.z) * kFraction + previous.z;
     }
-    set(bytes, actor_field::eased, eased);
+    actor_record_view<ActorBase>(bytes).eased = eased;
     if (actor.model != nullptr && actor.model->runtime->shader_animations != nullptr)
     {
         tick_runtime_model_shader_animations(*actor.model->runtime->shader_animations, 1.f,
@@ -370,7 +370,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     }
     step = runtime_frame_step(clock);
     rate = runtime_actor_rate(actor);
-    set(bytes, actor_field::age, rate * step + get(bytes, actor_field::age));
-    set(bytes, actor_field::ticks, get(bytes, actor_field::ticks) + 1);
+    actor_record_view<ActorBase>(bytes).age = rate * step + actor_record_view<ActorBase>(bytes).age;
+    actor_record_view<ActorBase>(bytes).ticks = actor_record_view<ActorBase>(bytes).ticks + 1;
 }
 }

@@ -160,7 +160,7 @@ void set_effect_trail_phase(EffectTrailRecord& particle, i32 phase,
         frames.rate = 0.0f;
         frames.value = 0.0f;
         frames.mode = 0;
-        set_runtime_bounded_channel_limits(retail_bytes(frames), 0.0f, extent, context.pal, context.override_pal);
+        set_runtime_bounded_channel_limits(frames, 0.0f, extent, context.pal, context.override_pal);
         frames.rate = frame_rate;
         const i32 frequency = context.pal != 0 && context.override_pal == 0 ? 50 : 60;
         const float maximum = (float(frequency) * .5f) * (frames.upper - frames.lower);
@@ -204,11 +204,11 @@ void tick_effect_trail(EffectTrailRecord& particle, RuntimeEffectTrails& context
             BoundedChannel& frames = particle.frames;
             if ((frames.mode & 2) != 0)
             {
-                decrease_runtime_bounded_channel(retail_bytes(frames), step);
+                decrease_runtime_bounded_channel(frames, step);
             }
             else if ((frames.mode & 1) != 0)
             {
-                increase_runtime_bounded_channel(retail_bytes(frames), step);
+                increase_runtime_bounded_channel(frames, step);
             }
             return;
         }

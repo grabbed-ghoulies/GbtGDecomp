@@ -45,7 +45,7 @@ static_assert(retail_fits(kSize, voice_name));
 } // namespace weapon_parameter
 struct WeaponBase
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     std::array<u8, 8> unk_934{}; // +0x934, never read or written by translated code
     // +0x93C: the low byte of the actor's mask word (0x00146230). A contact test passes only while it is clear.
     u8 mask = 0;

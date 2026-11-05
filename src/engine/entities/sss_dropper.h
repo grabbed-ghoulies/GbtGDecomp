@@ -36,7 +36,7 @@ static_assert(retail_fits(kSize, second_clip));
 } // namespace sss_dropper_parameter
 struct SssDropperState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     float reach = 0.f; // +0x934
     Vec3 start{}; // +0x938, the world position at construction
     Vec3 target{}; // +0x944

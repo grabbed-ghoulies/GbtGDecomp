@@ -77,7 +77,8 @@ bool runtime_player_mind_accepts_target(const RuntimePlayerAttachmentEligibility
             node = node->next;
         }
         const auto bytes = node == nullptr ? address_zero : static_cast<const RuntimeMindEvent*>(node)->bytes;
-        return read_f32(bytes, 0x18) >= std::bit_cast<float>(0x3F266666u);
+        // Retail reads through a null event here, so `bytes` may be the short address-zero block: no whole-record view.
+        return read_f32(bytes, offsetof(MindEventRecord, age)) >= std::bit_cast<float>(0x3F266666u);
     }
     return true;
 }

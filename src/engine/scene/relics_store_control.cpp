@@ -13,7 +13,6 @@ namespace gbtg
 {
 namespace
 {
-namespace flame_field = candle_flame_field;
 
 constexpr u32 kPulse = 0x00081630; // The walk cutscene's +0x150 callback.
 
@@ -197,12 +196,12 @@ void set_runtime_relics_store_state(SceneControlBase& base, u8 next, RelicsStore
             throw Error("relics store control: the walk cutscene has no relic candle for 0x000408D0");
         }
         control.binding = find_actor_model_binding(*control.candle, 0); // 0x000408D0, EDI 0
-        const std::span<u8> block = control.flame_block;
-        set(block, flame_field::lit, 0u);
+        CandleFlameBlock& block = control.flame_block;
+        block.lit = 0u;
         control.flame = {};
         control.glow = {};
-        set(block, flame_field::light, std::int8_t(-1));
-        set(block, flame_field::point_light, -1);
+        block.light = std::int8_t(-1);
+        block.point_light = -1;
         RuntimeCandleFlame flame = candle_flame(control, services);
         light_runtime_candle(flame); // 0x000C6FB0, EAX +0x40, ECX +0x3C
         update_runtime_candle_flame(1.f, 1, flame); // 0x000C7060, EDI +0x40, XMM0 DAT_0032B0F8, EAX 1

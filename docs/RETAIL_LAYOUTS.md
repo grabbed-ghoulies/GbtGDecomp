@@ -203,6 +203,10 @@ For one object type:
 | Trophy heads control (`TrophyHeadsControlState`, factory type 0x92; retail 0x188): cutscene, player, attacks, health, seek time, phase, chosen heads, per-head attacked and roaring flags, attacking head, pause hold, head events, challenge won | host | `src/engine/scene/trophy_heads_control.h` |
 | Attract control (`AttractControlState`, factory type 0x9B; retail 0x324): clip, banner text, pool and id, camera, banner time, started, clips and cutscene, clip count, next script | host | `src/engine/scene/attract_control.h` |
 | Super Scary challenge (`SuperScaryControlState`, factory type 0x98; retail 0x2C8): actor addresses, phase, input, camera, timers, clip names and placements, shock camera, presses and button row, bound position, head binding, button textures, settle, render swap | host | `src/engine/scene/super_scary_control.h` |
+| Mind events (`MindEventRecord`, 0x0002A190; DAT_003398C8 sizes each kind): kind, timers and age. `MindSubjectEvent` adds the subject (kinds 3, 4); `MindContactEvent` adds other, count and payload (kinds 1, 2) | 0x20 / 0x24 / 0x30 | `src/engine/entities/player_mind_events.h` |
+| Bounded channel (`BoundedChannel`, 0x00101980, 0x00101A40, 0x00101B00; three in a row for 0x001062E0, 0x001063D0, 0x00106590): lower, upper, rate, value, mode. Its functions take the struct. | 0x14 | `src/engine/entities/bounded_channels.h` |
+| Actor base (`ActorBase`, type 2, the start of every actor-derived record): the fields the native `Actor` doesn't keep: bone, eased and its target, age, ticks | 0x934 | `src/engine/entities/actor_fields.h` |
+| Candle flame block (`CandleFlameBlock`, 0x000C6C80..0x000C7540; the candle's +0xE5C and the relics store's +0x40): lit, light slot, point light; its pointer words are `RuntimeCandleFlame`'s references | 0x18 | `src/engine/entities/candle_weapon.h` |
 
 
 The actor matrix, debris and damage records were consolidated after their naming passes. Each one's fields were all
@@ -296,12 +300,13 @@ Every derived strategy is now a struct on `StrategyBase`, viewed with `strategy_
 player's is in `strategy_fields.h`, as the state and children files read it too. Each `.cpp` has a small `fields_of`
 for its own struct. The strings typed as one word (imp flying and imp ninja's effect names) are `std::array<char, 0x80>`,
 and the haunted TV's six numbered textures and the baron's timelines are arrays. The actor-derived records with one
-header and one source file went the same way, on `ActorBytes` (the actor's 0x934 bytes) and `actor_record_view<T>`.
+header and one source file went the same way, on `ActorBase` (the actor's 0x934 bytes) and `actor_record_view<T>`.
 
 Only some of these run in the regular modes. The strategies for baron, baron plane, chicken, generic, ghoulie girl, giant
 hand, haunted coat, door and picture, hunchback, imp flamethrower, imp ninja, Jessie and Clyde, cursed mummy, pirate, ugly
 girl, vampire, vampire chicken, warlock and worm, and the anim delete, ghouly key, Super Scary door and shock actors, were
-built and their offsets checked, but no mode has run them since.
+built and their offsets checked, but none of the regular modes runs them. The all-mode run below reaches all of them but
+the baron and baron plane.
 
 The shared actor records and the weapons followed: the avatars, bg break key, ghouly bg break and ghouly swap, then
 `WeaponBase` (replacing `weapon_field`, viewed with `weapon_base`) and each weapon class on it, with the extinguisher,
@@ -310,12 +315,12 @@ single shot and water pistol on `GunWeaponState`. Words the host keeps natively 
 descriptors, so its names come from `weapon_actor.cpp` alone. The hop and drop blocks are still read by inner offset,
 and `read_u32(holder_bytes, 0xCE0)` and its like are the player's bytes (`PlayerRecord`). In the regular modes the
 chair and large projectile run in 9 modes, the bob in 3, and the candle, container, water pistol and thrown projectile
-in 1 each. The homing projectile, extinguisher and single shot have not run since.
+in 1 each. The homing projectile, extinguisher and single shot run only in the all-mode run below, and the gun in none.
 
 `CarriedWeaponStrategy` names the +0x38 word that 0x000BEB80 reads for both the pirate's chest and the baron's cane. The
 custom effects are on `FxCustomBase` (the base object's header, the node words, elapsed and actor), viewed with
 `fx_custom_view<T>`. `FxFadeState`'s +0x24 is a union: the fade-to-grey's texture or the fade-out's switch. Plain fxCustom
-(type 0xC) and the fade-out (type 0x33) haven't run in the regular modes since.
+(type 0xC) and the fade-out (type 0x33) don't run in the regular modes; the all-mode run below creates the fade-out too.
 
 `BodyRecord` replaces `body_field`. The record's size was listed as unsettled, but 0x0001DA30's sizes function gives 0x894,
 0x00076180 gives the parent player body's 0x924, 0x00075AD0 the player body's 0x950 and 0x00073170 the camera body's 0x914.
@@ -334,7 +339,7 @@ The layout checks in `tests/*_checks.cpp` keep their literal offsets. They run a
 `--player-death`, `--player-fight` and `--player-opening` exercise them; some of their fixtures grew to 0x950 bytes, as the
 record views check the whole size.
 
-`PlayerRecord` replaces `player_field`, on `ActorBytes`. Its +0x998 is a 0x200-byte block of goal names and +0xC20 an
+`PlayerRecord` replaces `player_field`, on `ActorBase`. Its +0x998 is a 0x200-byte block of goal names and +0xC20 an
 attributes string beside the box's AID. Weapons share these offsets, so a site's variable decides which struct it is:
 `attached`, `held` and `secondary` read `WeaponBase`, which is what the 46 reads of +0x93D were. The area actor, which also
 has words at +0x934..+0x958, is `AreaActorState`. `record_at(holder, 0xCF8)` and `bytes_at(actor, 0xCE8)` pass sizes.
@@ -347,6 +352,29 @@ target record at +0xB8 (`own_target`), which explains its literal writes: +0xC8 
 and +0x114 its `direction`. Offsets above 0x7C mean different things in each class, so the file decided which struct applied.
 `record.bytes[0x16]` in `body_resources.cpp` and `target_event->bytes + 0x20` aren't target records and stay as they are.
 Most of the player mind's fields from +0x120 up are `unk_<offset>`.
+
+The structs were then checked against the build before them (d8b0055e) across all 144 test modes, each in a fresh working
+directory, which also ran most of the code that had only been compiled. The modes create 148 of the 156 registered factory
+types, 54 of them new to the regular modes. 121 modes were byte-identical at once. 21 others differ, but also differ between
+runs of one build (long fight scenes above all). `scene3c5_300.bmp` looked like a real 5-pixel change after three matching
+runs per build, until four more gave the other build's hash, so agreement among a few runs doesn't make a difference real.
+The other two, `--scene3a2` and `--scene3b4`, were a bug: the homing projectile's flight runs the thrown projectile's trail
+0x000CC910, and viewing its 0xF60 bytes as the 0xF70-byte `ThrownProjectileState` raised. `ProjectileTrailFields` now views
+just what the classes share, and both modes match. Still not created by any mode: baron, baron plane, movie volume, gallery,
+gun, and the base rows 0xA..0xC. The flamethrower state appears only in `--scene2c5`, which has no matching pair of runs to
+compare. About 60 modes fail the same way on both builds, so what lies past their failures didn't run. Creating a type also
+doesn't show every branch of it ran.
+
+So a whole-record view is only safe where every object reaching that code is that large. Check shared functions and
+variable-size kinds before sizing a view, and read the retail size table where there is one. The mind events show the
+pattern: DAT_003398C8 sizes kind 0 at 0x20 bytes, kinds 1 and 2 at 0x30 and kinds 3 and 4 at 0x24, so they are three
+records rather than one. Literal `+0x20` reads of kind 3 events in other files were this record's `subject`. One read of
+`age` stays on `read_f32` with `offsetof`, as retail reads through a null event there and the test's address-zero block is
+2 bytes.
+
+`ActorBytes` became `ActorBase` once it had named fields. Parameter rows, presets and other read-only script and XBE data stay
+on descriptors, as elsewhere: `walk_alert_row_field`, `strategy_move_settings_field`, `input_tracking_preset_field`,
+`cutscene_event_field` and `animation_event_field`. So do messages and mind requests, whose layout depends on an id or kind.
 
 The scene controls come in two kinds. Those with no host pointers (walkabout, chapter 2 scene 4, chapter 5 countdown,
 scene fx, final score) are overlays like the body states, on `SceneControlBase`. Those whose retail words hold pointers can't lay
@@ -422,7 +450,6 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Event step (a DAT_005064E0 pool row, built by script nodes 0x19..0x88, run by 0x000D0B40) | 0x88 | `event_step_field` (type, delay and its block, icon, icon shown), `event_step_delay_field` (the +4 block: left, started, waits for cutscene) and one namespace per type with fields after +0x18: tag (2), kill count (3), timed (4, 5), done (6), spare tag (7), next different (8), unhit since (10), one type (0xD), number (0xE), key carrier (0xF), attack limit (0x10), tag kill count (0x12) | `src/engine/scripts/script_event_step_fields.h` |
 | Anim emitter (entityAvatarFxAnimEmitter, type 0xD, 0x00109FC0): a powerup pickup that flies out, waits and fades once collected | 0x9E4, parameters 0x3C4 | `AnimEmitterState`: state, kind, amount, extra, id, callout tokens (count, ids), origin, landing, flight timer, bounces, sprite size, two pulse phases, sprite alpha, fade timer; `anim_emitter_parameter`: kind, amount, extra, sprite, id | `src/engine/entities/fx_anim_emitter.h` |
 | Colour channels (an effect particle's +0x60, a debris record's +0x24, a trail record's +0x10; run by 0x000F1F60, 0x000F22F0, 0x000F23E0, 0x000F2430) | 0x3C | `effect_channel_field`: five values (red, green, blue, alpha and unk_10), their targets and their rates | `src/engine/graphics/effect_channels.h` |
-| Bounded channel (a value moved between limits: 0x00101980, 0x00101A40, 0x00101B00; three in a row for 0x001062E0, 0x001063D0, 0x00106590) | 0x14 | `bounded_channel_field`: lower, upper, rate, value, mode; `BoundedChannel` is the same layout as a struct, for the effect particle | `src/engine/entities/bounded_channels.h` |
 | Debris type (DAT_005068E8, ten types from aid_misc_ghoulies_fx_cheap_splat; resource data) | 0xAC | `effect_debris_type_field`: texture and its address, colour, size, growth, and the grow, hold and fade time ranges; `effect_debris_types` | `src/engine/graphics/effect_debris.h` |
 | Trail type (DAT_005068E0, four types from aid_misc_ghoulies_fx_cheap_dust; resource data) | 0xA0 | `effect_trail_type_field`: texture address and name, two colours, start and end size, frame rate; `effect_trail_types` | `src/engine/graphics/effect_trails.h` |
 | Model image records (read by address through `RuntimeRelocationImage::get` / `set`) | varies | The directory and its entries, the tree block and tree, the node header (`model_node_field`: type name and index, mask, instance offset, descriptor, child, next) and each node type (`vertex_buffer_node`, `blendshape_node`, `vertex_shader_node`, `push_buffer_node`, `skeleton_node`, `transform_node`, `shader_node`, `matrix_array_node`, `rigid_skin_node`), the node type registry entry, vertex buffer, joint, pixel shader, material (with its stages, constants and entries), texture and its table, and the geometry block and stream. The physics block and its posed and grid meshes, cells and triangles are named too (`physical_mesh_queries.cpp` reads them). Directory blocks 0xE, 0x11, 0x16 and 0x18 and the name and pointer lists are only relocated and stay by offset | `include/gbtg/model_nodes.h` |
@@ -430,12 +457,10 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Input tracking (0x00109810; the struggle states' and the boost's) and its preset, and the player mind's stick tracking (+0x94; 0x0007D460, 0x0007D5A0) | 0x18 / 0x10 / 0x20 | `input_tracking_field`: axes, activity, accumulation, hold timer, state; `input_tracking_preset_field`: threshold, rise, decay, cap; `stick_tracking_field`: pressed, state, press timer, unk_0C, direction, magnitude, gesture time, gesture | `src/engine/entities/player_mind_control.h` |
 | Animation event (0x0003A380 runs it by kind) | varies by kind | `animation_event_field` (begin, end, kind) and per-kind namespaces: shader bits (4), effect (0xC, 0x11, 0x24, 0x26, 0x27, 0x29, 0x2A), camera effect (0x16), stop sound (0x1F), trail (0x25), voice (0x30), node state (0x31) | `src/engine/entities/actor_event_messages.h` |
 | Cinema mind (its own part after the base mind; 0x0007C7D0) | 0xD0, parameters 0x128 | `CinemaMindRecord`: roam and target radii, sound resource, count and timer, notices, avoidance time, unk_9C..unk_CC; `cinema_mind_parameter`: the radii and the sound resource name | `src/engine/entities/mind_fields.h` |
-| Actor base raw fields (the type-2 actor's bytes the native `Actor` doesn't keep) | 0x934 | `actor_field`: bone, eased and its target, age, ticks | `src/engine/entities/actor_fields.h` |
 | Scene light record (0x00051BC0; DAT_00509B7C) | 0x98 | `light_record_field`: position, direction, kind, flags and swing flags, the two ranges, colour, the colour and range limits and periods; `light_record(u8*)` gives a record's span | `include/gbtg/model_runtime.h` |
 | Effect script command (0x000F0390) | varies by opcode | `effect_command_field` (opcode) and argument layouts by shape: value, range, timed (colour and duration), colour, colour range, face, channels (oscillation and bounded channels), spin range, bounce | `src/engine/graphics/effect_commands.h` |
 | Player mind's own part (after the base mind) | | `PlayerMindRecord` (0x198 bytes): target, target timer and count, the stick tracking record (+0x94), attachment noticed, control lock | `src/engine/entities/player_mind_control.h` |
 | Parent mind requests (0x000295E0) and the navigation request (0x2E, 0x00136620) | varies by kind | `named_request`, `value_request`, `reach_request`, `body_range_request`, `slot_action_request`, `flag_action_request`, `wait_request`, `flag_test_request`, `navigation_request`; the header's `started` byte | `src/engine/entities/mind_request_fields.h` |
-| Mind event (0x0002A190) | | `mind_event_field`: kind, time left, duration, cooldown, age, subject, other, count, payload | `src/engine/entities/player_mind_events.h` |
 | Body messages (0x00074080, 0x00075C60, 0x00075DD0) | varies by id | `body_message_field` (id), `control_message`, `point_message`, `collision_hit_message`, `impact_message`, `movement_message`; and the body's actor, action key, alert level, control tokens and saved energy | `src/engine/entities/player_body_messages.h` |
 | Camera mind (factory type 0x36, 0x0007AFC0), its own part after the 0x7C-byte base mind | 0xDC, parameters 0xA0 | `CameraMindRecord`: focus actor and its blend, follow point, held target point, heading goal (active, restart, heading, hold, speed, tag), heading, pushed time, heading held, distance, route reaches eye, above floor | `src/engine/camera/camera_mind_rig.h` |
 

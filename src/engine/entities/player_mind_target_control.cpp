@@ -74,7 +74,7 @@ RuntimePlayerTargetView* update_runtime_player_target_proposal(RuntimePlayerMind
     RuntimePlayerTargetView* current = nullptr;
     if (event != nullptr)
     {
-        const u32 address = read_u32(static_cast<RuntimeMindEvent*>(event)->bytes, 0x20);
+        const u32 address = mind_subject_event(static_cast<RuntimeMindEvent*>(event)->bytes).subject;
         current = address == 0 ? nullptr : context.targets.at(address);
     }
     if (enabled != 0)
@@ -104,7 +104,7 @@ RuntimePlayerTargetView* update_runtime_player_target_proposal(RuntimePlayerMind
         if (proposal != nullptr)
         {
             RuntimeMindEvent* target_event = allocate_runtime_mind_event(context.events, 3, .5f);
-            std::memcpy(target_event->bytes.data() + 0x20, &proposal->address, 4);
+            mind_subject_event(target_event->bytes).subject = proposal->address;
             return proposal;
         }
     }

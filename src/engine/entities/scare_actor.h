@@ -38,7 +38,7 @@ static_assert(retail_fits(kSize, effect));
 } // namespace scare_actor_parameter
 struct ScareActorState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     u32 pulsing = 0; // +0x934, 1 while pulses remain
     i32 pulses = 0; // +0x938, 3 at the start
     float pulse_time = 0.f; // +0x93C, counts down by the actor step, then half a second more

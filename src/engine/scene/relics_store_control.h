@@ -28,8 +28,8 @@ struct RelicsStoreControlState
     u32 mummy = 0; // +0x34, its address
     u32 player = 0; // +0x38, its address
     Actor* candle = nullptr; // +0x3C, the relic candle's actor
-    // +0x40: the relic candle's flame block (candle_flame_field). Its pointer words are the four members after it.
-    std::array<u8, 0x18> flame_block{};
+    // +0x40: the relic candle's flame block. Its pointer words are the four members after it.
+    CandleFlameBlock flame_block{};
     const u8* binding = nullptr; // +0x44
     std::unique_ptr<std::array<u8, 0x98>> light; // The +0x48 slot's record.
     std::span<const u8> flame; // +0x50

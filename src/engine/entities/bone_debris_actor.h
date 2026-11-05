@@ -46,7 +46,7 @@ static_assert(retail_fits(kSize, shader_texture));
 } // namespace bone_debris_parameter
 struct BoneDebrisState
 {
-    ActorBytes base{}; // +0
+    ActorBase base{}; // +0
     std::array<u8, 4> unk_934{}; // +0x934, never read or written by translated code
     u32 dead_actor = 0; // +0x938, the dead actor; message 0x7C naming it clears it
     float stay_time = 0.f; // +0x93C, seconds the pieces stay once at rest, then fade (0x0013AF80)

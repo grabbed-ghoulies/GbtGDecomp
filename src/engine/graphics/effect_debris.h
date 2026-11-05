@@ -1,5 +1,6 @@
 #pragma once
 
+#include "effect_colour_channels.h"
 #include "gbtg/entity.h"
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
@@ -18,7 +19,7 @@ struct EffectDebrisRecord
     float size = 0.f; // +0x18, drawn from the type's size range
     float growth_rate = 0.f; // +0x1C
     float growth = 0.f; // +0x20, the size's scale, from 1 towards the type's growth
-    std::array<u8, 0x3C> channels{}; // +0x24, effect_channel_field (the channel functions take its bytes)
+    EffectColourChannels channels{}; // +0x24
     u8 phase = 0; // +0x60
     std::array<u8, 3> unk_61{}; // +0x61, never read or written
     float phase_time = 0.f; // +0x64, the phase's time left

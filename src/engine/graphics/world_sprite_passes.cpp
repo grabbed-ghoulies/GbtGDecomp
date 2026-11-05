@@ -184,11 +184,11 @@ void draw_effect_debris(std::span<const EffectDebrisRecord> particles,
         if (particle.next_free == -2)
         {
             // Four 0x001673D8 truncations, each keeping its low byte: red .. alpha.
-            const auto channels = std::span<const u8>(particle.channels);
-            const u32 color = u32(u8(truncate_runtime_float(get(channels, effect_channel_field::red))))
-                | u32(u8(truncate_runtime_float(get(channels, effect_channel_field::green)))) << 8
-                | u32(u8(truncate_runtime_float(get(channels, effect_channel_field::blue)))) << 16
-                | u32(u8(truncate_runtime_float(get(channels, effect_channel_field::alpha)))) << 24;
+            const auto& channels = particle.channels;
+            const u32 color = u32(u8(truncate_runtime_float(channels.red())))
+                | u32(u8(truncate_runtime_float(channels.green()))) << 8
+                | u32(u8(truncate_runtime_float(channels.blue()))) << 16
+                | u32(u8(truncate_runtime_float(channels.alpha()))) << 24;
             // ECX the record's type row's +0x80 texture in DAT_005068E8, EDI the record, EBX its +0xC.
             const u32 type = particle.type;
             if (type >= textures.size() || textures[type].data() == nullptr)

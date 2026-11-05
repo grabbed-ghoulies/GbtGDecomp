@@ -44,23 +44,10 @@ RuntimeCandleServices& candle_of(RuntimeWeaponActor& weapon)
     return weapon.services.candle();
 }
 
-void put_float(u8* bytes, size_t offset, float value)
+// The light record's flags with bit 0 (its values changed).
+void mark_light(LightRecord& light)
 {
-    std::memcpy(bytes + offset, &value, 4);
-}
-
-void put_word(u8* bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes + offset, &value, 4);
-}
-
-// The light record's +0x66 flags with bit 0 (its values changed).
-void mark_light(u8* record)
-{
-    u16 flags;
-    std::memcpy(&flags, record + 0x66, 2);
-    flags |= 1;
-    std::memcpy(record + 0x66, &flags, 2);
+    light.flags |= 1;
 }
 
 // 0x00145FD0, EAX actor: the holder whose link actor +0x918 names, while that link is set.
@@ -143,16 +130,17 @@ std::int8_t start_candle_light(RuntimeCandleFlame& flame)
     flame.light = std::make_unique<std::array<u8, 0x98>>(); // 0x000F72D0(0x98) in 0x000FE080.
     u8* record = flame.light->data();
     const std::int8_t slot = allocate_runtime_light(2, Vec3{}, record, flame.services.lights); // 0x000FE080, ESI DAT_0050DD80
-    record[0x66] |= 0x48;
-    put_float(record, 0x6C, kNear);
-    mark_light(record);
-    put_float(record, 0x70, kFar);
-    mark_light(record);
-    put_word(record, 0x78, kColor);
-    mark_light(record);
-    put_word(record, 0x80, kColor);
-    put_word(record, 0x84, kColor);
-    put_float(record, 0x88, 2.f); // DAT_0032B110.
+    LightRecord& light = light_record(record);
+    light.flags |= 0x48;
+    light.inner_range = kNear;
+    mark_light(light);
+    light.range = kFar;
+    mark_light(light);
+    light.colour = kColor;
+    mark_light(light);
+    light.colour_low = kColor;
+    light.colour_high = kColor;
+    light.colour_period = 2.f; // DAT_0032B110.
     return slot;
 }
 
@@ -268,7 +256,7 @@ void put_out_runtime_candle(RuntimeCandleFlame& flame)
     if (slot != -1)
     {
         u8* record = services.lights.records[size_t(slot)];
-        if ((record[0x66] & 0x10) == 0)
+        if ((light_record(record).flags & 0x10) == 0)
         {
             flame.light.reset(); // 0x000663E0
         }
@@ -319,23 +307,23 @@ i32 tend_runtime_candle(float fuel, u32 burning, RuntimeCandleFlame& flame)
 void place_runtime_candle_lights(RuntimeCandleFlame& flame, const Vec3& position)
 {
     RuntimeCandleServices& services = flame.services;
-    u8* record = services.lights.records[size_t(flame.block.light)];
-    std::memcpy(record + 0x40, &position, 12);
-    if (record[0x64] == 2)
+    LightRecord& light = light_record(services.lights.records[size_t(flame.block.light)]);
+    light.position = position;
+    if (light.kind == 2)
     {
         Vec3 direction{0.f - position.x, 0.f - position.y, 0.f - position.z};
         Vec3 output{};
         runtime_direction_or_axis(direction, output, 0x79); // 0x00106B90, 'y'
-        std::memcpy(record + 0x4C, &output, 12);
+        light.direction = output;
     }
-    put_float(record, 0x6C, kNear);
-    mark_light(record);
-    put_float(record, 0x70, kFar);
-    mark_light(record);
-    put_word(record, 0x78, kColor);
-    mark_light(record);
-    put_word(record, 0x80, kColor);
-    put_word(record, 0x84, kColor);
+    light.inner_range = kNear;
+    mark_light(light);
+    light.range = kFar;
+    mark_light(light);
+    light.colour = kColor;
+    mark_light(light);
+    light.colour_low = kColor;
+    light.colour_high = kColor;
     if (flame.block.point_light < 0 && services.point_lights_on != 0)
     {
         flame.block.point_light = add_runtime_scene_point_light(position, kColor, kSecondColor,

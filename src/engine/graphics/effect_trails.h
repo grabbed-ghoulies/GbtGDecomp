@@ -1,6 +1,7 @@
 #pragma once
 #include "../entities/actor_clock.h"
 #include "../entities/bounded_channels.h"
+#include "effect_colour_channels.h"
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
 #include "gbtg/retail_field.h"
@@ -15,7 +16,7 @@ struct EffectTrailRecord
 {
     Vec3 position{}; // +0, the billboard's position
     float rotation = 0.f; // +0xC, the billboard's rotation
-    std::array<u8, 0x3C> channels{}; // +0x10, effect_channel_field
+    EffectColourChannels channels{}; // +0x10
     float scale = 0.f; // +0x4C, the sizes' scale
     float size = 0.f; // +0x50, the billboard's width and height
     float target_size = 0.f; // +0x54

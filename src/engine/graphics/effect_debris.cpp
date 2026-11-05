@@ -33,7 +33,7 @@ void tick_effect_debris(EffectDebrisRecord& particle, RuntimeEffectDebris& conte
     const RuntimeActorClock& clock)
 {
     const float step = runtime_frame_step(clock);
-    const auto channels = std::span<u8>(particle.channels);
+    auto& channels = particle.channels;
     approach_actor_effect_channels(channels, clock);
     switch (particle.phase)
     {
@@ -57,17 +57,16 @@ void tick_effect_debris(EffectDebrisRecord& particle, RuntimeEffectDebris& conte
             particle.phase = 3;
             const float duration = sample_range(get(type, effect_debris_type_field::fade_time), context.random);
             particle.phase_time = duration;
-            set(channels, effect_channel_field::target_alpha, 0.0f);
+            channels.target_alpha() = 0.0f;
             if (duration > std::bit_cast<float>(0x3456BF95u))
             {
-                const float difference = -get(channels, effect_channel_field::alpha);
-                set(channels, effect_channel_field::alpha_rate,
-                    float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration}));
+                const float difference = -channels.alpha();
+                channels.alpha_rate() = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
             }
             else
             {
-                set(channels, effect_channel_field::alpha, 0.0f);
-                set(channels, effect_channel_field::alpha_rate, 0.0f);
+                channels.alpha() = 0.0f;
+                channels.alpha_rate() = 0.0f;
             }
             return;
         }
@@ -202,20 +201,20 @@ EffectDebrisRecord* allocate_effect_debris(RuntimeEffectDebris& context)
         particle.phase = 0;
         particle.phase_time = 0.f;
         particle.frame = context.frame;
-        const auto channels = std::span<u8>(particle.channels);
+        auto& channels = particle.channels;
         constexpr float full = 255.f; // DAT_0032B158.
-        set(channels, effect_channel_field::red, full);
-        set(channels, effect_channel_field::green, full);
-        set(channels, effect_channel_field::blue, full);
-        set(channels, effect_channel_field::alpha, full);
-        set(channels, effect_channel_field::target_red, full);
-        set(channels, effect_channel_field::target_green, full);
-        set(channels, effect_channel_field::target_blue, full);
-        set(channels, effect_channel_field::target_alpha, full);
-        set(channels, effect_channel_field::unk_10, 0.f);
-        set(channels, effect_channel_field::target_unk_10, 0.f);
+        channels.red() = full;
+        channels.green() = full;
+        channels.blue() = full;
+        channels.alpha() = full;
+        channels.target_red() = full;
+        channels.target_green() = full;
+        channels.target_blue() = full;
+        channels.target_alpha() = full;
+        channels.unk_10() = 0.f;
+        channels.target_unk_10() = 0.f;
         context.free_head = next;
-        set(channels, effect_channel_field::rates, std::array<float, 5>{});
+        channels.rates = std::array<float, 5>{};
         return &particle;
     }
     return nullptr;
@@ -226,7 +225,7 @@ void set_effect_debris_phase(EffectDebrisRecord& particle, i32 phase,
     RuntimeEffectDebris& context)
 {
     const auto type = debris_type(particle, context);
-    const auto channels = std::span<u8>(particle.channels);
+    auto& channels = particle.channels;
     particle.phase = u8(phase);
     constexpr float epsilon = std::bit_cast<float>(0x3456BF95u); // DAT_0032B27C.
     if (phase == 1)
@@ -237,23 +236,22 @@ void set_effect_debris_phase(EffectDebrisRecord& particle, i32 phase,
         particle.growth_rate = engine_absolute(rate);
         particle.growth = 1.f;
         const auto colour = get(type, effect_debris_type_field::colour);
-        set(channels, effect_channel_field::red, float(colour[0]));
-        set(channels, effect_channel_field::green, float(colour[1]));
-        set(channels, effect_channel_field::blue, float(colour[2]));
-        set(channels, effect_channel_field::unk_10, 255.f);
-        set(channels, effect_channel_field::alpha, 0.f);
+        channels.red() = float(colour[0]);
+        channels.green() = float(colour[1]);
+        channels.blue() = float(colour[2]);
+        channels.unk_10() = 255.f;
+        channels.alpha() = 0.f;
         const float alpha = float(colour[3]);
-        set(channels, effect_channel_field::target_alpha, alpha);
+        channels.target_alpha() = alpha;
         if (duration > epsilon)
         {
             const float difference = float(ExtendedFloat{alpha}
-                - ExtendedFloat{get(channels, effect_channel_field::alpha)});
-            set(channels, effect_channel_field::alpha_rate,
-                float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration}));
+                - ExtendedFloat{channels.alpha()});
+            channels.alpha_rate() = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
             return;
         }
-        set(channels, effect_channel_field::alpha, alpha);
-        set(channels, effect_channel_field::alpha_rate, 0.f);
+        channels.alpha() = alpha;
+        channels.alpha_rate() = 0.f;
     }
     else if (phase == 2)
     {
@@ -264,16 +262,15 @@ void set_effect_debris_phase(EffectDebrisRecord& particle, i32 phase,
     {
         const float duration = sample_range(get(type, effect_debris_type_field::fade_time), context.random);
         particle.phase_time = duration;
-        set(channels, effect_channel_field::target_alpha, 0.f);
+        channels.target_alpha() = 0.f;
         if (duration > epsilon)
         {
-            const float difference = -get(channels, effect_channel_field::alpha);
-            set(channels, effect_channel_field::alpha_rate,
-                float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration}));
+            const float difference = -channels.alpha();
+            channels.alpha_rate() = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
             return;
         }
-        set(channels, effect_channel_field::alpha, 0.f);
-        set(channels, effect_channel_field::alpha_rate, 0.f);
+        channels.alpha() = 0.f;
+        channels.alpha_rate() = 0.f;
         return;
     }
 }

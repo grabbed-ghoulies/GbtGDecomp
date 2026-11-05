@@ -185,34 +185,43 @@ struct RuntimeModelResourceBlock
 };
 // A scene light record (0x98 bytes, 0x00051BC0; registered in DAT_00509B7C). 0x000FDDA0 animates the colour and
 // the range from the flags.
-namespace light_record_field
+struct LightRecord
 {
-constexpr RetailField<Vec3, 0x40> position{};
-constexpr RetailField<Vec3, 0x4C> direction{}; // kind 2: from the position toward the origin
-constexpr RetailField<u8, 0x64> kind{};
-// 1 changed this frame; 0x40 flickers the colour, 0x80 the range; 0x10 is tested before an fx drops its light.
-constexpr RetailField<u8, 0x66> flags{};
-constexpr RetailField<u8, 0x67> swing_flags{}; // 2 swings the colour, 4 the range, on sine periods
-constexpr RetailField<u16, 0x66> flag_bits{}; // both flag bytes, as an fx's parameters set them
-constexpr RetailField<u8, 0x68> unk_68{}; // 0xFF when initialized
-constexpr RetailField<float, 0x6C> inner_range{};
-constexpr RetailField<float, 0x70> range{};
-constexpr RetailField<u32, 0x74> unk_74{};
-constexpr RetailField<u32, 0x78> colour{};
-constexpr RetailField<u32, 0x7C> unk_7C{}; // 0xFF000000 when initialized
-constexpr RetailField<u32, 0x80> colour_low{};
-constexpr RetailField<u32, 0x84> colour_high{};
-constexpr RetailField<float, 0x88> colour_period{}; // a frame mask for the flicker, seconds for the swing
-constexpr RetailField<float, 0x8C> range_low{};
-constexpr RetailField<float, 0x90> range_high{};
-constexpr RetailField<float, 0x94> range_period{};
-constexpr u32 kSize = 0x98;
-static_assert(retail_fits(kSize, range_period));
-} // namespace light_record_field
+    std::array<u8, 0x40> unk_0{}; // +0
+    Vec3 position{}; // +0x40
+    Vec3 direction{}; // +0x4C, kind 2: from the position toward the origin
+    Vec3 local_point{}; // +0x58, with flag 8: where `joint` carries the light (0x00120FE0)
+    u8 kind = 0; // +0x64
+    u8 unk_65 = 0; // +0x65
+    u8 flags = 0; // +0x66, 1 changed this frame; 8 follows the actor; 0x40 flickers the colour, 0x80 the range; 0x10 is tested before an fx drops its light
+    u8 swing_flags = 0; // +0x67, 2 swings the colour, 4 the range, on sine periods
+    u8 joint = 0; // +0x68, a signed joint for `local_point`, 0xFF (none: the actor itself) when initialized
+    std::array<u8, 3> unk_69{}; // +0x69
+    float inner_range = 0.f; // +0x6C
+    float range = 0.f; // +0x70
+    u32 unk_74 = 0; // +0x74
+    u32 colour = 0; // +0x78
+    u32 unk_7C = 0; // +0x7C, 0xFF000000 when initialized
+    u32 colour_low = 0; // +0x80
+    u32 colour_high = 0; // +0x84
+    float colour_period = 0.f; // +0x88, a frame mask for the flicker, seconds for the swing
+    float range_low = 0.f; // +0x8C
+    float range_high = 0.f; // +0x90
+    float range_period = 0.f; // +0x94
 
-inline std::span<u8> light_record(u8* record)
+    // Both flag bytes as one word, as an fx's parameters set them.
+    u16 flag_bits() const { return u16(flags | swing_flags << 8); }
+    void set_flag_bits(u16 bits)
+    {
+        flags = u8(bits);
+        swing_flags = u8(bits >> 8);
+    }
+};
+static_assert(sizeof(LightRecord) == 0x98);
+
+inline LightRecord& light_record(u8* record)
 {
-    return {record, light_record_field::kSize};
+    return *reinterpret_cast<LightRecord*>(record);
 }
 
 struct RuntimeShaderRegistrationState

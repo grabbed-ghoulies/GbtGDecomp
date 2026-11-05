@@ -71,9 +71,9 @@ void configure_actor_effect_bounded_channels(EffectParticle& particle, const Vec
 }
 
 // Xbox 0x000F2430
-bool actor_effect_channels_are_active(std::span<const u8> channels)
+bool actor_effect_channels_are_active(const EffectColourChannels& channels)
 {
-    const auto rates = get(channels, effect_channel_field::rates);
+    const auto rates = channels.rates;
     if (rates[0] == 0.f && rates[1] == 0.f && rates[2] == 0.f && rates[3] == 0.f && rates[4] == 0.f)
     {
         return false;
@@ -82,17 +82,17 @@ bool actor_effect_channels_are_active(std::span<const u8> channels)
 }
 
 // Xbox 0x000F22F0
-void target_actor_effect_color(std::span<u8> channels, u8 red, u8 green, u8 blue, float duration)
+void target_actor_effect_color(EffectColourChannels& channels, u8 red, u8 green, u8 blue, float duration)
 {
     constexpr float epsilon = std::bit_cast<float>(0x3456BF95u);
-    set(channels, effect_channel_field::target_green, float(green));
-    set(channels, effect_channel_field::target_blue, float(blue));
-    set(channels, effect_channel_field::target_red, float(red));
-    float* const values = field_data(channels, effect_channel_field::values);
-    float* const rates = field_data(channels, effect_channel_field::rates);
+    channels.target_green() = float(green);
+    channels.target_blue() = float(blue);
+    channels.target_red() = float(red);
+    float* const values = channels.values.data();
+    float* const rates = channels.rates.data();
     for (size_t index = 0; index < 3; ++index)
     {
-        const float target = get(channels, effect_channel_field::targets)[index];
+        const float target = channels.targets[index];
         if (duration > epsilon)
         {
             const float difference = float(ExtendedFloat{target} - ExtendedFloat{values[index]});
@@ -107,21 +107,20 @@ void target_actor_effect_color(std::span<u8> channels, u8 red, u8 green, u8 blue
 }
 
 // Xbox 0x000F23E0
-void target_actor_effect_alpha(std::span<u8> channels, u8 alpha, float duration)
+void target_actor_effect_alpha(EffectColourChannels& channels, u8 alpha, float duration)
 {
     constexpr float epsilon = std::bit_cast<float>(0x3456BF95u);
     const float target = float(alpha);
-    set(channels, effect_channel_field::target_alpha, target);
+    channels.target_alpha() = target;
     if (duration > epsilon)
     {
         const float difference = float(ExtendedFloat{target}
-            - ExtendedFloat{get(channels, effect_channel_field::alpha)});
-        set(channels, effect_channel_field::alpha_rate,
-            float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration}));
+            - ExtendedFloat{channels.alpha()});
+        channels.alpha_rate() = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
         return;
     }
-    set(channels, effect_channel_field::alpha, target);
-    set(channels, effect_channel_field::alpha_rate, 0.f);
+    channels.alpha() = target;
+    channels.alpha_rate() = 0.f;
 }
 
 // Xbox 0x000F1AF0
@@ -197,12 +196,12 @@ void tick_actor_effect_oscillation(EffectOscillation& oscillation, float step)
 }
 
 // Xbox 0x000F1F60
-void approach_actor_effect_channels(std::span<u8> channels, const RuntimeActorClock& clock)
+void approach_actor_effect_channels(EffectColourChannels& channels, const RuntimeActorClock& clock)
 {
     const float dt = runtime_frame_step(clock);
-    float* const values = field_data(channels, effect_channel_field::values);
-    const float* const targets = field_data(channels, effect_channel_field::targets);
-    float* const rates = field_data(channels, effect_channel_field::rates);
+    float* const values = channels.values.data();
+    const float* const targets = channels.targets.data();
+    float* const rates = channels.rates.data();
     for (size_t index = 0; index < 5; ++index)
     {
         if (rates[index] != 0.f)

@@ -16,19 +16,7 @@ namespace gbtg
 {
 namespace
 {
-namespace field = light_cone_field;
-namespace rim = light_cone_rim_field;
 using Matrix = std::array<float, 16>;
-
-std::span<u8> bytes_of(RuntimeLightCones& cones, i32 index)
-{
-    return std::span<u8>(cones.records.at(size_t(index)).bytes);
-}
-
-bool drawn(std::span<const u8> bytes)
-{
-    return get(bytes, field::used) != 0 && get(bytes, field::visible) != 0;
-}
 
 // x87: the length of the difference, summed x, z, then y.
 long double distance_xzy(const Vec3& first, const Vec3& second)
@@ -58,17 +46,17 @@ const RuntimeLightCones* g_sorted = nullptr;
 
 int compare_light_cones(const void* first, const void* second)
 {
-    const auto a = std::span<const u8>(g_sorted->records.at(size_t(*static_cast<const i32*>(first))).bytes);
-    const auto b = std::span<const u8>(g_sorted->records.at(size_t(*static_cast<const i32*>(second))).bytes);
-    if (get(a, field::visible) == 0)
+    const RuntimeLightCone& a = g_sorted->records.at(size_t(*static_cast<const i32*>(first)));
+    const RuntimeLightCone& b = g_sorted->records.at(size_t(*static_cast<const i32*>(second)));
+    if (a.visible == 0)
     {
         return -1;
     }
-    if (get(a, field::used) != 0 && get(b, field::visible) != 0 && get(b, field::used) != 0)
+    if (a.used != 0 && b.visible != 0 && b.used != 0)
     {
-        return get(b, field::distance) > get(a, field::distance) ? 1 : -1;
+        return b.distance > a.distance ? 1 : -1;
     }
-    return get(a, field::used) != 0 ? 1 : -1;
+    return a.used != 0 ? 1 : -1;
 }
 
 DialogueD3DBoundaries& d3d(RuntimeLightConeDraw& context)
@@ -95,7 +83,7 @@ i32 add_runtime_light_cone(RuntimeLightCones& cones, Actor& actor, u32 actor_add
     i32 index = 0;
     for (; index < i32(cones.records.size()); ++index)
     {
-        if (get(cones.records[size_t(index)].bytes, field::used) == 0)
+        if (cones.records[size_t(index)].used == 0)
         {
             break;
         }
@@ -105,18 +93,17 @@ i32 add_runtime_light_cone(RuntimeLightCones& cones, Actor& actor, u32 actor_add
         return -1;
     }
     RuntimeLightCone& cone = cones.records[size_t(index)];
-    auto bytes = std::span<u8>(cone.bytes);
-    set(bytes, field::pitch, pitch);
-    set(bytes, field::yaw, yaw);
-    set(bytes, field::spread, spread);
-    set(bytes, field::length, length);
-    set(bytes, field::actor, actor_address);
+    cone.pitch = pitch;
+    cone.yaw = yaw;
+    cone.spread = spread;
+    cone.length = length;
+    cone.actor_address = actor_address;
     cone.actor = &actor;
-    set(bytes, field::fade, fade);
-    set(bytes, field::used, 1u);
-    set(bytes, field::visible, 0u);
-    set(bytes, field::marker, marker);
-    set(bytes, field::spot_offset, spot_offset);
+    cone.fade = fade;
+    cone.used = 1u;
+    cone.visible = 0u;
+    cone.marker = marker;
+    cone.spot_offset = spot_offset;
     cones.count = cones.count + 1;
     return index;
 }
@@ -127,8 +114,8 @@ void clear_runtime_light_cones(RuntimeLightCones& cones, const std::function<voi
     cones.count = 0;
     for (RuntimeLightCone& cone : cones.records)
     {
-        set(std::span<u8>(cone.bytes), field::used, 0u);
-        set(std::span<u8>(cone.bytes), field::visible, 0u);
+        cone.used = 0u;
+        cone.visible = 0u;
         cone.actor = nullptr;
     }
     if (cones.texture.data() != nullptr)
@@ -163,10 +150,10 @@ void build_runtime_axis_rotation(float output[12], const Vec3& axis, float angle
 // Xbox 0x00119F40, ECX index, EAX at
 void build_runtime_light_cone(RuntimeLightCones& cones, i32 index, const Vec3& at, const Vec3& from, float spread)
 {
-    const auto bytes = bytes_of(cones, index);
-    set(bytes, field::from, from);
-    set(bytes, field::spot, at);
-    set(bytes, field::at, at);
+    RuntimeLightCone& cone = cones.records.at(size_t(index));
+    cone.from = from;
+    cone.spot = at;
+    cone.at = at;
     // The rim's radius: the spread, unless the cone opens past 15 degrees.
     const float dx = at.x - from.x;
     const long double dy = (long double)at.y - from.y;
@@ -183,7 +170,7 @@ void build_runtime_light_cone(RuntimeLightCones& cones, i32 index, const Vec3& a
         const long double limit = std::tan((long double)0.2617993950843811); // DAT_0032B338
         radius = float(limit * std::sqrt(((long double)dx * dx + dz * dz) + dy * dy));
     }
-    set(bytes, field::radius, radius);
+    cone.radius = radius;
     // The axis, unit unless it has no length.
     Vec3 axis{at.x - from.x, at.y - from.y, at.z - from.z};
     const float axis_squared = (axis.x * axis.x + axis.y * axis.y) + axis.z * axis.z;
@@ -192,12 +179,12 @@ void build_runtime_light_cone(RuntimeLightCones& cones, i32 index, const Vec3& a
         const long double scale = retail_reciprocal_sqrt(axis_squared); // 0x001534C0
         axis = Vec3{float(scale * axis.x), float(scale * axis.y), float(scale * axis.z)};
     }
-    set(bytes, field::axis, axis);
+    cone.axis = axis;
     // The spot moves on along the axis.
-    const float shift = get(bytes, field::spot_offset) * radius;
-    Vec3 spot = get(bytes, field::spot);
+    const float shift = cone.spot_offset * radius;
+    Vec3 spot = cone.spot;
     spot = Vec3{spot.x + shift * axis.x, spot.y + axis.y * shift, spot.z + axis.z * shift};
-    set(bytes, field::spot, spot);
+    cone.spot = spot;
     // The first rim point: across the axis (in the horizontal plane), scaled so the rim keeps the cone's slope.
     const long double scaled = distance_xzy(from, spot) * radius;
     const Vec3 back{from.x - at.x, from.y - at.y, from.z - at.z};
@@ -212,8 +199,7 @@ void build_runtime_light_cone(RuntimeLightCones& cones, i32 index, const Vec3& a
         across = Vec3{float(inverse * across.x), float(inverse * across.y), float(inverse * across.z)};
     }
     across = Vec3{scale * across.x, scale * across.y, scale * across.z};
-    set(record(bytes, field::rim, 0), rim::position,
-        Vec3{spot.x + across.x, spot.y + across.y, spot.z + across.z});
+    cone.rim[0].position = Vec3{spot.x + across.x, spot.y + across.y, spot.z + across.z};
     // Each further rim point turns the one before 30 degrees about the axis through the spot.
     std::array<float, 12> turn{};
     build_runtime_axis_rotation(turn.data(), axis, 0.5235988f); // 0x001047E0
@@ -225,20 +211,19 @@ void build_runtime_light_cone(RuntimeLightCones& cones, i32 index, const Vec3& a
     multiply_affine_matrices(step.data(), back_to_spot.data(), step.data()); // 0x001041B0
     for (size_t point = 1; point < 12; ++point)
     {
-        const Vec3 previous = get(record(bytes, field::rim, point - 1), rim::position);
-        set(record(bytes, field::rim, point), rim::position,
-            point < 9 ? rotate_xyz(step.data(), previous) : rotate_looped(step.data(), previous));
+        const Vec3 previous = cone.rim[point - 1].position;
+        cone.rim[point].position = point < 9 ? rotate_xyz(step.data(), previous) : rotate_looped(step.data(), previous);
     }
     // Each rim point's colour: its height on the cone (blue) and how far the spot lies (alpha).
     for (size_t point = 0; point < 12; ++point)
     {
-        const auto row = record(bytes, field::rim, point);
-        float alpha = float(get(bytes, field::fade) / distance_xzy(from, spot));
+        auto& row = cone.rim[point];
+        float alpha = float(cone.fade / distance_xzy(from, spot));
         if (alpha > 1.f) // DAT_0032B0F8
         {
             alpha = 1.f;
         }
-        const Vec3 position = get(row, rim::position);
+        const Vec3 position = row.position;
         const float vx = position.x - from.x;
         const float vy = position.y - from.y;
         const float vz = position.z - from.z;
@@ -256,12 +241,11 @@ void build_runtime_light_cone(RuntimeLightCones& cones, i32 index, const Vec3& a
         const long double height = ((((nz + nx) * 0.0L + ny) + 1.0L) * 0.5L) * 210.0L; // DAT_0032B0F4, DAT_0032B334
         const u32 blue = u8(truncate_runtime_float(height)); // 0x001673D8
         const u32 opacity = u8(truncate_runtime_float((long double)alpha * 200.0L)); // DAT_0032B330
-        set(row, rim::color, (blue | opacity << 16 | 0x2800u) << 8);
-        set(row, rim::word, 0xC828D200u);
+        row.color = (blue | opacity << 16 | 0x2800u) << 8;
+        row.word = 0xC828D200u;
     }
     // The plane through `from` across the axis.
-    set(bytes, field::plane,
-        {axis.x, axis.y, axis.z, 0.f - ((axis.z * from.z + axis.y * from.y) + axis.x * from.x)});
+    cone.plane = {axis.x, axis.y, axis.z, 0.f - ((axis.z * from.z + axis.y * from.y) + axis.x * from.x)};
 }
 
 // Xbox 0x00119BE0
@@ -270,15 +254,14 @@ void sort_runtime_light_cones(RuntimeLightCones& cones, const Vec3& view)
     for (i32 index = 0; index < 16; ++index)
     {
         cones.order[size_t(index)] = index;
-        const auto bytes = bytes_of(cones, index);
-        if (get(bytes, field::used) == 0 || get(bytes, field::visible) == 0)
+        RuntimeLightCone& cone = cones.records.at(size_t(index));
+        if (cone.used == 0 || cone.visible == 0)
         {
             continue;
         }
-        const Vec3 spot = get(bytes, field::spot);
-        set(bytes, field::distance,
-            ((spot.z - view.z) * (spot.z - view.z) + (spot.y - view.y) * (spot.y - view.y))
-                + (spot.x - view.x) * (spot.x - view.x));
+        const Vec3 spot = cone.spot;
+        cone.distance = ((spot.z - view.z) * (spot.z - view.z) + (spot.y - view.y) * (spot.y - view.y))
+                + (spot.x - view.x) * (spot.x - view.x);
     }
     g_sorted = &cones;
     std::qsort(cones.order.data(), 16, 4, compare_light_cones); // _qsort, 0x00119B70
@@ -297,27 +280,27 @@ void draw_runtime_light_cones(RuntimeLightConeDraw& context)
     // Each cone is built from its actor's marker; a beam blocked near its start reaches 10 out instead.
     for (i32 index = 0, seen = 0; seen < cones.count && index < 16; ++index)
     {
-        const auto bytes = bytes_of(cones, index);
-        if (get(bytes, field::used) == 0)
+        RuntimeLightCone& cone = cones.records.at(size_t(index));
+        if (cone.used == 0)
         {
             continue;
         }
-        if (get(bytes, field::visible) != 0)
+        if (cone.visible != 0)
         {
             Actor* actor = cones.records[size_t(index)].actor;
             if (actor == nullptr)
             {
                 throw Error("0x0011AF90 reads a light cone's actor (+8) through address zero");
             }
-            const u32 marker = get(bytes, field::marker);
+            const u32 marker = cone.marker;
             Vec3 eye{};
             actor_marker_world_position(*actor, i32(marker), eye); // 0x0003AE60, EDX the marker
             Vec3 euler{};
             actor_marker_world_euler(*actor, i16(marker), euler); // 0x0003B160, AX the marker
-            euler.x = float((long double)euler.x + get(bytes, field::pitch));
-            euler.y = float((long double)euler.y + get(bytes, field::yaw));
+            euler.x = float((long double)euler.x + cone.pitch);
+            euler.y = float((long double)euler.y + cone.yaw);
             Vec3 end = eye;
-            add_sound_direction(end, euler.x, euler.y, get(bytes, field::length)); // 0x00106220, ESI the end
+            add_sound_direction(end, euler.x, euler.y, cone.length); // 0x00106220, ESI the end
             Vec3 far = end;
             Vec3 near = eye;
             entity_record_sweep_probe(far, eye, 4, 0); // 0x00122480, EBX the far copy
@@ -346,7 +329,7 @@ void draw_runtime_light_cones(RuntimeLightConeDraw& context)
                 normalize_vector_in_place(out.data()); // 0x0002AC70, ESI the vector
                 at = Vec3{out[0] * 10.f + eye.x, out[1] * 10.f + eye.y, out[2] * 10.f + eye.z}; // DAT_0032B10C
             }
-            build_runtime_light_cone(cones, index, at, eye, get(bytes, field::spread)); // 0x00119F40
+            build_runtime_light_cone(cones, index, at, eye, cone.spread); // 0x00119F40
         }
         ++seen;
     }
@@ -363,16 +346,16 @@ void draw_runtime_light_cones(RuntimeLightConeDraw& context)
     const u8* texture_record = texture.data() + read_u32(texture, 4) + u32(texture[0x12]) * 0x14;
     for (i32 index = 0, seen = 0; seen < cones.count && index < 16; ++index)
     {
-        const auto bytes = bytes_of(cones, index);
-        if (get(bytes, field::used) == 0)
+        RuntimeLightCone& cone = cones.records.at(size_t(index));
+        if (cone.used == 0)
         {
             continue;
         }
-        if (get(bytes, field::visible) != 0)
+        if (cone.visible != 0)
         {
-            context.projector.projector.alternate_color = get(bytes, field::plane); // DAT_00504944..DAT_00504950
-            project_runtime_texture_on_grid(grid, get(bytes, field::at), get(bytes, field::from),
-                pass.address_of(texture_record), get(bytes, field::radius), 0xC800D228u, false, 2,
+            context.projector.projector.alternate_color = cone.plane; // DAT_00504944..DAT_00504950
+            project_runtime_texture_on_grid(grid, cone.at, cone.from,
+                pass.address_of(texture_record), cone.radius, 0xC800D228u, false, 2,
                 context.projector); // 0x00064820, ECX grid, EDX at, EAX 2
         }
         ++seen;
@@ -412,25 +395,25 @@ void draw_runtime_light_cones(RuntimeLightConeDraw& context)
     // The rim of each drawn cone, farthest first, as a strip of {rim point, colour, from, word}.
     for (i32 slot = 0, seen = 0; seen < cones.count && slot < 16; ++slot)
     {
-        const auto bytes = bytes_of(cones, cones.order[size_t(slot)]);
-        if (get(bytes, field::used) == 0)
+        RuntimeLightCone& cone = cones.records.at(size_t(cones.order[size_t(slot)]));
+        if (cone.used == 0)
         {
             continue;
         }
-        if (get(bytes, field::visible) != 0)
+        if (cone.visible != 0)
         {
-            const Vec3 from = get(bytes, field::from);
+            const Vec3 from = cone.from;
             u32* push = d3d(context).begin_push(0x6D); // 0x00177250
             *push++ = 0x417FC;
             *push++ = 6;
             *push++ = 0x41A01818;
             const auto vertex = [&](size_t point)
             {
-                const auto row = record(bytes, field::rim, point);
-                const Vec3 position = get(row, rim::position);
+                auto& row = cone.rim[point];
+                const Vec3 position = row.position;
                 const std::array<u32, 8> words{std::bit_cast<u32>(position.x), std::bit_cast<u32>(position.y),
-                    std::bit_cast<u32>(position.z), get(row, rim::color), std::bit_cast<u32>(from.x),
-                    std::bit_cast<u32>(from.y), std::bit_cast<u32>(from.z), get(row, rim::word)};
+                    std::bit_cast<u32>(position.z), row.color, std::bit_cast<u32>(from.x),
+                    std::bit_cast<u32>(from.y), std::bit_cast<u32>(from.z), row.word};
                 std::memcpy(push, words.data(), sizeof(words));
                 push += words.size();
             };

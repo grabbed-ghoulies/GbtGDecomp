@@ -24,11 +24,11 @@ u32 truncated_byte(float value)
 void draw_actor_effect_particle(ActorEffectNode& effect, size_t index, BillboardQueue& queue)
 {
     const EffectParticle& particle = actor_effect_particle(effect, index);
-    const auto channels = std::span(particle.colour_channels);
-    const u32 color = truncated_byte(get(channels, effect_channel_field::red))
-        | truncated_byte(get(channels, effect_channel_field::green)) << 8
-        | truncated_byte(get(channels, effect_channel_field::blue)) << 16
-        | truncated_byte(get(channels, effect_channel_field::alpha)) << 24;
+    const auto& channels = particle.colour_channels;
+    const u32 color = truncated_byte(channels.red())
+        | truncated_byte(channels.green()) << 8
+        | truncated_byte(channels.blue()) << 16
+        | truncated_byte(channels.alpha()) << 24;
     // The dump reads the scale through the particle's owner, this effect.
     const float scale = get(effect.bytes, actor_effect_field::scale) * particle.size;
     if (scale == 0.f) // DAT_0032B100
@@ -63,11 +63,11 @@ void draw_actor_effect_particle(ActorEffectNode& effect, size_t index, Billboard
 void draw_actor_effect_sprite(ActorEffectNode& effect, size_t index, RuntimeDisplaySetupContext& display)
 {
     const EffectParticle& particle = actor_effect_particle(effect, index);
-    const auto channels = std::span(particle.colour_channels);
-    const u32 color = truncated_byte(get(channels, effect_channel_field::red))
-        | truncated_byte(get(channels, effect_channel_field::green)) << 8
-        | truncated_byte(get(channels, effect_channel_field::blue)) << 16
-        | truncated_byte(get(channels, effect_channel_field::alpha)) << 24;
+    const auto& channels = particle.colour_channels;
+    const u32 color = truncated_byte(channels.red())
+        | truncated_byte(channels.green()) << 8
+        | truncated_byte(channels.blue()) << 16
+        | truncated_byte(channels.alpha()) << 24;
     // The dump reads the scale through the particle's owner, this effect.
     const float scale = get(effect.bytes, actor_effect_field::scale) * particle.size;
     if (scale == 0.f) // DAT_0032B100
@@ -189,7 +189,7 @@ void draw_actor_effect_model(ActorEffectNode& effect, size_t index, u32 model_cp
     RuntimeDisplaySetupContext& display, SceneModelDrawContext& models)
 {
     const EffectParticle& particle = actor_effect_particle(effect, index);
-    const auto channels = std::span(particle.colour_channels);
+    const auto& channels = particle.colour_channels;
     // The dump reads the scale through the particle's owner, this effect.
     const float size = get(effect.bytes, actor_effect_field::scale) * particle.size;
     if (size == 0.f) // UCOMISS DAT_0032B100; JNP skips only an ordered equality.
@@ -210,11 +210,11 @@ void draw_actor_effect_model(ActorEffectNode& effect, size_t index, u32 model_cp
             euler.z + particle.bounded_channels[2].value};
     }
     const Vec3 position = particle.position;
-    const u32 first = truncated_byte(get(channels, effect_channel_field::red))
-        | truncated_byte(get(channels, effect_channel_field::green)) << 8
-        | truncated_byte(get(channels, effect_channel_field::blue)) << 16
-        | truncated_byte(get(channels, effect_channel_field::alpha)) << 24;
-    const u32 level = truncated_byte(get(channels, effect_channel_field::unk_10));
+    const u32 first = truncated_byte(channels.red())
+        | truncated_byte(channels.green()) << 8
+        | truncated_byte(channels.blue()) << 16
+        | truncated_byte(channels.alpha()) << 24;
+    const u32 level = truncated_byte(channels.unk_10());
     const u32 second = level | level << 8 | level << 16 | 0xFF000000u;
     if (effect.model == nullptr)
     {

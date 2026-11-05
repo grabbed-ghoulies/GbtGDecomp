@@ -150,20 +150,20 @@ Vec3 light_position(const Actor& actor)
 void initialize_runtime_light(u8* record)
 {
     std::memset(record, 0, 0x64);
-    set(light_record(record), light_record_field::kind, 0);
-    set(light_record(record), light_record_field::flag_bits, 0);
-    set(light_record(record), light_record_field::unk_68, 0xFF);
-    set(light_record(record), light_record_field::inner_range, 0.f);
-    set(light_record(record), light_record_field::range, 0.f);
-    set(light_record(record), light_record_field::unk_74, 0);
-    set(light_record(record), light_record_field::colour, 0xFFFFFFFFu); // DAT_00314F48.
-    set(light_record(record), light_record_field::unk_7C, 0xFF000000u); // DAT_00314F4C.
-    set(light_record(record), light_record_field::colour_low, 0xFFFFFFFFu);
-    set(light_record(record), light_record_field::colour_high, 0xFFFFFFFFu);
-    set(light_record(record), light_record_field::colour_period, 0.f);
-    set(light_record(record), light_record_field::range_low, 0.f);
-    set(light_record(record), light_record_field::range_high, 0.f);
-    set(light_record(record), light_record_field::range_period, 0.f);
+    light_record(record).kind = 0;
+    light_record(record).set_flag_bits(0);
+    light_record(record).joint = 0xFF;
+    light_record(record).inner_range = 0.f;
+    light_record(record).range = 0.f;
+    light_record(record).unk_74 = 0;
+    light_record(record).colour = 0xFFFFFFFFu; // DAT_00314F48.
+    light_record(record).unk_7C = 0xFF000000u; // DAT_00314F4C.
+    light_record(record).colour_low = 0xFFFFFFFFu;
+    light_record(record).colour_high = 0xFFFFFFFFu;
+    light_record(record).colour_period = 0.f;
+    light_record(record).range_low = 0.f;
+    light_record(record).range_high = 0.f;
+    light_record(record).range_period = 0.f;
 }
 
 // Xbox 0x000EC710: the base update counts the effect's seconds.
@@ -421,10 +421,10 @@ void update_fx_custom_outline(FxCustomInstance& instance, Actor& actor)
             * 2.f; // 0x0003D860, DAT_0032B110
         move_runtime_light(slot, light_position(actor), context.lights); // 0x000FE0F0
         u8* record = context.lights.records.at(size_t(slot));
-        set(light_record(record), light_record_field::inner_range, reach);
-        field_byte(light_record(record), light_record_field::flags, 0) |= 1;
-        set(light_record(record), light_record_field::range, reach * 2.f);
-        field_byte(light_record(record), light_record_field::flags, 0) |= 1;
+        light_record(record).inner_range = reach;
+        light_record(record).flags |= 1;
+        light_record(record).range = reach * 2.f;
+        light_record(record).flags |= 1;
     }
     const float step = actor_step(actor);
     const float time = base_of(effect).elapsed;
@@ -761,14 +761,14 @@ void start_fx_electric_light(FxCustomInstance& instance, u8* bytes)
     instance.light = std::make_unique<std::array<u8, 0x98>>(); // 0x000F72D0(0x98)
     u8* record = instance.light->data();
     const std::int8_t slot = allocate_runtime_light(2, light_position(actor), record, context.lights); // 0x000FE080
-    field_byte(light_record(record), light_record_field::flags, 0) |= 0x48;
-    set(light_record(record), light_record_field::inner_range, reach * 2.f); // DAT_0032B110.
-    field_byte(light_record(record), light_record_field::flags, 0) |= 1;
-    set(light_record(record), light_record_field::range, reach * 4.f); // DAT_0032B1B0.
-    set(light_record(record), light_record_field::colour, 0xFFFFFF00u); // DAT_00314F40.
-    set(light_record(record), light_record_field::colour_low, 0xFFFFFF00u);
-    set(light_record(record), light_record_field::colour_high, 0xFFC0C0C0u); // DAT_00314F94.
-    set(light_record(record), light_record_field::colour_period, 2.f);
+    light_record(record).flags |= 0x48;
+    light_record(record).inner_range = reach * 2.f; // DAT_0032B110.
+    light_record(record).flags |= 1;
+    light_record(record).range = reach * 4.f; // DAT_0032B1B0.
+    light_record(record).colour = 0xFFFFFF00u; // DAT_00314F40.
+    light_record(record).colour_low = 0xFFFFFF00u;
+    light_record(record).colour_high = 0xFFC0C0C0u; // DAT_00314F94.
+    light_record(record).colour_period = 2.f;
     electric_of(std::span<u8>{bytes, sizeof(FxElectricState)}).light_slot = slot;
 }
 
@@ -845,7 +845,7 @@ void destroy_fx_custom_electric_view(FactoryObject& object)
     {
         u8*& record = context.lights.records.at(size_t(slot));
         // The host keeps the record in the instance; the scene's light reset (0x000FDED0) may have emptied the slot.
-        if (record != nullptr && (get(light_record(record), light_record_field::flags) & 0x10) == 0)
+        if (record != nullptr && (light_record(record).flags & 0x10) == 0)
         {
             instance.light.reset(); // 0x000663E0
         }
@@ -934,18 +934,18 @@ std::int8_t start_fx_outline_light(FxCustomInstance& instance, std::span<const u
     const std::int8_t slot = allocate_runtime_light(2, light_position(*instance.actor), record,
         context.lights); // 0x000FE080
     u16 flags;
-    flags = get(light_record(record), light_record_field::flag_bits);
+    flags = light_record(record).flag_bits();
     flags |= get(parameters, outline_parameter::light_flags);
-    set(light_record(record), light_record_field::flag_bits, flags);
-    set(light_record(record), light_record_field::inner_range, 10.f); // DAT_0032B10C.
-    field_byte(light_record(record), light_record_field::flags, 0) |= 1;
-    set(light_record(record), light_record_field::inner_range, 20.f); // DAT_0032B234.
-    field_byte(light_record(record), light_record_field::flags, 0) |= 1;
-    set(light_record(record), light_record_field::colour, get(parameters, outline_parameter::light_78));
-    field_byte(light_record(record), light_record_field::flags, 0) |= 1;
-    set(light_record(record), light_record_field::colour_low, get(parameters, outline_parameter::light_80));
-    set(light_record(record), light_record_field::colour_high, get(parameters, outline_parameter::light_84));
-    set(light_record(record), light_record_field::colour_period, 2.f); // DAT_0032B110.
+    light_record(record).set_flag_bits(flags);
+    light_record(record).inner_range = 10.f; // DAT_0032B10C.
+    light_record(record).flags |= 1;
+    light_record(record).inner_range = 20.f; // DAT_0032B234.
+    light_record(record).flags |= 1;
+    light_record(record).colour = get(parameters, outline_parameter::light_78);
+    light_record(record).flags |= 1;
+    light_record(record).colour_low = get(parameters, outline_parameter::light_80);
+    light_record(record).colour_high = get(parameters, outline_parameter::light_84);
+    light_record(record).colour_period = 2.f; // DAT_0032B110.
     return slot;
 }
 
@@ -1040,7 +1040,7 @@ void destroy_fx_outline_view(FactoryObject& object)
     {
         u8*& record = context.lights.records.at(size_t(slot));
         // The host keeps the record in the instance; the scene's light reset (0x000FDED0) may have emptied the slot.
-        if (record != nullptr && (get(light_record(record), light_record_field::flags) & 0x10) == 0)
+        if (record != nullptr && (light_record(record).flags & 0x10) == 0)
         {
             instance.light.reset(); // 0x000663E0
         }
@@ -1331,12 +1331,12 @@ std::int8_t allocate_runtime_light(u8 kind, const Vec3& position, u8* record, Ru
         throw Error("0x000FE080 stores a light record through DAT_00509B7C[-1]: all 40 slots are taken");
     }
     initialize_runtime_light(record); // 0x00051BC0
-    set(light_record(record), light_record_field::kind, kind);
+    light_record(record).kind = kind;
     if (kind == 2 || kind == 3)
     {
-        field_byte(light_record(record), light_record_field::flags, 0) |= 0xA;
+        light_record(record).flags |= 0xA;
     }
-    set(light_record(record), light_record_field::position, position);
+    light_record(record).position = position;
     lights.records[size_t(slot)] = record;
     ++lights.count;
     return slot;
@@ -1350,15 +1350,15 @@ void move_runtime_light(std::int8_t slot, const Vec3& position, RuntimeShaderReg
     {
         throw Error("0x000FE0F0 moves an empty light slot");
     }
-    set(light_record(record), light_record_field::position, position);
-    if (get(light_record(record), light_record_field::kind) != 2)
+    light_record(record).position = position;
+    if (light_record(record).kind != 2)
     {
         return;
     }
     const Vec3 toward{0.f - position.x, 0.f - position.y, 0.f - position.z};
     Vec3 direction;
     runtime_direction_or_axis(toward, direction, 0x79); // 0x00106B90, EDX the record's direction
-    set(light_record(record), light_record_field::direction, direction);
+    light_record(record).direction = direction;
 }
 
 // Xbox 0x00056C80, EDX the list

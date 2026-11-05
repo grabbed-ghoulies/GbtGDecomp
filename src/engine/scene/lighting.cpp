@@ -224,39 +224,39 @@ float light_swing(float time, float period)
 // Xbox 0x000FDB20, AL slot
 void flicker_runtime_light_color(u8* record, u32 frame, u32& random)
 {
-    const std::span<u8> light = light_record(record);
+    LightRecord& light = light_record(record);
     // 0x001673D8, DAT_004DEA58
-    if ((u32(truncate_runtime_float(get(light, light_record_field::colour_period))) & frame) != 0)
+    if ((u32(truncate_runtime_float(light.colour_period)) & frame) != 0)
     {
         return;
     }
     const float fraction = next_light_unit(random);
-    const u32 color = menu_color(get(light, light_record_field::colour_low),
-        get(light, light_record_field::colour_high), fraction); // 0x00101730
-    set(light, light_record_field::colour, color);
-    field_byte(light, light_record_field::flags, 0) |= 1;
+    const u32 color = menu_color(light.colour_low,
+        light.colour_high, fraction); // 0x00101730
+    light.colour = color;
+    light.flags |= 1;
 }
 
 // Xbox 0x000FDBA0
 void swing_runtime_light_color(u8* record, float time)
 {
-    const std::span<u8> light = light_record(record);
-    const float fraction = light_swing(time, get(light, light_record_field::colour_period));
-    const u32 color = menu_color(get(light, light_record_field::colour_low),
-        get(light, light_record_field::colour_high), fraction); // 0x00101730
-    set(light, light_record_field::colour, color);
-    field_byte(light, light_record_field::flags, 0) |= 1;
+    LightRecord& light = light_record(record);
+    const float fraction = light_swing(time, light.colour_period);
+    const u32 color = menu_color(light.colour_low,
+        light.colour_high, fraction); // 0x00101730
+    light.colour = color;
+    light.flags |= 1;
 }
 
 // Xbox 0x000FDC20
 void swing_runtime_light_range(u8* record, float time)
 {
-    const std::span<u8> light = light_record(record);
-    const float fraction = light_swing(time, get(light, light_record_field::range_period));
-    const float low = get(light, light_record_field::range_low);
-    const float range = (get(light, light_record_field::range_high) - low) * fraction + low;
-    set(light, light_record_field::range, range);
-    field_byte(light, light_record_field::flags, 0) |= 1;
+    LightRecord& light = light_record(record);
+    const float fraction = light_swing(time, light.range_period);
+    const float low = light.range_low;
+    const float range = (light.range_high - low) * fraction + low;
+    light.range = range;
+    light.flags |= 1;
 }
 }
 
@@ -270,26 +270,26 @@ void animate_runtime_light_records(RuntimeShaderRegistrationState& lights, u32 f
         {
             continue;
         }
-        const std::span<u8> light = light_record(record);
-        if ((get(light, light_record_field::flags) & 0x40) != 0)
+        LightRecord& light = light_record(record);
+        if ((light.flags & 0x40) != 0)
         {
             flicker_runtime_light_color(record, frame, random); // 0x000FDB20, AL the slot
         }
-        if (std::int8_t(get(light, light_record_field::flags)) < 0
-            && (u32(truncate_runtime_float(get(light, light_record_field::range_period))) & frame)
+        if (std::int8_t(light.flags) < 0
+            && (u32(truncate_runtime_float(light.range_period)) & frame)
                 == 0) // 0x001673D8, DAT_004DEA58
         {
             const float fraction = next_light_unit(random);
-            const float low = get(light, light_record_field::range_low);
-            const float range = (get(light, light_record_field::range_high) - low) * fraction + low;
-            set(light, light_record_field::range, range);
-            field_byte(light, light_record_field::flags, 0) |= 1;
+            const float low = light.range_low;
+            const float range = (light.range_high - low) * fraction + low;
+            light.range = range;
+            light.flags |= 1;
         }
-        if ((get(light, light_record_field::swing_flags) & 2) != 0)
+        if ((light.swing_flags & 2) != 0)
         {
             swing_runtime_light_color(record, time); // 0x000FDBA0
         }
-        if ((get(light_record(lights.records[slot]), light_record_field::swing_flags) & 4) != 0)
+        if ((light_record(lights.records[slot]).swing_flags & 4) != 0)
         {
             swing_runtime_light_range(lights.records[slot], time); // 0x000FDC20
         }

@@ -1,6 +1,7 @@
 #pragma once
 #include "actor_effect_nodes.h"
 #include "../entities/bounded_channels.h"
+#include "effect_colour_channels.h"
 #include "gbtg/retail_field.h"
 #include <array>
 
@@ -46,7 +47,7 @@ struct EffectParticle
     u16 channel_flags = 0;
     u16 next_free = 0; // +0x5A, the next free slot; 0xFFFE while live, 0xFFFD detached
     u32 collisions = 0; // +0x5C
-    std::array<u8, 0x3C> colour_channels{}; // +0x60, effect_channel_field: alpha and colour, approached each tick
+    EffectColourChannels colour_channels{}; // +0x60, alpha and colour, approached each tick
     float size_rate = 0.f; // +0x9C
     float target_size = 0.f; // +0xA0
     float size_scale = 0.f; // +0xA4, the emitter's size with its variance drawn

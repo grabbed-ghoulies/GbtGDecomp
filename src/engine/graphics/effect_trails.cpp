@@ -115,30 +115,29 @@ void set_effect_trail_phase(EffectTrailRecord& particle, i32 phase,
         const auto resource = context.resource(get(type, effect_trail_type_field::texture_address));
         const float extent = float(resource[0x11]) - 1.0f;
         const float complement = 1.0f - fraction;
-        const auto channels = std::span<u8>(particle.channels);
+        auto& channels = particle.channels;
         const auto first = get(type, effect_trail_type_field::first_colour);
         const auto second = get(type, effect_trail_type_field::second_colour);
-        float* const values = field_data(channels, effect_channel_field::values);
+        float* const values = channels.values.data();
         for (i32 index = 3; index >= 0; --index)
         {
             const long double value = static_cast<long double>(second[size_t(index)]) *
                 complement + static_cast<long double>(first[size_t(index)]) * fraction;
             values[index] = float(u8(truncate_runtime_float(value)));
         }
-        set(channels, effect_channel_field::unk_10, 255.0f);
+        channels.unk_10() = 255.0f;
         const float duration = particle.phase_time;
-        set(channels, effect_channel_field::target_alpha, 128.0f); // DAT_0032B368 = 0x43000000.
+        channels.target_alpha() = 128.0f; // DAT_0032B368 = 0x43000000.
         if (duration > std::bit_cast<float>(0x3456BF95u))
         {
             const float difference = float(ExtendedFloat{128.0f} -
-                ExtendedFloat{get(channels, effect_channel_field::alpha)});
-            set(channels, effect_channel_field::alpha_rate,
-                float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration}));
+                ExtendedFloat{channels.alpha()});
+            channels.alpha_rate() = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
         }
         else
         {
-            set(channels, effect_channel_field::alpha, 128.0f);
-            set(channels, effect_channel_field::alpha_rate, 0.0f);
+            channels.alpha() = 128.0f;
+            channels.alpha_rate() = 0.0f;
         }
         const float frame_rate = get(type, effect_trail_type_field::frame_rate);
         if (extent > 0.0f)
@@ -180,7 +179,7 @@ void tick_effect_trail(EffectTrailRecord& particle, RuntimeEffectTrails& context
     const RuntimeActorClock& clock)
 {
     const float step = runtime_frame_step(clock);
-    approach_actor_effect_channels(std::span<u8>(particle.channels), clock);
+    approach_actor_effect_channels(particle.channels, clock);
     particle.life = particle.life - step;
     const u8 phase = particle.phase;
     if (phase == 1)

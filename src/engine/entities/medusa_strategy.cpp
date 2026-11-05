@@ -41,7 +41,6 @@ const MedusaStrategyState& fields_of(std::span<const u8> strategy)
     return strategy_view<MedusaStrategyState>(strategy);
 }
 
-namespace cone = light_cone_field;
 
 void put_u32(std::span<u8> bytes, size_t offset, u32 value)
 {
@@ -179,7 +178,7 @@ RuntimeLightCones& cones_of(RuntimeMedusaStrategy& context, const char* caller)
 // A cone's +4: drawn or not.
 void show_cone(RuntimeMedusaStrategy& context, i32 index, u32 visible, const char* caller)
 {
-    set(std::span<u8>(cones_of(context, caller).records.at(size_t(index)).bytes), cone::visible, visible);
+    cones_of(context, caller).records.at(size_t(index)).visible = visible;
 }
 
 // Xbox 0x000BA6D0, ECX strategy: both cones are hidden.
@@ -239,7 +238,7 @@ void release_cones(RuntimeMedusaStrategy& context)
             return;
         }
         RuntimeLightCones& cones = cones_of(context, "0x000BA840");
-        set(std::span<u8>(cones.records.at(size_t(index)).bytes), cone::used, 0u);
+        cones.records.at(size_t(index)).used = 0u;
         cones.count = cones.count - 1;
         slot = -1;
     };

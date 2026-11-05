@@ -11,40 +11,34 @@ namespace gbtg
 // The scene's light cones (DAT_0050EF20, 16 records of 0x160 bytes; DAT_00510560 counts the ones in use): a beam
 // from a marker of an actor, drawn as a cone of twelve rim points with its spot projected on the background
 // (0x0011AF90). The Medusa's gaze is two of them.
-namespace light_cone_field
+struct LightConeRim
 {
-constexpr RetailField<u32, 0x00> used{};
-constexpr RetailField<u32, 0x04> visible{};
-constexpr RetailField<u32, 0x08> actor{}; // the actor the beam leaves (host: its native view is beside the record)
-constexpr RetailField<Vec3, 0x0C> from{}; // the marker the beam leaves
-constexpr RetailField<Vec3, 0x18> spot{}; // `at` moved +0x15C radii on along the beam
-constexpr RetailField<Vec3, 0x24> at{}; // where the beam ends
-constexpr RetailField<Vec3, 0x30> axis{}; // from -> at, unit
-constexpr RetailRecord<0x3C, 0x14, 12> rim{}; // around the spot, 30 degrees apart
-constexpr RetailField<float, 0x12C> radius{}; // the rim's radius at the spot
-constexpr RetailField<float, 0x130> distance{}; // squared, from the view to the spot (0x00119BE0)
-constexpr RetailField<std::array<float, 4>, 0x134> plane{}; // the axis and its distance through `from`
-constexpr RetailField<float, 0x144> pitch{}; // radians added to the marker's euler
-constexpr RetailField<float, 0x148> yaw{}; // radians added to the marker's euler
-constexpr RetailField<float, 0x14C> spread{}; // the rim's radius before the 15 degree limit
-constexpr RetailField<float, 0x150> length{};
-constexpr RetailField<u32, 0x154> marker{}; // the actor's marker (0x0003AE60 / 0x0003B160) the beam leaves
-constexpr RetailField<float, 0x158> fade{}; // the distance over which the rim's alpha builds
-constexpr RetailField<float, 0x15C> spot_offset{}; // radii from `at` to the spot
-constexpr u32 kSize = 0x160;
-static_assert(retail_fits(kSize, spot_offset));
-} // namespace light_cone_field
-// One rim point: its position, colour and the constant word the cone's vertices end with.
-namespace light_cone_rim_field
-{
-constexpr RetailField<Vec3, 0x0> position{};
-constexpr RetailField<u32, 0xC> color{};
-constexpr RetailField<u32, 0x10> word{};
-} // namespace light_cone_rim_field
+    Vec3 position{}; // +0
+    u32 color = 0; // +0xC
+    u32 word = 0; // +0x10, the constant the cone's vertices end with
+};
+static_assert(sizeof(LightConeRim) == 0x14);
 struct RuntimeLightCone
 {
-    std::array<u8, light_cone_field::kSize> bytes{};
-    Actor* actor = nullptr; // +8.
+    u32 used = 0; // +0
+    u32 visible = 0; // +4
+    u32 actor_address = 0; // +8, the actor the beam leaves
+    Actor* actor = nullptr; // +8's native view
+    Vec3 from{}; // +0xC, the marker the beam leaves
+    Vec3 spot{}; // +0x18, `at` moved `spot_offset` radii on along the beam
+    Vec3 at{}; // +0x24, where the beam ends
+    Vec3 axis{}; // +0x30, from -> at, unit
+    std::array<LightConeRim, 12> rim{}; // +0x3C, around the spot, 30 degrees apart
+    float radius = 0.f; // +0x12C, the rim's radius at the spot
+    float distance = 0.f; // +0x130, squared, from the view to the spot (0x00119BE0)
+    std::array<float, 4> plane{}; // +0x134, the axis and its distance through `from`
+    float pitch = 0.f; // +0x144, radians added to the marker's euler
+    float yaw = 0.f; // +0x148, radians added to the marker's euler
+    float spread = 0.f; // +0x14C, the rim's radius before the 15 degree limit
+    float length = 0.f; // +0x150
+    u32 marker = 0; // +0x154, the actor's marker (0x0003AE60 / 0x0003B160) the beam leaves
+    float fade = 0.f; // +0x158, the distance over which the rim's alpha builds
+    float spot_offset = 0.f; // +0x15C, radii from `at` to the spot
 };
 struct RuntimeLightCones
 {

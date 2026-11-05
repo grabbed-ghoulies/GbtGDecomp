@@ -51,18 +51,18 @@ u32 actor_effect_emission_count(ActorEffectNode& effect, float step)
 // Xbox 0x000EF8C0
 void initialize_actor_effect_particle(EffectParticle& particle, const ActorEffectNode& effect, u32& random)
 {
-    const auto channels = std::span<u8>(particle.colour_channels);
-    set(channels, effect_channel_field::unk_10, 0.f);
-    set(channels, effect_channel_field::red, 255.f);
-    set(channels, effect_channel_field::green, 255.f);
-    set(channels, effect_channel_field::blue, 255.f);
-    set(channels, effect_channel_field::alpha, 255.f);
-    set(channels, effect_channel_field::target_red, 255.f);
-    set(channels, effect_channel_field::target_green, 255.f);
-    set(channels, effect_channel_field::target_blue, 255.f);
-    set(channels, effect_channel_field::target_alpha, 255.f);
-    set(channels, effect_channel_field::target_unk_10, 0.f);
-    set(channels, effect_channel_field::rates, std::array<float, 5>{});
+    auto& channels = particle.colour_channels;
+    channels.unk_10() = 0.f;
+    channels.red() = 255.f;
+    channels.green() = 255.f;
+    channels.blue() = 255.f;
+    channels.alpha() = 255.f;
+    channels.target_red() = 255.f;
+    channels.target_green() = 255.f;
+    channels.target_blue() = 255.f;
+    channels.target_alpha() = 255.f;
+    channels.target_unk_10() = 0.f;
+    channels.rates = std::array<float, 5>{};
     particle.size_rate = 0.f;
     particle.unk_108 = 0.f;
     particle.target_size = 1.f;

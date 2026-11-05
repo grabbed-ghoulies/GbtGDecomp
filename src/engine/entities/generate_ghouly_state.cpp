@@ -66,11 +66,6 @@ u32& deferred(RuntimeDialogueDrawContext& c, u32 address)
     return c.deferred[(address - 0x181968) / 4];
 }
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 float random_fraction(u32 value)
 {
     return std::bit_cast<float>((value & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
@@ -450,12 +445,12 @@ void move_beam_light(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& c
     move_runtime_light(slot, state.spawn_point, context.scene.lights); // 0x000FE0F0
     u8* record = context.scene.lights.records.at(size_t(slot));
     const float near = state.beam_height * 3.f; // DAT_0032B260.
-    std::memcpy(record + 0x6C, &near, 4);
-    record[0x66] |= 1;
+    light_record(record).inner_range = near;
+    light_record(record).flags |= 1;
     record = context.scene.lights.records.at(size_t(slot));
     const float far = state.beam_height * 6.f; // DAT_0032B218.
-    std::memcpy(record + 0x70, &far, 4);
-    record[0x66] |= 1;
+    light_record(record).range = far;
+    light_record(record).flags |= 1;
 }
 
 // Xbox 0x00093A60, EDI state: a yellow kind-2 light at the spawn point.
@@ -467,13 +462,13 @@ void start_beam_light(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& 
     const std::int8_t slot = allocate_runtime_light(2, state.spawn_point, record,
         context.scene.lights); // 0x000FE080, ESI state +0x480
     record = context.scene.lights.records.at(size_t(slot));
-    record[0x66] |= 0x48;
-    put_word({record, 0x98}, 0x78, 0xFFFFFF00u); // DAT_00314F40.
-    record[0x66] |= 1;
-    put_word({record, 0x98}, 0x80, 0xFFFFFF00u);
-    put_word({record, 0x98}, 0x84, 0xFFC0C0C0u); // DAT_00314F94.
+    light_record(record).flags |= 0x48;
+    light_record(record).colour = 0xFFFFFF00u; // DAT_00314F40.
+    light_record(record).flags |= 1;
+    light_record(record).colour_low = 0xFFFFFF00u;
+    light_record(record).colour_high = 0xFFC0C0C0u; // DAT_00314F94.
     const float falloff = 2.f; // DAT_0032B110.
-    std::memcpy(record + 0x88, &falloff, 4);
+    light_record(record).colour_period = falloff;
     move_beam_light(state, context); // 0x00093AD0
     state.light = std::bit_cast<u8>(slot);
 }
@@ -488,7 +483,7 @@ void release_beam_light(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext
     }
     u8*& record = context.scene.lights.records.at(size_t(slot));
     // The host keeps the record in the instance; the scene's light reset (0x000FDED0) may have emptied the slot.
-    if (record != nullptr && (record[0x66] & 0x10) == 0)
+    if (record != nullptr && (light_record(record).flags & 0x10) == 0)
     {
         instance_of(state).light.reset(); // 0x000663E0
     }

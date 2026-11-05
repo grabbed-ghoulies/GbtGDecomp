@@ -48,7 +48,7 @@ u32 simulate_actor_effect_particle(EffectParticle& particle, ActorEffectNode& ow
     }
     collided = 0;
     previous_collisions = std::bit_cast<float>(particle.collisions);
-    approach_actor_effect_channels(std::span(particle.colour_channels), context.movement.clock);
+    approach_actor_effect_channels(particle.colour_channels, context.movement.clock);
     const float target = particle.target_size;
     const float difference = target - particle.size;
     const float distance = engine_absolute(difference);

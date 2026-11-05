@@ -12,20 +12,6 @@ namespace gbtg
 {
 namespace
 {
-float record_float(const u8* record, size_t offset)
-{
-    float value;
-    std::memcpy(&value, record + offset, 4);
-    return value;
-}
-
-void store_record_vector(u8* record, size_t offset, const Vec3& value)
-{
-    std::memcpy(record + offset, &value.x, 4);
-    std::memcpy(record + offset + 4, &value.y, 4);
-    std::memcpy(record + offset + 8, &value.z, 4);
-}
-
 float next_random_unit(u32& random)
 {
     random = random * 0x19660D + 0x3C6EF35F;
@@ -79,10 +65,11 @@ void place_runtime_model_shader_lights(RuntimeModelInstance& model, const Actor&
     const float* m = actor.xform; // Actor +0x2AC.
     do
     {
-        if ((record[0x66] & 8) != 0)
+        LightRecord& light = light_record(record);
+        if ((light.flags & 8) != 0)
         {
-            const Vec3 local{record_float(record, 0x58), record_float(record, 0x5C), record_float(record, 0x60)};
-            const i16 joint = i16(std::int8_t(record[0x68]));
+            const Vec3 local = light.local_point;
+            const i16 joint = i16(std::int8_t(light.joint));
             Vec3 world;
             if (joint == -1)
             {
@@ -94,13 +81,13 @@ void place_runtime_model_shader_lights(RuntimeModelInstance& model, const Actor&
             {
                 actor_transform_joint_point(actor, u16(joint), local, world);
             }
-            store_record_vector(record, 0x40, world);
-            if (record[0x64] == 2)
+            light.position = world;
+            if (light.kind == 2)
             {
                 const Vec3 toward{0.f - world.x, 0.f - world.y, 0.f - world.z};
                 Vec3 direction;
                 runtime_direction_or_axis(toward, direction, 0x79);
-                store_record_vector(record, 0x4C, direction);
+                light.direction = direction;
             }
         }
         record += 0x98;

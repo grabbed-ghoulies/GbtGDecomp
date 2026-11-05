@@ -76,8 +76,7 @@ bool execute_actor_effect_commands(EffectParticle& particle, ActorEffectNode& ow
         case 0x1B59:
         {
             cursor = address + 0x10;
-            float* const values = field_data(std::span(particle.colour_channels),
-                effect_channel_field::values);
+            float* const values = particle.colour_channels.values.data();
             const auto bytes = get(command, colour_command::values);
             for (size_t index = 0; index < 5; ++index)
             {
@@ -101,7 +100,7 @@ bool execute_actor_effect_commands(EffectParticle& particle, ActorEffectNode& ow
                 const long double value = static_cast<long double>(i32(high) - i32(low)) * fraction + i32(low);
                 color[index] = u8(truncate_runtime_float(value));
             }
-            float* const values = field_data(std::span(particle.colour_channels), effect_channel_field::values);
+            float* const values = particle.colour_channels.values.data();
             for (size_t index = 0; index < 5; ++index)
             {
                 values[index] = float(color[index]);
@@ -142,13 +141,13 @@ bool execute_actor_effect_commands(EffectParticle& particle, ActorEffectNode& ow
                 particle.duration_low = get(command, timed_command::duration_low);
                 particle.duration_high = get(command, timed_command::duration_high);
             }
-            target_actor_effect_alpha(std::span(particle.colour_channels), get(command, timed_command::colour)[0],
+            target_actor_effect_alpha(particle.colour_channels, get(command, timed_command::colour)[0],
                 particle.duration);
             break;
         case 0x1B62:
             cursor = address + 0x14;
             update_duration(command);
-            target_actor_effect_color(std::span(particle.colour_channels),
+            target_actor_effect_color(particle.colour_channels,
                 get(command, timed_command::colour)[0], get(command, timed_command::colour)[1],
                 get(command, timed_command::colour)[2], particle.duration);
             break;

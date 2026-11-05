@@ -24,7 +24,7 @@ bool actor_effect_command_condition(std::span<const u8> command, const EffectPar
         }
         break;
     case 2:
-        if (actor_effect_channels_are_active(std::span(particle.colour_channels)))
+        if (actor_effect_channels_are_active(particle.colour_channels))
         {
             return true;
         }

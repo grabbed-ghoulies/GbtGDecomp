@@ -234,7 +234,7 @@ void hover_around(bool low, RuntimeImpFlyingStrategy& context)
     std::span<u8> mind = mind_of(context);
     fields_of(strategy_of(context)).high = !(0.5f < roll(context)) ? 1u : 0u; // DAT_0032B0F4.
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
-    const i32 floor = i32(get(goals.entry.actor_bytes, player_field::floor));
+    const i32 floor = i32(player_record(goals.entry.actor_bytes).floor);
     struct Candidate
     {
         Vec3 point{};

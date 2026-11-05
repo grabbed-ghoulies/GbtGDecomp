@@ -1,4 +1,6 @@
 #include "projectile_weapon.h"
+#include "weapon_fields.h"
+#include "player_fields.h"
 #include <cstddef>
 #include "powerup_flags.h"
 #include "weapon_actor_detail.h"
@@ -72,7 +74,7 @@ bool holder_is_live_player(RuntimeWeaponActor& weapon)
 {
     Actor* owner = weapon.actor.spawn_owner; // +0xD8C.
     return owner != nullptr && runtime_actor_is_live_player(*owner,
-        read_u32(weapon.bytes_at(weapon.services.actor_address(*owner)), 0xCE0));
+        player_record(weapon.bytes_at(weapon.services.actor_address(*owner))).live);
 }
 
 // 0x0003B340 on slot 0: the slot's player resumes and the controller is marked dirty.
@@ -160,7 +162,7 @@ void show_runtime_large_projectile_holder(RuntimeWeaponActor& weapon)
         return;
     }
     const Actor& holder = *link->owner;
-    if (read_u32(weapon.bytes_at(weapon.services.actor_address(holder)), 0xCE0) == 0
+    if (player_record(weapon.bytes_at(weapon.services.actor_address(holder))).live == 0
         || !runtime_actor_is_player(holder))
     {
         return;
@@ -638,8 +640,10 @@ void start_runtime_large_projectile_shatter(RuntimeWeaponActor& weapon)
         insert_runtime_body_contact_override(weapon.collision_overrides, weapon.contact_actor_at(address), 0,
             weapon.players); // 0x0013EBE0, +0xE7C
         const auto holder_bytes = weapon.bytes_at(address);
-        if (read_u32(holder_bytes, 0xCE0) != 0
-            && (read_u16(holder_bytes, 0xCDC) == 2 || read_u32(holder_bytes, 0x93C) != 0) && runtime_weapon_boost_active() != 0) // DAT_00512278
+        if (player_record(holder_bytes).live != 0
+            // DAT_00512278
+            && (player_record(holder_bytes).mode == 2 || player_record(holder_bytes).case_link != 0)
+                && runtime_weapon_boost_active() != 0)
         {
             scale = 2.f; // DAT_0032B110.
         }

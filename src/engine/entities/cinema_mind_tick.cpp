@@ -150,7 +150,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         set(mind, mind_field::action_record, 0);
     }
     body_record(body).unk_AA = 0;
-    if (target_address != 0 && (get(messages.actor_bytes, player_field::countdown_56) > 0.f
+    if (target_address != 0 && (player_record(messages.actor_bytes).countdown_56 > 0.f
         || messages.actor_bytes[0x969] != 0)
         && !runtime_mind_target_is_eligible(mind, messages.actor_bytes, base.actor,
             messages.actor_address, messages.target_at(target_address), true))

@@ -215,7 +215,7 @@ void lead_runtime_throw_target(Vec3& aim, RuntimeThrowStateContext& context)
 {
     const auto target = context.target;
     const Vec3 seen = read_vector(target, 0x20);
-    if (!(get(context.actor_bytes, player_field::mode) == 2 || get(context.actor_bytes, player_field::case_link) != 0))
+    if (!(player_record(context.actor_bytes).mode == 2 || player_record(context.actor_bytes).case_link != 0))
     {
         aim = seen;
         return;

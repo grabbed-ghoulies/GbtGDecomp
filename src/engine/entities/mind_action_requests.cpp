@@ -21,7 +21,7 @@ void put(std::span<u8> bytes, size_t offset, u32 value)
 bool request_runtime_mind_boost(RuntimeMindBoost& context)
 {
     auto body = context.attachment.body;
-    if (get(context.actor_bytes, player_field::mode) == 2 || get(context.actor_bytes, player_field::case_link) != 0)
+    if (player_record(context.actor_bytes).mode == 2 || player_record(context.actor_bytes).case_link != 0)
     {
         if ((runtime_player_can_resume_strategy(context.actor_bytes, context.resume) != 0
                 || (context.story_word & 0x80) != 0)
@@ -79,7 +79,7 @@ bool request_runtime_mind_boost(RuntimeMindBoost& context)
 bool request_runtime_mind_turn(RuntimeMindBoost& context, const Vec3& point)
 {
     auto body = context.attachment.body;
-    if ((get(context.actor_bytes, player_field::mode) == 2 || get(context.actor_bytes, player_field::case_link) != 0)
+    if ((player_record(context.actor_bytes).mode == 2 || player_record(context.actor_bytes).case_link != 0)
         && !(read_f32(context.boost, 4) > 0.f)
         && (context.flags.bytes[7] & 2) == 0 && (context.flags.bytes[7] & 4) == 0
         && body_record(body).energy != 0)

@@ -1,4 +1,5 @@
 #include "zombie_strategy.h"
+#include "weapon_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -454,8 +455,8 @@ u16 choose_runtime_zombie_weapon_state(RuntimeZombieStrategy& context)
         // Weapon +0x918's first dword is the parent node: none, the root's (its own first dword null), or a node of
         // no actor (the node minus 0x918 is null).
         const auto* parent = held.link == nullptr ? nullptr : static_cast<const ActorLink*>(held.link->head);
-        if ((parent == nullptr || parent->head == nullptr || held.link->owner == nullptr) && bytes[0x93C] != 0
-            && read_u32(bytes, 0xAD0) == 0 && read_u32(bytes, 0xAC4) != 0)
+        if ((parent == nullptr || parent->head == nullptr || held.link->owner == nullptr) && weapon_base(bytes).mask != 0
+            && weapon_base(bytes).spawn_blocked == 0 && weapon_base(bytes).spawn_point_count != 0)
         {
             return 0x405;
         }

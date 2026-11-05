@@ -581,7 +581,7 @@ void dispatch_runtime_vampire_message(std::span<const u32> message, RuntimeVampi
         }
         const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
         const u32 kind =
-            get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0 ? 1u : 0u;
+            player_record(actor_bytes).mode == 2 || player_record(actor_bytes).case_link != 0 ? 1u : 0u;
         if (goals.resume.references[kind] != 0 || goals.resume.decay_enabled[goals.resume.decay_index] == 0)
         {
             break; // DAT_0050E764, DAT_0030F144[DAT_0051248C].

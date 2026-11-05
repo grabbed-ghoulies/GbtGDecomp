@@ -540,8 +540,8 @@ void update_runtime_player_input_tracking(std::span<u8> tracking,
 bool update_runtime_player_boost_timer(RuntimeMindBoost& boost,
     RuntimePlayerMindControl& control, const std::span<const u8>* preset, float multiplier)
 {
-    const size_t group = (get(boost.actor_bytes, player_field::mode) == 2
-        || get(boost.actor_bytes, player_field::case_link) != 0) ? 1 : 0;
+    const size_t group = (player_record(boost.actor_bytes).mode == 2
+        || player_record(boost.actor_bytes).case_link != 0) ? 1 : 0;
     if (boost.resume.references[group] != 0
         || boost.resume.decay_enabled[boost.resume.decay_index] == 0)
     {

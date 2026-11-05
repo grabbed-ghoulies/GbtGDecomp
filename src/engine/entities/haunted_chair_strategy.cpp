@@ -277,7 +277,7 @@ void update_asleep(RuntimeHauntedChairStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u32 kind = get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0 ? 1u : 0u;
+    const u32 kind = player_record(actor).mode == 2 || player_record(actor).case_link != 0 ? 1u : 0u;
     if (goals.resume.references[kind] != 0 || goals.resume.decay_enabled[goals.resume.decay_index] == 0)
     {
         return;

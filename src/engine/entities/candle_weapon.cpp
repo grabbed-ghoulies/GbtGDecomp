@@ -1,4 +1,6 @@
 #include "candle_weapon.h"
+#include "weapon_fields.h"
+#include "player_fields.h"
 #include "powerup_flags.h"
 #include "weapon_actor_detail.h"
 #include "actor_attachment_events.h"
@@ -543,7 +545,7 @@ void update_runtime_candle_weapon_state(RuntimeWeaponActor& weapon, u16 state)
         }
     }
     if (holder != nullptr
-        && read_u32(weapon.bytes_at(weapon.services.actor_address(*holder)), 0xCE0) != 0
+        && player_record(weapon.bytes_at(weapon.services.actor_address(*holder))).live != 0
         && (holder->mask_mode == 2 || holder->mask_flag != 0)
         && runtime_player_damage_enabled(*holder, candle.blocked, candle.modes, candle.mode) != 0) // 0x00028D50
     {

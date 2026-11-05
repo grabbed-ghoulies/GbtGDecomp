@@ -787,7 +787,7 @@ void SceneActorServices::State::bind_gameselect_services()
             {
                 auto& player = players->player_at(mark.address);
                 player.refresh_body_views();
-                if (get(player.actor_bytes, player_field::mode) != 1 || player.body.empty()
+                if (player_record(player.actor_bytes).mode != 1 || player.body.empty()
                     || body_record(player.body).energy == 0)
                 {
                     continue;
@@ -816,7 +816,7 @@ void SceneActorServices::State::bind_gameselect_services()
                 throw Error("0x0004A990 reads the goal at an empty ring's head (a null read in retail)");
             }
             const u16 goal = read_u16(ring->rows, size_t(ring->head) * ring->stride);
-            return goal != 0 && get(player.actor_bytes, player_field::unk_984) == 0;
+            return goal != 0 && player_record(player.actor_bytes).unk_984 == 0;
         },
         [this](u32 address)
         {

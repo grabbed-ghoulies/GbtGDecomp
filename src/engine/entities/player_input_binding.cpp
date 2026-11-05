@@ -1,4 +1,5 @@
 #include "player_input_binding.h"
+#include "player_fields.h"
 #include <cstdio>
 #include <cstring>
 
@@ -53,7 +54,7 @@ void bind_runtime_player_input(RuntimePlayerInputBinding& context)
         put(device, 0xC, context.actor_address);
         put(device, 4, 1);
         context.input = device;
-        put(context.actor, 0x960, address);
+        player_record(context.actor).input_device = address;
         return;
     }
     switch (read_u32(context.input, 0))
@@ -74,7 +75,7 @@ void bind_runtime_player_input(RuntimePlayerInputBinding& context)
     }
     context.input = create_runtime_selected_input(context.release);
     const u32 address = context.register_input(context.input);
-    put(context.actor, 0x960, address);
+    player_record(context.actor).input_device = address;
     push_runtime_input_entry(address, name, context.activation);
 }
 
@@ -96,9 +97,9 @@ void register_runtime_controlled_player(RuntimePlayerInputBinding& context)
         tail->next = &context.link;
         context.link.prev = tail;
         context.link.next = nullptr;
-        put(context.actor, 0x93C, context.address_of(tail));
+        player_record(context.actor).case_link = context.address_of(tail);
         context.owner.mask_flag = i32(context.address_of(tail)); // Native alias of the +0x93C word.
-        put(context.actor, 0x940, 0);
+        player_record(context.actor).unk_940 = 0;
     }
     bind_runtime_player_input(context);
 }

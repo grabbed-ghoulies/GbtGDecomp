@@ -1,4 +1,5 @@
 #include "player_mind_setup.h"
+#include "player_fields.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "actor_transform.h"
@@ -182,7 +183,7 @@ bool initialize_runtime_player_mind(std::span<u8> mind, std::span<const u8> para
             reset_runtime_player_intro_sound(context.intro_sound);
         }
     }
-    write_word(context.actor_bytes, 0xCE0, 1);
+    player_record(context.actor_bytes).live = 1;
     u32 found = 0;
     if (context.animation_table != nullptr)
     {

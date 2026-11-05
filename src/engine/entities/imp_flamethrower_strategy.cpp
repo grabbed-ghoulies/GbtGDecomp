@@ -175,7 +175,7 @@ void roam_runtime_imp_flamethrower(RuntimeImpFlamethrowerStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> mind = mind_of(context);
     fields_of(strategy_of(context)).fast = !(0.5f < roll(context)) ? 1u : 0u; // DAT_0032B0F4.
-    const i32 floor = i32(get(goals.entry.actor_bytes, player_field::floor));
+    const i32 floor = i32(player_record(goals.entry.actor_bytes).floor);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
     struct Candidate
     {

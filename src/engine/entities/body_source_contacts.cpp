@@ -117,14 +117,14 @@ void receive_runtime_body_source_contact(std::span<u8> body, std::span<u8> messa
         timer = body_record(context.source_body).hit_timer_running;
     }
     damage.starts_timer = timer;
-    const u16 actor_class = get(source.bytes, player_field::damage_class);
+    const u16 actor_class = player_record(source.bytes).damage_class;
     damage.source_class = actor_class;
     const u32 one = 1;
     damage.unk_60 = one;
     context.target.contacts = &context.contacts.contacts;
     processor.first_source = &source;
     processor.second_source = &source;
-    processor.second_source_live = get(source.bytes, player_field::live);
+    processor.second_source_live = player_record(source.bytes).live;
     std::array<u32, 4> result;
     receive_runtime_body_damage(body, damage, result, context.target);
     dispatch_runtime_body_damage_reply(damage, result, context.target);
@@ -194,7 +194,7 @@ void receive_runtime_body_owned_contact(std::span<u8> body, std::span<u8> messag
         direction = {float(retail_sin(angle)), 0.f, float(retail_cos(angle))};
     }
     damage.direction = direction;
-    const u16 actor_class = read_u16(host->bytes, 0xCF4);
+    const u16 actor_class = player_record(host->bytes).damage_class;
     damage.source_class = actor_class;
     const u32 one = 1;
     damage.unk_5C = one;
@@ -202,7 +202,7 @@ void receive_runtime_body_owned_contact(std::span<u8> body, std::span<u8> messag
     context.target.contacts = &context.contacts.contacts;
     processor.first_source = &source;
     processor.second_source = host;
-    processor.second_source_live = read_u32(host->bytes, 0xCE0);
+    processor.second_source_live = player_record(host->bytes).live;
     std::array<u32, 4> result;
     receive_runtime_body_damage(body, damage, result, context.target);
     dispatch_runtime_body_damage_reply(damage, result, context.target);

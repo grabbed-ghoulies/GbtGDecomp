@@ -18,11 +18,11 @@ bool finish_runtime_player_goal(RuntimePlayerGoalCleanup& context,
 {
     auto body = context.body;
     const u32 zero = 0;
-    std::memcpy(context.actor.bytes.data() + 0x98C, &zero, 4);
-    if (context.actor.bytes[0x98A] != 0)
+    player_record(context.actor.bytes).goal_volume = zero;
+    if (player_record(context.actor.bytes).unk_98A != 0)
     {
         decrement_runtime_body_latches(body, context.body_owner, context.first);
-        context.actor.bytes[0x98A] = 0;
+        player_record(context.actor.bytes).unk_98A = 0;
     }
     bool result;
     if ((flags->bytes[2] & 2) == 0 && (flags->bytes[4] & 0x10) == 0)
@@ -180,7 +180,7 @@ bool runtime_goal_requires_latches(u16 kind)
 bool restore_runtime_player_script_overrides(RuntimeBodyAttachedActor& actor,
     RuntimePlayerScriptOverrides& context)
 {
-    const i16 mode = i16(get(actor.bytes, player_field::mode));
+    const i16 mode = i16(player_record(actor.bytes).mode);
     const bool player = mode == 1;
     if (!player && mode != 5)
     {
@@ -201,7 +201,7 @@ bool restore_runtime_player_script_overrides(RuntimeBodyAttachedActor& actor,
     }
     if (player && context.player_enabled != 0)
     {
-        put(actor.bytes, 0x978, context.player_value);
+        put(actor.bytes, offsetof(PlayerRecord, countdown_56), context.player_value);
         const std::array<u32, 5> message{0x86, context.player_name, 0x13, context.player_argument, 0};
         ++count;
         actor.message(message);
@@ -234,14 +234,14 @@ void remove_runtime_player_goal(RuntimePlayerGoalCleanup& context)
             {
                 engine_heap_free(ring);
                 context.ring = nullptr;
-                put(context.actor.bytes, 0x980, 0);
+                player_record(context.actor.bytes).unk_980 = 0;
             }
-            put(context.actor.bytes, 0x984, 0);
+            player_record(context.actor.bytes).unk_984 = 0;
             const std::array<i32, 2> message{0x79, i32(context.actor.address)};
             broadcast_actor_pulse_message(message.data());
-            if (context.actor.bytes[0x98B] != 0)
+            if (player_record(context.actor.bytes).unk_98B != 0)
             {
-                context.actor.bytes[0x98B] = 0;
+                player_record(context.actor.bytes).unk_98B = 0;
                 restore_runtime_player_script_overrides(context.actor, context.overrides);
                 return;
             }

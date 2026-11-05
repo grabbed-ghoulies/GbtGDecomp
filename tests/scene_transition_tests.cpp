@@ -1,4 +1,5 @@
 #include <unordered_set>
+#include "../src/engine/entities/player_fields.h"
 #include <cstddef>
 #include "../src/engine/entities/body_fields.h"
 #include "../src/engine/entities/strategy_fields.h"
@@ -2691,7 +2692,7 @@ void check_spawn_receiver_dependencies()
     {
         // Player dispatch 0x00028F60/0x00028FC0 through the same base receiver; ids 0xA9, 0xF,
         // 0x2D and 9 are ignored by 0x0003EF70.
-        std::vector<u8> player_bytes(0xE00);
+        std::vector<u8> player_bytes(0xF00);
         std::vector<std::vector<u32>> self_messages;
         RuntimeBodyAttachedActor self{player_bytes, 0x4000, [&](std::span<const u32> message)
             {
@@ -2759,7 +2760,8 @@ void check_spawn_receiver_dependencies()
         GhoulyVariantMessage variant;
         std::strcpy(variant.name, "variant");
         dispatch_runtime_player_message(&variant, player, children);
-        if (variant.result != 1 || read_u16(player_bytes, 0xB9C) != 1 || forwarded.size() != 2 || forwarded[0].first != &strategy
+        if (variant.result != 1 || gbtg::player_record(std::span<gbtg::u8>(player_bytes)).ghouly_kind != 1 || forwarded.size() != 2
+            || forwarded[0].first != &strategy
             || forwarded[1].first != &body || forwarded[1].second != 0xA9)
         {
             throw Error("player dispatch must handle 0xA9, then forward to the present strategy and body only");
@@ -2768,7 +2770,8 @@ void check_spawn_receiver_dependencies()
         dispatch_runtime_player_message(&bit_message, player, children);
         u32 pause_message = 9;
         dispatch_runtime_player_message(&pause_message, player, children);
-        if (bit_bytes[0] != 2 || read_u32(player_bytes, 0xCD8) != 1 || player_actor.parked_gate != 1 || forwarded.size() != 6)
+        if (bit_bytes[0] != 2 || gbtg::player_record(std::span<gbtg::u8>(player_bytes)).pause_count != 1
+            || player_actor.parked_gate != 1 || forwarded.size() != 6)
         {
             throw Error("player dispatch must set the body bit, count pauses and forward each message");
         }
@@ -3012,7 +3015,7 @@ void check_actor_loading()
         unlink_actor_view(last);
     }
     {
-        std::array<u8, 0x964> owner{};
+        std::array<u8, 0xF00> owner{};
         char replacement_source[128];
         char replacement_target[128];
         std::memset(replacement_source, 0xA5, sizeof(replacement_source));
@@ -3069,7 +3072,7 @@ void check_actor_loading()
             {10, owner}, {11, pool}, {12, actor_input}};
         const RuntimeInputReleaseContext context{addresses};
         release_runtime_input_device(composite, context);
-        if (read_u32(owner, 0x960) != 0 || read_u32(pool, 16) != 0
+        if (gbtg::player_record(std::span<gbtg::u8>(owner)).input_device != 0 || read_u32(pool, 16) != 0
             || read_u32(unknown, 4) != 0x12345678)
         {
             throw Error("recursive input release lost actor ownership or changed unknown device kinds");
@@ -3219,9 +3222,9 @@ void check_actor_loading()
             throw Error("input stack name lookup lost retail folding or missing result");
         }
         activate_runtime_input_entry("dialogue", context);
-        std::array<u8, 0x964> player_actor{};
+        std::array<u8, 0xF00> player_actor{};
         const u32 player_device = 0x1234;
-        std::memcpy(player_actor.data() + 0x960, &player_device, 4);
+        gbtg::player_record(std::span<gbtg::u8>(player_actor)).input_device = player_device;
         const auto retained_rows = rows;
         destroy_runtime_player_mind(player_actor, 0x800, context);
         if (current != 2 || pool.cursor != rows.data() + rows.size() || rows != retained_rows)
@@ -3234,7 +3237,7 @@ void check_actor_loading()
         {
             throw Error("player mind without input changed the input stack");
         }
-        std::memcpy(player_actor.data() + 0x960, &player_device, 4);
+        gbtg::player_record(std::span<gbtg::u8>(player_actor)).input_device = player_device;
         destroy_runtime_player_mind(player_actor, 0x1000, context);
         if (current != 1 || pool.cursor != rows.data() + 2 * 0x50
             || read_u32(rows, 0x50) != 103 || read_u32(rows, 0x48) != 1
@@ -7536,7 +7539,7 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
             {
                 throw Error("player intro reset failed to stop the selected voice");
             }
-            std::array<u8, 0xCE4> actor_bytes{};
+            std::array<u8, 0xF00> actor_bytes{};
             std::array<u8, 0x198> mind_bytes;
             std::array<u8, 0xA4> mind_parameters{};
             const u32 setting = 0x89ABCDEF;
@@ -7575,7 +7578,7 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
                 if (gbtg::body_record(std::span<gbtg::u8>(body_bytes)).energy != expected_health
                     || gbtg::body_record(std::span<gbtg::u8>(body_bytes)).max_energy != expected_health
                     || intro_enabled != (variant == 0 ? 1u : 0u)
-                    || read_u32(actor_bytes, 0xCE0) != 1 || actor_bytes[0x331] != 1
+                    || gbtg::player_record(std::span<gbtg::u8>(actor_bytes)).live != 1 || actor_bytes[0x331] != 1
                     || read_u32(mind_bytes, 0x144) != (variant == 3 ? 0u : 1u)
                     || read_u32(mind_bytes, 0x80) != setting || read_f32(mind_bytes, 0x12C) != 1.f
                     || read_u32(mind_bytes, 0x174) != 1 || read_u32(mind_bytes, 0x18C) != 1

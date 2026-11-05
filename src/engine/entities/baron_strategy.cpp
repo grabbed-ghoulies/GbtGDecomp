@@ -1,4 +1,5 @@
 #include "baron_strategy.h"
+#include "weapon_fields.h"
 #include <cstddef>
 #include "strategy_fields.h"
 #include "mind_fields.h"
@@ -360,7 +361,7 @@ bool runtime_baron_target_holds_cane(const RuntimeMindTarget& target, RuntimeBar
     {
         return false;
     }
-    if (context.views.actor_bytes_at(cane)[0x93C] == 0)
+    if (weapon_base(context.views.actor_bytes_at(cane)).mask == 0)
     {
         fields_of(strategy).cane = 0u;
         return false;

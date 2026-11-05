@@ -1,4 +1,5 @@
 #include "player_attributes.h"
+#include <cstddef>
 #include "../runtime/name_lookup.h"
 #include "player_fields.h"
 #include <bit>
@@ -20,7 +21,7 @@ void initialize_runtime_player_attributes(std::span<u8> actor, std::span<const u
         }
         context.resource = resource;
     }
-    if (get(actor, player_field::mode) == 1)
+    if (player_record(actor).mode == 1)
     {
         const auto chance = [&](size_t offset)
         {
@@ -40,7 +41,7 @@ void initialize_runtime_player_attributes(std::span<u8> actor, std::span<const u
         select(0x96E, 0x14);
         select(0x96D, 0x10);
         const u32 timer = context.resource.data() == nullptr ? 0 : read_u32(context.resource, 0x1C);
-        std::memcpy(actor.data() + 0x974, &timer, 4);
+        std::memcpy(actor.data() + offsetof(PlayerRecord, countdown_55), &timer, 4);
         select(0x96F, 0x20);
         select(0x970, 0x24);
         select(0x96C, 0x30);
@@ -49,17 +50,17 @@ void initialize_runtime_player_attributes(std::span<u8> actor, std::span<const u
         const i32 first = binary_search_names(0xE9, context.actor_tags,
             reinterpret_cast<const char*>(names.data() + 0x38));
         const u16 first_tag = first == -1 ? 0 : static_cast<u16>(static_cast<u32>(first) + 1);
-        std::memcpy(actor.data() + 0x97C, &first_tag, 2);
+        player_record(actor).hostile_class_0 = first_tag;
         const i32 second = binary_search_names(0xE9, context.actor_tags,
             reinterpret_cast<const char*>(names.data() + 0x78));
         if (second == -1)
         {
             const u16 zero = 0;
-            std::memcpy(actor.data() + 0x97E, &zero, 2);
+            player_record(actor).hostile_class_1 = zero;
             return;
         }
         const u16 second_tag = static_cast<u16>(static_cast<u32>(second) + 1);
-        std::memcpy(actor.data() + 0x97E, &second_tag, 2);
+        player_record(actor).hostile_class_1 = second_tag;
     }
 }
 

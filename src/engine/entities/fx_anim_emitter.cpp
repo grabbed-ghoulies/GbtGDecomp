@@ -456,11 +456,11 @@ void scan_runtime_fx_emitter_players(RuntimeFxAnimEmitter& context)
     for (RuntimeFxEmitterPlayer* player : context.players)
     {
         std::span<const u8> actor = player->actor_bytes;
-        if (get(actor, player_field::live) == 0)
+        if (player_record(actor).live == 0)
         {
             continue;
         }
-        if (get(actor, player_field::mode) != 2 && get(actor, player_field::case_link) == 0)
+        if (player_record(actor).mode != 2 && player_record(actor).case_link == 0)
         {
             continue;
         }

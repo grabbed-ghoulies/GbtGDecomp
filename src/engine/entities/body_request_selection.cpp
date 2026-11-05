@@ -1,4 +1,5 @@
 #include "body_request_selection.h"
+#include "weapon_fields.h"
 #include "player_mind_control.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -44,14 +45,14 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
     const bool active = body_record(body).energy != 0 && !(get(mind, player_mind_field::control_lock) > 0.f);
     auto* attached = context.body.actions.attached;
     update_runtime_player_input_direction(record(mind, player_mind_field::stick), axes,
-        runtime_frame_step(control.clock), attached != nullptr && attached->bytes[0x93D] == 4);
+        runtime_frame_step(control.clock), attached != nullptr && weapon_base(attached->bytes).unk_93D == 4);
     if (active)
     {
         const auto stick = record(mind, player_mind_field::stick);
         u32 enabled = ((get(stick, stick_tracking_field::press_timer) > 0.f || get(stick, stick_tracking_field::pressed) != 0)
             && get(stick, stick_tracking_field::unk_0C) == 0.f) ? 1 : 0;
         attached = context.body.actions.attached;
-        if (attached != nullptr && attached->bytes[0x93D] == 4)
+        if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 4)
         {
             const i32 mode = std::bit_cast<i32>(get(stick, stick_tracking_field::gesture));
             enabled = mode >= 2 && mode <= 3 ? 1 : 0;
@@ -83,7 +84,7 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
                 }
             }
             attached = context.body.actions.attached;
-            const i32 mode = attached == nullptr ? 0 : attached->bytes[0x93D];
+            const i32 mode = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
             auto& binding = context.binding(target);
             update_runtime_player_target_action(binding.requests, mode, focus,
                 binding.target_body, context.attachment_notice);
@@ -153,7 +154,7 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
     }
     const auto* attached = selection.requests.actions.attached;
     u32 flags = 0x1E;
-    if (attached != nullptr && attached->bytes[0x93D] == 4)
+    if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 4)
     {
         flags = get(record(mind, player_mind_field::stick), stick_tracking_field::gesture) == 3 ? 0x36 : 0x1E;
     }
@@ -169,9 +170,9 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
         body_record(body).unk_88 = previous;
     }
     attached = selection.requests.actions.attached;
-    if (attached != nullptr && attached->bytes[0x93D] == 4
+    if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 4
         && i32(get(record(mind, player_mind_field::stick), stick_tracking_field::gesture)) >= 2 && get(record(mind, player_mind_field::stick), stick_tracking_field::gesture) == 3
-        && attached->bytes[0x93C] == 0 && get(mind, player_mind_field::attachment_noticed) == 0)
+        && weapon_base(attached->bytes).mask == 0 && get(mind, player_mind_field::attachment_noticed) == 0)
     {
         attachment_notice = 1;
         set(mind, player_mind_field::attachment_noticed, 1);
@@ -184,7 +185,7 @@ u8 dispatch_runtime_mind_target_request(RuntimeMindChainRequestSelection& contex
 {
     auto& mind = context.mind;
     const auto* attached = mind.selection.requests.actions.attached;
-    const u8 kind = attached == nullptr ? 0 : attached->bytes[0x93D];
+    const u8 kind = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
     u8 result = 0;
     switch (kind)
     {
@@ -238,7 +239,7 @@ u8 request_runtime_mind_chain_target(RuntimeMindChainRequestSelection& context,
     auto& mind = context.mind;
     auto& selection = mind.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, mind.flags,
-        get(mind.owner, player_field::owner_class)))
+        player_record(mind.owner).owner_class))
     {
         return 1;
     }
@@ -464,7 +465,7 @@ i32 runtime_body_target_chain_length(const RuntimeBodyChainLength& context)
         return 0;
     }
     float value = context.upper;
-    const u16 classification = get(context.owner, player_field::damage_class);
+    const u16 classification = player_record(context.owner).damage_class;
     if (classification != 0 && context.maximum != context.minimum)
     {
         value = ((float(context.class_table[u32(classification) * 0x87 - 0x38])
@@ -534,7 +535,7 @@ u8 request_runtime_mind_second_target(RuntimeMindTargetRequestSelection& context
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        get(context.owner, player_field::owner_class)))
+        player_record(context.owner).owner_class))
     {
         return 1;
     }
@@ -553,7 +554,7 @@ u8 request_runtime_mind_pair_target(RuntimeMindTargetRequestSelection& context, 
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        get(context.owner, player_field::owner_class)))
+        player_record(context.owner).owner_class))
     {
         return 1;
     }
@@ -572,7 +573,7 @@ u8 request_runtime_mind_category_target(RuntimeMindTargetRequestSelection& conte
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        get(context.owner, player_field::owner_class)))
+        player_record(context.owner).owner_class))
     {
         return 1;
     }
@@ -591,7 +592,7 @@ u8 request_runtime_mind_special_target(RuntimeMindTargetRequestSelection& contex
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        get(context.owner, player_field::owner_class)))
+        player_record(context.owner).owner_class))
     {
         return 1;
     }
@@ -835,7 +836,7 @@ const u8* select_runtime_attachment_pair_target_row(RuntimeAttachmentTargetSelec
     const auto* attached = context.requests.actions.attached;
     const u32 classification = attached == nullptr ? 0
         : classify_runtime_attached_actor(attached->bytes, context.requests.owner_class);
-    const u16 category = attached == nullptr ? 0 : attached->bytes[0x93D];
+    const u16 category = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
     std::memset(context.bits.bytes.data(), 0, context.bits.bytes.size());
     const auto& rows = tables->pair;
     u32 optional = 0, accepted = 0;
@@ -889,7 +890,7 @@ const u8* select_runtime_attachment_category_target_row(RuntimeAttachmentTargetS
         u32 classification = 0;
         if (attached != nullptr)
         {
-            const i16 count = i16(read_u16(attached->bytes, 0x944));
+            const i16 count = i16(weapon_base(attached->bytes).accepted_class_count);
             i32 entry = 0;
             for (; entry < count; ++entry)
             {
@@ -902,10 +903,10 @@ const u8* select_runtime_attachment_category_target_row(RuntimeAttachmentTargetS
             }
             if (entry >= count && count != 0)
             {
-                classification = read_u16(attached->bytes, 0x94C);
+                classification = read_u16(attached->bytes, offsetof(WeaponBase, accepted_classes) + 4);
             }
         }
-        const u32 category = attached == nullptr ? 0 : attached->bytes[0x93D];
+        const u32 category = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
         const std::span<const u8> row{rows.rows + index * 0x2C, 0x2C};
         if ((read_u32(row, 0x24) == 0 || read_u32(row, 0x24) == classification)
             && read_u32(row, 0x28) == category
@@ -926,7 +927,7 @@ const u8* select_runtime_attachment_category_target_row(RuntimeAttachmentTargetS
 const u8* select_runtime_attachment_special_target_row(RuntimeAttachmentTargetSelection& context,
     u32 direction, u8 height_mask)
 {
-    if (context.requests.actions.attached->bytes[0x93C] != 0)
+    if (weapon_base(context.requests.actions.attached->bytes).mask != 0)
     {
         std::memset(context.bits.bytes.data(), 0, context.bits.bytes.size());
         const auto& rows = context.requests.tables->special;
@@ -1043,7 +1044,7 @@ bool runtime_mind_target_uses_point_shape(const RuntimeMindTarget& target, const
         {
             return true;
         }
-        if (get(target.actor_bytes, player_field::owner_class) == 0 && (flags[2] & 2) != 0)
+        if (player_record(target.actor_bytes).owner_class == 0 && (flags[2] & 2) != 0)
         {
             if ((flags[5] & 2) == 0)
             {

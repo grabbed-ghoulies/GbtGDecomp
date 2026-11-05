@@ -282,15 +282,15 @@ void update_runtime_vampire_chicken_strategy(RuntimeVampireChickenStrategy& cont
     u32 provoked = 0;
     if (target != nullptr)
     {
-        provoked = get(actor, player_field::countdown_56) > 0.f ||
-                           get(actor, player_field::provoked) != 0 // DAT_0032B100.
+        provoked = player_record(actor).countdown_56 > 0.f ||
+                           player_record(actor).provoked != 0 // DAT_0032B100.
                            || !runtime_strategy_target_watching_player(*target)
                        ? 1u
                        : 0u; // 0x001414F0
     }
     else
     {
-        provoked = get(actor, player_field::countdown_56) > 0.f ? 1u : u32(get(actor, player_field::provoked));
+        provoked = player_record(actor).countdown_56 > 0.f ? 1u : u32(player_record(actor).provoked);
     }
     fields_of(strategy).provoked = provoked;
     update_runtime_base_strategy(goals); // 0x0002C130

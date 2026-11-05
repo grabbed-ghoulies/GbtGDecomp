@@ -1,4 +1,6 @@
 #include "player_attachment.h"
+#include "weapon_fields.h"
+#include "player_fields.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "actor_render_registration.h"
@@ -23,7 +25,7 @@ bool attach_runtime_player_actor(RuntimePlayerAttachmentActor& attached, i32 upd
     RuntimePlayerAttachment& context)
 {
     const u16 host_class = read_u16(context.host.bytes, 6);
-    const i32 count = i16(read_u16(attached.object.bytes, 0x944));
+    const i32 count = i16(weapon_base(attached.object.bytes).accepted_class_count);
     i32 index = 0;
     if (count <= 0)
     {
@@ -47,7 +49,7 @@ bool attach_runtime_player_actor(RuntimePlayerAttachmentActor& attached, i32 upd
     std::memcpy(context.body.data() + offsetof(BodyRecord, first_receiver), &attached.object.address, 4);
     context.ownership.flags->bytes[4] |= 4;
     const u32 kind = runtime_actor_case_class(attached.object.bytes, read_u16(context.host.bytes, 6));
-    format_runtime_body_variant(context.body, "%s_%s", context.weapon_names[attached.object.bytes[0x93D]],
+    format_runtime_body_variant(context.body, "%s_%s", context.weapon_names[weapon_base(attached.object.bytes).unk_93D],
         context.class_names[kind]);
     if (runtime_attachment_class_value(attached.object.bytes, read_u16(context.host.bytes, 6)) == -1)
     {
@@ -70,7 +72,7 @@ bool attach_runtime_player_actor(RuntimePlayerAttachmentActor& attached, i32 upd
         select_runtime_body_action(context.body, key, context.actions);
     }
     notify_runtime_body_animation(context.actions);
-    if (attached.object.bytes[0x93D] == 3)
+    if (weapon_base(attached.object.bytes).unk_93D == 3)
     {
         ++body_record(context.body).unk_30B;
     }
@@ -85,7 +87,7 @@ bool attach_runtime_player_weapon(RuntimePlayerAttachmentActor& attached, i32 up
     RuntimePlayerAttachment& context, const Vec3& origin, const Vec3& euler)
 {
     const u16 host_class = read_u16(context.host.bytes, 6);
-    const i32 count = i16(read_u16(attached.object.bytes, 0x944));
+    const i32 count = i16(weapon_base(attached.object.bytes).accepted_class_count);
     i32 index = 0;
     if (count <= 0)
     {
@@ -109,7 +111,7 @@ bool attach_runtime_player_weapon(RuntimePlayerAttachmentActor& attached, i32 up
     std::memcpy(context.body.data() + offsetof(BodyRecord, first_receiver), &attached.object.address, 4);
     context.ownership.flags->bytes[4] |= 4;
     const u32 kind = runtime_actor_case_class(attached.object.bytes, read_u16(context.host.bytes, 6));
-    format_runtime_body_variant(context.body, "%s_%s", context.weapon_names[attached.object.bytes[0x93D]],
+    format_runtime_body_variant(context.body, "%s_%s", context.weapon_names[weapon_base(attached.object.bytes).unk_93D],
         context.class_names[kind]);
     const i32 joint = runtime_attachment_class_value(attached.object.bytes, read_u16(context.host.bytes, 6));
     if (joint == -1)
@@ -130,7 +132,7 @@ bool attach_runtime_player_weapon(RuntimePlayerAttachmentActor& attached, i32 up
     notify_runtime_body_animation(context.actions);
     update_actor_animation_pose(attached.actor, attached.animation, attached.model, attached.bone,
         context.actions.registry, attached.callbacks, attached.cache, attached.reset);
-    if (attached.object.bytes[0x93D] == 3)
+    if (weapon_base(attached.object.bytes).unk_93D == 3)
     {
         ++body_record(context.body).unk_30B;
     }
@@ -142,7 +144,7 @@ bool attach_runtime_player_weapon(RuntimePlayerAttachmentActor& attached, i32 up
 bool attach_runtime_player_secondary(RuntimePlayerAttachmentActor& attached, RuntimePlayerAttachment& context)
 {
     const u16 host_class = read_u16(context.host.bytes, 6);
-    const i32 count = i16(read_u16(attached.object.bytes, 0x944));
+    const i32 count = i16(weapon_base(attached.object.bytes).accepted_class_count);
     i32 index = 0;
     if (count <= 0)
     {
@@ -166,7 +168,7 @@ bool attach_runtime_player_secondary(RuntimePlayerAttachmentActor& attached, Run
     std::memcpy(context.body.data() + offsetof(BodyRecord, second_receiver), &attached.object.address, 4);
     index = 0;
     bool joint_found = false;
-    if (i16(read_u16(attached.object.bytes, 0x944)) > 0)
+    if (i16(weapon_base(attached.object.bytes).accepted_class_count) > 0)
     {
         do
         {
@@ -183,7 +185,7 @@ bool attach_runtime_player_secondary(RuntimePlayerAttachmentActor& attached, Run
             }
             ++index;
         }
-        while (index < i16(read_u16(attached.object.bytes, 0x944)));
+        while (index < i16(weapon_base(attached.object.bytes).accepted_class_count));
     }
     if (!joint_found)
     {
@@ -221,11 +223,12 @@ bool release_runtime_player_attachment(i32 force, u32 reason, RuntimePlayerAttac
     }
     else
     {
-        bool permitted = attached->bytes[0x93F] != 1;
-        if (attached->bytes[0x93F] == 2)
+        bool permitted = weapon_base(attached->bytes).unk_93F != 1;
+        if (weapon_base(attached->bytes).unk_93F == 2)
         {
             const auto* host = attached->host;
-            permitted = host != nullptr && (read_u16(host->bytes, 0xCDC) == 2 || read_u32(host->bytes, 0x93C) != 0);
+            permitted = host != nullptr && (player_record(host->bytes).mode == 2
+                || player_record(host->bytes).case_link != 0);
         }
         if (permitted || force != 0)
         {
@@ -324,7 +327,7 @@ bool drop_runtime_player_attachment(RuntimePlayerAttachment& context)
     {
         return false;
     }
-    const u8 kind = attached->bytes[0x93F];
+    const u8 kind = weapon_base(attached->bytes).unk_93F;
     if (kind != 1)
     {
         if (kind != 2)
@@ -332,7 +335,7 @@ bool drop_runtime_player_attachment(RuntimePlayerAttachment& context)
             return false;
         }
         const auto* host = attached->host; // +0xD8C.
-        if (host != nullptr && (read_u16(host->bytes, 0xCDC) == 2 || read_u32(host->bytes, 0x93C) != 0))
+        if (host != nullptr && (player_record(host->bytes).mode == 2 || player_record(host->bytes).case_link != 0))
         {
             return false;
         }

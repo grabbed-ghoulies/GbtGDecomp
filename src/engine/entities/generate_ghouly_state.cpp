@@ -533,7 +533,7 @@ void place_beam(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& contex
         const Vec3 origin = actor_world_position(actor); // 0x000412A0
         const float reach = actor.radius_xz * body_record(context.body).radius_scale * 3.f; // DAT_0032B260.
         Vec3 point = state.spawn_point;
-        RuntimeNavigationHeadingSearch search{origin, i32(get(context.actor_bytes, player_field::floor)), reach,
+        RuntimeNavigationHeadingSearch search{origin, i32(player_record(context.actor_bytes).floor), reach,
             reach + 5.f, nullptr, nullptr, &point, 1, 0, 0, context.random, context.occupancy_initial};
         const bool found = search_runtime_navigation_headings(search, actor.euler.y,
             std::bit_cast<float>(0x3F490FDBu), 3); // 0x0013AA50
@@ -625,7 +625,7 @@ void create_ghouly(GenerateGhoulyState& state, RuntimeGenerateGhoulyContext& con
             return;
         }
     }
-    const i32 kind = std::bit_cast<i16>(get(context.actor_bytes, player_field::ghouly_kind));
+    const i32 kind = std::bit_cast<i16>(player_record(context.actor_bytes).ghouly_kind);
     state.ghouly_kind = kind;
     if (!aid_name(name))
     {
@@ -863,7 +863,7 @@ bool initialize_runtime_generate_ghouly_state(GenerateGhoulyState& state, std::s
     }
     body_record(body).unk_38 = 1;
     body_record(body).unk_39 = 1;
-    set(context.actor_bytes, player_field::ghouly_count, u16(get(context.actor_bytes, player_field::ghouly_count) + 1));
+    player_record(context.actor_bytes).ghouly_count = u16(player_record(context.actor_bytes).ghouly_count + 1);
     state.light = u8(0xFF);
     place_beam(state, context); // 0x00093800, EBX state
     start_bolts(state, context); // 0x000925C0
@@ -892,7 +892,7 @@ void destroy_runtime_generate_ghouly_state(GenerateGhoulyState& state, RuntimeGe
     state.ghouly = 0u;
     state.attached = 0u;
     adjust_body_counters(context.body, -1);
-    set(context.actor_bytes, player_field::ghouly_count, u16(get(context.actor_bytes, player_field::ghouly_count) - 1));
+    player_record(context.actor_bytes).ghouly_count = u16(player_record(context.actor_bytes).ghouly_count - 1);
     generate_ghouly_instances.erase(body_state_key(state));
 }
 

@@ -1,4 +1,6 @@
 #include "script_event_sequence.h"
+#include <cstddef>
+#include "../entities/player_fields.h"
 #include "../entities/body_fields.h"
 #include "script_event_step_fields.h"
 #include "script_actions.h"
@@ -783,7 +785,7 @@ u32 summon_runtime_grim_reaper(float first, float second)
         throw Error("0x000CF7B0 reads +0x954 of a Grim Reaper that was not created (address zero)");
     }
     const u16 cleared = 0;
-    std::memcpy(services.bytes_at(reaper, 0x992).data() + 0x990, &cleared, 2);
+    std::memcpy(services.bytes_at(reaper, 0x992).data() + offsetof(PlayerRecord, goal_latch), &cleared, 2);
     std::array<u32, 0x42> appear{};
     appear[0] = 0x4D;
     appear[1] = 4;

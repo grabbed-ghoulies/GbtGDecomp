@@ -836,7 +836,7 @@ bool tick_runtime_ride(JumpOnState& state, u32 keep_riding, RuntimeJumpOnStateCo
     std::memcpy(body.data() + offsetof(BodyRecord, euler.x), &euler, sizeof(euler));
     const std::span<const u8> actor_bytes = context.actor_bytes;
     const u32 group =
-        (get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0) ? 1u : 0u;
+        (player_record(actor_bytes).mode == 2 || player_record(actor_bytes).case_link != 0) ? 1u : 0u;
     if (context.player_blocked[group] == 0 && context.player_modes[context.player_mode] != 0)
     {
         const float step = actor_step(context);
@@ -1248,7 +1248,7 @@ bool find_runtime_jump_landing(const RuntimeJumpOnPeer& from, float extra, Vec3&
     }
     const float inner = body_record(from.body).radius_scale * scale + (sword + body_reach);
     const float minimum = context.actor.radius_xz * body_record(context.body).radius_scale + inner;
-    return entity_detail::select_navigation_spawn_position(i32(get(context.actor_bytes, player_field::floor)), nullptr,
+    return entity_detail::select_navigation_spawn_position(i32(player_record(context.actor_bytes).floor), nullptr,
         center, minimum, minimum + extra, nullptr, nullptr, 0, 0, output, context.random,
         context.occupancy_initial); // 0x00111420, EAX 0
 }

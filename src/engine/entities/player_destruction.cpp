@@ -1,4 +1,5 @@
 #include "player_destruction.h"
+#include <cstddef>
 #include "player_fields.h"
 #include <cstring>
 
@@ -16,11 +17,11 @@ void put(std::span<u8> bytes, size_t offset, u32 value)
 void destroy_runtime_player(std::span<u8> actor, RuntimePlayerDestruction& context)
 {
     auto& owner = context.owner;
-    if (get(actor, player_field::mode) == 1)
+    if (player_record(actor).mode == 1)
     {
         --owner.player_count;
     }
-    actor[0x98B] = 0;
+    player_record(actor).unk_98B = 0;
     while (context.goals.ring != nullptr)
     {
         remove_runtime_player_goal(context.goals);
@@ -29,13 +30,13 @@ void destroy_runtime_player(std::span<u8> actor, RuntimePlayerDestruction& conte
     set_runtime_player_strategy(owner.strategy, nullptr, owner.strategy_setup);
     if (had_strategy)
     {
-        put(actor, 0x954, 0); // Write performed by the translated setter's release branch.
+        player_record(actor).unk_954 = 0; // Write performed by the translated setter's release branch.
     }
     auto& factory = owner.strategy_setup.child.factory;
     if (owner.mind.bytes != nullptr)
     {
         release_factory_object(factory, owner.mind);
-        put(actor, 0x958, 0);
+        player_record(actor).mind = 0;
     }
     if (owner.input.data() != nullptr)
     {
@@ -58,22 +59,22 @@ void destroy_runtime_player(std::span<u8> actor, RuntimePlayerDestruction& conte
     if (owner.body.bytes != nullptr)
     {
         release_factory_object(factory, owner.body);
-        put(actor, 0x95C, 0);
+        player_record(actor).body = 0;
     }
     if (owner.attributes.resource.data() != nullptr)
     {
         release_animation_resource(owner.attributes.registry, owner.attributes.resource);
         owner.attributes.resource = {};
-        put(actor, 0x964, 0);
+        player_record(actor).unk_964 = 0;
     }
     if (owner.spawn.record != nullptr)
     {
         release_ghouly_spawn_record(*owner.spawn.record);
         owner.spawn.record = nullptr;
-        put(actor, 0xB98, 0);
+        player_record(actor).spawn_record = 0;
     }
     owner.spawn.active = 0;
-    actor[0xBA0] = 0;
+    actor[offsetof(PlayerRecord, ghouly_box)] = 0;
     for (size_t index = 0; index < 4; ++index)
     {
         auto& link = context.links[index];
@@ -91,12 +92,12 @@ void destroy_runtime_player(std::span<u8> actor, RuntimePlayerDestruction& conte
         put(actor, 0x938 + index * 8, 0);
     }
     owner.actor.mask_flag = 0; // Native alias of the cleared actor +0x93C word.
-    entity_detail::release_navigation_cell_registration(context.navigation, get(actor, player_field::floor));
-    put(actor, 0xCE8, 0);
-    if (get(actor, player_field::damage_class) != 0)
+    entity_detail::release_navigation_cell_registration(context.navigation, player_record(actor).floor);
+    player_record(actor).cells = 0;
+    if (player_record(actor).damage_class != 0)
     {
         const u16 zero = 0;
-        std::memcpy(actor.data() + 0xCF4, &zero, 2);
+        player_record(actor).damage_class = zero;
         owner.actor.damage_class = 0; // Native alias of the cleared actor +0xCF4 word.
     }
 }

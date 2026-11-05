@@ -1,4 +1,5 @@
 #include "body_message_dispatch.h"
+#include "player_fields.h"
 #include <cstddef>
 #include "body_fields.h"
 #include <cstring>
@@ -65,8 +66,8 @@ void dispatch_runtime_parent_body_message(std::span<u8> body, std::span<u8> mess
     {
         Vec3 position;
         Vec3 euler;
-        std::memcpy(&position, context.actor_bytes.data() + 0xCC0, 12);
-        std::memcpy(&euler, context.actor_bytes.data() + 0xCCC, 12);
+        std::memcpy(&position, context.actor_bytes.data() + offsetof(PlayerRecord, start_position.x), 12);
+        std::memcpy(&euler, context.actor_bytes.data() + offsetof(PlayerRecord, start_euler.x), 12);
         set_runtime_actor_body_position(context.actor, position);
         set_runtime_actor_body_euler(context.actor, euler);
         body_record(body).unk_6B = 0;

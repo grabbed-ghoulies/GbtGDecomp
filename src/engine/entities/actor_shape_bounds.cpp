@@ -424,7 +424,7 @@ void apply_runtime_body_actor_bounds(std::span<const u8> body, Actor& actor,
                 build_runtime_actor_bound(actor, first.data(), body_record(body).unk_890, true, shapes);
             }
             update_runtime_actor_bound_record(bound, first.data(), second.data(), actor.anchor,
-                                              u8(get(actor_bytes, player_field::floor)));
+                                              u8(player_record(actor_bytes).floor));
         }
         build_runtime_actor_bound(actor, first.data(), body_record(body).unk_88C, false, shapes);
         const float inverse = 1.f / actor.radius_y;

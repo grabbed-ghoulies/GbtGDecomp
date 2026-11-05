@@ -15,11 +15,6 @@ namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 RuntimePlayerStrategyGoals& goals_of(RuntimeButlerStrategy& context)
 {
     return context.base.goals;
@@ -43,7 +38,7 @@ void change_state(u16 state, RuntimeButlerStrategy& context)
 // Actor +0xCDC == 2 or a +0x93C link: the actor is a player.
 bool actor_is_player(std::span<const u8> actor)
 {
-    return get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0;
+    return player_record(actor).mode == 2 || player_record(actor).case_link != 0;
 }
 
 // The first goal kind of the actor +0x980 ring; an empty ring reads the word at address zero.
@@ -72,7 +67,7 @@ bool initialize_runtime_butler_strategy(std::span<u8> strategy, std::span<u8> ac
     {
         std::memcpy(strategy_view<ButlerStrategyState>(strategy).scared_name.data(), name, std::strlen(name) + 1);
     }
-    put(actor, 0xCF0, 1);
+    player_record(actor).outer_cells = 1;
     return true;
 }
 

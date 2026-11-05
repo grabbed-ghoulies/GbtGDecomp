@@ -308,7 +308,7 @@ The shared actor records and the weapons followed: the avatars, bg break key, gh
 single shot and water pistol on `GunWeaponState`. Words the host keeps natively are named `_word`, so a member marked
 "never read" really is unaccounted for: +0xF40 in the water pistol, for one. The chair (`ChairWeaponState`) had no
 descriptors, so its names come from `weapon_actor.cpp` alone. The hop and drop blocks are still read by inner offset,
-and `read_u32(holder_bytes, 0xCE0)` and its like are the player's bytes, for `player_field`. In the regular modes the
+and `read_u32(holder_bytes, 0xCE0)` and its like are the player's bytes (`PlayerRecord`). In the regular modes the
 chair and large projectile run in 9 modes, the bob in 3, and the candle, container, water pistol and thrown projectile
 in 1 each. The homing projectile, extinguisher and single shot have not run since.
 
@@ -333,6 +333,13 @@ as the weapon's `contact_match`; only their parts the code names are split out.
 The layout checks in `tests/*_checks.cpp` keep their literal offsets. They run at the start of every player mode, so
 `--player-death`, `--player-fight` and `--player-opening` exercise them; some of their fixtures grew to 0x950 bytes, as the
 record views check the whole size.
+
+`PlayerRecord` replaces `player_field`, on `ActorBytes`. Its +0x998 is a 0x200-byte block of goal names and +0xC20 an
+attributes string beside the box's AID. Weapons share these offsets, so a site's variable decides which struct it is:
+`attached`, `held` and `secondary` read `WeaponBase`, which is what the 46 reads of +0x93D were. The area actor, which also
+has words at +0x934..+0x958, is `AreaActorState`. `record_at(holder, 0xCF8)` and `bytes_at(actor, 0xCE8)` pass sizes.
+`read_u32(target->bytes, 0xD00)` in `cinema_mind_movement.cpp` reads past the player's 0xCF8. Its target has spawn points,
+so this is probably `WeaponBase::floor`, but it stays literal until the dump confirms every target is a weapon.
 
 The scene controls come in two kinds. Those with no host pointers (walkabout, chapter 2 scene 4, chapter 5 countdown,
 scene fx, final score) are overlays like the body states, on `SceneControlBase`. Those whose retail words hold pointers can't lay
@@ -398,7 +405,7 @@ start. The button sequence is built and ticked but never entered; its unlock (0x
 | Walk alert and fly parameters, and their parameter rows (factory types 0x8E and 0x6D; the states are structs, above) | parameters 0xB8 / 0xA8, rows 0x10 | `walk_alert_parameter`, `fly_state_parameter`, `walk_alert_row_field` | `src/engine/entities/body_state_actions.h` |
 | fxCustom and its effects (factory types 0xC, 0x2E, 0x30, 0x31, 0x32, 0x33) | 0x18 base; 0xA8, 0x28, 0xD0, 0x54, 0x28 | `fx_custom_field` (seconds alive, actor); `fx_electric_field` (sound, texture loaded, spark count and rows, light slot); `fx_fade_field` (the fade-to-grey's and fade-out's level, target, speed and their +0x24 word); `fx_outline_field` (phase, hold end, time left, the three times, sound, texture loaded, scale, colour, level, shape group, rows, light slot); `fx_solid_fade_in_field` (phase, time left, level, the four times, colour, strength, hold end); and their parameters | `src/engine/entities/fx_custom_electric.h` |
 | Weapon base (factory type 0xB over the actor, 0x00145C80), its own part | 0xE54 (0x934 onward), parameters 0x5F8 | `weapon_parameter` (the block 0x00145C80 copies from); `WeaponBase`: mask and its neighbours, firing, accepted classes, contact test, spawn-model block, names, break category, grab prompt (pulse, phase, alpha, fade), shape and point counts, pick-up count, variant name and attributes, spawn trigger, group owner, state and its next and initial values and time, scene start, thrown and follow motion, floor, voice, spawn owner, broken pieces, hit kind/strength/style, animation, target record | `src/engine/entities/weapon_fields.h` |
-| Player (factory type 5 over the actor, 0x00028830), its own part | 0xCF8 (0x934 onward) | `player_field`: case link, mind, body, input device, provoked and the two countdowns, unk_984, goal volume, latch and delay, ghouly spawn record, kind, count and box, saved, start position and euler, pause count, mode, owner class, live, cells, floor, damage class, tag | `src/engine/entities/player_fields.h` |
+| Player (factory type 5 over the actor, 0x00028830), its own part | 0xCF8 (0x934 onward) | `PlayerRecord`, viewed with `player_record`: case link, mind, body, input device, provoked and the two countdowns, unk_984, goal volume, latch and delay, ghouly spawn record, kind, count and box, saved, start position and euler, pause count, mode, owner class, live, cells, floor, damage class, tag | `src/engine/entities/player_fields.h` |
 | Actor parameters (type 2's block, read by 0x0003E940, filled by 0x000411A0) | 0x334 | `actor_parameter_field`: position, euler, scale, model scale, the model, animation, animation table, resource and attachment names, attachment bone, marker id and next, secondary mode and model; with `object_parameter_field`'s size, unk_2 and type before them | `include/gbtg/object_factory.h` |
 | Ghouly trigger (factory type 0x23 over the actor, 0x00069660) | 0xC6C, parameters 0x65C | `TriggerState`: spawn radii, goal and goal names, anchor, box record, facing, unk_B4C, box name and attributes, spawn trigger radius and chance, slot count and slots; `trigger_parameter` | `src/engine/entities/trigger_actor.h` |
 | Mind requests (a mind's queued steps, run by the cinema mind's 0x0007C0E0) | varies by kind | `mind_request_field` (kind, elapsed) and one namespace per kind the cinema movement runs: target action (2), escape (0xD), vertical escape (0xE), vertical position (0xF), vertical point (0x10), vertical target (0x11), random position (0x14), heading position (0x15), timed motion (0x24), facing (0x25..0x27), position (0x2D), target position (0x2F); most fields named by the navigation calls they feed (0x00136B00, 0x00136D60) | `src/engine/entities/mind_request_fields.h` |
@@ -619,8 +626,6 @@ the offset, size and span length. All ten regular modes are byte-identical to th
 - The 0x30-byte screen texture (0x000533A0) is the engine's texture resource (width +8, height +0xA, header offset
   +4, data +0x14, size +0x18), which the widgets' `texture_width` helpers and the presenter also read. It belongs
   with the texture resource's own layout.
-- The entities. The base mind (`mind_field`), mind target records (`mind_target_field`) and the player's
-  part (`player_field`) are named now. The actor's own 0x934 bytes are mostly read through the native `Actor`; the
-  raw reads left on them (+0x18, +0xB8, +0x1FC) are few. The player part's writes through local `put` / `memcpy` helpers are still
-  by offset.
+- The entities. The base mind (`mind_field`) and mind target records (`mind_target_field`) are named now. The actor's own 0x934 bytes are mostly read through the native `Actor`; the
+  raw reads left on them (+0x18, +0xB8, +0x1FC) are few.
 - `DAT_` globals, with the same evidence rule.

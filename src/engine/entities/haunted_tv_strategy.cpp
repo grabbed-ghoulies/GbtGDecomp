@@ -1,4 +1,5 @@
 #include "haunted_tv_strategy.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -381,7 +382,7 @@ void show_runtime_haunted_tv_ghouly(RuntimeHauntedTvStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> actor = goals_of(context).entry.actor_bytes;
-    const char* box = reinterpret_cast<const char*>(actor.data() + 0xBA0);
+    const char* box = reinterpret_cast<const char*>(actor.data() + offsetof(PlayerRecord, ghouly_box));
     if (!aid_name(box) && context.spawn_record != nullptr)
     {
         GhoulySpawnRecord& record = *context.spawn_record; // Actor +0xB98.
@@ -473,7 +474,7 @@ bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHaun
     {
         return false;
     }
-    const u32 mind = get(target.actor_bytes, player_field::mind);
+    const u32 mind = player_record(target.actor_bytes).mind;
     if (mind == 0)
     {
         return true;

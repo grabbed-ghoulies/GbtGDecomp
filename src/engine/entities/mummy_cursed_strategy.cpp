@@ -184,7 +184,7 @@ bool decay_running(RuntimeMummyCursedStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u32 kind = get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0 ? 1u : 0u;
+    const u32 kind = player_record(actor).mode == 2 || player_record(actor).case_link != 0 ? 1u : 0u;
     return goals.resume.references[kind] == 0 && goals.resume.decay_enabled[goals.resume.decay_index] != 0;
 }
 
@@ -829,8 +829,8 @@ void start_grab(RuntimeMummyCursedStrategy& context)
     }
     fields_of(strategy).victim = get(target->bytes, mind_target_field::actor);
     const std::span<const u8> victim = target->actor_bytes;
-    const bool player = target->bytes[0x14] == 0 && read_u32(victim, 0xCE0) != 0
-        && (read_u16(victim, 0xCDC) == 2 || read_u32(victim, 0x93C) != 0);
+    const bool player = target->bytes[0x14] == 0 && player_record(victim).live != 0
+        && (player_record(victim).mode == 2 || player_record(victim).case_link != 0);
     set_phase(player ? 1u : 5u, context); // 0x000BD450
     body_record(body_of(context)).move_class = 5;
     strategy_base(strategy).attacking = 1;
@@ -887,7 +887,7 @@ void set_curse_step(u32 step, RuntimeMummyCursedStrategy& context)
             return;
         }
         fields_of(strategy).cursed = get(target->bytes, mind_target_field::actor);
-        if (get(target->actor_bytes, player_field::mode) != 2)
+        if (player_record(target->actor_bytes).mode != 2)
         {
             change_state(0x401, context); // 0x0002B8D0, EDI 0x401
             fields_of(strategy).cursed = 0u;

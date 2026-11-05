@@ -1,4 +1,5 @@
 #include "body_animation_commands.h"
+#include "weapon_fields.h"
 #include <cstddef>
 #include "actor_model_anchors.h"
 #include "../runtime/name_lookup.h"
@@ -110,7 +111,7 @@ u32 teleport_runtime_body_secondary(std::span<u8> body, RuntimeBodyAttachedActor
     const bool same = secondary == primary;
     if (same)
     {
-        if (secondary->bytes[0x93D] == 3)
+        if (weapon_base(secondary->bytes).unk_93D == 3)
         {
             --body_record(body).unk_30B;
         }

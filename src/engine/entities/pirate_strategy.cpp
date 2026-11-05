@@ -131,7 +131,7 @@ bool runtime_pirate_holds_sword(RuntimePirateStrategy& context)
     {
         return false;
     }
-    return context.views.actor_bytes_at(held)[0x93D] == 1;
+    return weapon_base(context.views.actor_bytes_at(held)).unk_93D == 1;
 }
 
 // Xbox 0x000BEB80

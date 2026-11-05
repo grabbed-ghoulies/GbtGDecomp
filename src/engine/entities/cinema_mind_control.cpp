@@ -1,4 +1,5 @@
 #include "cinema_mind_control.h"
+#include "player_fields.h"
 #include "mind_fields.h"
 #include "body_fields.h"
 #include <bit>
@@ -18,7 +19,7 @@ void value(std::span<u8> bytes, size_t offset, float number)
 void refresh_runtime_cinema_mind_action_permission(std::span<u8> mind,
     std::span<const u8> actor, i32 allowed_count, std::span<const u8> allowed_rows)
 {
-    if (read_u32(actor, 0xCA0) == 0)
+    if (player_record(actor).unk_CA0 == 0)
     {
         i32 index = 0;
         if (allowed_count > 0)

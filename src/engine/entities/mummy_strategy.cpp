@@ -126,7 +126,7 @@ void mummy_strategy_object_sizes(ObjectSizes& output)
 // Xbox 0x000BBC70
 bool initialize_runtime_mummy_strategy(std::span<u8> strategy, std::span<const u8> actor)
 {
-    if (get(actor, player_field::countdown_56) > 0.f || get(actor, player_field::provoked) != 0) // DAT_0032B100.
+    if (player_record(actor).countdown_56 > 0.f || player_record(actor).provoked != 0) // DAT_0032B100.
     {
         fields_of(strategy).provoked = 1u;
     }

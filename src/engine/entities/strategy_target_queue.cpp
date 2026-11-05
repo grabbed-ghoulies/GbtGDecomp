@@ -1,4 +1,5 @@
 #include "strategy_target_queue.h"
+#include "player_fields.h"
 #include "mind_fields.h"
 #include "../runtime/link_exchange.h"
 #include "body_message_helpers.h"
@@ -175,7 +176,7 @@ ActorLiveAttachment* runtime_strategy_link_target(RuntimeStrategyLink& link, con
         return record;
     }
     const std::span<const u8> actor = context.actor_bytes(link.owner);
-    if (actor[0x96C] != 0 && record->mode == 0 && context.target_of(record)->body.case_actor != nullptr)
+    if (player_record(actor).unk_96C != 0 && record->mode == 0 && context.target_of(record)->body.case_actor != nullptr)
     {
         return record;
     }

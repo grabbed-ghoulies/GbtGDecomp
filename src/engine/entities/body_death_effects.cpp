@@ -57,7 +57,7 @@ void finish_runtime_body_death(u32 create_effect, u32& scene_flags,
     {
         return;
     }
-    if (read_u32(drops.actor_bytes, 0xCE4) != 0)
+    if (player_record(drops.actor_bytes).unk_CE4 != 0)
     {
         std::array<u8, 0x14> message{};
         const u32 type = 0xB5;
@@ -67,8 +67,8 @@ void finish_runtime_body_death(u32 create_effect, u32& scene_flags,
         std::memcpy(message.data() + 8, &position, 12);
         script_queue_event(context.notices.game, message);
     }
-    if (context.live != 0 && (get(drops.actor_bytes, player_field::mode) == 2 ||
-        get(drops.actor_bytes, player_field::case_link) != 0))
+    if (context.live != 0 && (player_record(drops.actor_bytes).mode == 2 ||
+        player_record(drops.actor_bytes).case_link != 0))
     {
         if ((scene_flags & 0x8000) == 0)
         {

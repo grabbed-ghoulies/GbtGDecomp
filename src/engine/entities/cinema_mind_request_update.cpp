@@ -1,4 +1,5 @@
 #include "cinema_mind_request_update.h"
+#include "player_fields.h"
 #include "mind_fields.h"
 #include "mind_request_fields.h"
 #include "cinema_mind_requests.h"
@@ -105,7 +106,7 @@ i32 update_runtime_cinema_mind_request(RuntimeCinemaMindRequestUpdate& context, 
             context.attach, context.body, context.actions));
     case 0x19:
     {
-        const Vec3 destination = point(movement.actor_bytes, 0xCC0);
+        const Vec3 destination = player_record(movement.actor_bytes).start_position;
         const i32 floor = entity_detail::navigation_floor_index(destination, -1, 0);
         u32 failed;
         const u32 result = drive_runtime_player_navigation(movement.navigation, destination, floor,

@@ -62,8 +62,8 @@ u32 receive_runtime_body_collision_hit(std::span<u8> body,
         const u32 one = 1;
         damage.latch_mask = one;
     }
-    const bool controlled = get(actor_bytes, player_field::mode) == 2 ||
-        get(actor_bytes, player_field::case_link) != 0;
+    const bool controlled = player_record(actor_bytes).mode == 2 ||
+        player_record(actor_bytes).case_link != 0;
     const u32 uncontrolled = !controlled;
     damage.skip_script = uncontrolled;
     damage.joint = joint;
@@ -77,14 +77,14 @@ u32 receive_runtime_body_collision_hit(std::span<u8> body,
     const u32 timer = body_record(source_body).hit_timer == 0 ? 0
         : body_record(source_body).hit_timer_running;
     damage.starts_timer = timer;
-    const u16 actor_class = get(source.bytes, player_field::damage_class);
+    const u16 actor_class = player_record(source.bytes).damage_class;
     damage.source_class = actor_class;
     const u32 one = 1;
     damage.unk_60 = one;
     context.contacts = nullptr;
     processor.first_source = &source;
     processor.second_source = &source;
-    processor.second_source_live = get(source.bytes, player_field::live);
+    processor.second_source_live = player_record(source.bytes).live;
     std::array<u32, 4> result;
     receive_runtime_body_damage(body, damage, result, context);
     dispatch_runtime_body_damage_reply(damage, result, context);
@@ -115,12 +115,12 @@ void reflect_runtime_body_timer_hit(std::span<const u8> body, RuntimeBodyAttache
         damage.attacker = actor_address;
         damage.holder = actor_address;
         damage.starts_timer = one;
-        const u16 actor_class = get(actor.bytes, player_field::damage_class);
+        const u16 actor_class = player_record(actor.bytes).damage_class;
         damage.source_class = actor_class;
         source_context.contacts = reply_context.contacts;
         source_context.processor.first_source = &actor;
         source_context.processor.second_source = &actor;
-        source_context.processor.second_source_live = get(actor.bytes, player_field::live);
+        source_context.processor.second_source_live = player_record(actor.bytes).live;
         std::array<u32, 4> result;
         receive_runtime_body_damage(source_body, damage, result, source_context);
         // Retail passes the original body to the reply, after applying damage to the source body.
@@ -187,14 +187,14 @@ void receive_runtime_body_timer_contact(std::span<u8> body, std::span<const u8> 
     runtime_direction_angle(direction, angle);
     direction = {float(retail_sin(angle)), 0.f, float(retail_cos(angle))};
     damage.direction = direction;
-    const u16 actor_class = get(source.bytes, player_field::damage_class);
+    const u16 actor_class = player_record(source.bytes).damage_class;
     damage.source_class = actor_class;
     damage.starts_timer = one;
     damage.unk_60 = one;
     context.contacts = nullptr;
     context.processor.first_source = &source;
     context.processor.second_source = &source;
-    context.processor.second_source_live = get(source.bytes, player_field::live);
+    context.processor.second_source_live = player_record(source.bytes).live;
     std::array<u32, 4> result;
     receive_runtime_body_damage(body, damage, result, context);
     dispatch_runtime_body_damage_reply(damage, result, context);
@@ -314,7 +314,7 @@ void receive_runtime_body_projectile_contact(std::span<u8> body, std::span<u8> m
         }
         else
         {
-            actor_class = read_u16(host->bytes, 0xCF4);
+            actor_class = player_record(host->bytes).damage_class;
         }
         damage.source_class = actor_class;
         const u32 one = 1;
@@ -322,7 +322,7 @@ void receive_runtime_body_projectile_contact(std::span<u8> body, std::span<u8> m
         context.contacts = &views.contacts;
         context.processor.first_source = &views.source;
         context.processor.second_source = host;
-        context.processor.second_source_live = host == nullptr ? 0 : read_u32(host->bytes, 0xCE0);
+        context.processor.second_source_live = host == nullptr ? 0 : player_record(host->bytes).live;
         std::array<u32, 4> result;
         receive_runtime_body_damage(body, damage, result, context);
         std::memcpy(message.data() + 0x10, &result[1], 4);
@@ -360,7 +360,7 @@ void receive_runtime_body_moving_contact(std::span<u8> body, std::span<u8> messa
         }
         else
         {
-            actor_class = read_u16(host->bytes, 0xCF4);
+            actor_class = player_record(host->bytes).damage_class;
         }
         damage.source_class = actor_class;
         const u32 one = 1;
@@ -368,7 +368,7 @@ void receive_runtime_body_moving_contact(std::span<u8> body, std::span<u8> messa
         context.contacts = &views.contacts;
         context.processor.first_source = &views.source;
         context.processor.second_source = host;
-        context.processor.second_source_live = host == nullptr ? 0 : read_u32(host->bytes, 0xCE0);
+        context.processor.second_source_live = host == nullptr ? 0 : player_record(host->bytes).live;
         std::array<u32, 4> result;
         receive_runtime_body_damage(body, damage, result, context);
         if (read_u32(message, 0x3C) == 0)
@@ -398,7 +398,7 @@ void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
     }
     BodyDamage damage{};
     const u32 health = body_record(body).energy;
-    const u16 actor_class = read_u16(host->bytes, 0xCF4);
+    const u16 actor_class = player_record(host->bytes).damage_class;
     // Retail leaves this slot (the 0x1A message's +8) unwritten on the class path.
     u32 actor_amount = 0;
     i32 amount;
@@ -409,7 +409,7 @@ void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
     else
     {
         actor_amount = u32(runtime_actor_damage_value(0x22, processor.actor.damage_class, processor.tables)); // 0x00028DA0
-        const bool live = runtime_actor_is_live_player(*host->actor, read_u32(host->bytes, 0xCE0)) // 0x00028D20
+        const bool live = runtime_actor_is_live_player(*host->actor, player_record(host->bytes).live) // 0x00028D20
             && processor.player_damage != 0;
         amount = i32(actor_amount);
         if (actor_amount != 0 && live)
@@ -455,7 +455,7 @@ void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
     context.contacts = &views.contacts;
     processor.first_source = &views.source;
     processor.second_source = host;
-    processor.second_source_live = read_u32(host->bytes, 0xCE0);
+    processor.second_source_live = player_record(host->bytes).live;
     std::array<u32, 4> result;
     receive_runtime_body_damage(body, damage, result, context); // 0x00020DC0
     dispatch_runtime_body_damage_reply(damage, result, context); // 0x00020F80
@@ -501,7 +501,7 @@ void receive_runtime_body_contact_health_hit(std::span<u8> body, std::span<u8> m
         context.processor.second_source =
             damage.attacker == 0 ? nullptr : views.retained_source;
         context.processor.second_source_live =
-            damage.attacker == 0 ? 0 : read_u32(views.retained_source->bytes, 0xCE0);
+            damage.attacker == 0 ? 0 : player_record(views.retained_source->bytes).live;
         std::array<u32, 4> result;
         receive_runtime_body_damage(body, damage, result, context);
         if (result[1] != 0)
@@ -734,7 +734,7 @@ void receive_runtime_body_direct_hit(std::span<u8> body, RuntimeBodyAttachedActo
     damage.latch_mask = one;
     const Vec3 position = actor_world_position(*source.actor);
     damage.position = position;
-    const u16 actor_class = get(source.bytes, player_field::damage_class);
+    const u16 actor_class = player_record(source.bytes).damage_class;
     damage.source_class = actor_class;
     damage.unk_60 = one;
     damage.normal = Vec3{0.f, 1.f, 0.f}; // straight up (DAT_0032B0F8)
@@ -745,7 +745,7 @@ void receive_runtime_body_direct_hit(std::span<u8> body, RuntimeBodyAttachedActo
     context.contacts = nullptr;
     context.processor.first_source = &source;
     context.processor.second_source = &source;
-    context.processor.second_source_live = get(source.bytes, player_field::live);
+    context.processor.second_source_live = player_record(source.bytes).live;
     std::array<u32, 4> result;
     receive_runtime_body_damage(body, damage, result, context);
     notify_runtime_body_hit_position(source.actor, notice_position, result[0] == 0,

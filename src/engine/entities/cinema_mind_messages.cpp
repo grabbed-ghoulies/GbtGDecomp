@@ -52,7 +52,7 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
         request_runtime_mind_boost(context.boost);
         break;
     case 0x64:
-        if (get(context.actor_bytes, player_field::mode) == 1)
+        if (player_record(context.actor_bytes).mode == 1)
         {
             set(mind, mind_field::target_flags, get(mind, mind_field::target_flags) | 0x20);
         }

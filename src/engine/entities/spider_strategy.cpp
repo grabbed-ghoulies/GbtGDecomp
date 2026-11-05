@@ -195,7 +195,7 @@ void roam_runtime_spider(RuntimeSpiderStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> mind = mind_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const i32 floor = i32(get(actor, player_field::floor));
+    const i32 floor = i32(player_record(actor).floor);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
     struct Candidate
     {
@@ -254,7 +254,7 @@ void check_runtime_spider_goal_cell(RuntimeSpiderStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> mind = mind_of(context);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
-    const i32 floor = i32(get(goals.entry.actor_bytes, player_field::floor));
+    const i32 floor = i32(player_record(goals.entry.actor_bytes).floor);
     const Vec3 goal(get(mind, mind_field::goal_point));
     const i32 goal_cell = entity_detail::navigation_cell_index(floor, goal); // 0x00110EF0, EBX mind +0x70
     if (goal_cell == -1)

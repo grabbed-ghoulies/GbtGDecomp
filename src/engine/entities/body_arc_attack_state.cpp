@@ -1,4 +1,5 @@
 #include "body_arc_attack_state.h"
+#include "player_fields.h"
 #include "mind_fields.h"
 #include "actor_pose_updates.h"
 #include "actor_transform.h"
@@ -262,7 +263,7 @@ void hit_runtime_arc_attack(ArcAttackState& state, const Vec3& normal, const Vec
                     amount = u32(runtime_actor_damage_value(0x15, actor.damage_class,
                         context.damage_tables)); // 0x00028DA0, ECX actor
                     const bool live = runtime_actor_is_live_player(*target,
-                        read_u32(context.bytes_at(victim), 0xCE0)) && context.player_damage != 0; // 0x00028D20
+                        player_record(context.bytes_at(victim)).live) && context.player_damage != 0; // 0x00028D20
                     if (amount != 0 && live)
                     {
                         amount = body_record(body).energy;

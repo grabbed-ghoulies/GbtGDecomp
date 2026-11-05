@@ -1,4 +1,7 @@
 #include "container_weapon.h"
+#include <cstddef>
+#include "weapon_fields.h"
+#include "player_fields.h"
 #include "powerup_flags.h"
 #include "weapon_actor_detail.h"
 #include "actor_live_attachments.h"
@@ -41,7 +44,7 @@ Actor* holder_of(const RuntimeWeaponActor& weapon)
 // A live player (+0xCE0 set, 0x00028D20) in the scripted modes (+0xCDC 2, or +0x93C set).
 bool live_scripted_player(RuntimeWeaponActor& weapon, const Actor& actor)
 {
-    return read_u32(weapon.bytes_at(weapon.services.actor_address(actor)), 0xCE0) != 0
+    return player_record(weapon.bytes_at(weapon.services.actor_address(actor))).live != 0
         && (actor.mask_mode == 2 || actor.mask_flag != 0);
 }
 
@@ -134,7 +137,7 @@ void dispatch_runtime_container_weapon_message(RuntimeWeaponActor& weapon, std::
     {
         const Actor* owner = weapon.actor.spawn_owner; // +0xD8C.
         if (owner != nullptr && runtime_actor_is_live_player(*owner,
-                read_u32(weapon.bytes_at(weapon.services.actor_address(*owner)), 0xCE0))) // 0x00028D20
+                player_record(weapon.bytes_at(weapon.services.actor_address(*owner))).live)) // 0x00028D20
         {
             show_runtime_weapon_uses(weapon, 0, fields_of(bytes).caption); // 0x0012DC80, EAX 0
         }

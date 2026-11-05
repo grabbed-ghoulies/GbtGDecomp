@@ -1,4 +1,6 @@
 #include "body_pickup_state.h"
+#include <cstddef>
+#include "weapon_fields.h"
 #include "mind_fields.h"
 #include "actor_attachment_events.h"
 #include "actor_spawn_eligibility.h"
@@ -102,9 +104,9 @@ void release_runtime_pickup_weapon(RuntimePickupStateContext& context)
     }
     const std::array<u32, 3> pulse{0x74, read_u32(body, 8), weapon};
     broadcast_actor_pulse_message(reinterpret_cast<const i32*>(pulse.data())); // 0x00122C70
-    const u16 count = u16(read_u16(held->bytes, 0xAE4) - 1);
-    std::memcpy(held->bytes.data() + 0xAE4, &count, 2);
-    if (get(context.actor_bytes, player_field::mode) == 2 || get(context.actor_bytes, player_field::case_link) != 0)
+    const u16 count = u16(weapon_base(held->bytes).pickup_count - 1);
+    std::memcpy(held->bytes.data() + offsetof(WeaponBase, pickup_count), &count, 2);
+    if (player_record(context.actor_bytes).mode == 2 || player_record(context.actor_bytes).case_link != 0)
     {
         const std::array<u32, 2> event{0xAD, read_u16(held->bytes, 6)};
         script_queue_event(context.game,

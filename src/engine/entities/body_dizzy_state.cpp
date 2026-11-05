@@ -227,7 +227,7 @@ bool initialize_runtime_dizzy_state(DizzyState& state, std::span<const u8> param
     state.secondary_tracking = {};
     state.secondary_tracking.state = 1;
     const auto actor = context.actor_bytes;
-    state.player_input = get(actor, player_field::mode) == 2 ? 1 : (get(actor, player_field::case_link) != 0 ? 1 : 0);
+    state.player_input = player_record(actor).mode == 2 ? 1 : (player_record(actor).case_link != 0 ? 1 : 0);
     spawn_runtime_dizzy_stars(state, context);
     orbit_runtime_dizzy_stars(state, 0.f, context);
     // Actor +0x614 is sound slot 4 (slots of 0xB8 from +0x334); 0x00302740 is the cue name.

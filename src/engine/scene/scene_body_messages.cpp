@@ -1,4 +1,5 @@
 #include "scene_body_messages.h"
+#include <cstddef>
 #include "../entities/body_fields.h"
 #include "../entities/mind_fields.h"
 #include "../entities/body_orientation.h"
@@ -55,7 +56,7 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           {
               return services.source_at(services.address_of(bytes));
           }},
-      effect_commands_{player.actor, i32(get(player.actor_bytes, player_field::floor)), services.effect_scene,
+      effect_commands_{player.actor, i32(player_record(player.actor_bytes).floor), services.effect_scene,
           services.surfaces, services.effect_tags, services.effect_suffixes[0], services.effect_suffixes[1],
           services.effect_suffixes[2], services.effect_suffixes[3], services.effects},
       query_name_([this](RuntimeBodyAttachedActor& attached, std::span<char, 128> name)
@@ -76,7 +77,7 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           services.flags, proximity_, player.scene.address_of(player.body.data()),
           player.actor_instance.startup.resource.resource.data(),
           player.callout, player.body_lists},
-      spatial_{player.actor, player.actor_address, u8(get(player.actor_bytes, player_field::floor)),
+      spatial_{player.actor, player.actor_address, u8(player_record(player.actor_bytes).floor),
           player.actor_instance.live_attachments, services.global_attachments},
       parent_{player.actor, player.actor_bytes, actions_, children_, animation_, spatial_, shape_scratch_,
           services.latches, player.collision, first_timer_, second_timer_, services.contact_players,
@@ -85,7 +86,8 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
               bind_action_children();
           }},
       death_notice_{services.game, body_view_, player.actor_address,
-          reinterpret_cast<const char*>(player.actor_bytes.data() + 0xBA0), player.spawn.record, services.resources},
+          reinterpret_cast<const char*>(player.actor_bytes.data() + offsetof(PlayerRecord, ghouly_box)),
+              player.spawn.record, services.resources},
       death_drops_{player.actor, player.actor_bytes, services.resources, services.factory,
           [this](FactoryObject object) -> u32
           {
@@ -102,7 +104,8 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           },
           services.default_position, services.default_euler, services.random, services.occupancy_initial},
       death_{death_notice_, death_drops_, player.body_attributes,
-          *reinterpret_cast<u32*>(player.actor_bytes.data() + 0xCE0), services.story_flags, services.empty_name,
+          *reinterpret_cast<u32*>(player.actor_bytes.data() + offsetof(PlayerRecord, live)), services.story_flags,
+              services.empty_name,
           services.empty_name, player.attachment},
       processor_{player.actor, player.actor_address, *player.body_flags, player.body_attributes, nullptr, nullptr,
           services.damage_tables, services.push_keys, services.amount_keys, services.player_damage, 0, services.player_blocked,
@@ -133,7 +136,8 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           }},
       damage_{services.game, processor_, nullptr, timer_creation_},
       messages_{parent_, damage_, player.ring, services.address_zero, mask_,
-          *reinterpret_cast<const i32*>(player.actor_bytes.data() + 0xCEC), player.actor_instance.render,
+          *reinterpret_cast<const i32*>(player.actor_bytes.data() + offsetof(PlayerRecord, floor)),
+              player.actor_instance.render,
           services.clock, services.tag_rows, services.tag_names, services.shock_pass, services.shock_fail,
           player.body_attributes, hit_view_, services.scene_flags, services.restart_requested},
       controls_{player.actor, player.actor_bytes[0x197], player.actor_instance.anchors, live_attachment_,
@@ -1203,7 +1207,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
     {
         // 0x000A6520 takes only the state; 0x00019840 reads the stick through actor +0x960 itself.
         const RuntimeDialogueInputDevice* device = nullptr;
-        if (get(player_.actor_bytes, player_field::input_device) != 0)
+        if (player_record(player_.actor_bytes).input_device != 0)
         {
             device = &player_.input_device;
         }
@@ -1234,7 +1238,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             device = &player_.input_device;
         }
         const RuntimeDialogueInputDevice* own = nullptr;
-        if (get(player_.actor_bytes, player_field::input_device) != 0)
+        if (player_record(player_.actor_bytes).input_device != 0)
         {
             own = &player_.input_device;
         }
@@ -1542,7 +1546,7 @@ void SceneBodyMessages::refresh_damage_rows()
 RuntimeBodyRecoveryAction& SceneBodyMessages::recovery_action()
 {
     recovery_.emplace(RuntimeBodyRecoveryAction{player_.body, player_.body_attributes, player_.action_table,
-        first_timer_, player_.ring, get(player_.actor_bytes, player_field::goal_latch), services_.address_zero,
+        first_timer_, player_.ring, player_record(player_.actor_bytes).goal_latch, services_.address_zero,
         [this](u32& output)
         {
             // 0x00028360: the front goal's kind in AX (0 without a ring; an empty ring reads address zero).
@@ -1637,7 +1641,7 @@ RuntimeThrowStateContext& SceneBodyMessages::throw_context()
     }
     const u32 hit = body_record(player_.body).hit_record;
     const RuntimeDialogueInputDevice* own =
-        get(player_.actor_bytes, player_field::input_device) != 0 ? &player_.input_device : nullptr;
+        player_record(player_.actor_bytes).input_device != 0 ? &player_.input_device : nullptr;
     throw_.reset();
     throw_.emplace(RuntimeThrowStateContext{player_.body, player_.actor, player_.actor_bytes, *player_.body_flags,
         player_.actor_instance.animation, services_.clock, player_.actor_instance.live_attachments,
@@ -2557,7 +2561,7 @@ RuntimeAnimStateContext& SceneBodyMessages::anim_context()
         [this]() -> u32
         {
             // Actor +0x958 is the mind; its +0xC is the target.
-            const u32 mind = get(player_.actor_bytes, player_field::mind);
+            const u32 mind = player_record(player_.actor_bytes).mind;
             if (mind == 0)
             {
                 return 0;
@@ -2595,7 +2599,7 @@ RuntimeDieStateContext& SceneBodyMessages::die_context()
         [this]() -> u32
         {
             // Actor +0x958 is the mind; its +0xC is the target.
-            const u32 mind = get(player_.actor_bytes, player_field::mind);
+            const u32 mind = player_record(player_.actor_bytes).mind;
             if (mind == 0)
             {
                 return 0;
@@ -3046,7 +3050,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
         }
         const EntityMaskHost mask{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
-        const i32 floor = i32(get(player_.actor_bytes, player_field::floor));
+        const i32 floor = i32(player_record(player_.actor_bytes).floor);
         RuntimePlayerCollisionAction action{[this](RuntimePlayerCollisionReply& reply)
         {
             const u32 type = player_.body_selection.second.type;

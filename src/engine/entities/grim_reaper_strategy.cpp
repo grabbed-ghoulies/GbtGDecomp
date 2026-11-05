@@ -1,4 +1,5 @@
 #include "grim_reaper_strategy.h"
+#include "weapon_fields.h"
 #include <cstddef>
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
@@ -183,7 +184,7 @@ bool kind_running(RuntimeGrimReaperStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u32 kind = get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0 ? 1u : 0u;
+    const u32 kind = player_record(actor).mode == 2 || player_record(actor).case_link != 0 ? 1u : 0u;
     return goals.resume.references[kind] == 0 && goals.resume.decay_enabled[goals.resume.decay_index] != 0;
 }
 
@@ -247,7 +248,7 @@ void request_chase(RuntimeGrimReaperStrategy& context)
     const float reach = actor_of(context).radius_xz * body_record(body).reach;
     const RuntimeBodyAttachedActor* held = goals_of(context).actions.attached; // Body +0x48.
     float extra = 0.f;
-    if (held != nullptr && held->bytes[0x93D] == 1)
+    if (held != nullptr && weapon_base(held->bytes).unk_93D == 1)
     {
         if (held->actor == nullptr)
         {

@@ -1,4 +1,6 @@
 #include "weapon_motion.h"
+#include "weapon_fields.h"
+#include "player_fields.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "mind_fields.h"
@@ -385,7 +387,7 @@ RuntimeMindTarget* runtime_weapon_holder_target(RuntimeWeaponActor& weapon)
     {
         throw Error("0x00149C30 reads the mind of a weapon with no holder (+0xD8C)");
     }
-    const u32 mind = read_u32(weapon.bytes_at(weapon.services.actor_address(*holder)), 0x958);
+    const u32 mind = player_record(weapon.bytes_at(weapon.services.actor_address(*holder))).mind;
     if (mind == 0)
     {
         return nullptr;
@@ -538,7 +540,7 @@ bool steer_runtime_weapon_follow(RuntimeWeaponActor& weapon, Vec3& velocity)
         }
         const u32 holder_address = weapon.services.actor_address(*holder);
         entity_detail::NavigationCellRegistration* held = *weapon.services.player_cells(holder_address); // +0xCE8.
-        const u32 held_grid = read_u32(weapon.bytes_at(holder_address), 0xCEC);
+        const u32 held_grid = player_record(weapon.bytes_at(holder_address)).floor;
         if (held != nullptr)
         {
             entity_detail::decrement_navigation_cell_counts(*held, held_grid); // 0x00110470

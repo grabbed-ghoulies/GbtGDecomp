@@ -1,4 +1,7 @@
 #include "gun_weapon.h"
+#include <cstddef>
+#include "weapon_fields.h"
+#include "player_fields.h"
 #include "powerup_flags.h"
 #include "weapon_actor_detail.h"
 #include "actor_live_attachments.h"
@@ -274,7 +277,7 @@ void dispatch_runtime_gun_weapon_message(RuntimeWeaponActor& weapon, std::span<u
 void update_runtime_gun_weapon_state(RuntimeWeaponActor& weapon, u16 state)
 {
     const Actor* holder = holder_of(weapon);
-    if (holder != nullptr && read_u32(weapon.bytes_at(weapon.services.actor_address(*holder)), 0xCE0) != 0
+    if (holder != nullptr && player_record(weapon.bytes_at(weapon.services.actor_address(*holder))).live != 0
         && (holder->mask_mode == 2 || holder->mask_flag != 0))
     {
         RuntimeCandleServices& candle = weapon.services.candle(); // DAT_0050E764 / DAT_0030F144 / DAT_0051248C.

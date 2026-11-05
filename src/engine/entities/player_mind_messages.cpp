@@ -199,7 +199,7 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
         clear_runtime_player_mind_reference(mind, 0x134, message[1]);
         break;
     case 0x7D:
-        initialize_runtime_player_mind_navigation(mind, i32(get(context.actor_bytes, player_field::floor)),
+        initialize_runtime_player_mind_navigation(mind, i32(player_record(context.actor_bytes).floor),
                                                   context.grids, context.nodes, context.storage, context.address_of);
         if (context.chapter_mode == 1)
         {

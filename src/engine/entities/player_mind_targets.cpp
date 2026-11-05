@@ -1,4 +1,5 @@
 #include "player_mind_targets.h"
+#include "weapon_fields.h"
 #include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
@@ -84,11 +85,11 @@ bool runtime_mind_target_requires_special_action(const RuntimeMindTarget& target
     {
         return true;
     }
-    if (get(actor, player_field::live) == 0)
+    if (player_record(actor).live == 0)
     {
         return false;
     }
-    if (get(actor, player_field::mode) != 2 && get(actor, player_field::case_link) == 0)
+    if (player_record(actor).mode != 2 && player_record(actor).case_link == 0)
     {
         return false;
     }
@@ -102,7 +103,7 @@ u32 runtime_player_target_search_mode(const RuntimePlayerAttachmentEligibility& 
     const auto* attached = body.attached;
     if (attached != nullptr)
     {
-        const u8 kind = attached->bytes[0x93D];
+        const u8 kind = weapon_base(attached->bytes).unk_93D;
         if (kind >= 2)
         {
             if (kind <= 3)
@@ -124,7 +125,7 @@ bool runtime_player_keeps_held_target(const RuntimeMindTarget* target,
     float heading, float* angle, float angular_limit)
 {
     if (target != nullptr && target->bytes[0x14] == 0 && target->body.energy != 0
-        && body.attached != nullptr && body.attached->bytes[0x93D] == 4)
+        && body.attached != nullptr && weapon_base(body.attached->bytes).unk_93D == 4)
     {
         if (runtime_body_bit_set(body.flags, 0x2F))
         {
@@ -171,20 +172,20 @@ RuntimeMindTarget* search_runtime_player_target_windows(RuntimePlayerTargetSearc
             return nullptr;
         }
         u16 excluded = 0;
-        if (get(context.actor_bytes, player_field::countdown_56) > 0.f ||
-            get(context.actor_bytes, player_field::provoked) != 0)
+        if (player_record(context.actor_bytes).countdown_56 > 0.f ||
+            player_record(context.actor_bytes).provoked != 0)
         {
-            const u16 value = read_u16(context.actor_bytes, 0x97E);
+            const u16 value = player_record(context.actor_bytes).hostile_class_1;
             if (value > 1)
             {
                 excluded = value;
             }
         }
         u16 included = 0;
-        if (get(context.actor_bytes, player_field::countdown_56) > 0.f ||
-            get(context.actor_bytes, player_field::provoked) != 0)
+        if (player_record(context.actor_bytes).countdown_56 > 0.f ||
+            player_record(context.actor_bytes).provoked != 0)
         {
-            const u16 value = read_u16(context.actor_bytes, 0x97C);
+            const u16 value = player_record(context.actor_bytes).hostile_class_0;
             if (value > 1)
             {
                 included = value;
@@ -213,8 +214,8 @@ RuntimeMindTarget* search_runtime_player_target_categories(RuntimePlayerTargetSe
 {
     RuntimeMindTarget* fallback = nullptr;
     const auto* attached = context.body.attached;
-    const float scale = attached == nullptr || attached->bytes[0x93D] < 2
-        || attached->bytes[0x93D] > 3 ? 1.f : 3.f;
+    const float scale = attached == nullptr || weapon_base(attached->bytes).unk_93D < 2
+        || weapon_base(attached->bytes).unk_93D > 3 ? 1.f : 3.f;
     for (u32 index = 0; index < 4; ++index)
     {
         const u32 category = 1u << index;
@@ -225,7 +226,7 @@ RuntimeMindTarget* search_runtime_player_target_categories(RuntimePlayerTargetSe
             if (target != nullptr)
             {
                 attached = context.body.attached;
-                if (attached != nullptr && attached->bytes[0x93D] != 0)
+                if (attached != nullptr && weapon_base(attached->bytes).unk_93D != 0)
                 {
                     return target;
                 }
@@ -251,7 +252,7 @@ RuntimeMindTarget* select_runtime_player_shape_target(RuntimePlayerTargetSearch&
     u32 categories = read_u32(policy, 0x68);
     u32 predicate = read_u32(policy, 0x64);
     const auto* attached = context.body.attached;
-    const u8 kind = attached == nullptr ? 0 : attached->bytes[0x93D];
+    const u8 kind = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
     switch (kind)
     {
     case 2:
@@ -501,11 +502,11 @@ bool runtime_mind_target_is_controlled_player(const RuntimeMindTarget& target)
     {
         return false;
     }
-    if (get(target.actor_bytes, player_field::mode) == 2)
+    if (player_record(target.actor_bytes).mode == 2)
     {
         return true;
     }
-    return get(target.actor_bytes, player_field::case_link) != 0;
+    return player_record(target.actor_bytes).case_link != 0;
 }
 
 // Xbox 0x0013A2A0
@@ -555,7 +556,7 @@ bool runtime_mind_target_allowed(const RuntimeMindTarget& target, u32 flags)
     }
     if (((flags & 0x200) != 0 && (get(target.bytes, mind_target_field::flags) & 4) != 0) ||
         ((flags & 0x400) != 0 && get(target.bytes, mind_target_field::kind) == 0 &&
-         get(target.actor_bytes, player_field::goal_volume) != 0))
+         player_record(target.actor_bytes).goal_volume != 0))
     {
         return false;
     }

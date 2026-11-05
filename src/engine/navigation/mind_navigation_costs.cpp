@@ -77,7 +77,7 @@ GhoulySpawnPool* suspend_runtime_mind_target_costs(std::span<const u8> actor,
     auto* costs = collect_runtime_navigation_costs(target[0x19], center, radius);
     if (costs != nullptr)
     {
-        auto* grid = entity_detail::g_nav_grids[i32(get(actor, player_field::floor))];
+        auto* grid = entity_detail::g_nav_grids[i32(player_record(actor).floor)];
         for (const u8* row = costs->begin; row < costs->cursor; row += 0xC)
         {
             const u32 index = read_u32({row, 0xC}, 0);
@@ -91,7 +91,7 @@ GhoulySpawnPool* suspend_runtime_mind_target_costs(std::span<const u8> actor,
 // Xbox 0x0007B510
 void restore_runtime_mind_target_costs(std::span<const u8> actor, GhoulySpawnPool* costs)
 {
-    auto* grid = entity_detail::g_nav_grids[i32(get(actor, player_field::floor))];
+    auto* grid = entity_detail::g_nav_grids[i32(player_record(actor).floor)];
     for (const u8* row = costs->begin; row < costs->cursor; row += 0xC)
     {
         const u16 original = u16(truncate_runtime_float(static_cast<long double>(read_f32({row, 0xC}, 8)) * 16.L));

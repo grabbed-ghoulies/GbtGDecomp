@@ -1,4 +1,5 @@
 #include "powerup_awards.h"
+#include <cstddef>
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "../scripts/script_event_sequence.h"
@@ -122,10 +123,11 @@ u32 spawn_runtime_placed_actor(const char* name, const Vec3& position, const Vec
         return created;
     }
     const std::span<u8> bytes = context.bytes_at(created);
-    std::memcpy(bytes.data() + 0x990, &word, 2);
+    player_record(bytes).goal_latch = word;
     if (attributes != nullptr)
     {
-        copy_runtime_trigger_attributes(bytes.data() + 0x998, attributes); // 0x000280D0, EAX +0x998
+        // 0x000280D0, EAX +0x998
+        copy_runtime_trigger_attributes(bytes.data() + offsetof(PlayerRecord, goal_names), attributes);
     }
     const std::array<u32, 9> message{0x4D, tag, std::bit_cast<u32>(message_position.x),
         std::bit_cast<u32>(message_position.y), std::bit_cast<u32>(message_position.z),
@@ -289,7 +291,7 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         for (u32 address = actors.first(); address != 0; address = actors.next(address))
         {
             RuntimePowerupActor view = actors.actor_at(address);
-            if (read_u32(view.bytes, 0x98C) != 0) // Node +0x48.
+            if (player_record(view.bytes).goal_volume != 0) // Node +0x48.
             {
                 const u16 mask = script_actor_current_mask(view.actor, actors.query); // 0x00028360, EAX actor
                 if (mask == 3 || mask == 0x24)
@@ -306,7 +308,7 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
                 }
                 RuntimePowerupActor owner = actors.actor_at(strategy_base(view.strategy).actor);
                 const u32 group =
-                    (get(owner.bytes, player_field::mode) == 2 || get(owner.bytes, player_field::case_link) != 0) ? 1u
+                    (player_record(owner.bytes).mode == 2 || player_record(owner.bytes).case_link != 0) ? 1u
                                                                                                                   : 0u;
                 if (actors.blocked[group] != 0 || actors.modes[actors.mode] == 0)
                 {
@@ -327,7 +329,7 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
             {
                 continue;
             }
-            std::memcpy(view.bytes.data() + 0x978, &amount, 4);
+            std::memcpy(view.bytes.data() + offsetof(PlayerRecord, countdown_56), &amount, 4);
             std::span<u8> mind = view.mind;
             if (!mind.empty() && get(mind, mind_field::target_record) != 0
                 && !runtime_mind_target_is_eligible(mind, view.bytes, view.actor, address,

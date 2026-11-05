@@ -1,4 +1,5 @@
 #include "player_mind_target_control.h"
+#include "weapon_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "../scripts/script_conditions.h"
@@ -35,7 +36,7 @@ u32 select_runtime_player_target_action_direction(std::span<u8> mind,
     }
     u32 direction;
     const bool near = runtime_player_body_point_is_near(body, target.bytes);
-    const u8 held_kind = body.attached == nullptr ? 0 : body.attached->bytes[0x93D];
+    const u8 held_kind = body.attached == nullptr ? 0 : weapon_base(body.attached->bytes).unk_93D;
     if (!near && held_kind == 0 && read_u32(mind, 0x80) == 0
         && !runtime_mind_target_requires_action(target, target_body))
     {
@@ -89,8 +90,8 @@ RuntimePlayerTargetView* update_runtime_player_target_proposal(RuntimePlayerMind
         {
             proposal = context.targets.at(selected->address);
             const auto* attached = context.search.body.attached;
-            if (attached == nullptr || attached->bytes[0x93D] <= 1
-                || (attached->bytes[0x93D] == 4 && get(record(context.events.mind, player_mind_field::stick), stick_tracking_field::gesture) != 3))
+            if (attached == nullptr || weapon_base(attached->bytes).unk_93D <= 1
+                || (weapon_base(attached->bytes).unk_93D == 4 && get(record(context.events.mind, player_mind_field::stick), stick_tracking_field::gesture) != 3))
             {
                 const auto redirected = redirect_runtime_player_shape_target(context.shape,
                     context.search.body, proposal->bytes, heading);

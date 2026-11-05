@@ -1,4 +1,5 @@
 #include "skeleton_strategy.h"
+#include "weapon_fields.h"
 #include "body_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
@@ -152,7 +153,7 @@ void reposition_runtime_skeleton(RuntimeSkeletonStrategy& context)
     const std::span<const u8> actor = goals.entry.actor_bytes;
     Vec3 position;
     if (!entity_detail::select_navigation_spawn_position(
-            i32(get(actor, player_field::floor)), nullptr, flank, 0.f, 60.f, goals.room, goals.entry.allowed, 0xC,
+            i32(player_record(actor).floor), nullptr, flank, 0.f, 60.f, goals.room, goals.entry.allowed, 0xC,
             actor_tag(context), position, goals.random,
             0.f)) // Flag 0x10 is clear, so the retained occupancy scratch is not read.
     {
@@ -463,7 +464,7 @@ void enter_runtime_skeleton_state(u16 state, u16 previous, RuntimeSkeletonStrate
         const u32 held = held_actor(context);
         if (held != 0)
         {
-            const u8 kind = context.views.actor_bytes_at(held)[0x93D];
+            const u8 kind = weapon_base(context.views.actor_bytes_at(held)).unk_93D;
             if (kind >= 2 && kind <= 3)
             {
                 load_runtime_mind_goal(context.goal_projectile, mind);

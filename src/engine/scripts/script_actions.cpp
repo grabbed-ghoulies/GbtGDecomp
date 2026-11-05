@@ -1208,12 +1208,12 @@ void mark_runtime_one_type_actors(u16 tag, i32 keep)
             continue;
         }
         const std::span<u8> actor = g_alt_node_actor_bytes(node);
-        actor[0x96D] = 1; // Node +0x29.
-        actor[0x96F] = 0;
-        actor[0x970] = 0;
-        if (0.f < get(actor, player_field::countdown_55)) // Node +0x30.
+        player_record(actor).unk_96D = 1; // Node +0x29.
+        player_record(actor).unk_96F = 0;
+        player_record(actor).unk_970 = 0;
+        if (0.f < player_record(actor).countdown_55) // Node +0x30.
         {
-            std::memset(actor.data() + 0x974, 0, 4);
+            std::memset(actor.data() + offsetof(PlayerRecord, countdown_55), 0, 4);
             std::array<u32, 0x42> message{0x55};
             g_script_actor_message(g_alt_node_actor(node), message); // Node - 0x944 vtable +0xC.
         }
@@ -1770,9 +1770,9 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
                 continue;
             }
             const std::span<u8> actor = g_alt_node_actor_bytes(link);
-            actor[0x969] = node_u8(g.scene_script, node, 0x48);
+            player_record(actor).provoked = node_u8(g.scene_script, node, 0x48);
             const std::span<u8> mind = g_alt_node_mind(link);
-            if (get(actor, player_field::mind) != 0 && !mind.empty() && get(mind, mind_field::target_record) != 0
+            if (player_record(actor).mind != 0 && !mind.empty() && get(mind, mind_field::target_record) != 0
                 && !g_alt_node_target_eligible(link)) // 0x00029C80, EDX 1
             {
                 if (get(mind, mind_field::target_record) != 0)
@@ -1811,12 +1811,12 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
                 continue;
             }
             const std::span<u8> actor = g_alt_node_actor_bytes(link);
-            actor[0x96D] = value;
-            actor[0x96F] = 0;
-            actor[0x970] = 0;
-            if (get(actor, player_field::countdown_55) > 0.f)
+            player_record(actor).unk_96D = value;
+            player_record(actor).unk_96F = 0;
+            player_record(actor).unk_970 = 0;
+            if (player_record(actor).countdown_55 > 0.f)
             {
-                std::memset(actor.data() + 0x974, 0, 4);
+                std::memset(actor.data() + offsetof(PlayerRecord, countdown_55), 0, 4);
                 std::array<u32, 0x42> message{0x55};
                 g_script_actor_message(g_alt_node_actor(link), message); // Vtable +0xC
             }
@@ -1842,7 +1842,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             }
             Actor& actor = g_alt_node_actor(link);
             g_script_drain_actor_goals(actor); // 0x00028210, ESI the actor
-            std::memset(g_alt_node_actor_bytes(link).data() + 0x990, 0, 2);
+            std::memset(g_alt_node_actor_bytes(link).data() + offsetof(PlayerRecord, goal_latch), 0, 2);
             const Vec3 position = actor_world_position(actor); // 0x000412A0
             const Vec3 euler = actor_world_euler(actor); // 0x00041820
             std::array<u32, 0x42> message{0x4d, node_u32(g.scene_script, node, 0x48), std::bit_cast<u32>(position.x),

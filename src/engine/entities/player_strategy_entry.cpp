@@ -26,7 +26,7 @@ std::span<const u8> current_row(const RuntimePlayerGoalRing& ring, std::span<con
 // Xbox 0x00138870
 void enter_runtime_player_goal(RuntimePlayerStrategyEntry& context)
 {
-    if (get(context.actor_bytes, player_field::goal_volume) != 0)
+    if (player_record(context.actor_bytes).goal_volume != 0)
     {
         return;
     }
@@ -55,7 +55,8 @@ void enter_runtime_player_goal(RuntimePlayerStrategyEntry& context)
     case 0x15:
     {
         auto* request = append_runtime_position_request(context.goals.anchor, context.goals.sizes, position);
-        if (runtime_player_goal_flags(context.ring, context.address_zero) != 0 || context.actor_bytes[0x989] != 0)
+        if (runtime_player_goal_flags(context.ring, context.address_zero) != 0
+            || player_record(context.actor_bytes).unk_989 != 0)
         {
             put(request->bytes, 0x28, 0);
             return;
@@ -65,7 +66,8 @@ void enter_runtime_player_goal(RuntimePlayerStrategyEntry& context)
     case 10:
     {
         auto* request = append_runtime_position_request(context.goals.anchor, context.goals.sizes, position);
-        if (runtime_player_goal_flags(context.ring, context.address_zero) != 0 || context.actor_bytes[0x989] != 0)
+        if (runtime_player_goal_flags(context.ring, context.address_zero) != 0
+            || player_record(context.actor_bytes).unk_989 != 0)
         {
             put(request->bytes, 0x28, 0);
         }

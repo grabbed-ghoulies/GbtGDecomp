@@ -174,7 +174,7 @@ bool search_runtime_haunted_coat_heading(std::span<const u8> target, Vec3& outpu
     runtime_direction_angle(direction, angle); // 0x00105F90
     const float heading = interpolate_runtime_mind_angle(angle, actor.euler.y, fields_of(strategy).turn) // 0x00100E90
         + sway;
-    RuntimeNavigationHeadingSearch search{origin,       i32(get(goals.entry.actor_bytes, player_field::floor)),
+    RuntimeNavigationHeadingSearch search{origin,       i32(player_record(goals.entry.actor_bytes).floor),
                                           32.f,         35.5f,
                                           nullptr,      goals.entry.allowed,
                                           &output,      0,

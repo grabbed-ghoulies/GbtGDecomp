@@ -1,4 +1,7 @@
 #include "player_attachment_helpers.h"
+#include <cstddef>
+#include "weapon_fields.h"
+#include "player_fields.h"
 #include "player_mind_targets.h"
 #include "body_message_helpers.h"
 #include "entity_heap.h"
@@ -17,7 +20,7 @@ float runtime_player_body_attachment_radius(const RuntimePlayerAttachmentEligibi
 {
     const float margin = context.body_actor.radius_xz * body_record(context.body).reach;
     const auto* attached = context.attached;
-    if (attached != nullptr && attached->bytes[0x93D] == 1
+    if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 1
         && attached->actor->model != nullptr && attached->actor->model->cpu.data() != nullptr)
     {
         const float radius = actor_model_radius(*attached->actor);
@@ -58,7 +61,7 @@ bool runtime_player_attachment_is_in_range(const RuntimePlayerAttachmentEligibil
     const float margin = body_record(body).reach * context.body_actor.radius_xz;
     float model_radius = 0.f;
     const auto* attached = context.attached;
-    if (attached != nullptr && attached->bytes[0x93D] == 1
+    if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 1
         && attached->actor->model != nullptr && attached->actor->model->cpu.data() != nullptr)
     {
         model_radius = actor_model_radius(*attached->actor);
@@ -88,8 +91,8 @@ bool runtime_player_can_attach(const RuntimePlayerAttachmentEligibility& body,
         const ActorLink* link = target.actor->link;
         const auto* parent = link == nullptr ? nullptr : static_cast<const ActorLink*>(link->head);
         if ((parent == nullptr || parent->head == nullptr || link->owner == nullptr)
-            && target.bytes[0x93C] != 0 && read_u32(target.bytes, 0xAD0) == 0
-            && read_u32(target.bytes, 0xAC4) != 0)
+            && weapon_base(target.bytes).mask != 0 && weapon_base(target.bytes).spawn_blocked == 0
+            && weapon_base(target.bytes).spawn_point_count != 0)
         {
             return runtime_player_attachment_is_in_range(body, *target.actor);
         }
@@ -105,7 +108,7 @@ bool runtime_player_body_target_is_near(const RuntimePlayerAttachmentEligibility
     const float margin = context.body_actor.radius_xz * body_record(body).reach;
     float model_radius = 0.f;
     const auto* attached = context.attached;
-    if (attached != nullptr && attached->bytes[0x93D] == 1
+    if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 1
         && attached->actor->model != nullptr && attached->actor->model->cpu.data() != nullptr)
     {
         model_radius = actor_model_radius(*attached->actor);
@@ -129,7 +132,7 @@ bool runtime_player_body_point_is_near(const RuntimePlayerAttachmentEligibility&
     const float margin = context.body_actor.radius_xz * body_record(body).reach;
     float model_radius = 0.f;
     const auto* attached = context.attached;
-    if (attached != nullptr && attached->bytes[0x93D] == 1
+    if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 1
         && attached->actor->model != nullptr && attached->actor->model->cpu.data() != nullptr)
     {
         model_radius = actor_model_radius(*attached->actor);
@@ -145,7 +148,7 @@ bool runtime_player_body_point_is_near(const RuntimePlayerAttachmentEligibility&
 // Xbox 0x00146190
 i32 runtime_attachment_class_value(std::span<const u8> attached, u16 host_class)
 {
-    const i32 count = i16(read_u16(attached, 0x944));
+    const i32 count = i16(weapon_base(attached).accepted_class_count);
     i32 index = 0;
     if (count > 0)
     {
@@ -169,11 +172,11 @@ void set_runtime_attachment_host(RuntimeBodyAttachedActor& attached,
 {
     i32 index = 0;
     const u16 host_class = read_u16(host.bytes, 6);
-    if (i16(read_u16(attached.bytes, 0x944)) > 0)
+    if (i16(weapon_base(attached.bytes).accepted_class_count) > 0)
     {
         while (read_u16(attached.bytes, 0x948 + size_t(index) * 0x10) != host_class)
         {
-            const i32 count = i16(read_u16(attached.bytes, 0x944));
+            const i32 count = i16(weapon_base(attached.bytes).accepted_class_count);
             ++index;
             if (index >= count)
             {
@@ -187,7 +190,7 @@ void set_runtime_attachment_host(RuntimeBodyAttachedActor& attached,
         index = -1;
     }
     const u16 selected = u16(index);
-    std::memcpy(attached.bytes.data() + 0x946, &selected, 2);
+    std::memcpy(attached.bytes.data() + offsetof(WeaponBase, accepted_class_row), &selected, 2);
     std::memcpy(attached.bytes.data() + 0xD8C, &host.address, 4);
     attached.host = const_cast<RuntimeBodyAttachedActor*>(&host);
     if (attached.actor != nullptr)
@@ -201,17 +204,17 @@ void set_runtime_attachment_host(RuntimeBodyAttachedActor& attached,
 // Xbox 0x00146100
 bool runtime_attachment_available(std::span<const u8> attached, const RuntimeBodyAttachedActor* host)
 {
-    if (attached[0x93F] == 1)
+    if (weapon_base(attached).unk_93F == 1)
     {
         return false;
     }
-    if (attached[0x93F] == 2)
+    if (weapon_base(attached).unk_93F == 2)
     {
         if (host == nullptr)
         {
             return false;
         }
-        if (read_u16(host->bytes, 0xCDC) != 2 && read_u32(host->bytes, 0x93C) == 0)
+        if (player_record(host->bytes).mode != 2 && player_record(host->bytes).case_link == 0)
         {
             return false;
         }
@@ -312,10 +315,10 @@ void notify_runtime_secondary_attachment_host(RuntimeBodyAttachedActor& host, Ru
 {
     const u32 message[]{0x5F, attached.address};
     host.message(message);
-    if (read_u16(host.bytes, 0xCDC) != 2 && read_u32(host.bytes, 0x93C) == 0)
+    if (player_record(host.bytes).mode != 2 && player_record(host.bytes).case_link == 0)
     {
         const u32 active = 1;
-        std::memcpy(attached.bytes.data() + 0x9A4, &active, 4);
+        std::memcpy(attached.bytes.data() + offsetof(WeaponBase, unk_9A4), &active, 4);
     }
 }
 
@@ -324,10 +327,10 @@ void notify_runtime_attachment_host(RuntimeBodyAttachedActor& host, RuntimeBodyA
 {
     const u32 message[]{0x5E, attached.address};
     host.message(message);
-    if (read_u16(host.bytes, 0xCDC) != 2 && read_u32(host.bytes, 0x93C) == 0)
+    if (player_record(host.bytes).mode != 2 && player_record(host.bytes).case_link == 0)
     {
         const u32 active = 1;
-        std::memcpy(attached.bytes.data() + 0x9A4, &active, 4);
+        std::memcpy(attached.bytes.data() + offsetof(WeaponBase, unk_9A4), &active, 4);
     }
 }
 }

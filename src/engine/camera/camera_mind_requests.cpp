@@ -1,4 +1,5 @@
 #include "camera_mind_requests.h"
+#include "../entities/player_fields.h"
 #include "../entities/body_fields.h"
 #include "../entities/mind_fields.h"
 #include "../scripts/script_table_lookup.h"
@@ -333,7 +334,7 @@ u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point
         point.z = float((static_cast<long double>(from.z) - point.z) * share + point.z);
     }
     set(mind, field::follow_point, point);
-    return read_u32(target.bytes, 0x960);
+    return player_record(target.bytes).input_device;
 }
 
 // Xbox 0x0007A420
@@ -594,7 +595,7 @@ u32 route_camera_path_eye(const Actor& camera, const RuntimeDirectorActor& targe
     {
         return 0;
     }
-    const i32 floor = i32(read_u32(target.bytes, 0xCEC));
+    const i32 floor = i32(player_record(target.bytes).floor);
     const i32 start = entity_detail::navigation_cell_index(floor, eye); // 0x00110EF0, EBX the eye
     const i32 finish = entity_detail::navigation_cell_index(floor, point); // 0x00110EF0, EBX the point
     if (start == -1 || finish == -1)

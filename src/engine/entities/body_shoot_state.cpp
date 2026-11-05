@@ -1,4 +1,5 @@
 #include "body_shoot_state.h"
+#include "player_fields.h"
 #include <cstddef>
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -336,7 +337,7 @@ void tick_runtime_shoot_state(ShootState& state, RuntimeShootStateContext& conte
     if (!stop)
     {
         // An empty gun (+0x93C clear) plays the empty sound as the state ends.
-        const u8 charged = context.bytes_at(context.weapon)[0x93C];
+        const u8 charged = context.bytes_at(context.weapon)[offsetof(PlayerRecord, case_link)];
         if (charged == 0)
         {
             request_actor_sound(actor, 1, state.empty_sound.data(), context.sounds); // 0x00041D00

@@ -108,7 +108,7 @@ void choose_landing(SlamSmashState& state, RuntimeSlamSmashStateContext& context
         const float yaw = context.actor.euler.y; // Actor +0x18.
         landing.x = float(retail_sin(yaw) * kAhead + landing.x); // 0x00153320
         landing.z = float(retail_cos(yaw) * kAhead + landing.z); // 0x00153230
-        floor = get(context.actor_bytes, player_field::floor);
+        floor = player_record(context.actor_bytes).floor;
     }
     const i32 cell = entity_detail::navigation_cell_index(i32(floor), landing); // 0x00110EF0, EAX floor, EBX point
     if (cell != -1)

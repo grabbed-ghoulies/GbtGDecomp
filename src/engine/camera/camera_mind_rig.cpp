@@ -72,7 +72,7 @@ float wrap_angle(float value)
 const RuntimeDialogueInputDevice* actor_input_device(const RuntimeDirectorActor& actor,
     const RuntimeCameraRigContext& context)
 {
-    const u32 address = get(actor.bytes, player_field::input_device);
+    const u32 address = player_record(actor.bytes).input_device;
     if (address == 0)
     {
         return nullptr;
@@ -168,7 +168,7 @@ float camera_floor_height(const RuntimeDirectorActor& actor, const Vec3& point, 
     float margin)
 {
     float result = point.y;
-    const i32 floor = i32(get(actor.bytes, player_field::floor));
+    const i32 floor = i32(player_record(actor.bytes).floor);
     const i32 cell = navigation_cell_index(floor, point);
     if (cell == -1)
     {
@@ -356,7 +356,7 @@ float camera_stick_turn(const RuntimeDirectorActor& target, std::span<const u8> 
     {
         return 0.f;
     }
-    const RuntimeDialogueInputDevice* device = context.input_device(read_u32(target.bytes, 0x960));
+    const RuntimeDialogueInputDevice* device = context.input_device(player_record(target.bytes).input_device);
     if (read_u32(device->record, 4) == 0 || (target.body_bits->bytes[6] & 0x80) == 0)
     {
         return 0.f;
@@ -895,7 +895,7 @@ u32 settle_camera_position(RuntimeCameraMindView& view, Vec3& eye, u32 target, V
             const RuntimeDirectorActor watched = context.actor_at(target);
             if (camera_input_turn(watched, context) == 0.f)
             {
-                const i32 floor = i32(read_u32(watched.bytes, 0xCEC));
+                const i32 floor = i32(player_record(watched.bytes).floor);
                 const i32 cell = navigation_cell_index(floor, position);
                 if (cell != -1
                     && !entity_detail::navigation_cell_has_no_unblocked_neighbor(*entity_detail::g_nav_grids[floor],

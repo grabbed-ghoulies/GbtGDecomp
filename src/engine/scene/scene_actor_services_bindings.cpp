@@ -3670,7 +3670,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             for (auto* player : players->instances())
             {
-                if (get(player->actor_bytes, player_field::input_device) == address)
+                if (player_record(player->actor_bytes).input_device == address)
                 {
                     player->refresh_input_views();
                     return &player->input_device;

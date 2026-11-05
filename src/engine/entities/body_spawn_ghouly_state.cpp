@@ -57,7 +57,7 @@ bool place_runtime_spawned_ghouly(std::span<u32> message, const Vec3& spawn, Run
     const float reach = radius * 2.f; // DAT_0032B110.
     const Vec3 ahead{float(retail_sin(heading) * static_cast<long double>(reach) + position.x), position.y,
         float(retail_cos(heading) * static_cast<long double>(reach) + position.z)}; // 0x00153320, 0x00153230
-    const i32 floor = i32(get(context.actor_bytes, player_field::floor));
+    const i32 floor = i32(player_record(context.actor_bytes).floor);
     Vec3 found{};
     bool placed = entity_detail::select_navigation_spawn_position(floor, nullptr, ahead, 0.f, radius, nullptr,
         nullptr, 0, 0, found, context.random, context.occupancy_initial); // 0x00111420
@@ -132,7 +132,7 @@ bool initialize_runtime_spawn_ghouly_state(SpawnGhoulyState& state, std::span<co
         parameter::animation)), context.actions);
     spawn_animations[body_state_key(state)] = record;
     state.animation = record != nullptr ? 1u : 0u;
-    if (get(context.actor_bytes, player_field::spawn_record) == 0)
+    if (player_record(context.actor_bytes).spawn_record == 0)
     {
         finish_runtime_body_death(1, context.scene_flags, context.restart_requested, context.death); // 0x00134AE0
     }
@@ -204,7 +204,7 @@ void tick_runtime_spawn_ghouly_state(SpawnGhoulyState& state, RuntimeSpawnGhouly
             std::array<u32, 9> placement{};
             placement[0] = 0x4D;
             const bool placed = place_runtime_spawned_ghouly(placement, point, context); // 0x000A1FD0
-            const i32 kind = std::bit_cast<i16>(get(context.actor_bytes, player_field::ghouly_kind));
+            const i32 kind = std::bit_cast<i16>(player_record(context.actor_bytes).ghouly_kind);
             const Vec3 euler{std::bit_cast<float>(placement[5]), std::bit_cast<float>(placement[6]),
                 std::bit_cast<float>(placement[7])};
             if (kind == 0)

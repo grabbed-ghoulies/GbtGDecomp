@@ -105,7 +105,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
               services.allowed_count,
               services.allowed_rows,
               [&services](u32 address) -> RuntimeMindTarget& { return services.target_at(address); },
-              i32(get(player.actor_bytes, player_field::floor)),
+              i32(player_record(player.actor_bytes).floor),
               services.grids,
               services.nodes,
               player.mind_storage,
@@ -161,7 +161,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
                  services.address_zero,
                  player.request_anchor,
                  player.scene.mind_request_sizes,
-                 i32(get(player.actor_bytes, player_field::floor)),
+                 i32(player_record(player.actor_bytes).floor),
                  player.allowed,
                  services.random,
                  services.occupancy_initial},
@@ -179,7 +179,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
                    active_player_link_, services.pause_references, services.release,
                    services.health},
       navigation_{path_search_,      player.actor,
-                  player.body,       *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC),
+                  player.body,       *reinterpret_cast<i32*>(player.actor_bytes.data() + offsetof(PlayerRecord, floor)),
                   player.navigation, services.clock},
       navigation_control_{navigation_,          player.actor,       body_bits(player), player.input_device,
                           services.input_state, player.axis_device, services.keyboard, nullptr},
@@ -246,7 +246,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
                     player.actor,
                     nullptr,
                     body_bits(player),
-                    *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC),
+                    *reinterpret_cast<i32*>(player.actor_bytes.data() + offsetof(PlayerRecord, floor)),
                     player.mind.empty() ? 0 : services.address_of(player.mind.data())},
       proposal_{search_, shape_target_, player.mind_events, services.target_views, embedded_target_},
       target_control_{focus_, proposal_, feedback_, services.clock, services.address_zero},
@@ -272,7 +272,8 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
                }},
       inactivity_{player.mind, body_bits(player), services.clock, player.input_device, services.input_state},
       player_avoidance_{player.mind,         player.body,
-                        player.actor,        *reinterpret_cast<i32*>(player.actor_bytes.data() + 0xCEC),
+                        player.actor,        *reinterpret_cast<i32*>(player.actor_bytes.data()
+                            + offsetof(PlayerRecord, floor)),
                         player.input_device, services.input_state,
                         player.axis_device,  services.keyboard,
                         services.random,     services.occupancy_initial,
@@ -536,7 +537,7 @@ void SceneMindMessages::refresh()
     const u32 request = body_record(body).hit_record;
     body_state_view_ = request == 0 ? std::span<const u8>() : std::span<const u8>(services_.resolve(request), 0x24);
     body_state_ = body_state_view_.data();
-    cinema_.floor = i32(get(player_.actor_bytes, player_field::floor));
+    cinema_.floor = i32(player_record(player_.actor_bytes).floor);
     if (cinema_mind_ == false)
     {
         event_source_ = object_at(read_u32(mind, 0x88), "player mind +0x88 event source");
@@ -587,7 +588,7 @@ void SceneMindMessages::refresh_gaze()
     const auto mind = player_.mind;
     mind_tick_.body = player_.body;
     avoidance_.goals = player_.ring;
-    avoidance_.floor = i32(get(player_.actor_bytes, player_field::floor));
+    avoidance_.floor = i32(player_record(player_.actor_bytes).floor);
     avoidance_.allowed = player_.allowed;
     gaze_.mind = mind;
     gaze_.body = player_.body;

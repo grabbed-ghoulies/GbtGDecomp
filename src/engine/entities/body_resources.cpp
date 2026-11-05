@@ -104,7 +104,7 @@ void initialize_runtime_body_friction(std::span<u8> body, std::span<const u8> pa
 {
     body_record(body).push_mode = 1;
     body_record(body).shape_mode = parameters[0x1AA];
-    const u16 tag = get(actor, player_field::damage_class);
+    const u16 tag = player_record(actor).damage_class;
     const float maximum = read_f32(curve, 8);
     float value = maximum;
     if (tag != 0 && curve[1] != curve[0])

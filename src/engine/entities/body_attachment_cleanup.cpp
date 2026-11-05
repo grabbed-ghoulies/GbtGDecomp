@@ -1,4 +1,5 @@
 #include "body_attachment_cleanup.h"
+#include "weapon_fields.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "entity_heap.h"
@@ -108,7 +109,7 @@ RuntimeBodyAttachedActor* detach_runtime_body_actor(std::span<u8> body, RuntimeB
     body_record(body).attached = zero;
     message = {0x9C, actor_address, 0};
     attached->message(message);
-    if (attached->bytes[0x93D] == 3)
+    if (weapon_base(attached->bytes).unk_93D == 3)
     {
         --body_record(body).unk_30B;
     }

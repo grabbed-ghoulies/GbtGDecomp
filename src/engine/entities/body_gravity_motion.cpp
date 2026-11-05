@@ -33,7 +33,7 @@ float motion_angle(float value)
 float runtime_body_motion_speed(std::span<const u8> body, std::span<const u8> actor,
     const RuntimeBodyDamageTables& tables)
 {
-    const u16 tag = get(actor, player_field::damage_class);
+    const u16 tag = player_record(actor).damage_class;
     const u8 key = body_record(body).move_class;
     if (tag == 0)
     {

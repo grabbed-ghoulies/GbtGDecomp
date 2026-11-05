@@ -54,8 +54,8 @@ void tick_status_timer(RuntimeBodyAttachedActor& self, const RuntimeActorClock& 
 // Xbox 0x00019520
 void tick_runtime_player_status_timers(RuntimeBodyAttachedActor& self, const RuntimeActorClock& clock)
 {
-    tick_status_timer(self, clock, player_field::countdown_55.offset, 0x55);
-    tick_status_timer(self, clock, player_field::countdown_56.offset, 0x56);
+    tick_status_timer(self, clock, offsetof(PlayerRecord, countdown_55), 0x55);
+    tick_status_timer(self, clock, offsetof(PlayerRecord, countdown_56), 0x56);
 }
 
 // Xbox 0x0002B450
@@ -65,21 +65,21 @@ void track_runtime_player_room(RuntimePlayerRoomTracking& context)
     const Vec3 position = actor_world_position(*context.self.actor);
     const OccupancyRecord* record = find_occupancy_record(position, 0.0f, 4, nullptr, 0);
     context.current = record;
-    if (get(actor, player_field::left_room) == 0)
+    if (player_record(actor).left_room == 0)
     {
         if (record != nullptr && record != context.allowed &&
             (record->group == 0 || u16(record->group) == read_u16(actor, 6)))
         {
-            set(actor, player_field::left_room, 1);
+            player_record(actor).left_room = 1;
         }
         else if (body_record(context.body).move_holds == 0 &&
                  body_record(context.body).move_hold_time == 0.0f)
         {
-            set(actor, player_field::saved_position, position);
+            player_record(actor).saved_position = position;
         }
     }
-    if (context.strategy_present && get(actor, player_field::mode) == 1 && get(actor, player_field::case_link) == 0 &&
-        get(actor, player_field::left_room) != 0)
+    if (context.strategy_present && player_record(actor).mode == 1 && player_record(actor).case_link == 0 &&
+        player_record(actor).left_room != 0)
     {
         send_word(context.self, 0x5D);
     }
@@ -109,8 +109,8 @@ void check_runtime_player_bounds(RuntimePlayerBoundsCheck& context)
             bounds.min_z > position.z || position.z >= bounds.max_z);
     }
     bool off_navigation = false;
-    if (get(actor, player_field::owner_class) == 1 && (context.body_bits->bytes[4] & 0x10) == 0 &&
-        navigation_cell_index(i32(get(actor, player_field::floor)), position) == -1)
+    if (player_record(actor).owner_class == 1 && (context.body_bits->bytes[4] & 0x10) == 0 &&
+        navigation_cell_index(i32(player_record(actor).floor), position) == -1)
     {
         off_navigation = true;
     }
@@ -150,7 +150,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     std::span<u8> body = context.body.body;
     Actor& owner = context.body.owner;
     const RuntimeActorClock& clock = context.clock;
-    const u32 paused = i32(get(bytes, player_field::pause_count)) > 0 ? 1 : 0;
+    const u32 paused = i32(player_record(bytes).pause_count) > 0 ? 1 : 0;
     if (read_u32(context.input, 0) == 1)
     {
         reset_runtime_analog_input(context.input);
@@ -190,10 +190,10 @@ void update_runtime_player(RuntimePlayerUpdate& context)
         }
         if (context.mind.bytes != nullptr)
         {
-            context.mind_tick(context.mind, get(bytes, player_field::input_device));
+            context.mind_tick(context.mind, player_record(bytes).input_device);
         }
     }
-    context.body_tick(context.body_object, get(bytes, player_field::input_device));
+    context.body_tick(context.body_object, player_record(bytes).input_device);
     context.body_bits->bytes[0] &= 0xFB;
     context.body_bits->bytes[0] &= 0xF7;
     float step = runtime_frame_step(clock);
@@ -287,7 +287,7 @@ void update_runtime_player(RuntimePlayerUpdate& context)
     }
     else
     {
-        key = context.action_key(context.actions.second, get(context.owner_bytes, player_field::input_device));
+        key = context.action_key(context.actions.second, player_record(context.owner_bytes).input_device);
     }
     if (key != 0 && context.actions.table != nullptr)
     {
@@ -331,10 +331,10 @@ void update_runtime_player(RuntimePlayerUpdate& context)
             search = context.path_search;
             preferred = context.floor_hint != nullptr ? i32(context.floor_hint[0x19]) : -1;
         }
-        i32 floor = i32(get(bytes, player_field::floor));
+        i32 floor = i32(player_record(bytes).floor);
         const u32 changed = entity_detail::update_navigation_floor(position, floor, context.navigation, search,
-            preferred, get(bytes, player_field::owner_class) == 1 ? 1 : 0);
-        set(bytes, player_field::floor, u32(floor));
+            preferred, player_record(bytes).owner_class == 1 ? 1 : 0);
+        player_record(bytes).floor = u32(floor);
         if (changed != 0)
         {
             send_word(self, 0x24);
@@ -344,13 +344,13 @@ void update_runtime_player(RuntimePlayerUpdate& context)
             if (context.navigation != nullptr)
             {
                 entity_detail::release_navigation_cell_registration(context.navigation,
-                    get(bytes, player_field::floor));
+                    player_record(bytes).floor);
             }
         }
         else
         {
-            entity_detail::register_navigation_cells(context.navigation, position, i32(get(bytes, player_field::floor)),
-                radius, i32(get(bytes, player_field::outer_cells)));
+            entity_detail::register_navigation_cells(context.navigation, position, i32(player_record(bytes).floor),
+                radius, i32(player_record(bytes).outer_cells));
         }
     }
     RuntimePlayerBoundsCheck bounds{self, context.bounds, context.body_bits, context.ring, context.address_zero};

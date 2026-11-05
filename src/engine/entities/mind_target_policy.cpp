@@ -36,7 +36,7 @@ bool runtime_mind_target_is_eligible(std::span<const u8> mind,
     const u32 categories = get(mind, mind_field::target_categories);
     if (adjust_for_actor_state)
     {
-        if (get(actor_bytes, player_field::countdown_56) > 0.f || get(actor_bytes, player_field::provoked) != 0)
+        if (player_record(actor_bytes).countdown_56 > 0.f || player_record(actor_bytes).provoked != 0)
         {
             flags = (flags & 0xFFFFFFFBu) | 0x10;
         }

@@ -1,4 +1,5 @@
 #include "body_attachment_requests.h"
+#include "weapon_fields.h"
 #include <cstddef>
 #include "player_mind_targets.h"
 #include "body_message_helpers.h"
@@ -122,7 +123,7 @@ u8 runtime_body_attached_category(const RuntimeBodyAttachedActor* attached)
 {
     if (attached != nullptr)
     {
-        return attached->bytes[0x93D];
+        return weapon_base(attached->bytes).unk_93D;
     }
     return 0;
 }
@@ -136,7 +137,7 @@ bool runtime_attachment_request_matches(std::span<const u8> row,
     if (secondary != nullptr)
     {
         classification = classify_runtime_attached_actor(secondary->bytes, owner_class);
-        category = secondary->bytes[0x93D];
+        category = weapon_base(secondary->bytes).unk_93D;
     }
     else
     {

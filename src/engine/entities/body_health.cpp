@@ -11,7 +11,7 @@ namespace gbtg
 void initialize_runtime_body_health(std::span<u8> body, std::span<const u8> parameters,
     RuntimeBodyHealth& context)
 {
-    const u16 tag = get(context.actor, player_field::damage_class);
+    const u16 tag = player_record(context.actor).damage_class;
     float health;
     if (tag != 0 && context.curve[1] != context.curve[0])
     {

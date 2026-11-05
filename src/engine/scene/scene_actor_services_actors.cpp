@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include <cstddef>
 #include "../entities/body_fields.h"
 #include "../entities/player_fields.h"
 
@@ -85,7 +86,7 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
     RuntimePlayerUpdate update{
         player.self,
         player.input,
-        get(player.actor_bytes, player_field::input_device),
+        player_record(player.actor_bytes).input_device,
         input_activation,
         input_release,
         game.clock.frame,
@@ -726,8 +727,8 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::case_actors(
         mind.maximum_energy = i16(body_record(body).max_energy);
         mind.bits = owner->body_bits;
         view->tag = read_u16(owner->actor_bytes, 6);
-        void* marker = get(owner->actor_bytes, player_field::live) != 0
-                           ? static_cast<void*>(owner->actor_bytes.data() + 0xCE0)
+        void* marker = player_record(owner->actor_bytes).live != 0
+                           ? static_cast<void*>(owner->actor_bytes.data() + offsetof(PlayerRecord, live))
                            : nullptr;
         views.push_back(RuntimeScriptActorQueryView{owner->actor, view->tag, &view->mind, nullptr, marker});
         case_actor_views.push_back(std::move(view));
@@ -797,7 +798,7 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor
         // Actor +0x958 (the mind): +0xC the reference source (0x00028C10), +0x10 the target record whose +0x10
         // is its actor (flag 0x400).
         RuntimeScriptActorQueryReference* reference = nullptr;
-        if (get(owner->actor_bytes, player_field::mind) != 0)
+        if (player_record(owner->actor_bytes).mind != 0)
         {
             if (owner->mind.size() < 0x14)
             {
@@ -824,8 +825,8 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor
             }
             reference = &view->reference;
         }
-        void* marker = get(owner->actor_bytes, player_field::live) != 0
-                           ? static_cast<void*>(owner->actor_bytes.data() + 0xCE0)
+        void* marker = player_record(owner->actor_bytes).live != 0
+                           ? static_cast<void*>(owner->actor_bytes.data() + offsetof(PlayerRecord, live))
                            : nullptr;
         views.push_back(RuntimeScriptActorQueryView{owner->actor, view->tag, &view->mind, reference, marker});
     }

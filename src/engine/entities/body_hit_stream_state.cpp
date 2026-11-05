@@ -318,8 +318,8 @@ u16 drain_runtime_hit_stream(HitStreamState& state, u32& taken, RuntimeHitStream
     const auto counts = [&context]()
     {
         // Not a player (+0xCDC 2, or +0x93C), or one the scene lets be hurt (0x00028D50).
-        return (get(context.actor_bytes, player_field::mode) != 2 &&
-                get(context.actor_bytes, player_field::case_link) == 0) ||
+        return (player_record(context.actor_bytes).mode != 2 &&
+                player_record(context.actor_bytes).case_link == 0) ||
                context.damage_enabled();
     };
     if ((context.bits.bytes[0] & 0x80) == 0 && counts())

@@ -1,4 +1,5 @@
 #include "body_death_drops.h"
+#include <cstddef>
 #include "actor_transform.h"
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/sound_runtime.h"
@@ -12,31 +13,31 @@ namespace gbtg
 // Xbox 0x000286B0
 bool take_runtime_body_drop_names(std::span<u8> actor, char* name, char* variant)
 {
-    if (read_u32(actor, 0xBA0) != 0x5F646961)
+    if (read_u32(actor, offsetof(PlayerRecord, ghouly_box)) != 0x5F646961)
     {
         return false;
     }
-    const char* source = reinterpret_cast<const char*>(actor.data() + 0xBA0);
+    const char* source = reinterpret_cast<const char*>(actor.data() + offsetof(PlayerRecord, ghouly_box));
     char character;
     do
     {
         character = *source++;
         *name++ = character;
     } while (character != '\0');
-    source = reinterpret_cast<const char*>(actor.data() + 0xC20);
+    source = reinterpret_cast<const char*>(actor.data() + offsetof(PlayerRecord, ghouly_attributes));
     do
     {
         character = *source++;
         *variant++ = character;
     } while (character != '\0');
-    actor[0xBA0] = 0;
+    actor[offsetof(PlayerRecord, ghouly_box)] = 0;
     return true;
 }
 
 // Xbox 0x00135080
 void spawn_runtime_body_death_drop(RuntimeBodyDeathDrops& context)
 {
-    if (read_u32(context.actor_bytes, 0xBA0) == 0x5F646961)
+    if (read_u32(context.actor_bytes, offsetof(PlayerRecord, ghouly_box)) == 0x5F646961)
     {
         const Vec3 position = actor_world_position(context.actor);
         Vec3 euler = actor_world_euler(context.actor);
@@ -56,7 +57,7 @@ void spawn_runtime_body_death_drop(RuntimeBodyDeathDrops& context)
             char name[0x80];
             char variant[0x80];
             take_runtime_body_drop_names(context.actor_bytes, name, variant);
-            const i16 kind = std::bit_cast<i16>(get(context.actor_bytes, player_field::ghouly_kind));
+            const i16 kind = std::bit_cast<i16>(player_record(context.actor_bytes).ghouly_kind);
             FactoryObject object;
             if (kind == 0)
             {

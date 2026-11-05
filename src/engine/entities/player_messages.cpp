@@ -1,4 +1,5 @@
 #include "player_messages.h"
+#include <cstddef>
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
 #include "body_fields.h"
@@ -20,17 +21,10 @@ void put_u16(std::span<u8> bytes, size_t offset, u16 value)
     std::memcpy(bytes.data() + offset, &value, 2);
 }
 
-void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value.x, 4);
-    std::memcpy(bytes.data() + offset + 4, &value.y, 4);
-    std::memcpy(bytes.data() + offset + 8, &value.z, 4);
-}
-
 // Shared 0xA7/0xA9/0xAA gate: a name already starting with "aid_", or a busy +0xB9E word, rejects.
 bool spawn_slot_available(std::span<const u8> actor)
 {
-    return read_u32(actor, 0xBA0) != 0x5F646961 && get(actor, player_field::ghouly_count) == 0;
+    return read_u32(actor, offsetof(PlayerRecord, ghouly_box)) != 0x5F646961 && player_record(actor).ghouly_count == 0;
 }
 
 void copy_string(std::span<u8> actor, size_t offset, const char* text)
@@ -79,7 +73,7 @@ u16 first_goal_kind(const RuntimePlayerGoalRing* ring, std::span<const u8> addre
 
 bool player_or_mode_four(std::span<const u8> actor)
 {
-    const i16 mode = i16(get(actor, player_field::mode));
+    const i16 mode = i16(player_record(actor).mode);
     return mode == 1 || mode == 4;
 }
 }
@@ -117,12 +111,12 @@ u32 fade_runtime_player_animation_slot(AnimationController* controller, const Ac
 // Xbox 0x00019660
 void reset_runtime_player_attribute_timer(RuntimeBodyAttachedActor& actor, u8 value)
 {
-    actor.bytes[0x96D] = value;
-    actor.bytes[0x96F] = 0;
-    actor.bytes[0x970] = 0;
-    if (get(actor.bytes, player_field::countdown_55) > 0.0f)
+    player_record(actor.bytes).unk_96D = value;
+    player_record(actor.bytes).unk_96F = 0;
+    player_record(actor.bytes).unk_970 = 0;
+    if (player_record(actor.bytes).countdown_55 > 0.0f)
     {
-        put(actor.bytes, 0x974, 0);
+        put(actor.bytes, offsetof(PlayerRecord, countdown_55), 0);
         // Retail reuses its argument slot as the message, writing only the id.
         const std::array<u32, 1> message{0x55};
         actor.message(message);
@@ -169,10 +163,10 @@ void accept_runtime_player_spawn(std::span<u8> actor, GhoulySpawnMessage& messag
 {
     if (spawn_slot_available(actor))
     {
-        copy_string(actor, 0xBA0, message.name);
-        copy_string(actor, 0xC20, message.attributes);
-        spawn.active = actor[0xBA0]; // Native alias of the first name byte.
-        put_u16(actor, 0xB9C, 0);
+        copy_string(actor, offsetof(PlayerRecord, ghouly_box), message.name);
+        copy_string(actor, offsetof(PlayerRecord, ghouly_attributes), message.attributes);
+        spawn.active = actor[offsetof(PlayerRecord, ghouly_box)]; // Native alias of the first name byte.
+        player_record(actor).ghouly_kind = 0;
         message.result = 1;
         return;
     }
@@ -184,10 +178,10 @@ void accept_runtime_player_variant(std::span<u8> actor, GhoulyVariantMessage& me
 {
     if (spawn_slot_available(actor))
     {
-        copy_string(actor, 0xBA0, message.name);
-        spawn.active = actor[0xBA0];
-        actor[0xC20] = 0;
-        put_u16(actor, 0xB9C, 1);
+        copy_string(actor, offsetof(PlayerRecord, ghouly_box), message.name);
+        spawn.active = actor[offsetof(PlayerRecord, ghouly_box)];
+        actor[offsetof(PlayerRecord, ghouly_attributes)] = 0;
+        player_record(actor).ghouly_kind = 1;
         message.result = 1;
         return;
     }
@@ -200,10 +194,10 @@ void accept_runtime_player_alternate_variant(std::span<u8> actor, GhoulyVariantM
 {
     if (spawn_slot_available(actor))
     {
-        copy_string(actor, 0xBA0, message.name);
-        spawn.active = actor[0xBA0];
-        actor[0xC20] = 0;
-        put_u16(actor, 0xB9C, 2);
+        copy_string(actor, offsetof(PlayerRecord, ghouly_box), message.name);
+        spawn.active = actor[offsetof(PlayerRecord, ghouly_box)];
+        actor[offsetof(PlayerRecord, ghouly_attributes)] = 0;
+        player_record(actor).ghouly_kind = 2;
         message.result = 1;
         return;
     }
@@ -213,7 +207,7 @@ void accept_runtime_player_alternate_variant(std::span<u8> actor, GhoulyVariantM
 // Xbox 0x00028D50
 u8 runtime_player_can_resume_strategy(std::span<const u8> actor, const RuntimePlayerStrategyResume& context)
 {
-    const size_t group = (i16(get(actor, player_field::mode)) == 2 || get(actor, player_field::case_link) != 0) ? 1 : 0;
+    const size_t group = (i16(player_record(actor).mode) == 2 || player_record(actor).case_link != 0) ? 1 : 0;
     if (context.references[group] != 0)
     {
         return 0;
@@ -225,7 +219,7 @@ u8 runtime_player_can_resume_strategy(std::span<const u8> actor, const RuntimePl
 u8 runtime_player_strategy_decay_enabled(std::span<const u8> actor,
     const RuntimePlayerStrategyResume& context)
 {
-    const size_t group = (get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0) ? 1 : 0;
+    const size_t group = (player_record(actor).mode == 2 || player_record(actor).case_link != 0) ? 1 : 0;
     if (context.references[group] != 0)
     {
         return 0;
@@ -260,8 +254,8 @@ u32 handle_runtime_player_pause_message(std::span<u8> actor, u32 id, RuntimePlay
     {
     case 9:
     {
-        const i32 count = i32(get(actor, player_field::pause_count)) + 1;
-        put(actor, 0xCD8, u32(count));
+        const i32 count = i32(player_record(actor).pause_count) + 1;
+        player_record(actor).pause_count = u32(count);
         context.actor.parked_gate = count;
         if (count == 1)
         {
@@ -279,8 +273,8 @@ u32 handle_runtime_player_pause_message(std::span<u8> actor, u32 id, RuntimePlay
     }
     case 10:
     {
-        const i32 count = i32(get(actor, player_field::pause_count)) - 1;
-        put(actor, 0xCD8, u32(count));
+        const i32 count = i32(player_record(actor).pause_count) - 1;
+        player_record(actor).pause_count = u32(count);
         context.actor.parked_gate = count;
         if (count == 0 && context.strategy.bytes != nullptr && runtime_player_can_resume_strategy(actor, context.resume) != 0)
         {
@@ -305,9 +299,9 @@ void register_runtime_player_navigation(std::span<const u8> actor, RuntimePlayer
     const float radius = context.body_owner.radius_xz * body_record(context.body).radius_scale;
     if (radius != 0.0f)
     {
-        const Vec3 center = get(actor, player_field::start_position);
-        entity_detail::register_navigation_cells(context.records, center, i32(get(actor, player_field::floor)), radius,
-            i32(read_u32(actor, 0xCF0)));
+        const Vec3 center = player_record(actor).start_position;
+        entity_detail::register_navigation_cells(context.records, center, i32(player_record(actor).floor), radius,
+            i32(player_record(actor).outer_cells));
     }
 }
 
@@ -316,7 +310,7 @@ void activate_runtime_player(RuntimePlayerActivation& context)
 {
     auto actor = context.self.bytes;
     insert_after_first(context.world.mark, context.links[0]);
-    const i16 mode = i16(get(actor, player_field::mode));
+    const i16 mode = i16(player_record(actor).mode);
     if (mode == 1)
     {
         insert_after_first(context.world.alt, context.links[2]);
@@ -334,14 +328,14 @@ void activate_runtime_player(RuntimePlayerActivation& context)
         context.links[1].next = nullptr;
         // Raw +0x93C word and its native alias hold the predecessor's retail address.
         const u32 previous = context.address_of(tail);
-        put(actor, 0x93C, previous);
+        player_record(actor).case_link = previous;
         context.actor.mask_flag = i32(previous);
     }
     const Vec3 position = actor_world_position(context.actor);
-    put_vec3(actor, 0xCC0, position);
+    player_record(actor).start_position = position;
     context.actor.parked_pos = position;
     const Vec3 euler = actor_world_euler(context.actor);
-    put_vec3(actor, 0xCCC, euler);
+    player_record(actor).start_euler = euler;
     context.actor.parked_euler = euler;
     if (read_u16(actor, 0x1FC) != 0 && player_or_mode_four(actor))
     {
@@ -367,12 +361,12 @@ void activate_runtime_player(RuntimePlayerActivation& context)
         if (tag == context.excluded_tags[index])
         {
             // Inline copy of 0x00019660 with value 1.
-            actor[0x96D] = 1;
-            actor[0x96F] = 0;
-            actor[0x970] = 0;
-            if (get(actor, player_field::countdown_55) > 0.0f)
+            player_record(actor).unk_96D = 1;
+            player_record(actor).unk_96F = 0;
+            player_record(actor).unk_970 = 0;
+            if (player_record(actor).countdown_55 > 0.0f)
             {
-                put(actor, 0x974, 0);
+                put(actor, offsetof(PlayerRecord, countdown_55), 0);
                 const std::array<u32, 1> message{0x55};
                 context.self.message(message);
             }
@@ -381,14 +375,14 @@ void activate_runtime_player(RuntimePlayerActivation& context)
     }
     if (context.ring != nullptr && first_goal_kind(context.ring, context.address_zero) != 0)
     {
-        actor[0x98B] = 1;
+        player_record(actor).unk_98B = 1;
     }
     else
     {
         restore_runtime_player_script_overrides(context.self, context.overrides);
     }
     const Vec3 point = actor_world_position(context.actor);
-    put(actor, 0xCEC, u32(entity_detail::navigation_floor_index(point, -1, 0)));
+    player_record(actor).floor = u32(entity_detail::navigation_floor_index(point, -1, 0));
 }
 
 // Xbox 0x00028FC0

@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../entities/weapon_fields.h"
 #include <cstddef>
 #include "../entities/body_fields.h"
 
@@ -1775,7 +1776,7 @@ void SceneActorServices::send_player_through_exit(const Vec3& position, const Ve
             unbound("the player's held actor (body +0x48) has no view");
         }
         const u32 leaving = 1;
-        std::memcpy(held->bytes.data() + 0x9A4, &leaving, 4);
+        std::memcpy(held->bytes.data() + offsetof(WeaponBase, unk_9A4), &leaving, 4);
         let_go_runtime_player_attachment(instance.attachment); // 0x0001B6B0, EAX the player's +0x95C
     }
     std::array<u32, 9> message{};

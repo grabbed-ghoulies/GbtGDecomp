@@ -219,16 +219,16 @@ void tick_inner_force(RuntimeImpNinjaStrategy& context)
     const std::array<u32, 1> message{0x4A};
     context.actor_message(message); // Actor vtable +0xC.
     bits.bytes[7] |= 0x80;
-    if (get(actor_bytes, player_field::damage_class) != 0)
+    if (player_record(actor_bytes).damage_class != 0)
     {
         const u16 zero = 0;
-        std::memcpy(actor_bytes.data() + 0xCF4, &zero, 2);
+        player_record(actor_bytes).damage_class = zero;
     }
     const u16 row = find_runtime_player_tag_index(0x1C, context.tag_rows, context.tag_names); // 0x00133A50
-    std::memcpy(actor_bytes.data() + 0xCF4, &row, 2);
+    player_record(actor_bytes).damage_class = row;
     actor.damage_class = row; // Native alias of the actor +0xCF4 word.
     const u16 tag = 0x1C;
-    std::memcpy(actor_bytes.data() + 0xCF6, &tag, 2);
+    player_record(actor_bytes).tag = tag;
     if (context.damage_tables == nullptr)
     {
         throw Error("0x000B71D0 refills the big imp's health before the scene's damage tables are set");
@@ -438,7 +438,7 @@ void update_runtime_imp_ninja_strategy(RuntimeImpNinjaStrategy& context)
     const std::span<const u8> actor = goals.entry.actor_bytes;
     const u16 state = strategy_base(strategy).state;
     const bool provoked =
-        get(actor, player_field::countdown_56) > 0.f || get(actor, player_field::provoked) != 0; // DAT_0032B100.
+        player_record(actor).countdown_56 > 0.f || player_record(actor).provoked != 0; // DAT_0032B100.
     const RuntimeMindTarget* target = mind_target(context);
     u32 open = 0;
     if (target != nullptr)
@@ -447,7 +447,7 @@ void update_runtime_imp_ninja_strategy(RuntimeImpNinjaStrategy& context)
     }
     else
     {
-        open = get(actor, player_field::countdown_56) > 0.f ? 1u : u32(get(actor, player_field::provoked));
+        open = player_record(actor).countdown_56 > 0.f ? 1u : u32(player_record(actor).provoked);
     }
     fields_of(strategy).unk_C0 = open;
     update_runtime_base_strategy(goals); // 0x0002C130
@@ -511,7 +511,7 @@ void dispatch_runtime_imp_ninja_message(std::span<const u32> message, RuntimeImp
         {
             const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
             const u32 kind =
-                get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0 ? 1u : 0u;
+                player_record(actor_bytes).mode == 2 || player_record(actor_bytes).case_link != 0 ? 1u : 0u;
             if (goals.resume.references[kind] == 0 && goals.resume.decay_enabled[goals.resume.decay_index] != 0)
             {
                 // The first goal kind of the actor +0x980 ring; an empty ring reads the word at address zero.

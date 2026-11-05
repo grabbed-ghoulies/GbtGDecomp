@@ -1,4 +1,5 @@
 #include "strategy_target_selection.h"
+#include "weapon_fields.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "mind_request_fields.h"
@@ -36,7 +37,7 @@ std::span<const u8> strategy_of(RuntimePlayerStrategyGoals& context)
 // Actor +0x978 above zero (ordered) or the +0x969 byte.
 bool actor_hostile(std::span<const u8> actor)
 {
-    return get(actor, player_field::countdown_56) > 0.f || get(actor, player_field::provoked) != 0;
+    return player_record(actor).countdown_56 > 0.f || player_record(actor).provoked != 0;
 }
 
 // Actor +0x97E/+0x97C class filters; each word above one applies while hostile.
@@ -379,23 +380,23 @@ u32 runtime_strategy_abandons_target(const RuntimeMindTarget& target, RuntimeStr
     {
         return 0;
     }
-    if (actor[0x96C] != 0 && !disabled && target.body.case_actor != nullptr)
+    if (player_record(actor).unk_96C != 0 && !disabled && target.body.case_actor != nullptr)
     {
         return 0;
     }
-    if (actor[0x96D] != 0 || get(actor, player_field::countdown_55) > 0.f)
+    if (player_record(actor).unk_96D != 0 || player_record(actor).countdown_55 > 0.f)
     {
         return 1;
     }
-    if (actor[0x96F] != 0 && runtime_mind_target_case_actor(target) != nullptr)
+    if (player_record(actor).unk_96F != 0 && runtime_mind_target_case_actor(target) != nullptr)
     {
         return 1;
     }
-    if (actor[0x970] != 0 && runtime_mind_target_case_unavailable(target))
+    if (player_record(actor).unk_970 != 0 && runtime_mind_target_case_unavailable(target))
     {
         return 1;
     }
-    if (actor[0x96E] != 0)
+    if (player_record(actor).unk_96E != 0)
     {
         const i32 limit = i32(runtime_actor_attack_limit(context.attributes));
         if (count_runtime_energy_actors(context.active, context.goals.entry.address_zero) < limit)
@@ -781,7 +782,7 @@ bool select_runtime_strategy_roam_position(Vec3& output, float heading, float ra
     std::span<const u8> actor = goals.entry.actor_bytes;
     const float selected = randomize_runtime_navigation_heading(heading, width, goals.random);
     const Vec3 position = actor_world_position(goals.entry.actor);
-    RuntimeNavigationHeadingSearch search{position, i32(get(actor, player_field::floor)), range - 0.5f, range + 0.5f,
+    RuntimeNavigationHeadingSearch search{position, i32(player_record(actor).floor), range - 0.5f, range + 0.5f,
         goals.room, goals.entry.allowed, &output, 1, 0x1C, i16(read_u16(actor, 6)), goals.random,
         context.occupancy_initial};
     return search_runtime_navigation_headings(search, selected, std::bit_cast<float>(0x3E9C61AAu), 10);
@@ -1029,7 +1030,7 @@ float runtime_actor_body_gap(const Actor& first, const Actor& second, RuntimeStr
     const float reach = body_record(second_body).reach * second.radius_xz;
     float held_radius = 0.f;
     const u32 held = body_record(second_body).attached;
-    if (held != 0 && views.actor_bytes_at(held)[0x93D] == 1)
+    if (held != 0 && weapon_base(views.actor_bytes_at(held)).unk_93D == 1)
     {
         const Actor& weapon = *views.actor_at(held);
         if (weapon.model != nullptr && weapon.model->cpu.data() != nullptr)
@@ -1184,10 +1185,10 @@ bool runtime_strategy_target_watching_player(const RuntimeMindTarget& target)
         return false;
     }
     const std::span<const u8> actor = target.actor_bytes;
-    if (get(actor, player_field::live) == 0)
+    if (player_record(actor).live == 0)
     {
         return false;
     }
-    return get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0;
+    return player_record(actor).mode == 2 || player_record(actor).case_link != 0;
 }
 }

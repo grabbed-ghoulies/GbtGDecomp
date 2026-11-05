@@ -1,4 +1,6 @@
 #include "weapon_actor.h"
+#include "weapon_fields.h"
+#include "player_fields.h"
 #include <cstddef>
 #include "powerup_flags.h"
 #include "thrown_projectile.h"
@@ -939,7 +941,7 @@ void drop_runtime_weapon(RuntimeWeaponActor& weapon)
     {
         Actor& owner = *actor.spawn_owner;
         position = actor_world_position(owner); // 0x000412A0
-        floor = i32(read_u32(weapon.bytes_at(weapon.services.actor_address(owner)), 0xCEC));
+        floor = i32(player_record(weapon.bytes_at(weapon.services.actor_address(owner))).floor);
         // Message 0x59 asks the owner for the drop: +0x10 set gives the radii (+0xC / +0x10), a turn (+0x14)
         // and the lift (+0x18).
         std::array<u32, 0x42> query{};
@@ -985,7 +987,7 @@ void settle_runtime_weapon(RuntimeWeaponActor& weapon)
     {
         throw Error("0x001463D0 case 0x9B reads the floor of an owner at +0xD8C that is not set");
     }
-    const i32 floor = i32(read_u32(weapon.bytes_at(weapon.services.actor_address(*actor.spawn_owner)), 0xCEC));
+    const i32 floor = i32(player_record(weapon.bytes_at(weapon.services.actor_address(*actor.spawn_owner))).floor);
     float height = 0.f;
     if (!entity_detail::navigation_cell_height(floor, position, height)) // 0x00110BB0
     {
@@ -1832,7 +1834,7 @@ void dispatch_runtime_chair_weapon_message(RuntimeWeaponActor& weapon, std::span
         {
             Actor* owner = weapon.actor.spawn_owner; // +0xD8C.
             if (owner != nullptr && runtime_actor_is_live_player(*owner,
-                read_u32(weapon.bytes_at(weapon.services.actor_address(*owner)), 0xCE0))) // 0x00028D20
+                player_record(weapon.bytes_at(weapon.services.actor_address(*owner))).live)) // 0x00028D20
             {
                 // The scoreboard's weapon-only counter.
                 auto& hud = weapon.services.scoreboard;
@@ -2243,7 +2245,7 @@ void update_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state)
     // 0x000CF750: a chair a live player holds shows its uses on the HUD (0x0012DC80).
     if (const Actor* holder = weapon_holder(weapon.actor))
     {
-        if (read_u32(weapon.bytes_at(weapon.services.actor_address(*holder)), 0xCE0) != 0 &&
+        if (player_record(weapon.bytes_at(weapon.services.actor_address(*holder))).live != 0 &&
             (holder->mask_mode == 2 || holder->mask_flag != 0) && chair_of(weapon.bytes).total_uses != 0)
         {
             show_runtime_weapon_uses(weapon, i32(chair_of(weapon.bytes).uses), 7); // 0x0012DC80
@@ -2729,7 +2731,7 @@ bool runtime_weapon_draw_hidden(const RuntimeWeaponActor& weapon)
         return false;
     }
     // Hidden while a live player holds it and DAT_0050EA9C bit 2 is set.
-    if (read_u32(weapon.bytes_at(weapon.services.actor_address(*holder)), 0xCE0) == 0)
+    if (player_record(weapon.bytes_at(weapon.services.actor_address(*holder))).live == 0)
     {
         return false;
     }

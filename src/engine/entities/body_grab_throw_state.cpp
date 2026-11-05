@@ -503,7 +503,7 @@ void throw_runtime_grab_throw_victim(GrabThrowState& state, RuntimeGrabThrowStat
     std::array<u32, 3> release{0x57, context.actor_address, victim_address};
     context.message(context.actor_address, release); // The actor's vtable +0xC.
     auto& processor = victim.damage->processor;
-    const u16 actor_class = get(context.actor_bytes, player_field::damage_class);
+    const u16 actor_class = player_record(context.actor_bytes).damage_class;
     const bool victim_player = victim_actor.mask_mode == 2 || victim_actor.mask_flag != 0;
     u32 amount;
     if (victim_player && actor_class != 0)
@@ -514,7 +514,7 @@ void throw_runtime_grab_throw_victim(GrabThrowState& state, RuntimeGrabThrowStat
     {
         amount = u32(runtime_actor_damage_value(0x15, victim_actor.damage_class, processor.tables)); // 0x00028DA0
         const bool live =
-            runtime_actor_is_live_player(context.actor, get(context.actor_bytes, player_field::live)) // 0x00028D20
+            runtime_actor_is_live_player(context.actor, player_record(context.actor_bytes).live) // 0x00028D20
             && processor.player_damage != 0;
         if (amount != 0 && live)
         {

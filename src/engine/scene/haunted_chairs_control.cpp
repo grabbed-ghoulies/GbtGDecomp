@@ -1,4 +1,5 @@
 #include "haunted_chairs_control.h"
+#include "../entities/weapon_fields.h"
 #include "scene_controls.h"
 #include "scene_control_fields.h"
 #include "../camera/camera_body_slots.h"
@@ -32,7 +33,7 @@ bool chair_stands_free(Actor& chair, HauntedChairsControlServices& services)
         return false;
     }
     const auto bytes = services.actor_bytes(chair);
-    return bytes[0x93C] != 0 && read_u32(bytes, 0xAD0) == 0 && read_u32(bytes, 0xAC4) != 0;
+    return weapon_base(bytes).mask != 0 && weapon_base(bytes).spawn_blocked == 0 && weapon_base(bytes).spawn_point_count != 0;
 }
 
 // The marker record (DAT_0051108C: a count at +0, records from +8, each its size at +0) whose +6 id matches.
@@ -172,7 +173,7 @@ void show_runtime_haunted_chairs(const HauntedChairsControlState& control,
         actor_set_world_position(*chair, position); // 0x00041730, EDI chair, ESI position
         wrap_runtime_euler(euler, chair->euler); // 0x00105AA0, ESI euler, EDI chair +0x14
         chair->xform_valid = 0; // +0x2A8.
-        put_word(bytes, 0xAAC, 1);
+        weapon_base(bytes).was_held = 1;
         actor_refresh_transform(*chair); // 0x00040DE0
     }
 }

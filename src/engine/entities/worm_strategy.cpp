@@ -360,7 +360,7 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
     {
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
         const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
-        if (read_u32(actor_bytes, 0xCE4) != 0 && actor_bytes[0x96D] != 0)
+        if (player_record(actor_bytes).unk_CE4 != 0 && player_record(actor_bytes).unk_96D != 0)
         {
             reset_runtime_player_attribute_timer(goals.cleanup.actor, 0); // 0x00019660, EAX actor
         }
@@ -379,7 +379,7 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
         if (get(goals.entry.events.mind, mind_field::target_record) != 0 && strategy_base(strategy).pause_count == 0)
         {
             const u32 kind =
-                get(actor_bytes, player_field::mode) == 2 || get(actor_bytes, player_field::case_link) != 0 ? 1u : 0u;
+                player_record(actor_bytes).mode == 2 || player_record(actor_bytes).case_link != 0 ? 1u : 0u;
             if (goals.resume.references[kind] == 0 && goals.resume.decay_enabled[goals.resume.decay_index] != 0)
             {
                 // DAT_0050E764, DAT_0030F144[DAT_0051248C]. The first goal kind of the actor +0x980 ring; an empty

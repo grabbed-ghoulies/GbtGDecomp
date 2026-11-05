@@ -212,10 +212,10 @@ bool runtime_body_latches_block(std::span<const u8> body, const Actor& actor, u3
 bool runtime_body_can_receive_push(std::span<const u8> actor,
     std::span<const u8> source, i32 mode)
 {
-    const bool receiver = get(actor, player_field::live) != 0
-        && (get(actor, player_field::mode) == 2 || get(actor, player_field::case_link) != 0);
-    const bool sender = get(source, player_field::live) != 0
-        && (get(source, player_field::mode) == 2 || get(source, player_field::case_link) != 0);
+    const bool receiver = player_record(actor).live != 0
+        && (player_record(actor).mode == 2 || player_record(actor).case_link != 0);
+    const bool sender = player_record(source).live != 0
+        && (player_record(source).mode == 2 || player_record(source).case_link != 0);
     return mode == 1 && receiver && !sender;
 }
 

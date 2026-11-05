@@ -44,7 +44,7 @@ bool runtime_player_body_can_select_action(std::span<const u8> body,
     std::span<const u8> actor, const RuntimePlayerGoalRing* ring,
     const EntityBitBlock& flags, std::span<const u8> address_zero)
 {
-    if (i32(get(actor, player_field::pause_count)) > 0)
+    if (i32(player_record(actor).pause_count) > 0)
     {
         return false;
     }
@@ -391,7 +391,6 @@ float ease_runtime_body_angle(float target, float current, float minimum,
 void release_runtime_player_joint_motion(std::span<u8> body, std::span<u8*, 6> records)
 {
     u8* allocation = nullptr;
-    const u32 zero = 0;
     for (size_t index = 6; index != 0;)
     {
         --index;
@@ -412,7 +411,6 @@ void release_runtime_player_joint_motion(std::span<u8> body, std::span<u8*, 6> r
 void destroy_runtime_player_body(std::span<u8> body, RuntimeBodyShapeStorage& shapes,
     std::span<u8*, 6> records)
 {
-    const u32 zero = 0;
     if (shapes.selected_state != nullptr)
     {
         engine_heap_free(shapes.selected_state);
@@ -494,7 +492,6 @@ u8* append_runtime_player_joint_motion(std::span<const u8> parameters, u8*& curs
 void initialize_runtime_player_joint_motion(std::span<u8> body, std::span<const u8> parameters,
     RuntimePlayerBodyMotion& context)
 {
-    const u32 zero = 0;
     for (size_t i = 0; i < 6; ++i)
     {
         parent_body_record(body).joints[i].state = 0;

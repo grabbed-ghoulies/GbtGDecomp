@@ -660,7 +660,7 @@ void sweep_runtime_knockdown(KnockdownState& state, RuntimeKnockdownContext& con
     if (holder != 0)
     {
         const auto source = context.record_at(holder, 0xCF8);
-        player = get(source, player_field::mode) == 2 ? 1 : (get(source, player_field::case_link) != 0 ? 1 : 0);
+        player = player_record(source).mode == 2 ? 1 : (player_record(source).case_link != 0 ? 1 : 0);
     }
     Vec3 position = actor_world_position(actor);
     const float radius = float(static_cast<long double>(actor_model_sweep_radius(actor))
@@ -680,7 +680,7 @@ void sweep_runtime_knockdown(KnockdownState& state, RuntimeKnockdownContext& con
         return;
     }
     float damage = context.hit_damage[1];
-    const u16 tag = get(context.actor_bytes, player_field::damage_class);
+    const u16 tag = player_record(context.actor_bytes).damage_class;
     if (tag != 0)
     {
         const float low = float(i32(context.hit_bands[0]));
@@ -917,7 +917,7 @@ float runtime_floor_pitch(const Actor& actor, std::span<const u8> actor_bytes)
         float(static_cast<long double>(position.z) + retail_cos(behind) * reach)};
     Vec3 front{float(static_cast<long double>(position.x) + retail_sin(euler.y) * reach), position.y,
         float(static_cast<long double>(position.z) + retail_cos(euler.y) * reach)};
-    const i32 floor = i32(get(actor_bytes, player_field::floor));
+    const i32 floor = i32(player_record(actor_bytes).floor);
     const i32 back_cell = entity_detail::navigation_cell_index(floor, back);
     const i32 front_cell = entity_detail::navigation_cell_index(floor, front);
     if (back_cell == -1 || front_cell == -1 || back_cell == front_cell)
@@ -1105,8 +1105,8 @@ void fly_runtime_knockdown(KnockdownState& state, float timer, RuntimeKnockdownC
         if ((context.bits.bytes[5] & 2) != 0)
         {
             state.landing_point = body_record(body).ground_point;
-            body_record(body).unk_254 = entity_detail::navigation_surface_kind(i32(get(context.actor_bytes,
-                player_field::floor)),
+            body_record(body).unk_254
+                = entity_detail::navigation_surface_kind(i32(player_record(context.actor_bytes).floor),
                 state.landing_point);
         }
         else if (against)
@@ -1114,8 +1114,8 @@ void fly_runtime_knockdown(KnockdownState& state, float timer, RuntimeKnockdownC
             const std::span<const u8> record = sphere_record(
                 first_hit_runtime_body_sphere(body, context.spheres)); // 0x00025FE0
             state.landing_point = read_vec(record, 0);
-            body_record(body).unk_254 = entity_detail::navigation_surface_kind(i32(get(context.actor_bytes,
-                player_field::floor)),
+            body_record(body).unk_254
+                = entity_detail::navigation_surface_kind(i32(player_record(context.actor_bytes).floor),
                 state.landing_point); // 0x001117A0
         }
         else

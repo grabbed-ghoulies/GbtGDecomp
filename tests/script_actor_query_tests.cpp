@@ -141,7 +141,7 @@ void test_player_wait()
     const std::unordered_map<u32, Actor*> addresses{{0, nullptr}, {0x1000, &actor}};
     const std::array<u8, 2> address_zero{2, 0};
     RuntimeScriptActorQueryContext context{{}, address_zero.data()};
-    std::vector<u8> actor_bytes(0x988); // +0x984, the loading word.
+    std::vector<u8> actor_bytes(0xD00); // +0x984, the loading word.
     context.goals = [&](const Actor&)
     {
         return RuntimeScriptActorGoals{actor_bytes, actor.goal_ring};

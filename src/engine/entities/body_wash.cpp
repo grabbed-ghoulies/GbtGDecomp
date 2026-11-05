@@ -78,11 +78,11 @@ float runtime_body_health_fraction(std::span<const u8> body)
 // Xbox 0x0001E770
 bool runtime_body_actor_requires_wash(std::span<const u8> actor, const u8* bound)
 {
-    if (get(actor, player_field::goal_volume) != 0)
+    if (player_record(actor).goal_volume != 0)
     {
         return false;
     }
-    if (!(get(actor, player_field::countdown_56) > 0.f) && get(actor, player_field::provoked) == 0)
+    if (!(player_record(actor).countdown_56 > 0.f) && player_record(actor).provoked == 0)
     {
         return false;
     }

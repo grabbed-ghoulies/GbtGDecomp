@@ -1,4 +1,5 @@
 #include "player_mind_requests.h"
+#include "weapon_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
 #include "mind_request_fields.h"
@@ -54,7 +55,7 @@ void notify_runtime_player_mind_attachment_callout(RuntimeParentMindRequests& co
     const std::span<const u8>* action_target, u32 sender)
 {
     const auto* attached = context.attachment.actions.attached;
-    if (attached != nullptr && attached->bytes[0x93D] == 4
+    if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 4
         && (context.flags.bytes[5] & 0x80) != 0 && action_target != nullptr && !action_target->empty() // Mind +0x14.
         && read_u32(*action_target, 0x10) == sender)
     {
@@ -140,7 +141,7 @@ float runtime_player_target_radius(std::span<const u8> body, const Actor& body_a
     const float radius = body_actor.radius_xz;
     const float margin = body_record(body).reach * radius;
     float model_radius = 0.f;
-    const u8 category = attached == nullptr ? 0 : attached->bytes[0x93D];
+    const u8 category = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
     if (category == 1 && attached->actor->model != nullptr &&
         attached->actor->model->cpu.data() != nullptr)
     {

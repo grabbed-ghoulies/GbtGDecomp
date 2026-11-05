@@ -31,7 +31,7 @@ float distance_to_target(const u8* row, std::span<const u8> target)
 bool select_runtime_mind_escape_position(RuntimeMindEscapePosition& context,
     float heading, float minimum, float maximum, Vec3& output)
 {
-    if (get(context.actor_bytes, player_field::mind) == 0 || context.target.data() == nullptr)
+    if (player_record(context.actor_bytes).mind == 0 || context.target.data() == nullptr)
     {
         return false;
     }
@@ -101,7 +101,7 @@ bool select_runtime_mind_escape_position(RuntimeMindEscapePosition& context,
             return true;
         }
     }
-    const i32 floor = i32(get(context.actor_bytes, player_field::floor));
+    const i32 floor = i32(player_record(context.actor_bytes).floor);
     const i32 cell = entity_detail::navigation_cell_index(floor, position);
     if (cell == -1 || (entity_detail::g_nav_grids[floor]->cells[size_t(cell)].flags_7 & 8) != 0)
     {
@@ -118,7 +118,7 @@ bool select_runtime_mind_escape_position(RuntimeMindEscapePosition& context,
             ++index;
         }
         while (index < 5);
-        position = {get(context.actor_bytes, player_field::start_position)};
+        position = {player_record(context.actor_bytes).start_position};
         return entity_detail::select_navigation_spawn_position(floor, nullptr, position, 0.f,
             maximum, nullptr, context.allowed, 0xE, i16(context.actor.class_key), output,
             context.random, context.occupancy_initial);

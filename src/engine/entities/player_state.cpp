@@ -84,8 +84,8 @@ void change_runtime_actor_pause(u8 mask, i32 release, RuntimeActorPauseGroups& g
             while (node != nullptr)
             {
                 RuntimePauseActor* next = node->next;
-                const size_t group = get(node->actor, player_field::mode) == 2 ||
-                    get(node->actor, player_field::case_link) != 0 ? 1 : 0;
+                const size_t group = player_record(node->actor).mode == 2 ||
+                    player_record(node->actor).case_link != 0 ? 1 : 0;
                 if (group == i)
                 {
                     node->message(message);

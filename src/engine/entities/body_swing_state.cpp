@@ -121,7 +121,7 @@ void send_weapon(RuntimeSwingStateContext& context, u32 weapon, std::initializer
 // Actor +0x958 -> +0x18: the weapon the mind chose, or 0.
 u32 mind_weapon(RuntimeSwingStateContext& context)
 {
-    return context.pickup.mind.empty() ? 0 : get(context.pickup.mind, mind_field::action_actor);
+    return context.pickup.mind.empty() ? 0 : mind_record(context.pickup.mind).action_actor;
 }
 
 // Body +0x48: the attached actor's address, or 0.

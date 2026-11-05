@@ -42,11 +42,11 @@ bool runtime_body_target_state_flagged(std::span<const u8> body, const EntityBit
 // Xbox 0x001413C0
 bool runtime_mind_target_requires_action(const RuntimeMindTarget& target, std::span<const u8> body)
 {
-    if ((get(target.bytes, mind_target_field::flags) & 8) != 0)
+    if ((mind_target_record(target.bytes).flags & 8) != 0)
     {
         return true;
     }
-    switch (get(target.bytes, mind_target_field::kind))
+    switch (mind_target_record(target.bytes).kind)
     {
     case 0:
     {
@@ -124,7 +124,7 @@ bool runtime_player_keeps_held_target(const RuntimeMindTarget* target,
     const RuntimePlayerAttachmentEligibility& body, const Actor& origin,
     float heading, float* angle, float angular_limit)
 {
-    if (target != nullptr && target->bytes[0x14] == 0 && target->body.energy != 0
+    if (target != nullptr && mind_target_record(target->bytes).kind == 0 && target->body.energy != 0
         && body.attached != nullptr && weapon_base(body.attached->bytes).unk_93D == 4)
     {
         if (runtime_body_bit_set(body.flags, 0x2F))
@@ -328,12 +328,12 @@ RuntimeMindTarget* find_runtime_mind_target_in_angle(const Actor& source,
         if ((include_class == 0 || target->actor.class_key == include_class)
             && (exclude_class == 0 || target->actor.class_key != exclude_class)
             && &target->actor != &source
-            && (category_mask & (1u << (target->bytes[0x14] & 31))) != 0
+            && (category_mask & (1u << (mind_target_record(target->bytes).kind & 31))) != 0
             && runtime_mind_target_allowed(*target, predicate_flags))
         {
-            const float reach = get(target->bytes, mind_target_field::shape_radius) + radius;
-            const Vec3 position{get(target->bytes, mind_target_field::shape_position).x,
-                get(target->bytes, mind_target_field::shape_position).y, get(target->bytes, mind_target_field::shape_position).z};
+            const float reach = mind_target_record(target->bytes).shape.radius + radius;
+            const Vec3 position{mind_target_record(target->bytes).shape.position.x,
+                mind_target_record(target->bytes).shape.position.y, mind_target_record(target->bytes).shape.position.z};
             RuntimeMindTargetScore score;
             score_runtime_mind_target(origin, position, heading, half_angle, reach, score);
             if (reach > score.distance && half_angle > score.relative_angle
@@ -366,7 +366,7 @@ Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context)
 {
     Actor* target = context.target;
     Actor* const previous = target;
-    const u32 previous_mode = get(context.mind, mind_field::target_mode);
+    const u32 previous_mode = mind_record(context.mind).target_mode;
     u32 mode = previous_mode;
     bool restore_previous;
     bool search_near;
@@ -448,13 +448,13 @@ Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context)
     }
     context.target = target;
     const u32 address = target == nullptr ? 0 : context.addresses.at(target);
-    set(context.mind, mind_field::target, address);
-    if (mode != get(context.mind, mind_field::target_mode)
-        && get(context.mind, mind_field::unk_38) > get(context.mind, mind_field::unk_34))
+    mind_record(context.mind).target = address;
+    if (mode != mind_record(context.mind).target_mode
+        && mind_record(context.mind).unk_38 > mind_record(context.mind).unk_34)
     {
-        set(context.mind, mind_field::unk_34, get(context.mind, mind_field::unk_38));
+        mind_record(context.mind).unk_34 = mind_record(context.mind).unk_38;
     }
-    set(context.mind, mind_field::target_mode, u8(mode));
+    mind_record(context.mind).target_mode = u8(mode);
     return target;
 }
 
@@ -498,7 +498,7 @@ Actor* select_runtime_player_near_actor(Actor& requester, float& distance,
 // Xbox 0x001414C0
 bool runtime_mind_target_is_controlled_player(const RuntimeMindTarget& target)
 {
-    if (get(target.bytes, mind_target_field::kind) != 0)
+    if (mind_target_record(target.bytes).kind != 0)
     {
         return false;
     }
@@ -513,7 +513,7 @@ bool runtime_mind_target_is_controlled_player(const RuntimeMindTarget& target)
 bool runtime_player_mind_saved_path_clear(const Actor& actor, std::span<const u8> mind,
     const OccupancyRecord* occupancy, const OccupancyRecord* allowed, u16 owner_class)
 {
-    const Vec3 point(get(mind, mind_field::goal_point));
+    const Vec3 point(mind_record(mind).goal_point);
     if (occupancy == nullptr)
     {
         const Vec3 position = actor_world_position(actor);
@@ -531,7 +531,7 @@ bool runtime_player_mind_saved_path_clear(const Actor& actor, std::span<const u8
 bool runtime_mind_target_occupancy_differs(const RuntimeMindTarget& target,
     u16 owner_class, const OccupancyRecord* allowed)
 {
-    if (get(target.bytes, mind_target_field::kind) == 0 && target.occupancy != nullptr
+    if (mind_target_record(target.bytes).kind == 0 && target.occupancy != nullptr
         && target.occupancy != allowed
         && (owner_class == 0 || target.occupancy->group == 0
             || u16(target.occupancy->group) == owner_class))
@@ -544,23 +544,23 @@ bool runtime_mind_target_occupancy_differs(const RuntimeMindTarget& target,
 // Xbox 0x00129920
 bool runtime_mind_target_allowed(const RuntimeMindTarget& target, u32 flags)
 {
-    if (get(target.bytes, mind_target_field::unk_18) != 0
-        || ((flags & 4) != 0 && (get(target.bytes, mind_target_field::flags) & 1) == 0)
-        || ((flags & 8) == 0 && get(target.bytes, mind_target_field::hold) != 0))
+    if (mind_target_record(target.bytes).unk_18 != 0
+        || ((flags & 4) != 0 && (mind_target_record(target.bytes).flags & 1) == 0)
+        || ((flags & 8) == 0 && mind_target_record(target.bytes).hold != 0))
     {
         return false;
     }
-    if ((flags & 0x10) != 0 && get(target.bytes, mind_target_field::kind) == 0 && script_actor_is_active(target.actor))
+    if ((flags & 0x10) != 0 && mind_target_record(target.bytes).kind == 0 && script_actor_is_active(target.actor))
     {
         return false;
     }
-    if (((flags & 0x200) != 0 && (get(target.bytes, mind_target_field::flags) & 4) != 0) ||
-        ((flags & 0x400) != 0 && get(target.bytes, mind_target_field::kind) == 0 &&
+    if (((flags & 0x200) != 0 && (mind_target_record(target.bytes).flags & 4) != 0) ||
+        ((flags & 0x400) != 0 && mind_target_record(target.bytes).kind == 0 &&
          player_record(target.actor_bytes).goal_volume != 0))
     {
         return false;
     }
-    if ((flags & 0x800) != 0 && get(target.bytes, mind_target_field::kind) == 0 && script_mind_test_bit(target.body, 0x1B))
+    if ((flags & 0x800) != 0 && mind_target_record(target.bytes).kind == 0 && script_mind_test_bit(target.body, 0x1B))
     {
         return false;
     }
@@ -573,14 +573,16 @@ bool runtime_mind_target_reachable(const Actor& source, const OccupancyRecord* a
 {
     if ((flags & 0x20) != 0)
     {
-        Vec3 destination{get(target.bytes, mind_target_field::shape_position).x, get(target.bytes, mind_target_field::shape_position).y, get(target.bytes, mind_target_field::shape_position).z};
+        Vec3 destination{mind_target_record(target.bytes).shape.position.x,
+            mind_target_record(target.bytes).shape.position.y, mind_target_record(target.bytes).shape.position.z};
         const Vec3 position = actor_world_position(source);
-        const Vec3 delta{get(target.bytes, mind_target_field::shape_position).x - position.x,
-            get(target.bytes, mind_target_field::shape_position).y - position.y, get(target.bytes, mind_target_field::shape_position).z - position.z};
+        const Vec3 delta{mind_target_record(target.bytes).shape.position.x - position.x,
+            mind_target_record(target.bytes).shape.position.y - position.y,
+                mind_target_record(target.bytes).shape.position.z - position.z};
         float angle;
         runtime_direction_angle(delta, angle);
         angle = float(static_cast<long double>(angle) + std::bit_cast<float>(0x40490FDBu));
-        const float radius = get(target.bytes, mind_target_field::shape_radius);
+        const float radius = mind_target_record(target.bytes).shape.radius;
         const float sine = float(retail_sin(angle));
         destination.x = sine * radius + destination.x;
         destination.z = float(retail_cos(angle) * static_cast<long double>(radius)
@@ -593,7 +595,7 @@ bool runtime_mind_target_reachable(const Actor& source, const OccupancyRecord* a
             return false;
         }
     }
-    if ((flags & 0x80) != 0 && get(target.bytes, mind_target_field::kind) == 0 && target.occupancy != nullptr
+    if ((flags & 0x80) != 0 && mind_target_record(target.bytes).kind == 0 && target.occupancy != nullptr
         && target.occupancy != allowed
         && (source.class_key == 0 || target.occupancy->group == 0 || u16(target.occupancy->group) == source.class_key))
     {
@@ -615,12 +617,12 @@ RuntimeMindTarget* find_runtime_mind_target(const Actor& source, const Occupancy
         if ((include_class == 0 || target->actor.class_key == include_class)
             && (exclude_class == 0 || target->actor.class_key != exclude_class)
             && &target->actor != &source
-            && (category_mask & (1u << (target->bytes[0x14] & 31))) != 0
+            && (category_mask & (1u << (mind_target_record(target->bytes).kind & 31))) != 0
             && runtime_mind_target_allowed(*target, predicate_flags))
         {
-            const float x = position.x - get(target->bytes, mind_target_field::shape_position).x;
-            const float y = position.y - get(target->bytes, mind_target_field::shape_position).y;
-            const float z = position.z - get(target->bytes, mind_target_field::shape_position).z;
+            const float x = position.x - mind_target_record(target->bytes).shape.position.x;
+            const float y = position.y - mind_target_record(target->bytes).shape.position.y;
+            const float z = position.z - mind_target_record(target->bytes).shape.position.z;
             const float squared = z * z + x * x + y * y;
             if ((chosen == nullptr || best > squared)
                 && runtime_mind_target_reachable(source, allowed, *target, predicate_flags))

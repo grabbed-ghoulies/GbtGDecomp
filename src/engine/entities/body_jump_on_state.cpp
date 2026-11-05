@@ -117,7 +117,7 @@ const MinaPlayer* first_player(RuntimeJumpOnStateContext& context)
 // 0x00028C30: the mind's target record, or 0 without a mind.
 u32 mind_target(RuntimeJumpOnStateContext& context)
 {
-    return context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
+    return context.mind.empty() ? 0u : mind_record(context.mind).target_record;
 }
 
 // Mind +0x10's record +0x10: the target actor (the record read through address zero without one).
@@ -997,8 +997,8 @@ void steer_runtime_ride_host(JumpOnRide& ride, RuntimeJumpOnStateContext& contex
     {
         throw Error("0x00099AD0 steers a host with no mind");
     }
-    set(host.mind, mind_field::gaze_point_set, 1);
-    set(host.mind, mind_field::gaze_point, Vec3{point.x + direction.x, direction.y + point.y, point.z + direction.z});
+    mind_record(host.mind).gaze_point_set = 1;
+    mind_record(host.mind).gaze_point = Vec3{point.x + direction.x, direction.y + point.y, point.z + direction.z};
 }
 
 // Xbox 0x00099C40
@@ -1070,7 +1070,7 @@ void attach_runtime_ride(RuntimeJumpOnStateContext& context)
     {
         throw Error("0x00099DF0 clears the chosen actor of a target with no mind");
     }
-    set(target.mind, mind_field::target, 0);
+    mind_record(target.mind).target = 0;
     normalize_euler_angles(context.actor.euler, context.default_euler); // 0x00105AA0, ESI DAT_0050DD74
     context.actor.xform_valid = 0; // Actor +0x2A8.
     const Vec3 euler = actor_world_euler(context.actor); // 0x00041820, EDI body +0x72C

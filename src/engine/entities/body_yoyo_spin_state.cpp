@@ -80,11 +80,12 @@ void begin_hold(YoyoSpinState& state, RuntimeYoYoSpinStateContext& context)
 void aim_runtime_yoyo_spin(YoyoSpinState& state, RuntimeYoYoSpinStateContext& context)
 {
     const std::span<const u8> mind = context.mind;
-    if (mind.data() != nullptr && get(mind, mind_field::target_record) != 0)
+    if (mind.data() != nullptr && mind_record(mind).target_record != 0)
     {
-        const std::span<const u8> target = context.target_at(get(mind, mind_field::target_record));
-        Vec3 aim{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
-        aim.y = get(target, mind_target_field::shape_height) * .5f + aim.y; // DAT_0032B0F4.
+        const std::span<const u8> target = context.target_at(mind_record(mind).target_record);
+        Vec3 aim{mind_target_record(target).shape.position.x, mind_target_record(target).shape.position.y,
+            mind_target_record(target).shape.position.z};
+        aim.y = mind_target_record(target).shape.height * .5f + aim.y; // DAT_0032B0F4.
         state.aim = aim;
         return;
     }

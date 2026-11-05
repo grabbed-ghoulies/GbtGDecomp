@@ -461,7 +461,7 @@ void land_runtime_baron_plane(RuntimeBaronPlaneStrategy& context)
         runtime_marker_position(id, position, markers); // 0x0011F260
     }
     const std::span<u8> mind = mind_of(context);
-    set(mind, mind_field::goal_point, position);
+    mind_record(mind).goal_point = position;
     load_goal(context.goal_land, context);
 }
 

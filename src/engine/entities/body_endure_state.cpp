@@ -185,7 +185,7 @@ void tick_runtime_endure_state(EndureState& state, RuntimeEndureStateContext& co
     case 2:
     {
         bool holding = false;
-        if (!context.mind.empty() && get(context.mind, mind_field::target_record) != 0)
+        if (!context.mind.empty() && mind_record(context.mind).target_record != 0)
         {
             holding = state.hits < state.needed_hits;
         }
@@ -243,7 +243,7 @@ void message_runtime_endure_state(EndureState& state, std::span<const u32> messa
         {
             return;
         }
-        const u32 target = get(context.mind, mind_field::target_record);
+        const u32 target = mind_record(context.mind).target_record;
         if (target != 0 && message[1] == read_u32(context.target_at(target), 0x10))
         {
             state.hits = state.needed_hits;

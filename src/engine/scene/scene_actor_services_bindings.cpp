@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../entities/mind_fields.h"
 #include <cstddef>
 #include "../entities/body_fields.h"
 #include "../entities/player_fields.h"
@@ -1376,9 +1377,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             unbound("hit state whose body has no player owner");
         }
         std::span<const u8> target;
-        if (!player->mind.empty() && get(player->mind, mind_field::action_record) != 0)
+        if (!player->mind.empty() && mind_record(player->mind).action_record != 0)
         {
-            target = target_views.at(get(player->mind, mind_field::action_record))->bytes;
+            target = target_views.at(mind_record(player->mind).action_record)->bytes;
         }
         return RuntimeHitStateLifecycle{player->body, player->actor, player->actor_bytes, player->body_flags, target};
     },
@@ -4616,7 +4617,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             if (&player->links[2] == node)
             {
-                const u32 record = get(player->mind, mind_field::target_record);
+                const u32 record = mind_record(player->mind).target_record;
                 RuntimeMindTarget* target = players->bindings.scene.target_at(record);
                 if (target == nullptr)
                 {

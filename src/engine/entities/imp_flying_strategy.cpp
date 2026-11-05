@@ -98,7 +98,7 @@ RuntimeMindTarget* mind_target(RuntimeImpFlyingStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = get(mind, mind_field::target_record);
+    const u32 target = mind_record(mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -134,11 +134,6 @@ bool attacking(RuntimeImpFlyingStrategy& context)
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, 12);
 }
 
 // A countdown by the actor's step that stops at zero.
@@ -201,7 +196,7 @@ void end_dive_effect(RuntimeImpFlyingStrategy& context)
 void hover_at(float height, RuntimeImpFlyingStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    put_vec3(mind_of(context), 0x70, actor_world_position(goals.entry.actor)); // 0x000412A0
+    mind_record(mind_of(context)).goal_point = actor_world_position(goals.entry.actor); // 0x000412A0
     fields_of(strategy_of(context)).high = 0u;
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest* move = allocate_runtime_mind_request(mind.anchor, 0xF, mind.sizes); // 0x00029D90, EBX 0xF
@@ -272,7 +267,7 @@ void hover_around(bool low, RuntimeImpFlyingStrategy& context)
         }
         ++seen;
     }
-    put_vec3(mind, 0x70, candidates[size_t(chosen)].point);
+    mind_record(mind).goal_point = candidates[size_t(chosen)].point;
     RuntimeMindGoalContext& requests = goals.entry.goals;
     RuntimePlayerMindRequest* face
         = allocate_runtime_mind_request(requests.anchor, 0x25, requests.sizes); // 0x00029D90, EBX 0x25

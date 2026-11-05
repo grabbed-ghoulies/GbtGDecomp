@@ -204,7 +204,7 @@ void select_runtime_struggle_key(StruggleState& state, RuntimeStruggleTick& cont
         }
         state.base.next_key = key;
     }
-    if (context.mind.empty() || get(context.mind, mind_field::target_mode) == 0)
+    if (context.mind.empty() || mind_record(context.mind).target_mode == 0)
     {
         const u16 idle = state.idle_key;
         if (idle != 0)
@@ -232,10 +232,10 @@ void tick_runtime_struggle_state(StruggleState& state, RuntimeStruggleTick& cont
         runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     state.base.elapsed = elapsed;
     bool targeted = false;
-    if (!context.mind.empty() && get(context.mind, mind_field::target_mode) != 0
-        && get(context.mind, mind_field::target) != 0)
+    if (!context.mind.empty() && mind_record(context.mind).target_mode != 0
+        && mind_record(context.mind).target != 0)
     {
-        const Vec3 point = context.target_position(get(context.mind, mind_field::target));
+        const Vec3 point = context.target_position(mind_record(context.mind).target);
         std::memcpy(body.data() + offsetof(BodyRecord, focus_point.x), &point, 12);
         targeted = true;
     }

@@ -1,4 +1,5 @@
 #pragma once
+#include "mind_fields.h"
 #include "input_tracking_record.h"
 #include "player_mind_requests.h"
 #include "../frontend/dialogue_input.h"
@@ -93,16 +94,8 @@ void transform_runtime_player_mind_input(std::span<const u8> body, u32 invert,
     RuntimeInputAxisWriteDevice& writable, std::span<u8> keyboard,
     const Vec3& camera_direction); // Xbox 0x0007EE40
 // The struggle states' and the boost's input tracking (0x18 bytes, 0x00109810): how hard the stick is being worked.
-namespace input_tracking_field
-{
-constexpr RetailField<std::array<float, 2>, 0x00> axes{}; // the last tick's
-constexpr RetailField<float, 0x08> activity{}; // rises while the stick moves, up to 1
-constexpr RetailField<float, 0x0C> accumulation{}; // rises up to the preset's cap
-constexpr RetailField<float, 0x10> hold_timer{}; // the state flips once it runs out
-constexpr RetailField<u32, 0x14> state{}; // 1 waits for full activity, 2 for none
-constexpr u32 kSize = 0x18;
-} // namespace input_tracking_field
-static_assert(sizeof(InputTrackingRecord) == input_tracking_field::kSize);
+GBTG_MIND_VIEW(input_tracking_record, InputTrackingRecord)
+static_assert(sizeof(InputTrackingRecord) == sizeof(InputTrackingRecord));
 
 // The tracking's preset (0x10 bytes).
 namespace input_tracking_preset_field
@@ -115,29 +108,58 @@ constexpr RetailField<float, 0xC> cap{}; // the accumulation's
 
 // The player mind's stick tracking (+0x94, 0x20 bytes; 0x0007D460, 0x0007D5A0): presses, the direction and a
 // push-and-release gesture.
-namespace stick_tracking_field
+struct StickTrackingRecord
 {
-constexpr RetailField<u32, 0x00> pressed{};
-constexpr RetailField<u32, 0x04> state{}; // 1 released, 2 held
-constexpr RetailField<float, 0x08> press_timer{}; // 0.2 at a press
-constexpr RetailField<float, 0x0C> unk_0C{}; // cleared at a press, decays
-constexpr RetailField<float, 0x10> direction{};
-constexpr RetailField<float, 0x14> magnitude{}; // the last tick's
-constexpr RetailField<float, 0x18> gesture_time{};
-constexpr RetailField<u32, 0x1C> gesture{}; // 0 idle, 1 pushing, 2 easing off, 3 held
-constexpr u32 kSize = 0x20;
-} // namespace stick_tracking_field
+    u32 pressed = 0; // +0
+    u32 state = 0; // +0x4, 1 released, 2 held
+    float press_timer = 0.f; // +0x8, 0.2 at a press
+    float unk_0C = 0.f; // +0xC, cleared at a press, decays
+    float direction = 0.f; // +0x10
+    float magnitude = 0.f; // +0x14, the last tick's
+    float gesture_time = 0.f; // +0x18
+    u32 gesture = 0; // +0x1C, 0 idle, 1 pushing, 2 easing off, 3 held
+};
+static_assert(sizeof(StickTrackingRecord) == 0x20);
+GBTG_MIND_VIEW(stick_record, StickTrackingRecord)
 
 // The player mind's own part after the base mind (0x7C bytes): the target its requests went to, and the stick.
-namespace player_mind_field
+struct PlayerMindRecord
 {
-constexpr RetailField<u32, 0x88> target{}; // the actor the last target request reached, by address
-constexpr RetailField<float, 0x8C> target_timer{}; // clears target_count when it runs out
-constexpr RetailField<u8, 0x90> target_count{}; // the requests that reached the target
-constexpr RetailRecord<0x94, stick_tracking_field::kSize> stick{}; // stick_tracking_field
-constexpr RetailField<u32, 0xB4> attachment_noticed{}; // the attachment notice was raised for this target
-constexpr RetailField<float, 0x15C> control_lock{}; // positive: the player can't act on targets
-} // namespace player_mind_field
+    MindRecord base{}; // +0
+    u32 unk_7C = 0; // +0x7C, a message's actor; the feedback tests it
+    u32 unk_80 = 0; // +0x80, parameters +0xA0
+    u32 unk_84 = 0; // +0x84, a source by address; messages naming it clear it (0x00140A40)
+    u32 target = 0; // +0x88, the actor the last target request reached, by address
+    float target_timer = 0.f; // +0x8C, clears target_count when it runs out
+    u8 target_count = 0; // +0x90, the requests that reached the target
+    std::array<u8, 3> unk_91{}; // +0x91, padding
+    StickTrackingRecord stick{}; // +0x94
+    u32 attachment_noticed = 0; // +0xB4, the attachment notice was raised for this target
+    MindTargetRecord own_target{}; // +0xB8, the record a player mind targets itself through
+    float unk_120 = 0.f; // +0x120
+    u32 unk_124 = 0; // +0x124
+    float unk_128 = 0.f; // +0x128
+    float unk_12C = 0.f; // +0x12C
+    float unk_130 = 0.f; // +0x130
+    u32 unk_134 = 0; // +0x134
+    Vec3 unk_138{}; // +0x138
+    u32 unk_144 = 0; // +0x144
+    float unk_148 = 0.f; // +0x148
+    float unk_14C = 0.f; // +0x14C
+    u32 unk_150 = 0; // +0x150
+    u32 unk_154 = 0; // +0x154
+    std::array<u8, 4> unk_158{}; // +0x158, never read or written by translated code
+    float control_lock = 0.f; // +0x15C, positive: the player can't act on targets
+    std::array<u8, 0x14> unk_160{}; // +0x160, never read or written by translated code
+    u32 unk_174 = 0; // +0x174
+    std::array<u8, 0x14> unk_178{}; // +0x178, never read or written by translated code
+    u32 unk_18C = 0; // +0x18C
+    float unk_190 = 0.f; // +0x190
+    u32 unk_194 = 0; // +0x194
+};
+static_assert(sizeof(PlayerMindRecord) == 0x198);
+
+GBTG_MIND_VIEW(player_mind_record, PlayerMindRecord)
 
 void update_runtime_player_input_tracking(std::span<u8> tracking,
     const std::array<float, 2>& axes, std::span<const u8> preset,

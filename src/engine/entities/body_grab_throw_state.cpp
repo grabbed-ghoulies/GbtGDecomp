@@ -142,7 +142,7 @@ bool initialize_runtime_grab_throw_state(GrabThrowState& state, std::span<const 
     RuntimeGrabThrowStateContext& context)
 {
     const std::span<u8> body = context.body;
-    const u32 record = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
+    const u32 record = context.mind.empty() ? 0u : mind_record(context.mind).target_record;
     if (record == 0)
     {
         throw Error("grab and throw state 0x00094800 reads the mind's target record through address zero");
@@ -159,7 +159,7 @@ bool initialize_runtime_grab_throw_state(GrabThrowState& state, std::span<const 
     state.hand_radius = 0.f;
     if (target[0x14] == 0)
     {
-        state.victim = get(target, mind_target_field::actor);
+        state.victim = mind_target_record(target).actor;
     }
     const u16 key = read_u16(context.actor_bytes, 0x1FC);
     if (key != 0)
@@ -206,7 +206,8 @@ bool initialize_runtime_grab_throw_state(GrabThrowState& state, std::span<const 
     {
         state.abandoned = 1u;
     }
-    const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
+    const Vec3 point{mind_target_record(target).shape.position.x, mind_target_record(target).shape.position.y,
+        mind_target_record(target).shape.position.z};
     i32 last_cell = 0;
     if (!entity_detail::navigation_path_clear(actor_world_position(context.actor), point, 1, 0, 0, 0, nullptr,
             &last_cell, i16(read_u16(context.actor_bytes, 6)))) // 0x0012CC50, EAX the actor's point
@@ -245,7 +246,7 @@ void tick_runtime_grab_throw_state(GrabThrowState& state, RuntimeGrabThrowStateC
 {
     const std::span<u8> body = context.body;
     Actor& actor = context.actor;
-    const u32 record = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
+    const u32 record = context.mind.empty() ? 0u : mind_record(context.mind).target_record;
     state.base.elapsed = runtime_actor_rate(actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     level_body_euler(body);
     if (state.thrown == 0)
@@ -253,7 +254,8 @@ void tick_runtime_grab_throw_state(GrabThrowState& state, RuntimeGrabThrowStateC
         if (state.grabbed == 0 && record != 0)
         {
             const std::span<const u8> target = context.target_record(record);
-            const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
+            const Vec3 point{mind_target_record(target).shape.position.x,
+                mind_target_record(target).shape.position.y, mind_target_record(target).shape.position.z};
             i32 last_cell = 0;
             if (!entity_detail::navigation_path_clear(actor_world_position(actor), point, 1, 0, 0, 0, nullptr,
                     &last_cell, i16(read_u16(context.actor_bytes, 6)))) // 0x0012C970, EAX actor
@@ -272,7 +274,7 @@ void tick_runtime_grab_throw_state(GrabThrowState& state, RuntimeGrabThrowStateC
                 if (!(position < kGrabFrom) && !(kGrabUntil < position)
                     && runtime_grab_throw_hand_reaches(state, record, hand, context)) // 0x00095000, EDX record
                 {
-                    const u32 victim_address = get(target, mind_target_field::actor);
+                    const u32 victim_address = mind_target_record(target).actor;
                     std::array<u32, 6> grab{0x3C, 0, context.actor_address, std::bit_cast<u32>(hand.x),
                         std::bit_cast<u32>(hand.y), std::bit_cast<u32>(hand.z)};
                     context.message(victim_address, grab); // Target vtable +0xC; the reply lands at +4.

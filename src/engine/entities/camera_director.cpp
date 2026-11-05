@@ -118,7 +118,7 @@ u32 camera_target_watched_elsewhere(u32 self, u32 target, const RuntimeDirectorT
     for (const RuntimeDirectorActor& candidate : context.marks())
     {
         if (candidate.address != self && candidate.address != target && !candidate.mind.empty()
-            && get(candidate.mind, mind_field::target) == target)
+            && mind_record(candidate.mind).target == target)
         {
             return 1;
         }
@@ -200,7 +200,7 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
     i32 grouped_count = 0;
     const RuntimeDirectorActor focus = context.actor_at(target);
     const Vec3 origin = actor_world_position(*focus.actor);
-    const u32 focus_target = get(focus.mind, mind_field::target);
+    const u32 focus_target = mind_record(focus.mind).target;
     if (tunables.skip_candidates == 0)
     {
         const std::vector<RuntimeDirectorActor> marks = context.marks();
@@ -218,7 +218,7 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
                 {
                     continue;
                 }
-                const u32 watched = get(candidate.mind, mind_field::target);
+                const u32 watched = mind_record(candidate.mind).target;
                 i32 last_cell = 0;
                 const bool clear = navigation_path_clear(origin, position, tunables.region_mode, 0, 0, 0, nullptr,
                     &last_cell, 0);
@@ -259,7 +259,7 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
                     {
                         continue;
                     }
-                    const u32 watched = get(candidate.mind, mind_field::target);
+                    const u32 watched = mind_record(candidate.mind).target;
                     i32 last_cell = 0;
                     navigation_path_clear(origin, position, 0, 0, 0, 0, nullptr, &last_cell, 0);
                     if (!candidate.strategy.empty() && strategy_base(candidate.strategy).unk_1B != 0
@@ -404,9 +404,9 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
 float camera_director_input_heading(const RuntimeDirectorActor& actor, const RuntimeDirectorTargets& context)
 {
     float heading = actor.actor->euler.y; // Actor +0x18.
-    if (!actor.mind.empty() && get(actor.mind, mind_field::target_mode) != 0 && (actor.body_bits->bytes[6] & 0x80) != 0)
+    if (!actor.mind.empty() && mind_record(actor.mind).target_mode != 0 && (actor.body_bits->bytes[6] & 0x80) != 0)
     {
-        const u32 watched = get(actor.mind, mind_field::target);
+        const u32 watched = mind_record(actor.mind).target;
         if (watched != 0)
         {
             const Vec3 self = actor_world_position(*actor.actor);
@@ -496,7 +496,7 @@ void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
     std::span<u8> strategy{context.strategy.bytes.get(), context.strategy.size};
     DirectorStrategyState& director = strategy_view<DirectorStrategyState>(strategy);
     const u16 state = director.base.state;
-    const u32 target = get(context.mind, mind_field::target);
+    const u32 target = mind_record(context.mind).target;
     RuntimeDirectorTargets& targets = context.targets;
     if (target == 0 && director.unk_38 == 0)
     {

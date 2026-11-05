@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../entities/mind_fields.h"
 #include <cstddef>
 #include "../entities/body_fields.h"
 #include "../entities/player_fields.h"
@@ -42,11 +43,11 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
         }};
     const std::span<u8> mind_view = player.mind;
     entity_detail::NavigationPathSearch* path_search = nullptr;
-    if (!mind_view.empty() && get(mind_view, mind_field::path_search) != 0)
+    if (!mind_view.empty() && mind_record(mind_view).path_search != 0)
     {
         // 0x00136700 allocates the search and stores its heap address at mind +0x1C.
         if (player.mind_storage == nullptr
-            || heap_address(player.mind_storage, sizeof(RuntimeMindStorage)) != get(mind_view, mind_field::path_search))
+            || heap_address(player.mind_storage, sizeof(RuntimeMindStorage)) != mind_record(mind_view).path_search)
         {
             unbound("mind +0x1C path search that 0x00136700 did not allocate");
         }
@@ -54,10 +55,10 @@ void SceneActorServices::State::update_player(NativePlayerInstance& player)
     }
     camera_requests.path_search = path_search; // Mind +0x1C for kind 0x12 (0x0007ACB0).
     const u8* floor_hint = nullptr;
-    if (!mind_view.empty() && get(mind_view, mind_field::target_record) != 0)
+    if (!mind_view.empty() && mind_record(mind_view).target_record != 0)
     {
         // Mind +0x10 is a DAT_00545988 target record; the host views are rebuilt when a record is new.
-        const u32 record = get(mind_view, mind_field::target_record);
+        const u32 record = mind_record(mind_view).target_record;
         if (!target_views.contains(record))
         {
             refresh_mind_targets();
@@ -804,9 +805,9 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor
             {
                 unbound("DAT_00511B38 player mind (actor +0x958) without its +0x10 word");
             }
-            view->reference.source = actor_at_address(get(owner->mind, mind_field::target));
+            view->reference.source = actor_at_address(mind_record(owner->mind).target);
             view->reference.binding = nullptr;
-            if (const u32 record = get(owner->mind, mind_field::target_record); record != 0)
+            if (const u32 record = mind_record(owner->mind).target_record; record != 0)
             {
                 refresh_mind_targets();
                 if (const auto found = target_records.find(record); found != target_records.end())

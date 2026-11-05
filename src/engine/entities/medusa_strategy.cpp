@@ -163,7 +163,7 @@ RuntimeMindTarget* mind_target(RuntimeMedusaStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = get(mind, mind_field::target_record);
+    const u32 target = mind_record(mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -477,9 +477,10 @@ bool face_attack(RuntimeMedusaStrategy& context)
     {
         return false;
     }
-    const Vec3 at{get(target->bytes, mind_target_field::shape_position).x, get(target->bytes, mind_target_field::shape_position).y, get(target->bytes, mind_target_field::shape_position).z};
-    const float facing_x = get(target->bytes, mind_target_field::direction).x;
-    const float facing_z = get(target->bytes, mind_target_field::direction).z;
+    const Vec3 at{mind_target_record(target->bytes).shape.position.x,
+        mind_target_record(target->bytes).shape.position.y, mind_target_record(target->bytes).shape.position.z};
+    const float facing_x = mind_target_record(target->bytes).direction.x;
+    const float facing_z = mind_target_record(target->bytes).direction.z;
     Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     if (facing_z * (position.z - at.z) + (position.x - at.x) * facing_x + (position.y - at.y) * 0.f > 0.f)
     {
@@ -547,9 +548,9 @@ bool target_in_reach(RuntimeMedusaStrategy& context)
     }
     const float reach = context.attachment_radius() + 15.f; // 0x0001D3D0, DAT_0032B214
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - get(target->bytes, mind_target_field::shape_position).x;
-    const float dz = position.z - get(target->bytes, mind_target_field::shape_position).z;
-    const float dy = position.y - get(target->bytes, mind_target_field::shape_position).y;
+    const float dx = position.x - mind_target_record(target->bytes).shape.position.x;
+    const float dz = position.z - mind_target_record(target->bytes).shape.position.z;
+    const float dy = position.y - mind_target_record(target->bytes).shape.position.y;
     return dx * dx + dz * dz + dy * dy < reach * reach;
 }
 

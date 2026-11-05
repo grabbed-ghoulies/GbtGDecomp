@@ -21,7 +21,7 @@ std::function<RuntimeScrabbleStateContext&(u32)> scrabble_context_of;
 void face_goal_point(RuntimeScrabbleStateContext& context)
 {
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
-    const Vec3 goal = get(context.mind, mind_field::goal_point);
+    const Vec3 goal = mind_record(context.mind).goal_point;
     const Vec3 direction{goal.x - position.x, goal.y - position.y,
         goal.z - position.z};
     float angle = 0.f;

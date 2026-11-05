@@ -131,7 +131,7 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> mind = mind_of(context);
-    const u32 prior = get(mind, mind_field::target_record);
+    const u32 prior = mind_record(mind).target_record;
     float timer = fields_of(strategy).reselect_timer - runtime_frame_step(goals.clock);
     fields_of(strategy).reselect_timer = timer;
     bool elapsed = false;
@@ -158,7 +158,7 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     }
     if (!settled)
     {
-        const u32 current = get(mind, mind_field::target_record);
+        const u32 current = mind_record(mind).target_record;
         select_runtime_strategy_target(output, fields_of(strategy).reselect != 0 ? 1u : 0u, goals); // 0x00139AA0
         changed = current == 0 && output != nullptr;
     }
@@ -278,7 +278,7 @@ void load_attack_goal(RuntimeGenericStrategy& context)
         }
         if (kind == 4)
         {
-            const u32 record = get(goals_of(context).entry.events.mind, mind_field::target_record); // ESI, mind +0x10.
+            const u32 record = mind_record(goals_of(context).entry.events.mind).target_record; // ESI, mind +0x10.
             load_goal(gun_target_in_range(*weapon, record, context) ? context.goal_attack_gun
                 : context.goal_attack_gun_secondary, context);
             return;

@@ -331,16 +331,16 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
             }
             std::memcpy(view.bytes.data() + offsetof(PlayerRecord, countdown_56), &amount, 4);
             std::span<u8> mind = view.mind;
-            if (!mind.empty() && get(mind, mind_field::target_record) != 0
+            if (!mind.empty() && mind_record(mind).target_record != 0
                 && !runtime_mind_target_is_eligible(mind, view.bytes, view.actor, address,
-                    actors.target_at(get(mind, mind_field::target_record)), true)) // 0x00029C80, EDX 1
+                    actors.target_at(mind_record(mind).target_record), true)) // 0x00029C80, EDX 1
             {
-                if (get(mind, mind_field::target_record) != 0)
+                if (mind_record(mind).target_record != 0)
                 {
                     const std::array<u32, 2> drop{0x64, 0};
-                    actors.message(get(mind, mind_field::actor), drop); // Mind +8's vtable +0xC.
+                    actors.message(mind_record(mind).actor, drop); // Mind +8's vtable +0xC.
                 }
-                set(mind, mind_field::target_record, 0u);
+                mind_record(mind).target_record = 0u;
             }
             actors.message(address, freeze); // Actor vtable +0xC with {1}.
         }

@@ -35,7 +35,7 @@ Vec3 point(std::span<const u8> bytes, size_t offset)
 u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& context)
 {
     auto& movement = context.movement;
-    if (get(movement.mind, mind_field::action_actor) == 0)
+    if (mind_record(movement.mind).action_actor == 0)
     {
         return 1;
     }
@@ -47,13 +47,13 @@ u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& co
         if (selected == nullptr)
         {
             const u32 zero = 0;
-            set(movement.mind, mind_field::action_actor, zero);
+            mind_record(movement.mind).action_actor = zero;
             context.target = nullptr;
             return 1;
         }
         target = &context.actor_at(*selected);
         context.target = target;
-        set(movement.mind, mind_field::action_actor, target->address);
+        mind_record(movement.mind).action_actor = target->address;
     }
     if (body_record(movement.body).move_holds != 0 || body_record(movement.body).move_hold_time != 0.f)
     {
@@ -69,7 +69,7 @@ u32 update_runtime_cinema_mind_spawn_position(RuntimeCinemaMindSpawnMovement& co
         drive_runtime_player_navigation(movement.navigation, destination,
             i32(read_u32(target->bytes, 0xD00)), 0.f, 30.f, 1.f, 0, failed);
         if (runtime_player_can_attach(movement.eligibility, *target)
-            && get(movement.mind, cinema_mind_field::notices) != 0)
+            && cinema_mind_record(movement.mind).notices != 0)
         {
             return 1;
         }
@@ -154,8 +154,8 @@ u32 request_runtime_cinema_mind_spawn_attachment(RuntimeCinemaMindMovement& cont
     const std::function<u16(RuntimeBodyAttachedActor&)>& attach,
     std::span<u8> body, RuntimeBodyActionSelection& actions)
 {
-    if (get(context.mind, mind_field::action_actor) != 0
-        && !(get(context.mind, cinema_mind_field::avoidance_time) > 0.f))
+    if (mind_record(context.mind).action_actor != 0
+        && !(cinema_mind_record(context.mind).avoidance_time > 0.f))
     {
         if (actor_can_supply_ghoulybox(*target->actor) && target->bytes[offsetof(PlayerRecord, case_link)] != 0)
         {
@@ -174,13 +174,13 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
     std::span<const u8> request, const std::function<RuntimeMindChainRequestSelection&()>& selection,
     std::span<u8> input, const RuntimeInputReleaseContext& input_context)
 {
-    if (get(context.mind, mind_field::target_record) == 0)
+    if (mind_record(context.mind).target_record == 0)
     {
         return true;
     }
     if (body_record(context.body).move_holds == 0 && body_record(context.body).move_hold_time == 0.f)
     {
-        if (get(request, target_action_request::forced) != 0 || context.target->bytes[0x15] == 0)
+        if (get(request, target_action_request::forced) != 0 || mind_target_record(context.target->bytes).hold == 0)
         {
             return dispatch_runtime_mind_target_request(selection(), 0xFFFFFFFFu,
                                                         get(request, target_action_request::action)) != 1;
@@ -196,7 +196,7 @@ bool update_runtime_cinema_mind_target_action(RuntimeCinemaMindMovement& context
 // Xbox 0x0007BC80
 u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& context, std::span<const u8> request)
 {
-    if (get(context.mind, mind_field::target_record) == 0)
+    if (mind_record(context.mind).target_record == 0)
     {
         return 1;
     }
@@ -205,21 +205,21 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
     {
         return 0;
     }
-    const i32 floor = get(target.bytes, mind_target_field::floor);
-    const Vec3 target_position = point(target.bytes, 0x20);
+    const i32 floor = mind_target_record(target.bytes).floor;
+    const Vec3 target_position = mind_target_record(target.bytes).shape.position;
     const i32 target_cell = entity_detail::navigation_cell_index(floor, target_position);
     bool isolated;
     std::array<u8, 0x20> shape;
     if (target_cell == -1)
     {
         isolated = true;
-        copy_actor_shape(shape.data(), target.bytes.data() + 0x3C);
+        copy_actor_shape(shape.data(), target.bytes.data() + offsetof(MindTargetRecord, secondary_shape));
     }
     else
     {
         isolated = entity_detail::navigation_cell_has_no_open_neighbor(*entity_detail::g_nav_grids[floor], u32(target_cell), 0);
         copy_actor_shape(shape.data(), target.bytes.data() + (isolated ? 0x3C : 0x1C));
-        if (!isolated && (get(target.bytes, mind_target_field::flags) & 0x10) != 0)
+        if (!isolated && (mind_target_record(target.bytes).flags & 0x10) != 0)
         {
             Vec3 candidate;
             offset_runtime_horizontal_point(candidate, point(shape, 4), target.actor.euler.y, read_f32(shape, 0x1C) * 2.f);
@@ -237,12 +237,13 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
         const float dx = destination.x - position.x;
         const float dy = destination.y - position.y;
         const float dz = destination.z - position.z;
-        if ((get(target.bytes, mind_target_field::direction).z * dz + dx * get(target.bytes, mind_target_field::direction).x) + dy * 0.f < 0.f)
+        if ((mind_target_record(target.bytes).direction.z * dz + dx * mind_target_record(target.bytes).direction.x)
+            + dy * 0.f < 0.f)
         {
             const float offset = get(request, target_position_request::lead);
-            destination.x = get(target.bytes, mind_target_field::direction).x * offset + destination.x;
+            destination.x = mind_target_record(target.bytes).direction.x * offset + destination.x;
             destination.y = offset * 0.f + destination.y;
-            destination.z = get(target.bytes, mind_target_field::direction).z * offset + destination.z;
+            destination.z = mind_target_record(target.bytes).direction.z * offset + destination.z;
         }
     }
     const Vec3 position = actor_world_position(context.actor);
@@ -261,7 +262,7 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
     const u32 result = drive_runtime_player_navigation(
         context.navigation, destination, floor, radius, get(request, target_position_request::approach),
         get(request, target_position_request::speed),
-        isolated ? 0 : (get(target.bytes, mind_target_field::flags) & 0x10) >> 4, failed);
+        isolated ? 0 : (mind_target_record(target.bytes).flags & 0x10) >> 4, failed);
     if (get(request, target_position_request::waits_for_idle) != 0 && result == 1)
     {
         if (!script_mind_is_idle(context.body_query, 1))
@@ -275,7 +276,7 @@ u32 update_runtime_cinema_mind_target_position(RuntimeCinemaMindMovement& contex
 // Xbox 0x0007B620
 u32 update_runtime_cinema_mind_vertical_target(RuntimeCinemaMindMovement& context, std::span<const u8> request)
 {
-    if (get(context.mind, mind_field::target_record) == 0)
+    if (mind_record(context.mind).target_record == 0)
     {
         return 1;
     }
@@ -284,19 +285,20 @@ u32 update_runtime_cinema_mind_vertical_target(RuntimeCinemaMindMovement& contex
     {
         return 0;
     }
-    Vec3 destination = point(target.bytes, 0x20);
+    Vec3 destination = mind_target_record(target.bytes).shape.position;
     if (get(request, vertical_target_request::lead) > 0.f)
     {
         const Vec3 position = actor_world_position(context.actor);
-        const float dx = position.x - get(target.bytes, mind_target_field::shape_position).x;
-        const float dy = position.y - get(target.bytes, mind_target_field::shape_position).y;
-        const float dz = position.z - get(target.bytes, mind_target_field::shape_position).z;
-        if ((get(target.bytes, mind_target_field::direction).z * dz + dx * get(target.bytes, mind_target_field::direction).x) + dy * 0.f < 0.f)
+        const float dx = position.x - mind_target_record(target.bytes).shape.position.x;
+        const float dy = position.y - mind_target_record(target.bytes).shape.position.y;
+        const float dz = position.z - mind_target_record(target.bytes).shape.position.z;
+        if ((mind_target_record(target.bytes).direction.z * dz + dx * mind_target_record(target.bytes).direction.x)
+            + dy * 0.f < 0.f)
         {
             const float offset = get(request, vertical_target_request::lead);
-            destination.x = get(target.bytes, mind_target_field::direction).x * offset + destination.x;
+            destination.x = mind_target_record(target.bytes).direction.x * offset + destination.x;
             destination.y = offset * 0.f + destination.y;
-            destination.z = get(target.bytes, mind_target_field::direction).z * offset + destination.z;
+            destination.z = mind_target_record(target.bytes).direction.z * offset + destination.z;
         }
     }
     const Vec3 position = actor_world_position(context.actor);
@@ -314,11 +316,11 @@ u32 update_runtime_cinema_mind_vertical_target(RuntimeCinemaMindMovement& contex
     }
     u32 failed;
     const u32 result = drive_runtime_mind_vertical_navigation(
-        context.navigation, destination, get(target.bytes, mind_target_field::floor),
+        context.navigation, destination, mind_target_record(target.bytes).floor,
         get(request, vertical_target_request::height), get(request, vertical_target_request::tolerance), radius,
         get(request, vertical_target_request::approach), get(request, vertical_target_request::speed),
         get(request, vertical_target_request::vertical_speed),
-        (get(target.bytes, mind_target_field::flags) & 0x10) >> 4, failed);
+        (mind_target_record(target.bytes).flags & 0x10) >> 4, failed);
     if (get(request, vertical_target_request::waits_for_idle) != 0 && result == 1)
     {
         if (!script_mind_is_idle(context.body_query, 1))
@@ -355,9 +357,9 @@ u32 update_runtime_cinema_mind_escape_motion(RuntimeCinemaMindMovement& context,
             set(request, escape_request::retry_timer, 0.f);
             return 0;
         }
-        set(context.mind, mind_field::goal_point, selected);
+        mind_record(context.mind).goal_point = selected;
     }
-    const Vec3 destination = get(context.mind, mind_field::goal_point);
+    const Vec3 destination = mind_record(context.mind).goal_point;
     float heading;
     randomize_runtime_mind_escape_heading(context.actor, context.escape.target, destination, heading, context.random);
     set(request, escape_request::heading, heading);
@@ -404,9 +406,9 @@ u32 update_runtime_cinema_mind_vertical_escape_motion(RuntimeCinemaMindMovement&
             set(request, vertical_escape_request::retry_timer, 0.f);
             return 0;
         }
-        set(context.mind, mind_field::goal_point, selected);
+        mind_record(context.mind).goal_point = selected;
     }
-    const Vec3 destination = get(context.mind, mind_field::goal_point);
+    const Vec3 destination = mind_record(context.mind).goal_point;
     float heading;
     randomize_runtime_mind_escape_heading(context.actor, context.escape.target, destination, heading, context.random);
     set(request, vertical_escape_request::heading, heading);
@@ -432,7 +434,7 @@ u32 update_runtime_cinema_mind_vertical_escape_motion(RuntimeCinemaMindMovement&
 // Xbox 0x0007B5A0
 u32 update_runtime_cinema_mind_vertical_position(RuntimeCinemaMindMovement& context, std::span<const u8> request)
 {
-    const Vec3 destination = get(context.mind, mind_field::goal_point);
+    const Vec3 destination = mind_record(context.mind).goal_point;
     const i32 floor =
         entity_detail::navigation_floor_index(destination, i32(player_record(context.actor_bytes).floor), 0);
     u32 failed;
@@ -460,7 +462,7 @@ u32 update_runtime_mind_vertical_position_request(RuntimeCinemaMindMovement& con
         get(request, vertical_point_request::tolerance), get(request, vertical_point_request::radius) + 2.5f,
         get(request, vertical_point_request::approach), get(request, vertical_point_request::speed),
         get(request, vertical_point_request::vertical_speed), 0, failed);
-    if (result == 0 && runtime_player_navigation_fallback(context.navigation, get(context.mind, mind_field::goal_point)))
+    if (result == 0 && runtime_player_navigation_fallback(context.navigation, mind_record(context.mind).goal_point))
     {
         return 1;
     }
@@ -470,7 +472,7 @@ u32 update_runtime_mind_vertical_position_request(RuntimeCinemaMindMovement& con
 // Xbox 0x0007BC20
 u32 update_runtime_cinema_mind_position(RuntimeCinemaMindMovement& context, std::span<const u8> request)
 {
-    const Vec3 destination = get(context.mind, mind_field::goal_point);
+    const Vec3 destination = mind_record(context.mind).goal_point;
     u32 failed;
     const u32 result = drive_runtime_player_navigation(context.navigation, destination, -1,
         float(static_cast<long double>(get(request, position_request::radius)) + 1.L),
@@ -493,7 +495,7 @@ u32 select_runtime_cinema_mind_random_position(RuntimeCinemaMindMovement& contex
             context.required, context.allowed, 0x1C, i16(context.actor.class_key), selected, context.random,
             context.occupancy_initial))
     {
-        set(context.mind, mind_field::goal_point, selected);
+        mind_record(context.mind).goal_point = selected;
         return 1;
     }
     return 4;
@@ -523,7 +525,7 @@ u32 select_runtime_cinema_mind_heading_position(RuntimeCinemaMindMovement& conte
     const i32 attempts = _mm_cvttss_si32(_mm_set_ss(std::bit_cast<float>(0x40490FDBu) / increment));
     if (search_runtime_navigation_headings(search, heading, increment, attempts))
     {
-        set(context.mind, mind_field::goal_point, selected);
+        mind_record(context.mind).goal_point = selected;
         return 1;
     }
     return 4;

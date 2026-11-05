@@ -116,9 +116,9 @@ void tick_runtime_hover_state(HoverState& state, RuntimeHoverStateContext& conte
     const auto body = context.body;
     state.base.elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     const auto mind = context.mind;
-    if (mind.data() != nullptr && get(mind, mind_field::target_mode) != 0 && get(mind, mind_field::target) != 0)
+    if (mind.data() != nullptr && mind_record(mind).target_mode != 0 && mind_record(mind).target != 0)
     {
-        const Actor* chosen = context.actor_at(get(mind, mind_field::target));
+        const Actor* chosen = context.actor_at(mind_record(mind).target);
         if (chosen == nullptr)
         {
             throw Error("0x00097CF0 reads the position of a chosen actor outside the scene");
@@ -150,7 +150,7 @@ void check_runtime_hover_stick(HoverState& state, RuntimeHoverStateContext& cont
         }
     }
     const u16 with_target = state.next_with_target;
-    if (with_target != 0 && context.mind.data() != nullptr && get(context.mind, mind_field::target_mode) != 0)
+    if (with_target != 0 && context.mind.data() != nullptr && mind_record(context.mind).target_mode != 0)
     {
         state.base.next_key = with_target;
         return;

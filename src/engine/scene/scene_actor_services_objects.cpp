@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../entities/mind_fields.h"
 #include <cstddef>
 #include "../entities/player_fields.h"
 
@@ -1838,7 +1839,7 @@ void SceneActorServices::State::child_message(FactoryObject& child, void* messag
     {
         auto* player = players->find_player(child);
         player->refresh_views();
-        const u32 target = get(player->mind, mind_field::target_record);
+        const u32 target = mind_record(player->mind).target_record;
         if (words[0] == 0x7D && navigation_nodes == nullptr)
         {
             unbound("navigation node buffer DAT_0050E24C for 0x00136700");

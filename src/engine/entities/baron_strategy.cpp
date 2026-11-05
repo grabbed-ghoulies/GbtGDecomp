@@ -366,7 +366,7 @@ bool runtime_baron_target_holds_cane(const RuntimeMindTarget& target, RuntimeBar
         fields_of(strategy).cane = 0u;
         return false;
     }
-    if (get(target.bytes, mind_target_field::kind) != 0)
+    if (mind_target_record(target.bytes).kind != 0)
     {
         return false;
     }
@@ -389,13 +389,14 @@ void fetch_runtime_baron_cane_for(u16 state, RuntimeBaronStrategy& context)
 bool runtime_target_in_view(const Actor& actor, std::span<const u8> target, float half_angle, float radius)
 {
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const float dz = get(target, mind_target_field::shape_position).z - position.z;
-    const float dx = get(target, mind_target_field::shape_position).x - position.x;
+    const float dz = mind_target_record(target).shape.position.z - position.z;
+    const float dx = mind_target_record(target).shape.position.x - position.x;
     if (dz * dz + dx * dx > radius * radius)
     {
         return false;
     }
-    const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
+    const Vec3 point{mind_target_record(target).shape.position.x, mind_target_record(target).shape.position.y,
+        mind_target_record(target).shape.position.z};
     const float turn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
     float angle = float(runtime_float_remainder(runtime_actor_relative_target_angle(actor, point),
         turn)); // 0x00041A30, 0x00152BE0
@@ -505,8 +506,8 @@ void update_runtime_baron_strategy(RuntimeBaronStrategy& context)
                 return;
             }
             const Vec3 position = actor_world_position(actor_of(context)); // 0x00041440's 0x000412A0
-            const float dx = get(target->bytes, mind_target_field::shape_position).x - position.x;
-            const float dz = get(target->bytes, mind_target_field::shape_position).z - position.z;
+            const float dx = mind_target_record(target->bytes).shape.position.x - position.x;
+            const float dz = mind_target_record(target->bytes).shape.position.z - position.z;
             if (dz * dz + dx * dx <= 6400.f) // DAT_0032B6C8.
             {
                 change_state(0x3F4, context);
@@ -685,7 +686,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> mind = mind_of(context);
-    const u32 target_address = get(mind, mind_field::target_record);
+    const u32 target_address = mind_record(mind).target_record;
     const std::span<u8> body = body_of(context);
     const bool holding = body_record(body).attached != 0;
     body_record(body).move_class = 2;
@@ -768,7 +769,7 @@ void enter_runtime_baron_state(u16 state, u16 previous, RuntimeBaronStrategy& co
         body_record(body).move_class = 3;
         strategy_base(strategy).unk_18 = u16(0x405);
         load_goal(context.goal_get_weapon, context);
-        set(mind, mind_field::action_actor, fields_of(strategy).cane);
+        mind_record(mind).action_actor = fields_of(strategy).cane;
         return;
     case 0x409:
         if (fields_of(strategy).effect_mode != 2)

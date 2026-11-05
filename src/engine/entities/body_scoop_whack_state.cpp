@@ -132,7 +132,7 @@ void destroy_runtime_scoop_whack_state(RuntimeScoopWhackStateContext& context)
 void tick_runtime_scoop_whack_state(ScoopWhackState& state, RuntimeScoopWhackStateContext& context)
 {
     const auto body = context.body;
-    const u32 target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::target_record);
+    const u32 target = context.mind.data() == nullptr ? 0u : mind_record(context.mind).target_record;
     state.base.elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
     level_body_euler(body);
     if (state.struck == 0 && target != 0)

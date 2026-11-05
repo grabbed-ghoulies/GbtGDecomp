@@ -169,7 +169,7 @@ bool initialize_runtime_shoot_state(ShootState& state, std::span<const u8> param
         copy[index] = sound[index];
     }
     while (sound[index++] != 0);
-    state.last_target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::action_record);
+    state.last_target = context.mind.data() == nullptr ? 0u : mind_record(context.mind).action_record;
     body_record(body).unk_38 = 1;
     body_record(body).unk_39 = 1;
     ++body_record(body).unk_6A;
@@ -257,7 +257,7 @@ void tick_runtime_shoot_state(ShootState& state, RuntimeShootStateContext& conte
     const auto body = context.body;
     Actor& actor = context.actor;
     state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
-    const u32 target = context.mind.data() == nullptr ? 0u : get(context.mind, mind_field::action_record);
+    const u32 target = context.mind.data() == nullptr ? 0u : mind_record(context.mind).action_record;
     ask_weapon(0x9F, context); // The muzzle; this tick does not read the reply.
     count_down(state, context);
     const u32 phase = state.phase;
@@ -432,8 +432,9 @@ void aim_runtime_shoot_state(ShootState& state, std::span<const u8> target, Runt
         return;
     }
     const Actor& actor = context.actor;
-    const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_height) * 0.75f + get(target, mind_target_field::shape_position).y,
-        get(target, mind_target_field::shape_position).z}; // DAT_0032B2AC.
+    const Vec3 point{mind_target_record(target).shape.position.x, mind_target_record(target).shape.height * 0.75f
+        + mind_target_record(target).shape.position.y,
+        mind_target_record(target).shape.position.z}; // DAT_0032B2AC.
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float eye = actor.radius_y * body_record(context.body).height_scale * 0.75f + position.y;
     const Vec3 direction{point.x - position.x, point.y - eye, point.z - position.z};
@@ -469,8 +470,9 @@ Vec3 runtime_shoot_turn(std::span<const u8> target, RuntimeShootStateContext& co
 {
     const float heading = runtime_body_hit_angle(context.hit); // 0x0001D540
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
-    const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x, get(target, mind_target_field::shape_position).y - position.y,
-        get(target, mind_target_field::shape_position).z - position.z};
+    const Vec3 direction{mind_target_record(target).shape.position.x - position.x,
+        mind_target_record(target).shape.position.y - position.y,
+        mind_target_record(target).shape.position.z - position.z};
     float angle = 0.f;
     runtime_direction_angle(direction, angle); // 0x00105F90
     return Vec3{0.f, angle - heading, 0.f};

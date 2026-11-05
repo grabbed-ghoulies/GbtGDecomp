@@ -121,7 +121,7 @@ void dispatch_runtime_director_message(std::span<const u32> message, RuntimeDire
         break;
     }
     case 0xBA:
-        set(context.mind, mind_field::target, message[1]);
+        mind_record(context.mind).target = message[1];
         change_runtime_player_strategy_state(context.strategy, 0x40C, context.setup);
         break;
     case 0xBB:
@@ -139,10 +139,10 @@ void dispatch_runtime_camera_mind_message(std::span<const u32> message, RuntimeC
 {
     if (message[0] == 0x7C)
     {
-        if (message[1] == get(context.mind, camera_mind_field::focus_actor))
+        if (message[1] == camera_mind_record(context.mind).focus_actor)
         {
             const u32 zero = 0;
-            set(context.mind, camera_mind_field::focus_actor, zero);
+            camera_mind_record(context.mind).focus_actor = zero;
         }
     }
     else if (message[0] == 0x7D)

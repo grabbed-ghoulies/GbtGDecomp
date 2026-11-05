@@ -146,7 +146,7 @@ bool initialize_runtime_blood_suck_state(BloodSuckState& state, std::span<const 
     RuntimeBloodSuckStateContext& context)
 {
     const auto body = context.body;
-    const u32 record = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
+    const u32 record = context.mind.empty() ? 0u : mind_record(context.mind).target_record;
     state.grabbed = 0u;
     state.unk_28 = 0u;
     state.latched = 0u;
@@ -198,7 +198,7 @@ bool initialize_runtime_blood_suck_state(BloodSuckState& state, std::span<const 
     const std::span<const u8> target_record = context.target_record(record);
     if (target_record[0x14] == 0)
     {
-        state.target = get(target_record, mind_target_field::actor);
+        state.target = mind_target_record(target_record).actor;
     }
     bool grab = false;
     if (state.target != 0)
@@ -294,7 +294,7 @@ void tick_runtime_blood_suck_state(BloodSuckState& state, RuntimeBloodSuckStateC
     {
         if (state.grabbed == 0)
         {
-            const u32 record = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
+            const u32 record = context.mind.empty() ? 0u : mind_record(context.mind).target_record;
             if (record == 0)
             {
                 set_runtime_blood_suck_phase(5, state, context); // 0x0008BBD0, EDI state

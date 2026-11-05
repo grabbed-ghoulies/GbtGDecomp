@@ -95,7 +95,7 @@ RuntimeMindTarget* selected_target(RuntimeVampireStrategy& context, bool& found)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeVampireStrategy& context)
 {
-    const u32 target = get(goals_of(context).entry.events.mind, mind_field::target_record);
+    const u32 target = mind_record(goals_of(context).entry.events.mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -146,7 +146,7 @@ bool open_ends(RuntimeVampireStrategy& context)
     {
         return true;
     }
-    if (target->bytes[0x14] == 0)
+    if (mind_target_record(target->bytes).kind == 0)
     {
         const u32 holder = read_u32(context.views.body_of(target->actor).bytes, 0x718);
         if (holder != 0 && holder != strategy_base(strategy_of(context)).actor)
@@ -444,7 +444,7 @@ bool runtime_vampire_reaches_target(RuntimeVampireStrategy& context)
         return false;
     }
     // 0x001381C0 / 0x001381F0: the target is held (+0x14 clear, its body's +0x718 set), and then by him.
-    if (target->bytes[0x14] == 0 && read_u32(body.bytes, 0x718) != 0)
+    if (mind_target_record(target->bytes).kind == 0 && read_u32(body.bytes, 0x718) != 0)
     {
         return read_u32(body.bytes, 0x718) == strategy_base(strategy_of(context)).actor;
     }
@@ -455,7 +455,7 @@ bool runtime_vampire_reaches_target(RuntimeVampireStrategy& context)
 void choose_runtime_vampire_attack(RuntimeVampireStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    if (!mind_present(context) || get(goals.entry.events.mind, mind_field::target_record) == 0)
+    if (!mind_present(context) || mind_record(goals.entry.events.mind).target_record == 0)
     {
         return;
     }

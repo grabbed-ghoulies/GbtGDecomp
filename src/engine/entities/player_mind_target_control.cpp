@@ -1,4 +1,5 @@
 #include "player_mind_target_control.h"
+#include "player_mind_control.h"
 #include "weapon_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -15,12 +16,12 @@ u32 select_runtime_player_target_action_direction(std::span<u8> mind,
     const RuntimePlayerAttachmentEligibility& body, const Actor& actor,
     const RuntimeMindTarget& target, std::span<const u8> target_body, const Actor* focus)
 {
-    const bool same_target = get(mind, player_mind_field::target) == target.address;
+    const bool same_target = player_mind_record(mind).target == target.address;
     if (!same_target)
     {
-        set(mind, player_mind_field::target_count, 0);
+        player_mind_record(mind).target_count = 0;
     }
-    if (get(target.bytes, mind_target_field::kind) == 3)
+    if (mind_target_record(target.bytes).kind == 3)
     {
         return 0xFFFFFFFFu;
     }
@@ -37,7 +38,7 @@ u32 select_runtime_player_target_action_direction(std::span<u8> mind,
     u32 direction;
     const bool near = runtime_player_body_point_is_near(body, target.bytes);
     const u8 held_kind = body.attached == nullptr ? 0 : weapon_base(body.attached->bytes).unk_93D;
-    if (!near && held_kind == 0 && read_u32(mind, 0x80) == 0
+    if (!near && held_kind == 0 && player_mind_record(mind).unk_80 == 0
         && !runtime_mind_target_requires_action(target, target_body))
     {
         direction = 1;
@@ -46,7 +47,7 @@ u32 select_runtime_player_target_action_direction(std::span<u8> mind,
     {
         direction = runtime_body_target_direction(body.body_actor, target.bytes, body.body_actor.euler.y);
     }
-    if (focus == &target.actor && same_target && get(mind, player_mind_field::target_count) != 0)
+    if (focus == &target.actor && same_target && player_mind_record(mind).target_count != 0)
     {
         if (direction == 0 || direction == 2)
         {
@@ -91,7 +92,8 @@ RuntimePlayerTargetView* update_runtime_player_target_proposal(RuntimePlayerMind
             proposal = context.targets.at(selected->address);
             const auto* attached = context.search.body.attached;
             if (attached == nullptr || weapon_base(attached->bytes).unk_93D <= 1
-                || (weapon_base(attached->bytes).unk_93D == 4 && get(record(context.events.mind, player_mind_field::stick), stick_tracking_field::gesture) != 3))
+                || (weapon_base(attached->bytes).unk_93D == 4
+                    && player_mind_record(context.events.mind).stick.gesture != 3))
             {
                 const auto redirected = redirect_runtime_player_shape_target(context.shape,
                     context.search.body, proposal->bytes, heading);
@@ -137,12 +139,12 @@ void update_runtime_player_target_control(RuntimePlayerMindTargetControl& contex
             {
                 context.focus.target = proposal->owner;
                 const u32 address = read_u32(proposal->bytes, 0x10);
-                set(mind, mind_field::target, address);
+                mind_record(mind).target = address;
             }
         }
-        if (read_u32(mind, 0x124) != 0)
+        if (player_mind_record(mind).unk_124 != 0)
         {
-            float period = (read_f32(mind, 0x120) * std::bit_cast<float>(0x3CA3D70Au)) * 3.f;
+            float period = (player_mind_record(mind).unk_120 * std::bit_cast<float>(0x3CA3D70Au)) * 3.f;
             if (period > 3.f)
             {
                 period = 3.f;
@@ -151,15 +153,15 @@ void update_runtime_player_target_control(RuntimePlayerMindTargetControl& contex
             {
                 period = 0.f;
             }
-            const float timer = read_f32(mind, 0x128) - runtime_frame_step(context.clock);
-            std::memcpy(mind.data() + 0x128, &timer, 4);
+            const float timer = player_mind_record(mind).unk_128 - runtime_frame_step(context.clock);
+            player_mind_record(mind).unk_128 = timer;
             if (0.f >= timer)
             {
                 const float next = timer + period;
-                std::memcpy(mind.data() + 0x128, &next, 4);
+                player_mind_record(mind).unk_128 = next;
                 notify_runtime_player_mind_event(context.feedback, 0xE);
                 const u32 zero = 0;
-                std::memcpy(mind.data() + 0x124, &zero, 4);
+                player_mind_record(mind).unk_124 = zero;
             }
         }
     }

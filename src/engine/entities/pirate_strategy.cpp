@@ -489,7 +489,7 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> mind = mind_of(context);
-    const u32 target_address = get(mind, mind_field::target_record);
+    const u32 target_address = mind_record(mind).target_record;
     const std::span<u8> body = body_of(context);
     RuntimeMindGoalContext& goal_context = goals.entry.goals;
     body_record(body).move_class = 2;
@@ -546,7 +546,7 @@ void enter_runtime_pirate_state(u16 state, u16 previous, RuntimePirateStrategy& 
         body_record(body).move_class = 3;
         const bool free = runtime_pirate_chest_free(context);
         fields_of(strategy).fetching = free ? 1u : 0u;
-        set(mind, mind_field::action_actor, fields_of(strategy).chest);
+        mind_record(mind).action_actor = fields_of(strategy).chest;
         load_goal(free ? context.goal_get_weapon : context.goal_get_weapon_confused, context);
         return;
     }

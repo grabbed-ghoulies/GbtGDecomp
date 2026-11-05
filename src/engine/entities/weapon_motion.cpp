@@ -392,7 +392,7 @@ RuntimeMindTarget* runtime_weapon_holder_target(RuntimeWeaponActor& weapon)
     {
         return nullptr;
     }
-    const u32 record = get(weapon.bytes_at(mind), mind_field::target_record);
+    const u32 record = mind_record(weapon.bytes_at(mind)).target_record;
     return record == 0 ? nullptr : weapon.services.target_at(record);
 }
 

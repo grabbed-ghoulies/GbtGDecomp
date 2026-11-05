@@ -114,14 +114,14 @@ bool initialize_runtime_player_death_state(PlayerDeathState& state, std::span<co
     }
     if (!context.mind.empty())
     {
-        set(context.mind, mind_field::target, 0);
-        if (get(context.mind, mind_field::target_record) != 0)
+        mind_record(context.mind).target = 0;
+        if (mind_record(context.mind).target_record != 0)
         {
             const std::array<u32, 2> message{100, 0};
             knockdown.actor_message(message); // Mind +8 (the actor) vtable +0xC.
         }
-        set(context.mind, mind_field::target_record, 0);
-        set(context.mind, mind_field::action_record, 0);
+        mind_record(context.mind).target_record = 0;
+        mind_record(context.mind).action_record = 0;
         for (LiveScript* event = context.mind_events == nullptr ? nullptr : context.mind_events->next; event != nullptr;
              event = event->next)
         {

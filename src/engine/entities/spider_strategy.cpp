@@ -37,11 +37,6 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, 12);
-}
-
 RuntimePlayerStrategyGoals& goals_of(RuntimeSpiderStrategy& context)
 {
     return context.base.goals;
@@ -83,7 +78,8 @@ RuntimeMindTarget* selected_target(RuntimeSpiderStrategy& context, bool& found)
 
 Vec3 target_point(const RuntimeMindTarget& target)
 {
-    return Vec3{get(target.bytes, mind_target_field::shape_position).x, get(target.bytes, mind_target_field::shape_position).y, get(target.bytes, mind_target_field::shape_position).z};
+    return Vec3{mind_target_record(target.bytes).shape.position.x, mind_target_record(target.bytes).shape.position.y,
+        mind_target_record(target.bytes).shape.position.z};
 }
 
 // 30 units (DAT_0032B108) from the point along the heading, at its height.
@@ -122,7 +118,7 @@ void request_move(float pace, float wait, float linger, RuntimeSpiderStrategy& c
 // Xbox 0x00141490, EAX target
 bool runtime_mind_target_climbing(const RuntimeMindTarget& target, RuntimeSpiderStrategy& context)
 {
-    if (get(target.bytes, mind_target_field::kind) != 0)
+    if (mind_target_record(target.bytes).kind != 0)
     {
         return false;
     }
@@ -137,12 +133,12 @@ float runtime_strategy_target_gap(const RuntimeMindTarget& target, RuntimeSpider
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
-    const long double dx = static_cast<long double>(get(target.bytes, mind_target_field::shape_position).x) - position.x;
-    const long double dy = static_cast<long double>(get(target.bytes, mind_target_field::shape_position).y) - position.y;
-    const long double dz = static_cast<long double>(get(target.bytes, mind_target_field::shape_position).z) - position.z;
+    const long double dx = static_cast<long double>(mind_target_record(target.bytes).shape.position.x) - position.x;
+    const long double dy = static_cast<long double>(mind_target_record(target.bytes).shape.position.y) - position.y;
+    const long double dz = static_cast<long double>(mind_target_record(target.bytes).shape.position.z) - position.z;
     const long double distance = std::sqrt(dz * dz + dy * dy + dx * dx);
     const long double reach = static_cast<long double>(goals.entry.actor.radius_xz) * read_f32(body_of_actor(context),
-        0x888) + get(target.bytes, mind_target_field::shape_radius);
+        0x888) + mind_target_record(target.bytes).shape.radius;
     const long double gap = distance - reach;
     return 0.0L < gap ? float(gap) : 0.f;
 }
@@ -159,7 +155,7 @@ bool approach_runtime_spider_target(const RuntimeMindTarget& target, RuntimeSpid
     float angle = std::bit_cast<float>(target.address);
     runtime_direction_angle(toward, angle); // 0x00105F90
     const float side = std::bit_cast<float>(0x3EDF66F3u); // DAT_0032B598, 25 degrees.
-    const i32 floor = get(target.bytes, mind_target_field::floor);
+    const i32 floor = mind_target_record(target.bytes).floor;
     Vec3 first_point;
     const Vec3 first_center = point_along(position, angle + side);
     const bool first = clear_point(floor, &position, first_center, 0.f, 10.f, 0x1C, first_point, context);
@@ -168,7 +164,7 @@ bool approach_runtime_spider_target(const RuntimeMindTarget& target, RuntimeSpid
     const bool second = clear_point(floor, &position, second_center, 0.f, 10.f, 0x1C, second_point, context);
     if (!first && !second)
     {
-        put_vec3(mind, 0x70, at);
+        mind_record(mind).goal_point = at;
     }
     else
     {
@@ -183,7 +179,7 @@ bool approach_runtime_spider_target(const RuntimeMindTarget& target, RuntimeSpid
         {
             chosen = second ? &second_point : &first_point;
         }
-        put_vec3(mind, 0x70, *chosen);
+        mind_record(mind).goal_point = *chosen;
     }
     request_move(1.f, 0.1f, 0.2f, context); // DAT_0032B254, DAT_0032B1AC.
     return !(30.f < runtime_strategy_target_gap(target, context)); // 0x00141650, DAT_0032B108.
@@ -244,7 +240,7 @@ void roam_runtime_spider(RuntimeSpiderStrategy& context)
         }
         ++seen;
     }
-    put_vec3(mind, 0x70, candidates[size_t(chosen)].point);
+    mind_record(mind).goal_point = candidates[size_t(chosen)].point;
     request_move(0.6f, 0.1f, 2.f, context); // DAT_0032B248, DAT_0032B254, DAT_0032B110.
 }
 
@@ -255,7 +251,7 @@ void check_runtime_spider_goal_cell(RuntimeSpiderStrategy& context)
     const std::span<const u8> mind = mind_of(context);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
     const i32 floor = i32(player_record(goals.entry.actor_bytes).floor);
-    const Vec3 goal(get(mind, mind_field::goal_point));
+    const Vec3 goal(mind_record(mind).goal_point);
     const i32 goal_cell = entity_detail::navigation_cell_index(floor, goal); // 0x00110EF0, EBX mind +0x70
     if (goal_cell == -1)
     {
@@ -526,7 +522,7 @@ void enter_runtime_spider_state(u16 state, u16 previous, RuntimeSpiderStrategy& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = body_of_actor(context);
-    const u32 target_address = get(mind_of(context), mind_field::target_record);
+    const u32 target_address = mind_record(mind_of(context)).target_record;
     body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
     strategy_base(strategy).unk_1B = 0;

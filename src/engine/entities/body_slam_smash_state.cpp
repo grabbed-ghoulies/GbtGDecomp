@@ -92,7 +92,7 @@ void call_out(const Vec3& point, u32 id, RuntimeSlamSmashStateContext& context)
 // floor under the point gives its height.
 void choose_landing(SlamSmashState& state, RuntimeSlamSmashStateContext& context)
 {
-    const u32 target = context.mind.empty() ? 0u : get(context.mind, mind_field::target_record);
+    const u32 target = context.mind.empty() ? 0u : mind_record(context.mind).target_record;
     Vec3 landing{};
     u32 floor = 0;
     if (target != 0)

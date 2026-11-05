@@ -558,7 +558,7 @@ bool runtime_arc_attack_reflects(std::span<const u32> message, RuntimeArcAttackS
     {
         return false;
     }
-    const u32 record = get(context.mind, mind_field::target_record);
+    const u32 record = mind_record(context.mind).target_record;
     if (record == 0)
     {
         return false;
@@ -582,7 +582,7 @@ bool initialize_runtime_arc_attack_state(ArcAttackState& state, std::span<const 
     const auto body = context.body;
     Actor& actor = context.actor;
     arc_attack_records[body_state_key(state)] = ArcAttackRecords{};
-    state.target = context.mind.empty() ? 0u : get(context.mind, mind_field::action_record);
+    state.target = context.mind.empty() ? 0u : mind_record(context.mind).action_record;
     state.saved_gravity = body_record(body).gravity;
     state.start = actor_world_position(actor); // 0x000412A0, EDI state +0x64
     state.take_off_time = get(parameters, parameter::take_off_time);

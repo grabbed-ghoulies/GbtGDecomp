@@ -1,4 +1,5 @@
 #include "body_hit_state.h"
+#include "mind_fields.h"
 #include "player_mind_targets.h"
 #include "actor_transform.h"
 #include "actor_shape_bounds.h"
@@ -153,9 +154,9 @@ bool initialize_runtime_hit_state(HitState& state, std::span<const u8> parameter
     body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps + 1;
     body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
     const auto target = context.target;
-    if (target.data() != nullptr && get(target, mind_target_field::kind) == 0)
+    if (target.data() != nullptr && mind_target_record(target).kind == 0)
     {
-        put_word(context.actor_bytes, 0x11C, get(target, mind_target_field::actor));
+        put_word(context.actor_bytes, 0x11C, mind_target_record(target).actor);
     }
     // 0x00041820 with ESI actor and EDI the state's start_euler.
     state.start_euler = actor_world_euler(context.actor);
@@ -213,7 +214,7 @@ void message_runtime_hit_state(HitState& state, std::span<const u8> message, Run
         {
             context.callouts(hit_actor, id);
         }
-        if (target.data() != nullptr && compared == get(target, mind_target_field::actor))
+        if (target.data() != nullptr && compared == mind_target_record(target).actor)
         {
             state.target_hit = 1;
             update_runtime_hit_permission(state, body);
@@ -240,7 +241,7 @@ void message_runtime_hit_state(HitState& state, std::span<const u8> message, Run
         return;
     case 0x6E:
         if (target.data() != nullptr && read_u32(message, 0x10) != 0
-            && get(target, mind_target_field::actor) == read_u32(message, 4)
+            && mind_target_record(target).actor == read_u32(message, 4)
             && context.actor_address != read_u32(message, 8))
         {
             state.unk_28 = 1;
@@ -254,7 +255,7 @@ void message_runtime_hit_state(HitState& state, std::span<const u8> message, Run
         }
         [[fallthrough]];
     case 0x6F:
-        if (target.data() != nullptr && read_u32(message, 4) == get(target, mind_target_field::actor))
+        if (target.data() != nullptr && read_u32(message, 4) == mind_target_record(target).actor)
         {
             state.target_notice = 1;
             update_runtime_hit_permission(state, body);
@@ -354,7 +355,7 @@ float runtime_hit_target_gap(float& angle, RuntimeHitStateTick& context)
         angle = 0.f;
         return 0.f;
     }
-    const Vec3 aim = get(target, mind_target_field::shape_position);
+    const Vec3 aim = mind_target_record(target).shape.position;
     const Vec3 origin = actor_world_position(context.actor);
     runtime_direction_angle(Vec3{aim.x - origin.x, aim.y - origin.y, aim.z - origin.z}, angle);
     // 0x000413B0 with EBX the record +0x20: the x87 distance from the actor's world position.
@@ -363,9 +364,9 @@ float runtime_hit_target_gap(float& angle, RuntimeHitStateTick& context)
     const long double dy = static_cast<long double>(from.y) - aim.y;
     const long double dz = static_cast<long double>(from.z) - aim.z;
     const float distance = float(std::sqrt(dx * dx + dy * dy + dz * dz));
-    const float radius = (get(target, mind_target_field::flags) & 0x10) != 0
-        ? get(target, mind_target_field::shape_radius)
-        : get(target, mind_target_field::secondary_radius);
+    const float radius = (mind_target_record(target).flags & 0x10) != 0
+        ? mind_target_record(target).shape.radius
+        : mind_target_record(target).secondary_shape.radius;
     const float gap = distance - radius - reach;
     if (-12.f > gap) // DAT_0032B4F4.
     {
@@ -389,7 +390,7 @@ void lunge_runtime_hit_state(HitState& state, RuntimeHitStateTick& context)
     }
     // A null record reads its +0x14 kind from address zero.
     const u8 kind =
-        context.target.data() == nullptr ? context.address_zero[0x14] : get(context.target, mind_target_field::kind);
+        context.target.data() == nullptr ? context.address_zero[0x14] : mind_target_record(context.target).kind;
     if (kind > 0 && kind <= 3)
     {
         return;
@@ -454,7 +455,7 @@ void face_runtime_hit_target(const HitState& state, RuntimeHitStateTick& context
     {
         return;
     }
-    const Vec3 target = get(context.target, mind_target_field::shape_position);
+    const Vec3 target = mind_target_record(context.target).shape.position;
     Vec3 euler;
     const Vec3 current = state.start_euler;
     if (turn_runtime_body_toward(target, context.body, current, euler, context.hit, context.actor,

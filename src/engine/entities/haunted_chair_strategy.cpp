@@ -84,7 +84,7 @@ bool target_attackable(RuntimeHauntedChairStrategy& context)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeHauntedChairStrategy& context)
 {
-    const u32 target = get(mind_of(context), mind_field::target_record);
+    const u32 target = mind_record(mind_of(context)).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -106,7 +106,7 @@ Vec3 goal_point(RuntimeHauntedChairStrategy& context)
 
 void set_goal_point(const Vec3& point, RuntimeHauntedChairStrategy& context)
 {
-    std::memcpy(mind_of(context).data() + 0x70, &point, 12);
+    mind_record(mind_of(context)).goal_point = point;
 }
 
 void load_goal(const char* goal, RuntimeHauntedChairStrategy& context)
@@ -265,9 +265,9 @@ bool target_within_reach(RuntimeHauntedChairStrategy& context)
         return false;
     }
     const Vec3 position = actor_world_position(goals_of(context).entry.actor); // 0x000412A0
-    const long double dx = static_cast<long double>(position.x) - get(target->bytes, mind_target_field::shape_position).x;
-    const long double dy = static_cast<long double>(position.y) - get(target->bytes, mind_target_field::shape_position).y;
-    const long double dz = static_cast<long double>(position.z) - get(target->bytes, mind_target_field::shape_position).z;
+    const long double dx = static_cast<long double>(position.x) - mind_target_record(target->bytes).shape.position.x;
+    const long double dy = static_cast<long double>(position.y) - mind_target_record(target->bytes).shape.position.y;
+    const long double dz = static_cast<long double>(position.z) - mind_target_record(target->bytes).shape.position.z;
     return static_cast<long double>(reach) > std::sqrt((dz * dz + dx * dx) + dy * dy);
 }
 

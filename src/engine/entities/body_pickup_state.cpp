@@ -195,7 +195,7 @@ void tick_runtime_pickup_state(PickupState& state, RuntimePickupStateContext& co
     const auto body = context.body;
     Actor& actor = context.actor;
     const auto mind = context.mind;
-    const u32 weapon_address = mind.empty() ? 0 : get(mind, mind_field::action_actor);
+    const u32 weapon_address = mind.empty() ? 0 : mind_record(mind).action_actor;
     state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
     level_body_euler(body);
     if (weapon_address != 0)
@@ -224,7 +224,7 @@ void tick_runtime_pickup_state(PickupState& state, RuntimePickupStateContext& co
             }
             if (!mind.empty())
             {
-                set(mind, mind_field::action_actor, 0);
+                mind_record(mind).action_actor = 0;
             }
         }
     }
@@ -374,7 +374,7 @@ void tick_runtime_lift_state(LiftState& state, RuntimePickupStateContext& contex
     u32 weapon = 0;
     if (stage == 1)
     {
-        weapon = context.mind.empty() ? 0 : get(context.mind, mind_field::action_actor);
+        weapon = context.mind.empty() ? 0 : mind_record(context.mind).action_actor;
     }
     else if (stage == 3)
     {

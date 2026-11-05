@@ -123,9 +123,9 @@ RuntimeMindTarget* selected_target(RuntimeHunchbackStrategy& context, bool& foun
 bool target_beyond(const RuntimeMindTarget& target, float reach, RuntimeHunchbackStrategy& context)
 {
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - get(target.bytes, mind_target_field::shape_position).x;
-    const float dz = position.z - get(target.bytes, mind_target_field::shape_position).z;
-    const float dy = position.y - get(target.bytes, mind_target_field::shape_position).y;
+    const float dx = position.x - mind_target_record(target.bytes).shape.position.x;
+    const float dz = position.z - mind_target_record(target.bytes).shape.position.z;
+    const float dy = position.y - mind_target_record(target.bytes).shape.position.y;
     return reach * reach < dx * dx + dz * dz + dy * dy;
 }
 
@@ -603,7 +603,7 @@ void dispatch_runtime_hunchback_message(std::span<const u32> message, RuntimeHun
     case 0x31:
     {
         const std::span<const u8> mind = goals.entry.events.mind;
-        const u32 target = mind.empty() ? 0u : get(mind, mind_field::target_record);
+        const u32 target = mind.empty() ? 0u : mind_record(mind).target_record;
         if (target != 0 && read_u32(goals.target_at(target)->bytes, 0x10) == message[1])
         {
             recover_runtime_hunchback(context); // The tail jump to 0x000B3700.

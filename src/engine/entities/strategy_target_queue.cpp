@@ -296,12 +296,12 @@ bool runtime_strategy_target_attackable(float range, RuntimeStrategyLink& link, 
         return false;
     }
     const std::span<const u8> mind = goals.entry.events.mind;
-    if (get(mind, mind_field::target_record) == 0)
+    if (mind_record(mind).target_record == 0)
     {
         return false;
     }
-    RuntimeMindTarget* target = goals.target_at(get(mind, mind_field::target_record));
-    if (target->bytes[0x15] != 0 || runtime_strategy_abandons_target(*target, checks) != 0)
+    RuntimeMindTarget* target = goals.target_at(mind_record(mind).target_record);
+    if (mind_target_record(target->bytes).hold != 0 || runtime_strategy_abandons_target(*target, checks) != 0)
     {
         return false;
     }

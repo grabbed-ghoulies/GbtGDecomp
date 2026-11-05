@@ -34,7 +34,7 @@ i32 update_runtime_cinema_mind_facing_request(std::span<const u8> mind, std::spa
     float degrees;
     if (kind == 0x27)
     {
-        if (get(mind, mind_field::target_record) == 0)
+        if (mind_record(mind).target_record == 0)
         {
             return 1;
         }
@@ -44,7 +44,7 @@ i32 update_runtime_cinema_mind_facing_request(std::span<const u8> mind, std::spa
     }
     else
     {
-        destination = kind == 0x25 ? get(mind, mind_field::goal_point) : get(request, facing_request::point);
+        destination = kind == 0x25 ? mind_record(mind).goal_point : get(request, facing_request::point);
         face_runtime_body_point(body, actor, destination);
         degrees = kind == 0x26 ? get(request, facing_request::point_degrees) : get(request, facing_request::degrees);
     }

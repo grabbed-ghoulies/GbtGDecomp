@@ -87,11 +87,6 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, 12);
-}
-
 // 30 units (DAT_0032B108) from the point along the heading, at its height.
 Vec3 point_along(const Vec3& from, float heading)
 {
@@ -138,19 +133,20 @@ bool approach_runtime_imp_flamethrower_target(const RuntimeMindTarget* target,
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> mind = mind_of(context);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
-    const Vec3 at{get(target->bytes, mind_target_field::shape_position).x, get(target->bytes, mind_target_field::shape_position).y, get(target->bytes, mind_target_field::shape_position).z};
+    const Vec3 at{mind_target_record(target->bytes).shape.position.x,
+        mind_target_record(target->bytes).shape.position.y, mind_target_record(target->bytes).shape.position.z};
     const Vec3 toward{at.x - position.x, at.y - position.y, at.z - position.z};
     float angle = 0.f; // 0x00105F90 leaves the slot unwritten for a zero direction.
     runtime_direction_angle(toward, angle); // 0x00105F90, EBX the angle
     const float side = 0.4363323152065277f; // DAT_0032B598, 25 degrees.
-    const i32 floor = target->bytes[0x19];
+    const i32 floor = mind_target_record(target->bytes).floor;
     Vec3 first_point;
     const bool first = clear_point(floor, position, point_along(position, angle + side), first_point, context);
     Vec3 second_point;
     const bool second = clear_point(floor, position, point_along(position, angle - side), second_point, context);
     if (!first && !second)
     {
-        put_vec3(mind, 0x70, at);
+        mind_record(mind).goal_point = at;
     }
     else
     {
@@ -163,7 +159,7 @@ bool approach_runtime_imp_flamethrower_target(const RuntimeMindTarget* target,
         {
             chosen = second ? &second_point : &first_point;
         }
-        put_vec3(mind, 0x70, *chosen);
+        mind_record(mind).goal_point = *chosen;
     }
     request_move(1.f, 0.2f, 1.f, context); // DAT_0032B0F8, DAT_0032B1AC.
     return !(45.f < runtime_strategy_target_gap(*target, context.shared)); // 0x00141650, DAT_0032B578.
@@ -214,7 +210,7 @@ void roam_runtime_imp_flamethrower(RuntimeImpFlamethrowerStrategy& context)
         }
         ++seen;
     }
-    put_vec3(mind, 0x70, candidates[size_t(chosen)].point);
+    mind_record(mind).goal_point = candidates[size_t(chosen)].point;
     request_move(0.4f, 1.f, 5.f, context); // DAT_0032B11C, DAT_0032B0F8, DAT_0032B184.
 }
 
@@ -423,7 +419,7 @@ void enter_runtime_imp_flamethrower_state(u16 state, u16 previous, RuntimeImpFla
     const std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = goals.entry.body; // Actor +0x95C.
     RuntimeMindGoalContext& mind = goals.entry.goals;
-    const u32 target_address = get(mind_of(context), mind_field::target_record);
+    const u32 target_address = mind_record(mind_of(context)).target_record;
     const RuntimeMindTarget* target = target_address == 0 ? nullptr : goals.target_at(target_address);
     body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;

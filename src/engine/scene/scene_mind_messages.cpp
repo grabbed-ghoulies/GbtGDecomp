@@ -1,4 +1,5 @@
 #include "scene_mind_messages.h"
+#include "../entities/player_mind_control.h"
 #include "../entities/mind_fields.h"
 #include "../entities/body_action_ids.h"
 #include "../entities/entity.h"
@@ -199,7 +200,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
                       {
                           // 0x0007B090 passes the mind's +0x10 target record to 0x00136770, as 0x0007DF50 does for
                           // players.
-                          return target_action(get(player_.mind, mind_field::target_record)).requests;
+                          return target_action(mind_record(player_.mind).target_record).requests;
                       },
                       player.body,
                       player.input,
@@ -328,7 +329,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
     // Mind +0x10 object +0x20, or null.
     slots.target_position = [this]() -> const Vec3*
     {
-        const u32 target = get(player_.mind, mind_field::target_record);
+        const u32 target = mind_record(player_.mind).target_record;
         if (target == 0)
         {
             return nullptr;
@@ -352,7 +353,7 @@ SceneMindMessages::SceneMindMessages(SceneMindServices& services, NativePlayerIn
         slots.cinema->request_update = &cinema_request_;
         slots.cinema->target_bytes = [this]() -> std::span<const u8>
         {
-            const u32 target = get(player_.mind, mind_field::target_record);
+            const u32 target = mind_record(player_.mind).target_record;
             return target == 0 ? std::span<const u8>() : services_.bytes_at(target);
         };
     }
@@ -465,7 +466,7 @@ void SceneMindMessages::refresh_control()
     }
     camera_direction_ = entity_detail::g_display_view->forward;
     search_.first = services_.first_target;
-    const u32 pending = read_u32(mind, 0x134);
+    const u32 pending = player_mind_record(mind).unk_134;
     pending_attachment_ = pending == 0 ? nullptr : &services_.attached_actor_at(pending);
     if (read_u32(player_.actor_bytes, 0x8F8) != 0)
     {
@@ -527,11 +528,11 @@ void SceneMindMessages::refresh()
     body_query_.energy = i16(body_record(body).energy);
     body_query_.maximum_energy = i16(body_record(body).max_energy);
     body_query_.bits = player_.body_flags;
-    target_ = object_at(get(mind, mind_field::target_record), "mind +0x10 target");
+    target_ = object_at(mind_record(mind).target_record, "mind +0x10 target");
     parent_.target_bytes = target_;
     player_messages_.target = target_;
-    parent_.target_actor = target_.empty() ? nullptr : services_.actor_at(get(mind, mind_field::target_record));
-    action_target_ = object_at(get(mind, mind_field::action_record), "mind +0x14 action target");
+    parent_.target_actor = target_.empty() ? nullptr : services_.actor_at(mind_record(mind).target_record);
+    action_target_ = object_at(mind_record(mind).action_record, "mind +0x14 action target");
     actor_mind_ = mind;
     // Body +0x84 is an attackdata request row (0x0001D2E0), stride 0x24 or more, by its data address.
     const u32 request = body_record(body).hit_record;
@@ -540,7 +541,7 @@ void SceneMindMessages::refresh()
     cinema_.floor = i32(player_record(player_.actor_bytes).floor);
     if (cinema_mind_ == false)
     {
-        event_source_ = object_at(read_u32(mind, 0x88), "player mind +0x88 event source");
+        event_source_ = object_at(player_mind_record(mind).target, "player mind +0x88 event source");
     }
     feedback_.input = player_.input;
     feedback_.input_address = player_.input.empty() ? 0 : services_.address_of(player_.input.data());
@@ -567,13 +568,13 @@ void SceneMindMessages::prepare_tick()
     movement_.required = player_.room;
     movement_.allowed = player_.allowed;
     movement_.occupancy_initial = services_.occupancy_initial;
-    const u32 target = get(player_.mind, mind_field::target_record);
+    const u32 target = mind_record(player_.mind).target_record;
     movement_.target = target == 0 ? nullptr : &services_.target_at(target);
     escape_.target = target == 0 ? std::span<const u8>() : movement_.target->bytes;
     escape_.markers = static_cast<const u8*>(services_.markers);
     escape_.allowed = player_.allowed;
     escape_.occupancy_initial = services_.occupancy_initial;
-    const u32 spawn = get(player_.mind, mind_field::action_actor);
+    const u32 spawn = mind_record(player_.mind).action_actor;
     player_.mind_action = spawn == 0 ? nullptr : &services_.attached_actor_at(spawn);
     cinema_request_.body = player_.body;
     cinema_request_.input = player_.input;
@@ -593,7 +594,7 @@ void SceneMindMessages::refresh_gaze()
     gaze_.mind = mind;
     gaze_.body = player_.body;
     control_.mind = mind;
-    const u32 target = get(mind, mind_field::target);
+    const u32 target = mind_record(mind).target;
     gaze_target_ = target == 0 ? nullptr : services_.actor_at(target);
     anchor_addresses_.clear();
     for (auto* node = static_cast<entity_detail::ListHead*>(g_actor_model_anchors.next); node != nullptr;
@@ -603,7 +604,7 @@ void SceneMindMessages::refresh_gaze()
             - offsetof(ActorModelAnchor, global_link));
         anchor_addresses_[anchor] = services_.address_of(anchor);
     }
-    const u32 anchor = get(mind, mind_field::gaze_anchor);
+    const u32 anchor = mind_record(mind).gaze_anchor;
     gaze_anchor_ = nullptr;
     if (anchor != 0)
     {
@@ -671,7 +672,7 @@ i32 SceneCameraMindParent::update(std::span<const u8> request)
     body_query_.energy = i16(body_record(body).energy);
     body_query_.maximum_energy = i16(body_record(body).max_energy);
     body_query_.bits = player_.body_flags;
-    const u32 target = get(mind, mind_field::target_record);
+    const u32 target = mind_record(mind).target_record;
     target_ = target == 0 ? std::span<const u8>{} : services_.bytes_at(target);
     parent_.target_bytes = target_;
     parent_.target_actor = target_.empty() ? nullptr : services_.actor_at(target);

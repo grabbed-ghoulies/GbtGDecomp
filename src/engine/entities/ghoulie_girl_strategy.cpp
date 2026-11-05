@@ -93,7 +93,7 @@ RuntimeMindTarget* mind_target(RuntimeGhoulieGirlStrategy& context)
     {
         return nullptr;
     }
-    const u32 address = get(mind, mind_field::target_record);
+    const u32 address = mind_record(mind).target_record;
     if (address == 0)
     {
         return nullptr;
@@ -243,7 +243,7 @@ void update_hold(RuntimeGhoulieGirlStrategy& context)
         return;
     }
     const std::span<const u8> mind = mind_of(context);
-    if (mind.empty() || get(mind, mind_field::target_record) == 0)
+    if (mind.empty() || mind_record(mind).target_record == 0)
     {
         return;
     }

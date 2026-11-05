@@ -71,7 +71,7 @@ bool body_settled(RuntimeZombieStrategy& context)
 // Mind +0x10: the current target record, or null.
 RuntimeMindTarget* mind_target(RuntimeZombieStrategy& context)
 {
-    const u32 address = get(mind_of(context), mind_field::target_record);
+    const u32 address = mind_record(mind_of(context)).target_record;
     return address == 0 ? nullptr : goals_of(context).target_at(address);
 }
 
@@ -189,7 +189,7 @@ void approach_runtime_zombie_target(RuntimeZombieStrategy& context)
     if (approach == 1)
     {
         if (actor_event_chance(goals.random, read_f32(context.parameters, 0x18))
-            && get(mind_of(context), mind_field::target_record) == 0)
+            && mind_record(mind_of(context)).target_record == 0)
         {
             fields_of(strategy).approach = 2u;
             load_runtime_mind_goal(context.goal_swipe_aimless, goals.entry.goals);
@@ -210,16 +210,17 @@ RuntimePlayerMindRequest* request_runtime_zombie_flank(const RuntimeMindTarget& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const Actor& actor = goals.entry.actor;
     const Vec3 position = actor_world_position(actor);
-    const Vec3 toward{get(target.bytes, mind_target_field::shape_position).x - position.x, get(target.bytes, mind_target_field::shape_position).y - position.y,
-        get(target.bytes, mind_target_field::shape_position).z - position.z};
+    const Vec3 toward{mind_target_record(target.bytes).shape.position.x - position.x,
+        mind_target_record(target.bytes).shape.position.y - position.y,
+        mind_target_record(target.bytes).shape.position.z - position.z};
     // The angle goes to the target argument's stack slot; a zero direction leaves the target's address there.
     float angle = std::bit_cast<float>(target.address);
     runtime_direction_angle(toward, angle);
     float heading = angle;
     const Vec3 again = actor_world_position(actor);
-    const float dx = again.x - get(target.bytes, mind_target_field::shape_position).x;
-    const float dy = again.y - get(target.bytes, mind_target_field::shape_position).y;
-    const float dz = again.z - get(target.bytes, mind_target_field::shape_position).z;
+    const float dx = again.x - mind_target_record(target.bytes).shape.position.x;
+    const float dy = again.y - mind_target_record(target.bytes).shape.position.y;
+    const float dz = again.z - mind_target_record(target.bytes).shape.position.z;
     const float near = read_f32(context.parameters, 0x24);
     if (near * near > dz * dz + dy * dy + dx * dx)
     {
@@ -369,7 +370,7 @@ void react_runtime_zombie_message(std::span<const u32> message, RuntimeZombieStr
         return;
     }
     case 0x7A:
-        set(mind_of(context), mind_field::action_actor, message[3]);
+        mind_record(mind_of(context)).action_actor = message[3];
         return;
     case 0x82:
         if (runtime_zombie_body_state_hidden(context))
@@ -447,7 +448,7 @@ void choose_runtime_zombie_state(RuntimeZombieStrategy& context)
 u16 choose_runtime_zombie_weapon_state(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> mind = mind_of(context);
-    const u32 weapon = mind.data() == nullptr ? 0 : get(mind, mind_field::action_actor);
+    const u32 weapon = mind.data() == nullptr ? 0 : mind_record(mind).action_actor;
     if (weapon != 0)
     {
         const Actor& held = *context.views.actor_at(weapon);

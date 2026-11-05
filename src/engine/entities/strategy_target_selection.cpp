@@ -98,7 +98,7 @@ bool store_selected_target(RuntimeMindTarget* target, RuntimeMindTarget*& output
 {
     RuntimeMindEvents& events = context.entry.events;
     std::span<u8> mind = events.mind;
-    set(mind, mind_field::target_record, target != nullptr ? target->address : 0);
+    mind_record(mind).target_record = target != nullptr ? target->address : 0;
     if (target == nullptr)
     {
         for (LiveScript* node = events.anchor.next; node != nullptr; node = node->next)
@@ -109,7 +109,7 @@ bool store_selected_target(RuntimeMindTarget* target, RuntimeMindTarget*& output
                 break;
             }
         }
-        set(mind, mind_field::target, 0);
+        mind_record(mind).target = 0;
         output = nullptr;
         return false;
     }
@@ -122,9 +122,9 @@ bool keep_selected_target(RuntimeMindTarget* target, RuntimeMindTarget*& output,
 {
     RuntimeMindEvent* event = allocate_runtime_mind_event(context.entry.events, 3, 0.5f);
     set(event->bytes, mind_event_field::subject, target->address);
-    if (get(target->bytes, mind_target_field::kind) == 0)
+    if (mind_target_record(target->bytes).kind == 0)
     {
-        set(mind_of(context), mind_field::target, get(target->bytes, mind_target_field::actor));
+        mind_record(mind_of(context)).target = mind_target_record(target->bytes).actor;
     }
     output = target;
     return true;
@@ -144,7 +144,7 @@ RuntimeMindTarget* find_runtime_strategy_class_target(bool class_filter, float* 
 {
     std::span<const u8> mind = mind_of(context);
     std::span<const u8> actor = context.entry.actor_bytes;
-    u32 flags = get(mind, mind_field::target_flags);
+    u32 flags = mind_record(mind).target_flags;
     u16 exclude = 0;
     u16 include = 0;
     if (class_filter)
@@ -158,10 +158,10 @@ RuntimeMindTarget* find_runtime_strategy_class_target(bool class_filter, float* 
     }
     float found_distance;
     RuntimeMindTarget* target = find_runtime_mind_target(context.entry.actor, context.entry.allowed, include,
-        exclude, &found_distance, get(mind, mind_field::target_categories), flags, context.entry.targets);
+        exclude, &found_distance, mind_record(mind).target_categories, flags, context.entry.targets);
     if (target != nullptr)
     {
-        const float range = get(mind, mind_field::target_range);
+        const float range = mind_record(mind).target_range;
         if (range > 0.f && found_distance > range)
         {
             return nullptr;
@@ -180,7 +180,7 @@ RuntimeMindTarget* find_runtime_strategy_hostile_target(bool hostile_filter, flo
 {
     std::span<const u8> mind = mind_of(context);
     std::span<const u8> actor = context.entry.actor_bytes;
-    u32 flags = get(mind, mind_field::target_flags);
+    u32 flags = mind_record(mind).target_flags;
     if (hostile_filter && actor_hostile(actor))
     {
         flags = (flags & ~4u) | 0x10u;
@@ -195,7 +195,7 @@ RuntimeMindTarget* find_runtime_strategy_hostile_target(bool hostile_filter, flo
     }
     float found_distance;
     RuntimeMindTarget* target = find_runtime_mind_target(context.entry.actor, context.entry.allowed, include,
-        exclude, &found_distance, get(mind, mind_field::target_categories), flags, context.entry.targets);
+        exclude, &found_distance, mind_record(mind).target_categories, flags, context.entry.targets);
     if (target != nullptr && distance != nullptr)
     {
         *distance = found_distance;
@@ -208,7 +208,8 @@ bool select_runtime_strategy_target(RuntimeMindTarget*& output, u32 force, Runti
 {
     std::span<u8> mind = mind_of(context);
     std::span<const u8> actor = context.entry.actor_bytes;
-    RuntimeMindTarget* current = get(mind, mind_field::target_record) != 0 ? context.target_at(get(mind, mind_field::target_record)) : nullptr;
+    RuntimeMindTarget* current = mind_record(mind).target_record != 0
+        ? context.target_at(mind_record(mind).target_record) : nullptr;
     if (force == 0 && current != nullptr)
     {
         if (runtime_mind_target_occupancy_differs(*current, read_u16(actor, 6), context.entry.allowed))
@@ -234,8 +235,8 @@ bool select_runtime_strategy_target(RuntimeMindTarget*& output, u32 force, Runti
         {
             float distance;
             RuntimeMindTarget* found = find_runtime_mind_target(context.entry.actor, context.entry.allowed, 0, 0,
-                &distance, get(mind, mind_field::target_categories), get(mind, mind_field::target_flags), context.entry.targets);
-            const float range = get(mind, mind_field::target_range);
+                &distance, mind_record(mind).target_categories, mind_record(mind).target_flags, context.entry.targets);
+            const float range = mind_record(mind).target_range;
             if (found != nullptr && range > 0.f && distance > range)
             {
                 target = nullptr;
@@ -246,7 +247,7 @@ bool select_runtime_strategy_target(RuntimeMindTarget*& output, u32 force, Runti
                 searched = found != nullptr;
             }
         }
-        if (!searched && get(mind, mind_field::target_record) != 0)
+        if (!searched && mind_record(mind).target_record != 0)
         {
             report_lost_target(context);
         }
@@ -265,7 +266,8 @@ bool select_runtime_strategy_hostile_target(RuntimeMindTarget*& output, u32 forc
 {
     std::span<u8> mind = mind_of(context);
     std::span<const u8> actor = context.entry.actor_bytes;
-    RuntimeMindTarget* current = get(mind, mind_field::target_record) != 0 ? context.target_at(get(mind, mind_field::target_record)) : nullptr;
+    RuntimeMindTarget* current = mind_record(mind).target_record != 0
+        ? context.target_at(mind_record(mind).target_record) : nullptr;
     if (force == 0 && current != nullptr
         && runtime_mind_target_occupancy_differs(*current, read_u16(actor, 6), context.entry.allowed))
     {
@@ -283,8 +285,8 @@ bool select_runtime_strategy_hostile_target(RuntimeMindTarget*& output, u32 forc
         {
             float distance;
             RuntimeMindTarget* found = find_runtime_mind_target(context.entry.actor, context.entry.allowed, 0, 0,
-                &distance, get(mind, mind_field::target_categories), get(mind, mind_field::target_flags), context.entry.targets);
-            const float range = get(mind, mind_field::target_range);
+                &distance, mind_record(mind).target_categories, mind_record(mind).target_flags, context.entry.targets);
+            const float range = mind_record(mind).target_range;
             if (found != nullptr && range > 0.f && distance > range)
             {
                 target = nullptr;
@@ -295,7 +297,7 @@ bool select_runtime_strategy_hostile_target(RuntimeMindTarget*& output, u32 forc
                 searched = found != nullptr;
             }
         }
-        if (!searched && get(mind, mind_field::target_record) != 0)
+        if (!searched && mind_record(mind).target_record != 0)
         {
             report_lost_target(context);
         }
@@ -311,7 +313,7 @@ bool select_runtime_strategy_hostile_target(RuntimeMindTarget*& output, u32 forc
 // Xbox 0x00141450
 Actor* runtime_mind_target_case_actor(const RuntimeMindTarget& target)
 {
-    if (get(target.bytes, mind_target_field::kind) != 0)
+    if (mind_target_record(target.bytes).kind != 0)
     {
         return nullptr;
     }
@@ -321,7 +323,7 @@ Actor* runtime_mind_target_case_actor(const RuntimeMindTarget& target)
 // Xbox 0x00141470
 bool runtime_mind_target_case_unavailable(const RuntimeMindTarget& target)
 {
-    if (get(target.bytes, mind_target_field::kind) == 0 && target.body.case_actor != nullptr)
+    if (mind_target_record(target.bytes).kind == 0 && target.body.case_actor != nullptr)
     {
         return actor_spawn_owner_unavailable(target.actor);
     }
@@ -375,7 +377,7 @@ i32 count_runtime_energy_actors(const RuntimeActiveActorLink* first, std::span<c
 u32 runtime_strategy_abandons_target(const RuntimeMindTarget& target, RuntimeStrategyTargetChecks& context)
 {
     std::span<const u8> actor = context.goals.entry.actor_bytes;
-    const bool disabled = get(target.bytes, mind_target_field::kind) != 0;
+    const bool disabled = mind_target_record(target.bytes).kind != 0;
     if (!disabled && ((target.body.bits->bytes[5] >> 4) & 1) != 0)
     {
         return 0;
@@ -415,28 +417,28 @@ u32 runtime_strategy_abandons_target(const RuntimeMindTarget& target, RuntimeStr
 bool runtime_message_names_mind_target(std::span<const u32> message, std::span<const u8> mind,
     const std::function<RuntimeMindTarget*(u32)>& target_at)
 {
-    if (message[4] == 0 || mind.data() == nullptr || get(mind, mind_field::target_record) == 0)
+    if (message[4] == 0 || mind.data() == nullptr || mind_record(mind).target_record == 0)
     {
         return false;
     }
-    const RuntimeMindTarget* target = target_at(get(mind, mind_field::target_record));
-    if (get(target->bytes, mind_target_field::kind) != 0)
+    const RuntimeMindTarget* target = target_at(mind_record(mind).target_record);
+    if (mind_target_record(target->bytes).kind != 0)
     {
         return false;
     }
-    return message[2] == get(target->bytes, mind_target_field::actor);
+    return message[2] == mind_target_record(target->bytes).actor;
 }
 
 // Xbox 0x00140980
 bool runtime_message_hits_mind_target(std::span<const u32> message, u32 actor, std::span<const u8> mind,
     const std::function<RuntimeMindTarget*(u32)>& target_at)
 {
-    if (mind.data() == nullptr || get(mind, mind_field::target_record) == 0)
+    if (mind.data() == nullptr || mind_record(mind).target_record == 0)
     {
         return false;
     }
-    const RuntimeMindTarget* target = target_at(get(mind, mind_field::target_record));
-    return get(target->bytes, mind_target_field::actor) == message[1] && message[4] != 0 && message[2] != actor;
+    const RuntimeMindTarget* target = target_at(mind_record(mind).target_record);
+    return mind_target_record(target->bytes).actor == message[1] && message[4] != 0 && message[2] != actor;
 }
 
 // Xbox 0x0013A540
@@ -447,9 +449,9 @@ bool runtime_strategy_target_within(float range, const RuntimeMindTarget& target
         return true;
     }
     const Vec3 position = actor_world_position(actor); // 0x000412A0, ESI actor.
-    const long double dx = static_cast<long double>(position.x) - get(target.bytes, mind_target_field::shape_position).x;
-    const long double dy = static_cast<long double>(position.y) - get(target.bytes, mind_target_field::shape_position).y;
-    const long double dz = static_cast<long double>(position.z) - get(target.bytes, mind_target_field::shape_position).z;
+    const long double dx = static_cast<long double>(position.x) - mind_target_record(target.bytes).shape.position.x;
+    const long double dy = static_cast<long double>(position.y) - mind_target_record(target.bytes).shape.position.y;
+    const long double dz = static_cast<long double>(position.z) - mind_target_record(target.bytes).shape.position.z;
     const long double distance = std::sqrt(dy * dy + dx * dx + dz * dz);
     return static_cast<long double>(range) > distance;
 }
@@ -524,7 +526,7 @@ u32 notice_runtime_strategy_target(u32 id, RuntimeStrategyTargetChecks& context)
 u32 notice_runtime_strategy_hostile_target(u32 id, RuntimeStrategyTargetChecks& context)
 {
     std::span<u8> mind = mind_of(context.goals);
-    const u32 previous = get(mind, mind_field::target_record);
+    const u32 previous = mind_record(mind).target_record;
     RuntimeMindTarget* target;
     if (!select_runtime_strategy_hostile_target(target, 0, context.goals))
     {
@@ -533,7 +535,7 @@ u32 notice_runtime_strategy_hostile_target(u32 id, RuntimeStrategyTargetChecks& 
     const u32 noticed = notice_runtime_strategy_target(id, context);
     if (noticed == 0 && previous == 0)
     {
-        set(mind, mind_field::target_record, previous);
+        mind_record(mind).target_record = previous;
     }
     return noticed;
 }
@@ -542,13 +544,13 @@ u32 notice_runtime_strategy_hostile_target(u32 id, RuntimeStrategyTargetChecks& 
 u32 resume_runtime_strategy_for_target(std::span<const u32> message, RuntimeStrategyTargetChecks& context)
 {
     std::span<const u8> mind = mind_of(context.goals);
-    if (get(mind, mind_field::target_record) == 0)
+    if (mind_record(mind).target_record == 0)
     {
         return 0;
     }
-    const RuntimeMindTarget* target = context.goals.target_at(get(mind, mind_field::target_record));
+    const RuntimeMindTarget* target = context.goals.target_at(mind_record(mind).target_record);
     std::span<const u8> strategy = strategy_of(context.goals);
-    if (get(target->bytes, mind_target_field::actor) != message[1] || strategy_base(strategy).state != 0x3F4)
+    if (mind_target_record(target->bytes).actor != message[1] || strategy_base(strategy).state != 0x3F4)
     {
         return 0;
     }
@@ -560,12 +562,12 @@ u32 resume_runtime_strategy_for_target(std::span<const u32> message, RuntimeStra
 u32 retreat_runtime_strategy_from_target(std::span<const u32> message, RuntimeStrategyTargetChecks& context)
 {
     std::span<const u8> mind = mind_of(context.goals);
-    if (get(mind, mind_field::target_record) == 0)
+    if (mind_record(mind).target_record == 0)
     {
         return 0;
     }
-    const RuntimeMindTarget* target = context.goals.target_at(get(mind, mind_field::target_record));
-    if (get(target->bytes, mind_target_field::actor) != message[1] || runtime_strategy_abandons_target(*target, context) == 0
+    const RuntimeMindTarget* target = context.goals.target_at(mind_record(mind).target_record);
+    if (mind_target_record(target->bytes).actor != message[1] || runtime_strategy_abandons_target(*target, context) == 0
         || strategy_base(strategy_of(context.goals)).state == 0x3F4)
     {
         return 0;
@@ -578,12 +580,12 @@ u32 retreat_runtime_strategy_from_target(std::span<const u32> message, RuntimeSt
 u32 review_runtime_strategy_target(RuntimeStrategyTargetChecks& context)
 {
     std::span<const u8> mind = mind_of(context.goals);
-    if (get(mind, mind_field::target_record) == 0
+    if (mind_record(mind).target_record == 0
         || runtime_player_can_resume_strategy(context.goals.entry.actor_bytes, context.goals.resume) == 0)
     {
         return 0;
     }
-    const RuntimeMindTarget* target = context.goals.target_at(get(mind, mind_field::target_record));
+    const RuntimeMindTarget* target = context.goals.target_at(mind_record(mind).target_record);
     const u32 abandon = runtime_strategy_abandons_target(*target, context);
     std::span<const u8> strategy = strategy_of(context.goals);
     if (strategy_base(strategy).state == 0x3F4)
@@ -653,9 +655,9 @@ u32 react_runtime_strategy_contact(std::span<const u32> message, float chance, R
     const bool settled = body_settled(goals.entry.body);
     std::span<const u8> mind = mind_of(goals);
     const u32 actor_address = goals.address_of(goals.entry.actor_bytes.data());
-    const RuntimeMindTarget* target = mind.data() != nullptr && get(mind, mind_field::target_record) != 0
-        ? goals.target_at(get(mind, mind_field::target_record)) : nullptr;
-    if (target != nullptr && get(target->bytes, mind_target_field::actor) == message[1] && message[4] != 0)
+    const RuntimeMindTarget* target = mind.data() != nullptr && mind_record(mind).target_record != 0
+        ? goals.target_at(mind_record(mind).target_record) : nullptr;
+    if (target != nullptr && mind_target_record(target->bytes).actor == message[1] && message[4] != 0)
     {
         if (message[2] != actor_address && !settled)
         {
@@ -804,7 +806,7 @@ RuntimePlayerMindRequest* request_runtime_strategy_roam(std::span<const u8> sett
 // Xbox 0x001372A0
 i32 runtime_mind_contact_count(const RuntimeMindEvents& events, u32 attacker)
 {
-    const u32 owner = get(events.mind, mind_field::actor);
+    const u32 owner = mind_record(events.mind).actor;
     for (LiveScript* node = events.anchor.next; node != nullptr; node = node->next)
     {
         if (u16(node->type) != 1)
@@ -843,11 +845,11 @@ bool runtime_message_lands_on_actor(std::span<const u32> message, u32 actor)
 bool runtime_message_names_mind_target_actor(std::span<const u32> message, std::span<const u8> mind,
     const std::function<RuntimeMindTarget*(u32)>& target_at)
 {
-    if (mind.data() == nullptr || get(mind, mind_field::target_record) == 0)
+    if (mind.data() == nullptr || mind_record(mind).target_record == 0)
     {
         return false;
     }
-    return get(target_at(get(mind, mind_field::target_record))->bytes, mind_target_field::actor) == message[1];
+    return mind_target_record(target_at(mind_record(mind).target_record)->bytes).actor == message[1];
 }
 
 // Xbox 0x001408E0, ECX message, EDX actor
@@ -877,7 +879,7 @@ bool runtime_message_source_targets_mind_target(std::span<const u32> message, u3
     {
         return false;
     }
-    const u32 target = mind.data() == nullptr ? 0 : get(mind, mind_field::target_record);
+    const u32 target = mind.data() == nullptr ? 0 : mind_record(mind).target_record;
     return target == source_target;
 }
 
@@ -885,9 +887,9 @@ bool runtime_message_source_targets_mind_target(std::span<const u32> message, u3
 long double runtime_target_distance(const Actor& actor, std::span<const u8> target)
 {
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const long double dx = static_cast<long double>(position.x) - get(target, mind_target_field::shape_position).x;
-    const long double dy = static_cast<long double>(position.y) - get(target, mind_target_field::shape_position).y;
-    const long double dz = static_cast<long double>(position.z) - get(target, mind_target_field::shape_position).z;
+    const long double dx = static_cast<long double>(position.x) - mind_target_record(target).shape.position.x;
+    const long double dy = static_cast<long double>(position.y) - mind_target_record(target).shape.position.y;
+    const long double dz = static_cast<long double>(position.z) - mind_target_record(target).shape.position.z;
     return std::sqrt(dz * dz + dx * dx + dy * dy);
 }
 
@@ -913,7 +915,7 @@ bool count_down_runtime_strategy_timer(float& timer, RuntimePlayerStrategyGoals&
 bool runtime_mind_target_within(float reach, RuntimePlayerStrategyGoals& context)
 {
     const std::span<const u8> mind = context.entry.events.mind;
-    const u32 target = mind.empty() ? 0u : get(mind, mind_field::target_record);
+    const u32 target = mind.empty() ? 0u : mind_record(mind).target_record;
     if (target == 0)
     {
         return false;
@@ -972,14 +974,14 @@ u32 adopt_runtime_strategy_message_attacker(std::span<const u32> message, u32 fo
     }
     RuntimeMindTarget* target = goals.target_at(record);
     std::span<const u8> actor_bytes = goals.entry.actor_bytes;
-    if (get(target->bytes, mind_target_field::unk_18) != 0
+    if (mind_target_record(target->bytes).unk_18 != 0
         || !runtime_mind_target_is_eligible(events.mind, actor_bytes, goals.entry.actor,
             goals.address_of(actor_bytes.data()), *target, true)) // 0x00029C80, EDX 1
     {
         return 0;
     }
     set_runtime_mind_target(events, record); // 0x0002A030
-    set(events.mind, mind_field::target, message[2]);
+    mind_record(events.mind).target = message[2];
     return 1;
 }
 
@@ -987,9 +989,9 @@ u32 adopt_runtime_strategy_message_attacker(std::span<const u32> message, u32 fo
 float runtime_squared_target_distance(const Actor& actor, std::span<const u8> target)
 {
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const float dz = position.z - get(target, mind_target_field::shape_position).z;
-    const float dx = position.x - get(target, mind_target_field::shape_position).x;
-    const float dy = position.y - get(target, mind_target_field::shape_position).y;
+    const float dz = position.z - mind_target_record(target).shape.position.z;
+    const float dx = position.x - mind_target_record(target).shape.position.x;
+    const float dy = position.y - mind_target_record(target).shape.position.y;
     return (dz * dz + dx * dx) + dy * dy;
 }
 
@@ -1072,7 +1074,7 @@ u32 retaliate_runtime_strategy_contact(std::span<const u32> message, i32 minimum
     }
     const i32 contacts = runtime_mind_contact_count(events, attacker);
     const bool landed = runtime_message_lands_on_actor(message, actor);
-    const u32 current = get(events.mind, mind_field::target_record);
+    const u32 current = mind_record(events.mind).target_record;
     clear_runtime_player_mind_requests(*goals.setup.mind);
     if (current != 0 && !landed && contacts <= 0)
     {
@@ -1084,12 +1086,12 @@ u32 retaliate_runtime_strategy_contact(std::span<const u32> message, i32 minimum
         return 0;
     }
     RuntimeMindTarget* target = goals.target_at(record);
-    if (get(target->bytes, mind_target_field::unk_18) != 0 || runtime_strategy_abandons_target(*target, context) != 0)
+    if (mind_target_record(target->bytes).unk_18 != 0 || runtime_strategy_abandons_target(*target, context) != 0)
     {
         return 0;
     }
     set_runtime_mind_target(events, record);
-    set(events.mind, mind_field::target, attacker);
+    mind_record(events.mind).target = attacker;
     return 1;
 }
 
@@ -1100,12 +1102,12 @@ u32 runtime_strategy_target_hit_lands(std::span<const u32> message, RuntimeStrat
     RuntimePlayerStrategyGoals& goals = context.goals;
     const std::span<const u8> mind = goals.entry.events.mind;
     const u32 actor = strategy_base(goals.entry.strategy).actor;
-    if (mind.data() == nullptr || get(mind, mind_field::target_record) == 0)
+    if (mind.data() == nullptr || mind_record(mind).target_record == 0)
     {
         return 0;
     }
-    const RuntimeMindTarget* target = goals.target_at(get(mind, mind_field::target_record));
-    if (get(target->bytes, mind_target_field::actor) != message[1] || message[2] != actor || message[4] == 0)
+    const RuntimeMindTarget* target = goals.target_at(mind_record(mind).target_record);
+    if (mind_target_record(target->bytes).actor != message[1] || message[2] != actor || message[4] == 0)
     {
         return 0;
     }
@@ -1127,7 +1129,7 @@ u32 react_runtime_strategy_watched_actor(std::span<const u32> message, RuntimeSt
 {
     RuntimePlayerStrategyGoals& goals = context.goals;
     const RuntimeMindEvents& events = goals.entry.events;
-    if (!reactions_enabled(goals) || get(events.mind, mind_field::target) != message[1]
+    if (!reactions_enabled(goals) || mind_record(events.mind).target != message[1]
         || !runtime_mind_watches_actor(events, message[1]))
     {
         return 0;
@@ -1168,19 +1170,20 @@ u32 take_runtime_strategy_hit_sender(std::span<const u32> message, RuntimeStrate
     {
         throw Error("0x001394D0 reads a live attachment record with no target view");
     }
-    if (get(target->bytes, mind_target_field::unk_18) != 0 || runtime_strategy_abandons_target(*target, context) != 0) // 0x00138410, EDX record
+    // 0x00138410, EDX record
+    if (mind_target_record(target->bytes).unk_18 != 0 || runtime_strategy_abandons_target(*target, context) != 0)
     {
         return 0;
     }
     set_runtime_mind_target(events, record); // 0x0002A030, ESI mind, EAX record
-    set(events.mind, mind_field::target, sender);
+    mind_record(events.mind).target = sender;
     return 1;
 }
 
 // Xbox 0x001414F0, EAX target
 bool runtime_strategy_target_watching_player(const RuntimeMindTarget& target)
 {
-    if (get(target.bytes, mind_target_field::kind) != 0)
+    if (mind_target_record(target.bytes).kind != 0)
     {
         return false;
     }

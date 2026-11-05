@@ -94,7 +94,7 @@ void load_goal(const char* goal, RuntimeWormStrategy& context)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeWormStrategy& context)
 {
-    const u32 target = get(goals_of(context).entry.events.mind, mind_field::target_record);
+    const u32 target = mind_record(goals_of(context).entry.events.mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -376,7 +376,7 @@ void dispatch_runtime_worm_message(std::span<const u32> message, RuntimeWormStra
         {
             return;
         }
-        if (get(goals.entry.events.mind, mind_field::target_record) != 0 && strategy_base(strategy).pause_count == 0)
+        if (mind_record(goals.entry.events.mind).target_record != 0 && strategy_base(strategy).pause_count == 0)
         {
             const u32 kind =
                 player_record(actor_bytes).mode == 2 || player_record(actor_bytes).case_link != 0 ? 1u : 0u;
@@ -437,7 +437,7 @@ void enter_runtime_worm_state(u16 state, u16 previous, RuntimeWormStrategy& cont
     const std::span<u8> mind = goals.entry.events.mind;
     body_record(body).move_class = 2;
     strategy_base(strategy).attacking = 0;
-    const u32 target = get(mind, mind_field::target_record);
+    const u32 target = mind_record(mind).target_record;
     switch (state)
     {
     case 0x3EF:
@@ -452,7 +452,7 @@ void enter_runtime_worm_state(u16 state, u16 previous, RuntimeWormStrategy& cont
     case 0x400:
         set_body_timer(body, 0.f);
         ++strategy_base(strategy).pause_count;
-        set(mind, mind_field::action_record, target);
+        mind_record(mind).action_record = target;
         context.select_request(0x67); // 0x0001D210, EAX key
         return;
     case 0x401:

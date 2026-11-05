@@ -249,7 +249,7 @@ void follow_runtime_stand_focus(std::span<u8> action, RuntimeStandActionContext&
     }
     const Vec3 focus{body_record(context.body).look_point.x, body_record(context.body).look_point.y,
         body_record(context.body).look_point.z};
-    const u32 target = get(context.mind, mind_field::target);
+    const u32 target = mind_record(context.mind).target;
     float speed;
     if (read_u32(context.tunables, 8) == 0) // DAT_004275C4.
     {
@@ -285,7 +285,8 @@ void tick_runtime_stand_action(std::span<u8> action, RuntimeStandActionContext& 
     std::memcpy(action.data() + 0xC, &elapsed, 4);
     if (read_u32(action, 0x10) != 0)
     {
-        std::memcpy(context.body.data() + offsetof(BodyRecord, position.x), context.mind.data() + 0x70, 12);
+        std::memcpy(context.body.data() + offsetof(BodyRecord, position.x), context.mind.data()
+            + offsetof(MindRecord, goal_point), 12);
         context.actor.anchor = {0.f, 0.f, 0.f}; // Actor +0x3C.
         if (body_record(context.body).look_point_set != 0)
         {

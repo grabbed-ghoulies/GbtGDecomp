@@ -177,9 +177,9 @@ void release_runtime_imp_fire_hold(RuntimeImpFireStrategy& context)
 float runtime_imp_fire_range_fraction(std::span<const u8> target, RuntimeImpFireStrategy& context)
 {
     const Vec3 position = actor_world_position(goals_of(context).entry.actor);
-    const float dx = position.x - get(target, mind_target_field::shape_position).x;
-    const float dy = position.y - get(target, mind_target_field::shape_position).y;
-    const float dz = position.z - get(target, mind_target_field::shape_position).z;
+    const float dx = position.x - mind_target_record(target).shape.position.x;
+    const float dy = position.y - mind_target_record(target).shape.position.y;
+    const float dz = position.z - mind_target_record(target).shape.position.z;
     const float nearest = read_f32(context.parameters, 0x18);
     const float farthest = read_f32(context.parameters, 0x1C);
     if (farthest == nearest)
@@ -226,8 +226,9 @@ float select_runtime_imp_fire_heading(const RuntimeMindTarget& target, RuntimeIm
     Actor& actor = goals_of(context).entry.actor;
     const float fraction = runtime_imp_fire_range_fraction(target.bytes, context);
     const Vec3 position = actor_world_position(actor);
-    const Vec3 direction{get(target.bytes, mind_target_field::shape_position).x - position.x, get(target.bytes, mind_target_field::shape_position).y - position.y,
-        get(target.bytes, mind_target_field::shape_position).z - position.z};
+    const Vec3 direction{mind_target_record(target.bytes).shape.position.x - position.x,
+        mind_target_record(target.bytes).shape.position.y - position.y,
+        mind_target_record(target.bytes).shape.position.z - position.z};
     // The output reuses the caller's argument slot, which holds the parameter block address.
     float angle = std::bit_cast<float>(fields_of(strategy_of(context)).parameters);
     runtime_direction_angle(direction, angle);
@@ -254,7 +255,8 @@ bool select_runtime_imp_fire_position(const RuntimeMindTarget& target, const Vec
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const float range = read_f32(context.parameters, 4);
-    RuntimeNavigationHeadingSearch search{origin, i32(get(target.bytes, mind_target_field::floor)), range - 0.5f, range + 0.5f, nullptr,
+    RuntimeNavigationHeadingSearch search{origin, i32(mind_target_record(target.bytes).floor), range - 0.5f, range
+        + 0.5f, nullptr,
         goals.entry.allowed, &output, 1, 0xD, i16(read_u16(goals.entry.actor_bytes, 6)), goals.random,
         0.f}; // Flag 0x10 is clear, so the retained occupancy scratch is not read.
     return search_runtime_navigation_headings(search, heading, std::bit_cast<float>(0x3E9C61AAu), 10);
@@ -277,11 +279,11 @@ bool roll_runtime_imp_fire_attachment(RuntimeImpFireStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<const u8> mind = goals.entry.events.mind;
-    if (mind.data() == nullptr || get(mind, mind_field::target_record) == 0)
+    if (mind.data() == nullptr || mind_record(mind).target_record == 0)
     {
         return false;
     }
-    const Actor& target = goals.target_at(get(mind, mind_field::target_record))->actor;
+    const Actor& target = goals.target_at(mind_record(mind).target_record)->actor;
     i32 index = context.attachment_limit;
     const RuntimeBodyModelNodes* model = context.model_of(target);
     const u32 count = count_runtime_body_model_kind(model, 4);
@@ -471,7 +473,7 @@ void update_runtime_imp_fire_bite(RuntimeImpFireStrategy& context)
     }
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<const u8> mind = goals.entry.events.mind;
-    if (mind.data() != nullptr && get(mind, mind_field::target_record) != 0 && runtime_imp_fire_effect_playing(context))
+    if (mind.data() != nullptr && mind_record(mind).target_record != 0 && runtime_imp_fire_effect_playing(context))
     {
         std::span<u8> strategy = strategy_of(context);
         if (fields_of(strategy).bite_request != 0)

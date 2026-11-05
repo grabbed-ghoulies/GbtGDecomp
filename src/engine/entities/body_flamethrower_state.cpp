@@ -308,7 +308,7 @@ float runtime_flamethrower_aim_pitch(RuntimeFlamethrowerStateContext& context)
     {
         return 0.f;
     }
-    const u32 address = get(mind, mind_field::action_record);
+    const u32 address = mind_record(mind).action_record;
     if (address == 0)
     {
         return 0.f;
@@ -317,9 +317,10 @@ float runtime_flamethrower_aim_pitch(RuntimeFlamethrowerStateContext& context)
     const Actor& actor = context.actor;
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float eye = body_record(context.body).height_scale * actor.radius_y + position.y;
-    const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x,
-        (get(target, mind_target_field::shape_height) * 0.25f + get(target, mind_target_field::shape_position).y) - eye, // DAT_0032B104.
-        get(target, mind_target_field::shape_position).z - position.z};
+    const Vec3 direction{mind_target_record(target).shape.position.x - position.x,
+        // DAT_0032B104.
+        (mind_target_record(target).shape.height * 0.25f + mind_target_record(target).shape.position.y) - eye,
+        mind_target_record(target).shape.position.z - position.z};
     float pitch = 0.f;
     runtime_direction_pitch(direction, pitch); // 0x00106000
     return pitch - kAimOffset;

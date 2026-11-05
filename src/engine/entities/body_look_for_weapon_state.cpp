@@ -169,9 +169,9 @@ void tick_runtime_look_for_weapon_state(LookForWeaponState& state, RuntimeLookFo
     }
     if (phase == 1)
     {
-        if (context.mind.data() != nullptr && get(context.mind, mind_field::action_actor) != 0)
+        if (context.mind.data() != nullptr && mind_record(context.mind).action_actor != 0)
         {
-            const Actor* weapon = context.actor_at(get(context.mind, mind_field::action_actor));
+            const Actor* weapon = context.actor_at(mind_record(context.mind).action_actor);
             if (weapon == nullptr)
             {
                 throw Error("0x0009DB30 turns toward a mind weapon (mind +0x18) that is not an actor");
@@ -194,7 +194,7 @@ bool find_runtime_mind_weapon(RuntimeLookForWeaponStateContext& context)
     {
         return false;
     }
-    const u32 chosen = get(mind, mind_field::action_actor);
+    const u32 chosen = mind_record(mind).action_actor;
     if (chosen != 0)
     {
         const Actor* weapon = context.actor_at(chosen);
@@ -210,7 +210,7 @@ bool find_runtime_mind_weapon(RuntimeLookForWeaponStateContext& context)
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
     const Actor* nearest = find_nearest_spawn_actor(position, &context.actor, nullptr, 0x1F); // 0x00129D70
     const u32 address = nearest == nullptr ? 0u : context.address_of(*nearest);
-    set(mind, mind_field::action_actor, address);
+    mind_record(mind).action_actor = address;
     return address != 0;
 }
 

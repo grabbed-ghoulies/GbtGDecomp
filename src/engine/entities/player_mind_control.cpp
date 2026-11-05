@@ -20,7 +20,7 @@ std::span<u8> refresh_runtime_player_shape_target(RuntimePlayerMindShapeTarget& 
     auto mind = context.mind;
     auto* attachment = context.attachment;
     if (attachment == nullptr || (body_record(body).unk_6A != 0
-        && get(mind, mind_field::action_record) != context.mind_address + 0xB8))
+        && mind_record(mind).action_record != context.mind_address + 0xB8))
     {
         return {};
     }
@@ -40,12 +40,12 @@ std::span<u8> refresh_runtime_player_shape_target(RuntimePlayerMindShapeTarget& 
         position.z = cosine;
         std::memcpy(first.data() + 4, &position, sizeof(position));
         std::memcpy(second.data() + 4, &position, sizeof(position));
-        copy_actor_shape(mind.data() + 0xD4, first.data());
-        copy_actor_shape(mind.data() + 0xF4, second.data());
-        std::memcpy(mind.data() + 0x114, &actor_transform_origin, sizeof(Vec3));
-        mind[0xD1] = u8(context.floor);
+        copy_actor_shape(retail_bytes(player_mind_record(mind).own_target.shape).data(), first.data());
+        copy_actor_shape(retail_bytes(player_mind_record(mind).own_target.secondary_shape).data(), second.data());
+        player_mind_record(mind).own_target.direction = actor_transform_origin;
+        player_mind_record(mind).own_target.floor = u8(context.floor);
     }
-    return mind.subspan(0xB8, 0x68);
+    return retail_bytes(player_mind_record(mind).own_target);
 }
 
 // Xbox 0x0007E9E0
@@ -85,8 +85,8 @@ bool runtime_player_mind_accepts_target(const RuntimePlayerAttachmentEligibility
 // Xbox 0x0002A130
 void set_runtime_mind_gaze_anchor(std::span<u8> mind, u32 anchor_address, u32& random_state)
 {
-    set(mind, mind_field::gaze_anchor, anchor_address);
-    set(mind, mind_field::unk_34, 0.f);
+    mind_record(mind).gaze_anchor = anchor_address;
+    mind_record(mind).unk_34 = 0.f;
     float duration = 0.f;
     if (anchor_address != 0)
     {
@@ -94,7 +94,7 @@ void set_runtime_mind_gaze_anchor(std::span<u8> mind, u32 anchor_address, u32& r
         const float fraction = std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.f;
         duration = fraction * 0.5f + 0.5f;
     }
-    set(mind, mind_field::unk_38, duration);
+    mind_record(mind).unk_38 = duration;
 }
 
 // Xbox 0x00137140
@@ -105,12 +105,12 @@ void update_runtime_player_mind_gaze(RuntimePlayerMindGaze& context,
     auto body = context.body;
     if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
-        if (get(mind, mind_field::gaze_point_set) == 0)
+        if (mind_record(mind).gaze_point_set == 0)
         {
             const Vec3 origin = runtime_body_gaze_origin(body, context.body_actor);
-            if (context.anchor == nullptr || get(mind, mind_field::unk_34) >= get(mind, mind_field::unk_38))
+            if (context.anchor == nullptr || mind_record(mind).unk_34 >= mind_record(mind).unk_38)
             {
-                if (get(mind, mind_field::target_mode) == 0 || context.target == nullptr)
+                if (mind_record(mind).target_mode == 0 || context.target == nullptr)
                 {
                     context.anchor = find_nearest_actor_model_anchor(context.actor, origin,
                         check_path, maximum_height, radius);
@@ -138,11 +138,11 @@ void update_runtime_player_mind_gaze(RuntimePlayerMindGaze& context,
             }
             return;
         }
-        std::memcpy(body.data() + offsetof(BodyRecord, look_point.x), field_data(mind, mind_field::gaze_point),
+        std::memcpy(body.data() + offsetof(BodyRecord, look_point.x), &mind_record(mind).gaze_point,
             sizeof(Vec3));
         body_record(body).look_point_set = 1;
     }
-    set(mind, mind_field::gaze_point_set, 0u);
+    mind_record(mind).gaze_point_set = 0u;
 }
 
 // Xbox 0x0007E3A0
@@ -157,7 +157,7 @@ bool request_runtime_player_idle_action(std::span<u8> mind,
     const u8* row = find_runtime_attachment_first_request(*body.tables, keys[size_t(-sampled)]);
     if (row != nullptr)
     {
-        set(mind, mind_field::action_record, 0u);
+        mind_record(mind).action_record = 0u;
         accept_runtime_attachment_request(body, row, 0);
         return true;
     }
@@ -170,14 +170,14 @@ void update_runtime_player_pending_attachment(RuntimePlayerMindPendingAttachment
     auto* pending = context.pending;
     context.pending = nullptr;
     const u32 zero = 0;
-    std::memcpy(context.mind.data() + 0x134, &zero, 4);
-    if (!(get(context.mind, player_mind_field::control_lock) > 0.f) && pending != nullptr)
+    player_mind_record(context.mind).unk_134 = zero;
+    if (!(player_mind_record(context.mind).control_lock > 0.f) && pending != nullptr)
     {
         if (runtime_player_can_attach(context.eligibility, *pending)
             && runtime_input_button_edge(context.input, 0x100, context.input_state) != 0)
         {
             context.action = pending;
-            set(context.mind, mind_field::action_actor, pending->address);
+            mind_record(context.mind).action_actor = pending->address;
             const u32 key = context.attach(*pending);
             select_runtime_body_action(context.body, u16(key), context.actions);
         }
@@ -190,10 +190,7 @@ void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
     u32& random_state)
 {
     auto mind = control.mind;
-    const auto put = [mind](size_t offset, u32 value)
-    {
-        std::memcpy(mind.data() + offset, &value, 4);
-    };
+    PlayerMindRecord& record = player_mind_record(mind);
     std::array<float, 2> axes;
     runtime_input_axes(control.input, axes, control.input_state);
     bool active = axes[1] * axes[1] + axes[0] * axes[0] > std::bit_cast<float>(0x3C23D70Bu);
@@ -204,23 +201,23 @@ void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
     }
     if (active)
     {
-        put(0x148, 0);
-        put(0x150, 0);
-        put(0x154, 0);
+        record.unk_148 = 0.f;
+        record.unk_150 = 0;
+        record.unk_154 = 0;
     }
     else
     {
-        put(0x148, std::bit_cast<u32>(read_f32(mind, 0x148) + runtime_frame_step(control.clock)));
+        record.unk_148 = player_mind_record(mind).unk_148 + runtime_frame_step(control.clock);
     }
-    if (read_u32(mind, 0x144) == 0)
+    if (player_mind_record(mind).unk_144 == 0)
     {
         return;
     }
     if (body_record(body.body).action_key == 0x2C
-        && runtime_actor_animation_crossed_position(animation, 0, read_f32(mind, 0x14C))
-        && get(mind, mind_field::target_mode) != 0 && request_runtime_player_idle_action(mind, body, random_state))
+        && runtime_actor_animation_crossed_position(animation, 0, player_mind_record(mind).unk_14C)
+        && mind_record(mind).target_mode != 0 && request_runtime_player_idle_action(mind, body, random_state))
     {
-        put(0x154, 1);
+        record.unk_154 = 1;
     }
     if (body_record(body.body).move_holds != 0 || body_record(body.body).move_hold_time != 0.f)
     {
@@ -233,17 +230,17 @@ void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
     bool request = false;
     if (body_record(body.body).attached == 0 && body_record(body.body).unk_50 == 0)
     {
-        request = read_f32(mind, 0x148) > 10.f && std::bit_cast<i32>(read_u32(mind, 0x150)) > 2;
+        request = player_mind_record(mind).unk_148 > 10.f && std::bit_cast<i32>(player_mind_record(mind).unk_150) > 2;
     }
     else
     {
-        put(0x154, 0);
+        record.unk_154 = 0;
     }
-    if (get(mind, mind_field::target_mode) == 0)
+    if (mind_record(mind).target_mode == 0)
     {
-        put(0x154, 0);
+        record.unk_154 = 0;
     }
-    if (request || read_u32(mind, 0x154) != 0)
+    if (request || player_mind_record(mind).unk_154 != 0)
     {
         if (body.actions.table != nullptr)
         {
@@ -254,14 +251,14 @@ void update_runtime_player_mind_inactivity(RuntimePlayerMindInactivity& control,
                 select_runtime_body_action_row(body.body, row, nullptr, body.actions);
             }
         }
-        put(0x148, 0);
-        put(0x150, 0);
-        put(0x154, 1);
+        record.unk_148 = 0.f;
+        record.unk_150 = 0;
+        record.unk_154 = 1;
         random_state = random_state * 0x19660Du + 0x3C6EF35Fu;
         const float fraction = std::bit_cast<float>((random_state & 0x7FFFFFu) | 0x3F800000u) - 1.f;
         const float position = fraction * std::bit_cast<float>(0x3EB33332u)
             + std::bit_cast<float>(0x3F19999Au);
-        put(0x14C, std::bit_cast<u32>(position));
+        record.unk_14C = position;
     }
 }
 
@@ -297,16 +294,16 @@ u32 prepare_runtime_player_mind_request(std::span<u8> mind, Actor& actor,
         randomize(0x10, 0x38);
         break;
     case 0x16:
-        put(mind, 0x130, 0);
-        put(mind, 0x124, 0);
-        put(mind, 0x94, 0);
-        put(mind, 0xB0, 0);
-        put(mind, 0xA0, 0);
-        put(mind, 0xA4, 0);
-        put(mind, 0x98, 1);
-        put(mind, 0x9C, 0);
-        put(mind, 0xA8, 0);
-        put(mind, 0xAC, 0);
+        player_mind_record(mind).unk_130 = 0.f;
+        player_mind_record(mind).unk_124 = 0;
+        player_mind_record(mind).stick.pressed = 0;
+        player_mind_record(mind).stick.gesture = 0;
+        player_mind_record(mind).stick.unk_0C = 0.f;
+        player_mind_record(mind).stick.direction = 0.f;
+        player_mind_record(mind).stick.state = 1;
+        player_mind_record(mind).stick.press_timer = 0.f;
+        player_mind_record(mind).stick.magnitude = 0.f;
+        player_mind_record(mind).stick.gesture_time = 0.f;
         break;
     case 0x24:
     {
@@ -357,17 +354,16 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
 }
-template <u32 Offset>
-void decay_tracking_float(std::span<u8> bytes, RetailField<float, Offset> field, float step)
+void decay_tracking_float(float& field, float step)
 {
-    const float previous = get(bytes, field);
+    const float previous = field;
     if (previous > 0.f)
     {
         const float value = previous - step;
-        set(bytes, field, value);
+        field = value;
         if (!(0.f < value) && !std::isnan(value))
         {
-            set(bytes, field, 0.f);
+            field = 0.f;
         }
     }
 }
@@ -376,22 +372,22 @@ void decay_tracking_float(std::span<u8> bytes, RetailField<float, Offset> field,
 // Xbox 0x0007D5A0
 void update_runtime_player_input_gesture(std::span<u8> tracking, float magnitude, float step)
 {
-    switch (get(tracking, stick_tracking_field::gesture))
+    switch (stick_record(tracking).gesture)
     {
     case 0:
         if (magnitude > std::bit_cast<float>(0x3DE147AEu))
         {
-            set(tracking, stick_tracking_field::gesture, 1);
-            set(tracking, stick_tracking_field::gesture_time, get(tracking, stick_tracking_field::gesture_time) + step);
-            set(tracking, stick_tracking_field::magnitude, magnitude);
+            stick_record(tracking).gesture = 1;
+            stick_record(tracking).gesture_time = stick_record(tracking).gesture_time + step;
+            stick_record(tracking).magnitude = magnitude;
             return;
         }
         break;
     case 1:
-        if (!(magnitude >= get(tracking, stick_tracking_field::magnitude) - 0.05f))
+        if (!(magnitude >= stick_record(tracking).magnitude - 0.05f))
         {
-            set(tracking, stick_tracking_field::gesture, 2);
-            set(tracking, stick_tracking_field::magnitude, magnitude);
+            stick_record(tracking).gesture = 2;
+            stick_record(tracking).magnitude = magnitude;
             return;
         }
         goto accumulate;
@@ -402,12 +398,12 @@ void update_runtime_player_input_gesture(std::span<u8> tracking, float magnitude
         }
 accumulate:
         {
-            const float value = get(tracking, stick_tracking_field::gesture_time) + step;
-            set(tracking, stick_tracking_field::gesture_time, value);
+            const float value = stick_record(tracking).gesture_time + step;
+            stick_record(tracking).gesture_time = value;
             if (!(value < 0.2f) && !std::isnan(value))
             {
-                set(tracking, stick_tracking_field::gesture, 3);
-                set(tracking, stick_tracking_field::magnitude, magnitude);
+                stick_record(tracking).gesture = 3;
+                stick_record(tracking).magnitude = magnitude;
                 return;
             }
         }
@@ -418,31 +414,31 @@ accumulate:
             break;
         }
 finish:
-        if (0.1f > get(tracking, stick_tracking_field::magnitude))
+        if (0.1f > stick_record(tracking).magnitude)
         {
-            set(tracking, stick_tracking_field::magnitude, 0.f);
-            set(tracking, stick_tracking_field::gesture, 0);
-            set(tracking, stick_tracking_field::gesture_time, 0.f);
-            set(tracking, stick_tracking_field::magnitude, magnitude);
+            stick_record(tracking).magnitude = 0.f;
+            stick_record(tracking).gesture = 0;
+            stick_record(tracking).gesture_time = 0.f;
+            stick_record(tracking).magnitude = magnitude;
             return;
         }
         {
-            const u32 previous = get(tracking, stick_tracking_field::state);
-            set(tracking, stick_tracking_field::state, 2);
+            const u32 previous = stick_record(tracking).state;
+            stick_record(tracking).state = 2;
             if (previous == 0)
             {
-                set(tracking, stick_tracking_field::press_timer, 0.f);
-                set(tracking, stick_tracking_field::pressed, 0);
+                stick_record(tracking).press_timer = 0.f;
+                stick_record(tracking).pressed = 0;
             }
-            set(tracking, stick_tracking_field::pressed, 1);
-            set(tracking, stick_tracking_field::press_timer, 0.2f);
-            set(tracking, stick_tracking_field::unk_0C, 0.f);
+            stick_record(tracking).pressed = 1;
+            stick_record(tracking).press_timer = 0.2f;
+            stick_record(tracking).unk_0C = 0.f;
         }
         break;
     default:
         break;
     }
-    set(tracking, stick_tracking_field::magnitude, magnitude);
+    stick_record(tracking).magnitude = magnitude;
 }
 
 // Xbox 0x0007D460
@@ -450,20 +446,20 @@ void update_runtime_player_input_direction(std::span<u8> tracking,
     const std::array<float, 2>& axes, float step, u32 special)
 {
     const float magnitude = float(retail_square_root(axes[0] * axes[0] + axes[1] * axes[1]));
-    if (get(tracking, stick_tracking_field::state) == 1)
+    if (stick_record(tracking).state == 1)
     {
         if (!(magnitude < std::bit_cast<float>(0x3DE147AEu)) && !std::isnan(magnitude))
         {
-            set(tracking, stick_tracking_field::state, 2);
-            set(tracking, stick_tracking_field::pressed, 1);
-            set(tracking, stick_tracking_field::press_timer, 0.2f);
-            set(tracking, stick_tracking_field::unk_0C, 0.f);
+            stick_record(tracking).state = 2;
+            stick_record(tracking).pressed = 1;
+            stick_record(tracking).press_timer = 0.2f;
+            stick_record(tracking).unk_0C = 0.f;
         }
     }
-    else if (get(tracking, stick_tracking_field::state) == 2 && 0.1f > magnitude)
+    else if (stick_record(tracking).state == 2 && 0.1f > magnitude)
     {
-        set(tracking, stick_tracking_field::state, 1);
-        set(tracking, stick_tracking_field::pressed, 0);
+        stick_record(tracking).state = 1;
+        stick_record(tracking).pressed = 0;
     }
     update_runtime_player_input_gesture(tracking, special != 0 ? magnitude : 0.f, step);
     if (magnitude != 0.f)
@@ -473,10 +469,10 @@ void update_runtime_player_input_direction(std::span<u8> tracking,
         {
             direction = float(retail_atan2(axes[1], axes[0]));
         }
-        set(tracking, stick_tracking_field::direction, direction);
+        stick_record(tracking).direction = direction;
     }
-    decay_tracking_float(tracking, stick_tracking_field::unk_0C, step);
-    decay_tracking_float(tracking, stick_tracking_field::press_timer, step);
+    decay_tracking_float(stick_record(tracking).unk_0C, step);
+    decay_tracking_float(stick_record(tracking).press_timer, step);
 }
 
 // Xbox 0x00109810
@@ -484,56 +480,56 @@ void update_runtime_player_input_tracking(std::span<u8> tracking,
     const std::array<float, 2>& axes, std::span<const u8> preset,
     u32 accumulate, const RuntimeActorClock& clock)
 {
-    const auto previous = get(tracking, input_tracking_field::axes);
+    const auto previous = input_tracking_record(tracking).axes;
     const float dx = previous[0] - axes[0];
     const float dy = previous[1] - axes[1];
-    set(tracking, input_tracking_field::axes, axes);
+    input_tracking_record(tracking).axes = axes;
     const long double distance = retail_square_root(dy * dy + dx * dx);
     if (!(distance > static_cast<long double>(get(preset, input_tracking_preset_field::threshold))))
     {
-        decay_tracking_float(tracking, input_tracking_field::activity, get(preset, input_tracking_preset_field::decay));
-        decay_tracking_float(tracking, input_tracking_field::accumulation,
+        decay_tracking_float(input_tracking_record(tracking).activity, get(preset, input_tracking_preset_field::decay));
+        decay_tracking_float(input_tracking_record(tracking).accumulation,
             get(preset, input_tracking_preset_field::decay));
     }
     else
     {
-        if (1.f > get(tracking, input_tracking_field::activity))
+        if (1.f > input_tracking_record(tracking).activity)
         {
             const float value =
-                get(preset, input_tracking_preset_field::rise) + get(tracking, input_tracking_field::activity);
-            set(tracking, input_tracking_field::activity, value);
+                get(preset, input_tracking_preset_field::rise) + input_tracking_record(tracking).activity;
+            input_tracking_record(tracking).activity = value;
             if (!(value < 1.f) && !std::isnan(value))
             {
-                set(tracking, input_tracking_field::activity, 1.f);
+                input_tracking_record(tracking).activity = 1.f;
             }
         }
         if (accumulate != 0 &&
-            get(preset, input_tracking_preset_field::cap) > get(tracking, input_tracking_field::accumulation))
+            get(preset, input_tracking_preset_field::cap) > input_tracking_record(tracking).accumulation)
         {
             const float value =
-                get(preset, input_tracking_preset_field::rise) + get(tracking, input_tracking_field::accumulation);
-            set(tracking, input_tracking_field::accumulation, value);
+                get(preset, input_tracking_preset_field::rise) + input_tracking_record(tracking).accumulation;
+            input_tracking_record(tracking).accumulation = value;
             if (!(value < get(preset, input_tracking_preset_field::cap)) && !std::isnan(value)
                 && !std::isnan(get(preset, input_tracking_preset_field::cap)))
             {
-                set(tracking, input_tracking_field::accumulation, get(preset, input_tracking_preset_field::cap));
+                input_tracking_record(tracking).accumulation = get(preset, input_tracking_preset_field::cap);
             }
         }
     }
-    const u32 state = get(tracking, input_tracking_field::state);
-    if ((state == 1 && get(tracking, input_tracking_field::activity) == 1.f)
-        || (state == 2 && get(tracking, input_tracking_field::activity) == 0.f))
+    const u32 state = input_tracking_record(tracking).state;
+    if ((state == 1 && input_tracking_record(tracking).activity == 1.f)
+        || (state == 2 && input_tracking_record(tracking).activity == 0.f))
     {
-        decay_tracking_float(tracking, input_tracking_field::hold_timer, runtime_frame_step(clock));
-        if (get(tracking, input_tracking_field::hold_timer) != 0.f)
+        decay_tracking_float(input_tracking_record(tracking).hold_timer, runtime_frame_step(clock));
+        if (input_tracking_record(tracking).hold_timer != 0.f)
         {
             return;
         }
-        const u32 next = u32(get(tracking, input_tracking_field::state) != 2) + 1;
-        set(tracking, input_tracking_field::state, next);
+        const u32 next = u32(input_tracking_record(tracking).state != 2) + 1;
+        input_tracking_record(tracking).state = next;
         return;
     }
-    set(tracking, input_tracking_field::hold_timer, std::bit_cast<float>(0x3D89374Cu));
+    input_tracking_record(tracking).hold_timer = std::bit_cast<float>(0x3D89374Cu);
 }
 
 // Xbox 0x00137840
@@ -667,13 +663,12 @@ void update_runtime_player_mind_hold_timer(RuntimePlayerMindControl& context)
 {
     if ((context.flags.bytes[6] & 2) == 0)
     {
-        const u32 zero = 0;
-        std::memcpy(context.mind.data() + 0x130, &zero, 4);
+        player_mind_record(context.mind).unk_130 = 0.f;
     }
     else
     {
-        const float timer = read_f32(context.mind, 0x130) + runtime_frame_step(context.clock);
-        std::memcpy(context.mind.data() + 0x130, &timer, 4);
+        const float timer = player_mind_record(context.mind).unk_130 + runtime_frame_step(context.clock);
+        player_mind_record(context.mind).unk_130 = timer;
         if (!(timer < 3.f) && !std::isnan(timer))
         {
             const u16 key = context.primary_action_key();

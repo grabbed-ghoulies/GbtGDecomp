@@ -319,12 +319,13 @@ bool runtime_haunted_door_sees_target(RuntimeHauntedDoorStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> mind = goals.entry.events.mind; // Actor +0x958.
-    if (mind.data() == nullptr || get(mind, mind_field::target_record) == 0)
+    if (mind.data() == nullptr || mind_record(mind).target_record == 0)
     {
         return true;
     }
-    const std::span<const u8> target = goals.target_at(get(mind, mind_field::target_record))->bytes;
-    const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
+    const std::span<const u8> target = goals.target_at(mind_record(mind).target_record)->bytes;
+    const Vec3 point{mind_target_record(target).shape.position.x, mind_target_record(target).shape.position.y,
+        mind_target_record(target).shape.position.z};
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     i32 last_cell = 0;
     return navigation_path_clear(position, point, 0, 0, 0, 0, nullptr, &last_cell,

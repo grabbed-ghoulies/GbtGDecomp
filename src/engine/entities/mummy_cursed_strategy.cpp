@@ -134,7 +134,7 @@ RuntimeMindTarget* mind_target(RuntimeMummyCursedStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = get(mind, mind_field::target_record);
+    const u32 target = mind_record(mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -439,9 +439,9 @@ bool target_in_reach(RuntimeMummyCursedStrategy& context)
         return false;
     }
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const long double dx = static_cast<long double>(position.x) - get(target->bytes, mind_target_field::shape_position).x;
-    const long double dy = static_cast<long double>(position.y) - get(target->bytes, mind_target_field::shape_position).y;
-    const long double dz = static_cast<long double>(position.z) - get(target->bytes, mind_target_field::shape_position).z;
+    const long double dx = static_cast<long double>(position.x) - mind_target_record(target->bytes).shape.position.x;
+    const long double dy = static_cast<long double>(position.y) - mind_target_record(target->bytes).shape.position.y;
+    const long double dz = static_cast<long double>(position.z) - mind_target_record(target->bytes).shape.position.z;
     return static_cast<long double>(parameter(context, 0)) > std::sqrt(dz * dz + (dy * dy + dx * dx));
 }
 
@@ -509,7 +509,7 @@ bool engage_target(RuntimeMummyCursedStrategy& context)
     if (navigation_path_clear(actor_world_position(actor), point, 1, 0, 0, 0, nullptr, &last_cell,
             i16(read_u16(goals.entry.actor_bytes, 6)))) // 0x0012C970, EAX actor
     {
-        const u32 mount = get(target->bytes, mind_target_field::actor);
+        const u32 mount = mind_target_record(target->bytes).actor;
         RuntimeJumpOnPeer peer{&target->actor, mount, target->actor_bytes, body.bytes,
             const_cast<EntityBitBlock*>(body.bits)};
         if (claim_runtime_rider(&peer, address)) // 0x00138140, EAX the target's actor
@@ -827,9 +827,9 @@ void start_grab(RuntimeMummyCursedStrategy& context)
         change_state(0x401, context); // The inlined 0x0002B8D0.
         return;
     }
-    fields_of(strategy).victim = get(target->bytes, mind_target_field::actor);
+    fields_of(strategy).victim = mind_target_record(target->bytes).actor;
     const std::span<const u8> victim = target->actor_bytes;
-    const bool player = target->bytes[0x14] == 0 && player_record(victim).live != 0
+    const bool player = mind_target_record(target->bytes).kind == 0 && player_record(victim).live != 0
         && (player_record(victim).mode == 2 || player_record(victim).case_link != 0);
     set_phase(player ? 1u : 5u, context); // 0x000BD450
     body_record(body_of(context)).move_class = 5;
@@ -886,7 +886,7 @@ void set_curse_step(u32 step, RuntimeMummyCursedStrategy& context)
             change_state(0x401, context); // 0x0002B8D0, EDI 0x401
             return;
         }
-        fields_of(strategy).cursed = get(target->bytes, mind_target_field::actor);
+        fields_of(strategy).cursed = mind_target_record(target->bytes).actor;
         if (player_record(target->actor_bytes).mode != 2)
         {
             change_state(0x401, context); // 0x0002B8D0, EDI 0x401

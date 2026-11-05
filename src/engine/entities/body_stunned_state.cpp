@@ -66,13 +66,14 @@ bool initialize_runtime_stunned_state(StunnedState& state, std::span<const u8> p
     step_holds(body, 1);
     if (!context.mind.empty())
     {
-        std::memset(context.mind.data() + 0xC, 0, 4);
-        if (get(context.mind, mind_field::target_record) != 0)
+        mind_record(context.mind).target = 0;
+        if (mind_record(context.mind).target_record != 0)
         {
             const std::array<u32, 2> message{0x64, 0};
             context.actor_message(message); // Mind +8 (the actor) vtable +0xC.
         }
-        std::memset(context.mind.data() + 0x10, 0, 8);
+        mind_record(context.mind).target_record = 0;
+        mind_record(context.mind).action_record = 0;
         for (LiveScript* event = context.mind_events == nullptr ? nullptr : context.mind_events->next; event != nullptr;
              event = event->next)
         {

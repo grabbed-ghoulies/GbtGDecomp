@@ -1443,8 +1443,8 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
         Actor second_actor;
         first_actor.class_key = 7;
         second_actor.class_key = 9;
-        std::array<u8, 0x40> first_bytes{};
-        std::array<u8, 0x40> second_bytes{};
+        std::array<u8, 0x68> first_bytes{};
+        std::array<u8, 0x68> second_bytes{};
         std::array<u8, 0xF00> first_actor_bytes{};
         std::array<u8, 0xF00> second_actor_bytes{};
         std::array<u8, 8> bit_bytes{};

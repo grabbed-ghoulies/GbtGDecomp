@@ -1358,7 +1358,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           },
           [this]() -> RuntimeBodyAttachedActor*
           {
-              const u32 action = mind.empty() ? 0 : get(mind, mind_field::action_actor);
+              const u32 action = mind.empty() ? 0 : mind_record(mind).action_actor;
               if (action == 0)
               {
                   return nullptr;

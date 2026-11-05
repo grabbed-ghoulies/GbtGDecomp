@@ -38,11 +38,11 @@ void update_runtime_cinema_mind_avoidance(RuntimeCinemaMindAvoidance& context)
     }
     const float step = runtime_frame_step(base.clock);
     const float rate = runtime_actor_rate(base.actor);
-    const float timer = get(mind, cinema_mind_field::unk_CC) - rate * step;
-    set(mind, cinema_mind_field::unk_CC, timer);
+    const float timer = cinema_mind_record(mind).unk_CC - rate * step;
+    cinema_mind_record(mind).unk_CC = timer;
     if (timer <= 0.f)
     {
-        value(mind, 0xCC, timer + 1.f);
+        cinema_mind_record(mind).unk_CC = timer + 1.f;
         clear_runtime_player_mind_requests(base.requests);
     }
     if (base.requests.first == nullptr) // Native pointer view of mind +0x58.
@@ -74,7 +74,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
     auto& parent = messages.parent;
     auto mind = base.events.mind;
     auto body = base.body;
-    if (get(mind, cinema_mind_field::avoidance_time) > 0.f)
+    if (cinema_mind_record(mind).avoidance_time > 0.f)
     {
         update_runtime_cinema_mind_avoidance(context.avoidance);
     }
@@ -83,16 +83,16 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
     update_runtime_mind_events(base);
     const float step = runtime_frame_step(base.clock);
     const float rate = runtime_actor_rate(base.actor);
-    set(mind, mind_field::unk_34, rate * step + get(mind, mind_field::unk_34));
+    mind_record(mind).unk_34 = rate * step + mind_record(mind).unk_34;
     update_runtime_mind_alert(base);
     update_runtime_player_mind_gaze(context.gaze, 0, 20.f, 80.f);
-    if (get(mind, mind_field::target) == 0)
+    if (mind_record(mind).target == 0)
     {
-        if (get(mind, mind_field::target_mode) != 0 && get(mind, mind_field::unk_38) > get(mind, mind_field::unk_34))
+        if (mind_record(mind).target_mode != 0 && mind_record(mind).unk_38 > mind_record(mind).unk_34)
         {
-            set(mind, mind_field::unk_34, get(mind, mind_field::unk_38));
+            mind_record(mind).unk_34 = mind_record(mind).unk_38;
         }
-        set(mind, mind_field::target_mode, 0);
+        mind_record(mind).target_mode = 0;
     }
     else
     {
@@ -102,42 +102,42 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         const float y = first.y - second.y;
         const float z = first.z - second.z;
         const float distance = (z * z + y * y) + x * x;
-        if (get(mind, mind_field::target_mode) == 0)
+        if (mind_record(mind).target_mode == 0)
         {
-            const float radius = get(mind, cinema_mind_field::roam_radius);
+            const float radius = cinema_mind_record(mind).roam_radius;
             if (!(radius > 0.f))
             {
-                if (get(mind, mind_field::unk_38) > get(mind, mind_field::unk_34))
+                if (mind_record(mind).unk_38 > mind_record(mind).unk_34)
                 {
-                    set(mind, mind_field::unk_34, get(mind, mind_field::unk_38));
+                    mind_record(mind).unk_34 = mind_record(mind).unk_38;
                 }
-                set(mind, mind_field::target_mode, 1);
+                mind_record(mind).target_mode = 1;
             }
             else
             {
                 const bool active = radius * radius > distance;
-                if (active && get(mind, mind_field::unk_38) > get(mind, mind_field::unk_34))
+                if (active && mind_record(mind).unk_38 > mind_record(mind).unk_34)
                 {
-                    set(mind, mind_field::unk_34, get(mind, mind_field::unk_38));
+                    mind_record(mind).unk_34 = mind_record(mind).unk_38;
                 }
-                set(mind, mind_field::target_mode, u8(active));
+                mind_record(mind).target_mode = u8(active);
             }
         }
         else
         {
-            const float radius = get(mind, cinema_mind_field::target_radius);
+            const float radius = cinema_mind_record(mind).target_radius;
             if (radius > 0.f)
             {
                 const u8 active = u8(radius * radius > distance);
-                if (active != get(mind, mind_field::target_mode) && get(mind, mind_field::unk_38) > get(mind, mind_field::unk_34))
+                if (active != mind_record(mind).target_mode && mind_record(mind).unk_38 > mind_record(mind).unk_34)
                 {
-                    set(mind, mind_field::unk_34, get(mind, mind_field::unk_38));
+                    mind_record(mind).unk_34 = mind_record(mind).unk_38;
                 }
-                set(mind, mind_field::target_mode, active);
+                mind_record(mind).target_mode = active;
             }
         }
     }
-    const u32 target_address = get(mind, mind_field::target_record);
+    const u32 target_address = mind_record(mind).target_record;
     if (target_address != 0 && body_record(body).unk_6A != 0)
     {
         const float angle = runtime_actor_bound_angle(messages.target_at(target_address).bytes, base.actor);
@@ -147,7 +147,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
     if (body_record(body).unk_6A == 0)
     {
         body_record(body).unk_88 = 0;
-        set(mind, mind_field::action_record, 0);
+        mind_record(mind).action_record = 0;
     }
     body_record(body).unk_AA = 0;
     if (target_address != 0 && (player_record(messages.actor_bytes).countdown_56 > 0.f
@@ -158,10 +158,10 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         body_record(body).unk_AA = 1;
     }
     update_runtime_player_boost_timer(messages.boost, context.control, nullptr, 1.f);
-    const i32 notices = get(mind, cinema_mind_field::notices);
+    const i32 notices = cinema_mind_record(mind).notices;
     if (notices > 0)
     {
-        word(mind, 0x90, u32(notices - 1));
+        cinema_mind_record(mind).notices = u32(notices - 1);
     }
 }
 }

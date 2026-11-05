@@ -57,7 +57,7 @@ RuntimeMindEvent* allocate_runtime_mind_event(RuntimeMindEvents& context, u16 ki
     set(event->bytes, mind_event_field::kind, kind);
     set(event->bytes, mind_event_field::time_left, duration);
     set(event->bytes, mind_event_field::duration, duration);
-    set(event->bytes, mind_event_field::cooldown, get(context.mind, mind_field::unk_2C));
+    set(event->bytes, mind_event_field::cooldown, mind_record(context.mind).unk_2C);
     prepend(context.anchor, *event);
     return event;
 }
@@ -66,7 +66,7 @@ RuntimeMindEvent* allocate_runtime_mind_event(RuntimeMindEvents& context, u16 ki
 RuntimeMindEvent* refresh_runtime_mind_event(RuntimeMindEvents& context, RuntimeMindEvent& event)
 {
     set(event.bytes, mind_event_field::time_left, get(event.bytes, mind_event_field::duration));
-    set(event.bytes, mind_event_field::cooldown, get(context.mind, mind_field::unk_2C));
+    set(event.bytes, mind_event_field::cooldown, mind_record(context.mind).unk_2C);
     set(event.bytes, mind_event_field::unk_1C, 0);
     set(event.bytes, mind_event_field::unk_0A, 0);
     if (event.prev != nullptr)
@@ -108,7 +108,7 @@ void refresh_runtime_mind_target_event(RuntimeMindEvents& context)
         if (u16(event->type) == 4)
         {
             auto& target_event = *static_cast<RuntimeMindEvent*>(event);
-            if (get(target_event.bytes, mind_event_field::subject) == get(context.mind, mind_field::target_record))
+            if (get(target_event.bytes, mind_event_field::subject) == mind_record(context.mind).target_record)
             {
                 refresh_runtime_mind_event(context, target_event);
                 return;
@@ -116,18 +116,18 @@ void refresh_runtime_mind_target_event(RuntimeMindEvents& context)
         }
     }
     auto* event = allocate_runtime_mind_event(context, 4, 20.f);
-    set(event->bytes, mind_event_field::subject, get(context.mind, mind_field::target_record));
+    set(event->bytes, mind_event_field::subject, mind_record(context.mind).target_record);
 }
 
 // Xbox 0x0002A030
 void set_runtime_mind_target(RuntimeMindEvents& context, u32 target)
 {
-    if (target == 0 && get(context.mind, mind_field::target_record) != 0)
+    if (target == 0 && mind_record(context.mind).target_record != 0)
     {
         const u32 message[]{0x64, 0};
         context.actor_message(message);
     }
-    set(context.mind, mind_field::target_record, target);
+    mind_record(context.mind).target_record = target;
     if (target != 0)
     {
         refresh_runtime_mind_target_event(context);
@@ -162,13 +162,13 @@ void record_runtime_mind_contact(RuntimeMindEvents& context, u32 first, u32 seco
 // Xbox 0x0002A460
 void clear_runtime_mind_actor_events(RuntimeMindEvents& context, u32 actor)
 {
-    if (get(context.mind, mind_field::target) == actor)
+    if (mind_record(context.mind).target == actor)
     {
-        set(context.mind, mind_field::target, 0);
+        mind_record(context.mind).target = 0;
     }
-    if (get(context.mind, mind_field::action_actor) == actor)
+    if (mind_record(context.mind).action_actor == actor)
     {
-        set(context.mind, mind_field::action_actor, 0);
+        mind_record(context.mind).action_actor = 0;
     }
     LiveScript* node = context.anchor.next;
     while (node != nullptr && u16(node->type) != 1)
@@ -224,23 +224,23 @@ void clear_runtime_mind_actor_events(RuntimeMindEvents& context, u32 actor)
 void end_runtime_mind_target(RuntimeMindEvents& context, std::span<const u32> message,
     std::span<const u8> target)
 {
-    if (get(context.mind, mind_field::target_record) == message[1])
+    if (mind_record(context.mind).target_record == message[1])
     {
-        if (get(context.mind, mind_field::target_record) != 0)
+        if (mind_record(context.mind).target_record != 0)
         {
             const u32 notice[]{0x64, message[2]};
             context.actor_message(notice);
         }
-        set(context.mind, mind_field::target_record, 0);
-        if (message[2] != 0 && get(context.mind, mind_field::target) != 0 &&
-            get(context.mind, mind_field::target) == get(target, mind_target_field::actor))
+        mind_record(context.mind).target_record = 0;
+        if (message[2] != 0 && mind_record(context.mind).target != 0 &&
+            mind_record(context.mind).target == mind_target_record(target).actor)
         {
-            set(context.mind, mind_field::target, 0);
+            mind_record(context.mind).target = 0;
         }
     }
-    if (get(context.mind, mind_field::action_record) == message[1])
+    if (mind_record(context.mind).action_record == message[1])
     {
-        set(context.mind, mind_field::action_record, 0);
+        mind_record(context.mind).action_record = 0;
     }
     LiveScript* head = context.anchor.next;
     LiveScript* event = head;
@@ -280,19 +280,19 @@ void dispatch_runtime_parent_mind_message(RuntimeMindEvents& context,
         clear_runtime_mind_actor_events(context, message[1]);
         return;
     case 0x80:
-        if (get(context.mind, mind_field::target_record) != 0)
+        if (mind_record(context.mind).target_record != 0)
         {
             const u32 notice[]{0x64, 0};
             context.actor_message(notice);
         }
-        set(context.mind, mind_field::target_record, 0);
+        mind_record(context.mind).target_record = 0;
         return;
     case 0x85:
-        if (get(context.mind, mind_field::gaze_anchor) == message[1])
+        if (mind_record(context.mind).gaze_anchor == message[1])
         {
-            set(context.mind, mind_field::gaze_anchor, 0);
-            set(context.mind, mind_field::unk_34, 0.f);
-            set(context.mind, mind_field::unk_38, 0.f);
+            mind_record(context.mind).gaze_anchor = 0;
+            mind_record(context.mind).unk_34 = 0.f;
+            mind_record(context.mind).unk_38 = 0.f;
         }
         return;
     case 0x8D:
@@ -326,7 +326,7 @@ void update_runtime_mind_requests(RuntimeMindTick& context)
         const i32 result = context.update_request(*request);
         if (result == 3)
         {
-            set(context.events.mind, mind_field::last_request_result, 3);
+            mind_record(context.events.mind).last_request_result = 3;
             clear_runtime_player_mind_requests(context.requests);
             return;
         }
@@ -335,7 +335,7 @@ void update_runtime_mind_requests(RuntimeMindTick& context)
         {
             return;
         }
-        set(context.events.mind, mind_field::last_request_result, u32(result));
+        mind_record(context.events.mind).last_request_result = u32(result);
         request = request->next;
         release_runtime_player_mind_request(*current, context.requests);
         if (result == 2)
@@ -403,24 +403,23 @@ void update_runtime_mind_alert(RuntimeMindTick& context)
 {
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.body_actor);
-    float timer = get(context.events.mind, mind_field::alert_timer);
+    float timer = mind_record(context.events.mind).alert_timer;
     if (timer > 0.f)
     {
         timer -= rate * step;
-        set(context.events.mind, mind_field::alert_timer, timer);
+        mind_record(context.events.mind).alert_timer = timer;
         if (!(0.f < timer) && !std::isnan(timer))
         {
-            set(context.events.mind, mind_field::alert_timer, 0.f);
+            mind_record(context.events.mind).alert_timer = 0.f;
         }
     }
-    switch (get(context.events.mind, mind_field::alert_mode))
+    switch (mind_record(context.events.mind).alert_mode)
     {
     case 0x40:
         body_record(context.body).alert_level = 0;
         return;
     case 0x41:
-        body_record(context.body).alert_level = runtime_mind_alert_level(get(context.events.mind,
-            mind_field::alert_timer));
+        body_record(context.body).alert_level = runtime_mind_alert_level(mind_record(context.events.mind).alert_timer);
         return;
     case 0x42:
         body_record(context.body).alert_level = 4;
@@ -449,7 +448,7 @@ void tick_runtime_parent_mind(RuntimeMindTick& context)
     update_runtime_mind_events(context);
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.actor);
-    set(context.events.mind, mind_field::unk_34, rate * step + get(context.events.mind, mind_field::unk_34));
+    mind_record(context.events.mind).unk_34 = rate * step + mind_record(context.events.mind).unk_34;
     update_runtime_mind_alert(context);
 }
 

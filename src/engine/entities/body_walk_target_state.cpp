@@ -77,11 +77,11 @@ float surface_mode_scale(std::span<const u8> body, std::span<const float> mode_s
 // Actor +0x958 -> +0xC: the mind's target actor, when the mind is alert (+0x20).
 u32 alert_mind_target(std::span<const u8> mind)
 {
-    if (mind.empty() || get(mind, mind_field::target_mode) == 0)
+    if (mind.empty() || mind_record(mind).target_mode == 0)
     {
         return 0;
     }
-    return get(mind, mind_field::target);
+    return mind_record(mind).target;
 }
 
 void store_target_position(std::span<u8> body, const Vec3& position)
@@ -377,7 +377,7 @@ long double runtime_walk_target_distance(RuntimeWalkTargetTick& context)
 void aim_runtime_walk_target(const WalkTargetState& state, RuntimeWalkTargetTick& context)
 {
     const auto body = context.body;
-    const u8 alert = context.mind.empty() ? 0 : get(context.mind, mind_field::target_mode);
+    const u8 alert = context.mind.empty() ? 0 : mind_record(context.mind).target_mode;
     const Vec3 target = body_record(body).focus_point;
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0, ESI actor.
     const Vec3 direction{target.x - position.x, target.y - position.y, target.z - position.z};
@@ -499,7 +499,7 @@ void settle_runtime_walk_target(WalkTargetState& state, RuntimeWalkTargetTick& c
     const float vx = body_record(body).velocity.x;
     const float vy = body_record(body).velocity.y;
     const float vz = body_record(body).velocity.z;
-    const bool alert = !context.mind.empty() && get(context.mind, mind_field::target_mode) != 0;
+    const bool alert = !context.mind.empty() && mind_record(context.mind).target_mode != 0;
     if (!alert && state.arrival_delay == 0.f) // DAT_0032B100.
     {
         // x87: body +0x730 - actor +0x18, stored as a float.
@@ -768,7 +768,7 @@ void settle_runtime_fly_alert(FlyAlertState& state, RuntimeWalkTargetTick& conte
     const float vx = body_record(body).velocity.x;
     const float vy = body_record(body).velocity.y;
     const float vz = body_record(body).velocity.z;
-    const bool alert = !context.mind.empty() && get(context.mind, mind_field::target_mode) != 0;
+    const bool alert = !context.mind.empty() && mind_record(context.mind).target_mode != 0;
     if (!alert && state.arrival_delay == 0.f) // DAT_0032B100.
     {
         // x87: body +0x730 - actor +0x18, stored as a float.

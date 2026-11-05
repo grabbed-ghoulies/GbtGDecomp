@@ -70,13 +70,14 @@ const RuntimeMindTarget* mind_target(RuntimeGiantHandStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = get(mind, mind_field::target_record);
+    const u32 target = mind_record(mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
 Vec3 target_position(const RuntimeMindTarget& target)
 {
-    return Vec3{get(target.bytes, mind_target_field::shape_position).x, get(target.bytes, mind_target_field::shape_position).y, get(target.bytes, mind_target_field::shape_position).z};
+    return Vec3{mind_target_record(target.bytes).shape.position.x, mind_target_record(target.bytes).shape.position.y,
+        mind_target_record(target.bytes).shape.position.z};
 }
 
 // A one-word notice to every active actor (0x00122C70, EDI the message) and to the script (0x00116810).

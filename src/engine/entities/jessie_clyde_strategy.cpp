@@ -122,7 +122,7 @@ RuntimeMindTarget* mind_target(RuntimeJessieClydeStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = get(mind, mind_field::target_record);
+    const u32 target = mind_record(mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -222,7 +222,8 @@ bool target_in_view(RuntimeJessieClydeStrategy& context)
         return false;
     }
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const Vec3 point{get(target->bytes, mind_target_field::shape_position).x, get(target->bytes, mind_target_field::shape_position).y, get(target->bytes, mind_target_field::shape_position).z};
+    const Vec3 point{mind_target_record(target->bytes).shape.position.x,
+        mind_target_record(target->bytes).shape.position.y, mind_target_record(target->bytes).shape.position.z};
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     i32 last_cell = 0;
     if (!navigation_path_clear(position, point, 1, 0, 0, 0, nullptr, &last_cell,
@@ -613,7 +614,7 @@ void target_called(u32 actor, RuntimeJessieClydeStrategy& context)
         return;
     }
     const RuntimeMindTarget* target = mind_target(context);
-    if (target == nullptr || get(target->bytes, mind_target_field::actor) != actor)
+    if (target == nullptr || mind_target_record(target->bytes).actor != actor)
     {
         return;
     }

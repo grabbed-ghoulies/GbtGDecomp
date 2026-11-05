@@ -1772,10 +1772,10 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             const std::span<u8> actor = g_alt_node_actor_bytes(link);
             player_record(actor).provoked = node_u8(g.scene_script, node, 0x48);
             const std::span<u8> mind = g_alt_node_mind(link);
-            if (player_record(actor).mind != 0 && !mind.empty() && get(mind, mind_field::target_record) != 0
+            if (player_record(actor).mind != 0 && !mind.empty() && mind_record(mind).target_record != 0
                 && !g_alt_node_target_eligible(link)) // 0x00029C80, EDX 1
             {
-                if (get(mind, mind_field::target_record) != 0)
+                if (mind_record(mind).target_record != 0)
                 {
                     const std::array<u32, 2> message{100, 0};
                     g_alt_node_message(link, message); // Mind +8 (the actor) vtable +0xC.
@@ -3297,7 +3297,7 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int live_7d, in
             const std::span<u8> mind = g_alt_node_mind(link);
             if (!mind.empty())
             {
-                set(mind, mind_field::target_range, std::bit_cast<float>(stored));
+                mind_record(mind).target_range = std::bit_cast<float>(stored);
             }
         }
         return 2;

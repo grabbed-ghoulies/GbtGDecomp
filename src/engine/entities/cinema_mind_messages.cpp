@@ -28,8 +28,8 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
         break;
     case 0x31:
         {
-            const std::span<const u8>* target = get(mind, mind_field::action_record) == 0 ? nullptr :
-                &context.target_at(get(mind, mind_field::action_record)).bytes;
+            const std::span<const u8>* target = mind_record(mind).action_record == 0 ? nullptr :
+                &context.target_at(mind_record(mind).action_record).bytes;
             notify_runtime_player_mind_attachment_callout(parent, target, message[1]);
             break;
         }
@@ -39,11 +39,11 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
                 std::bit_cast<float>(message[3])});
         break;
     case 0x56:
-        if (get(mind, mind_field::target_record) != 0
+        if (mind_record(mind).target_record != 0
             && !runtime_mind_target_is_eligible(mind, context.actor_bytes, parent.actor,
-                context.actor_address, context.target_at(get(mind, mind_field::target_record)), true))
+                context.actor_address, context.target_at(mind_record(mind).target_record), true))
         {
-            set(mind, mind_field::target_record, 0);
+            mind_record(mind).target_record = 0;
             parent.target_bytes = {};
             parent.target_actor = nullptr;
         }
@@ -54,17 +54,17 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
     case 0x64:
         if (player_record(context.actor_bytes).mode == 1)
         {
-            set(mind, mind_field::target_flags, get(mind, mind_field::target_flags) | 0x20);
+            mind_record(mind).target_flags = mind_record(mind).target_flags | 0x20;
         }
         break;
     case 0x6E:
-        if (message[1] == get(mind, mind_field::actor))
+        if (message[1] == mind_record(mind).actor)
         {
-            const float timer = get(mind, mind_field::alert_timer) + 5.f;
-            set(mind, mind_field::alert_timer, timer);
+            const float timer = mind_record(mind).alert_timer + 5.f;
+            mind_record(mind).alert_timer = timer;
             if (timer > 15.f)
             {
-                set(mind, mind_field::alert_timer, 15.f);
+                mind_record(mind).alert_timer = 15.f;
             }
         }
         break;
@@ -73,9 +73,9 @@ void dispatch_runtime_cinema_mind_message(RuntimeCinemaMindMessages& context,
             context.nodes, context.storage, context.address_of);
         break;
     case 0x94:
-        if (message[1] == get(mind, mind_field::action_actor))
+        if (message[1] == mind_record(mind).action_actor)
         {
-            word(mind, 0x90, 1);
+            cinema_mind_record(mind).notices = 1;
         }
         break;
     default:

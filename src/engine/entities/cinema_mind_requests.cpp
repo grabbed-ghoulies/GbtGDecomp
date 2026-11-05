@@ -36,7 +36,7 @@ u32 select_runtime_cinema_mind_escape_request(std::span<u8> mind,
     if (select_runtime_mind_escape_position(context, read_f32(request, 0x1C),
         read_f32(request, 0x14), read_f32(request, 0x18), point))
     {
-        set(mind, mind_field::goal_point, point);
+        mind_record(mind).goal_point = point;
         return 1;
     }
     return 4;
@@ -46,13 +46,14 @@ u32 select_runtime_cinema_mind_escape_request(std::span<u8> mind,
 u32 face_runtime_cinema_mind_target(std::span<const u8> mind, std::span<u8> body,
     const Actor& actor, std::span<const u8> target)
 {
-    if (get(mind, mind_field::target_record) == 0)
+    if (mind_record(mind).target_record == 0)
     {
         return 1;
     }
     if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
-        const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
+        const Vec3 point{mind_target_record(target).shape.position.x, mind_target_record(target).shape.position.y,
+            mind_target_record(target).shape.position.z};
         face_runtime_body_point(body, actor, point);
     }
     return 0;
@@ -106,7 +107,8 @@ u32 initialize_runtime_cinema_mind_request(Actor& actor, std::span<const u8> tar
             }
             else
             {
-                const Vec3 point{get(target, mind_target_field::shape_position).x, get(target, mind_target_field::shape_position).y, get(target, mind_target_field::shape_position).z};
+                const Vec3 point{mind_target_record(target).shape.position.x,
+                    mind_target_record(target).shape.position.y, mind_target_record(target).shape.position.z};
                 angle = runtime_actor_direction_to_point(actor, point);
             }
             random = random * 0x19660Du + 0x3C6EF35Fu;

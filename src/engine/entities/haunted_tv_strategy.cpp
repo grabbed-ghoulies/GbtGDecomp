@@ -465,7 +465,7 @@ void set_runtime_haunted_tv_screen(u32 mode, RuntimeHauntedTvStrategy& context)
 // Xbox 0x00141530, ECX target: the target stands idle (body +0x30 and +0x34 clear) and is after no one but `actor`.
 bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHauntedTvStrategy& context)
 {
-    if (get(target.bytes, mind_target_field::kind) != 0)
+    if (mind_target_record(target.bytes).kind != 0)
     {
         return false;
     }
@@ -479,7 +479,7 @@ bool runtime_haunted_tv_target_free(const RuntimeMindTarget& target, RuntimeHaun
     {
         return true;
     }
-    const u32 aim = get(context.views.mind_bytes_at(mind), mind_field::target_record); // The target's mind +0x10.
+    const u32 aim = mind_record(context.views.mind_bytes_at(mind)).target_record; // The target's mind +0x10.
     if (aim == 0)
     {
         return true;
@@ -500,9 +500,9 @@ u32 runtime_haunted_tv_target_range(const RuntimeMindTarget* target, RuntimeHaun
         return 3;
     }
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - get(target->bytes, mind_target_field::shape_position).x;
-    const float dy = position.y - get(target->bytes, mind_target_field::shape_position).y;
-    const float dz = position.z - get(target->bytes, mind_target_field::shape_position).z;
+    const float dx = position.x - mind_target_record(target->bytes).shape.position.x;
+    const float dy = position.y - mind_target_record(target->bytes).shape.position.y;
+    const float dz = position.z - mind_target_record(target->bytes).shape.position.z;
     const float distance = (dz * dz + dx * dx) + dy * dy;
     if (2500.f > distance) // DAT_0032B40C.
     {

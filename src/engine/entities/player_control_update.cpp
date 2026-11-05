@@ -1,4 +1,5 @@
 #include "player_control_update.h"
+#include "player_mind_control.h"
 #include <bit>
 #include <cstring>
 
@@ -9,15 +10,15 @@ void update_runtime_player_control(RuntimePlayerControlUpdate& context)
 {
     auto mind = context.control.mind;
     const float step = runtime_frame_step(context.control.clock);
-    const float timer = read_f32(mind, 0x12C);
+    const float timer = player_mind_record(mind).unk_12C;
     if (timer > 0.f)
     {
         const float remaining = timer - step;
-        std::memcpy(mind.data() + 0x12C, &remaining, 4);
+        player_mind_record(mind).unk_12C = remaining;
         if (0.f >= remaining)
         {
             const u32 zero = 0;
-            std::memcpy(mind.data() + 0x12C, &zero, 4);
+            player_mind_record(mind).unk_12C = 0.f;
         }
     }
     auto& avoidance = context.avoidance;
@@ -39,7 +40,7 @@ void update_runtime_player_control(RuntimePlayerControlUpdate& context)
     if (!retained)
     {
         const u32 zero = 0;
-        std::memcpy(mind.data() + 0x194, &zero, 4);
+        player_mind_record(mind).unk_194 = zero;
     }
     release_runtime_player_mind_input_attachment(context.control);
 }

@@ -68,7 +68,7 @@ RuntimeMindTarget* mind_target(RuntimeVampireChickenStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = get(mind, mind_field::target_record);
+    const u32 target = mind_record(mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 

@@ -178,19 +178,19 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
     case 9:
         return actor_event_chance(context.random, get(request, value_request::chance)) ? 3 : 1;
     case 0xA:
-        return get(mind, mind_field::last_request_result) != get(request, value_request::value) ? 1 : 3;
+        return mind_record(mind).last_request_result != get(request, value_request::value) ? 1 : 3;
     case 0xB:
-        if (get(mind, mind_field::target_record) != 0)
+        if (mind_record(mind).target_record != 0)
         {
             const Vec3 position = actor_world_position(context.actor);
-            const float z = position.z - get(context.target_bytes, mind_target_field::shape_position).z;
-            const float x = position.x - get(context.target_bytes, mind_target_field::shape_position).x;
+            const float z = position.z - mind_target_record(context.target_bytes).shape.position.z;
+            const float x = position.x - mind_target_record(context.target_bytes).shape.position.x;
             const float squared = z * z + x * x;
             float radius;
             if (get(request, reach_request::uses_target_radius) == 0)
             {
                 radius = context.body_actor.radius_xz * body_record(body).radius_scale +
-                    get(context.target_bytes, mind_target_field::shape_radius);
+                    mind_target_record(context.target_bytes).shape.radius;
             }
             else
             {
@@ -218,10 +218,10 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
     case 0x1B:
     {
         const u16 key = runtime_body_action_name_id(field_data(request, named_request::name), context.action_names);
-        set(mind, mind_field::action_record, get(mind, mind_field::target_record));
+        mind_record(mind).action_record = mind_record(mind).target_record;
         if (!select_runtime_attachment_request(context.attachment, key))
         {
-            set(mind, mind_field::action_record, 0);
+            mind_record(mind).action_record = 0;
         }
         return 1;
     }
@@ -287,7 +287,8 @@ i32 update_runtime_parent_mind_request(RuntimeParentMindRequests& context, std::
         return 4;
     }
     case 0x28:
-        set(mind, mind_field::action_actor, context.actor_address(find_runtime_player_nearest_spawn(context.actor, nullptr, 0x1F)));
+        mind_record(mind).action_actor = context.actor_address(find_runtime_player_nearest_spawn(context.actor,
+            nullptr, 0x1F));
         return 1;
     case 0x29:
         return get(request, mind_request_field::elapsed) >= get(request, wait_request::duration) ? 1 : 0;

@@ -20,7 +20,6 @@
 
 namespace gbtg
 {
-namespace field = camera_mind_field;
 namespace
 {
 constexpr float kTurn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
@@ -348,7 +347,7 @@ float camera_stick_turn(const RuntimeDirectorActor& target, std::span<const u8> 
     const RuntimeCameraRigContext& context)
 {
     float speed = context.tunables.real(0x00434030);
-    if (!(speed >= 0.f) || target.mind.empty() || get(target.mind, mind_field::target_mode) == 0)
+    if (!(speed >= 0.f) || target.mind.empty() || mind_record(target.mind).target_mode == 0)
     {
         speed = context.tunables.real(0x0043402C);
     }
@@ -376,7 +375,7 @@ float camera_stick_turn(const RuntimeDirectorActor& target, std::span<const u8> 
         angle = float(retail_atan2(axes[1], axes[0]));
     }
     // ECX is the camera actor at mind +8; its +0x18 is the yaw.
-    const float yaw = context.actor_at(get(mind, mind_field::actor)).actor->euler.y;
+    const float yaw = context.actor_at(mind_record(mind).actor).actor->euler.y;
     angle = runtime_relative_angle(angle, yaw);
     if (angle > kHalfPi)
     {
@@ -393,50 +392,52 @@ float camera_stick_turn(const RuntimeDirectorActor& target, std::span<const u8> 
 void ease_camera_heading(std::span<u8> mind, const Actor& camera, float& heading, const RuntimeDirectorActor& target,
     const RuntimeCameraRigContext& context)
 {
-    if (get(mind, field::heading_goal_active) != 0)
+    if (camera_mind_record(mind).heading_goal_active != 0)
     {
         const float step = runtime_frame_step(context.clock);
         const float rate = runtime_actor_rate(camera);
-        const float limit = float(double(get(mind, field::heading_goal_speed)) * kRadians * rate * step);
-        set(mind, field::heading, step_runtime_damage_angle(heading, get(mind, field::heading_goal), limit));
-        const float offset = wrap_angle(float(double(get(mind, field::heading_goal)) - heading));
+        const float limit = float(double(camera_mind_record(mind).heading_goal_speed) * kRadians * rate * step);
+        camera_mind_record(mind).heading = step_runtime_damage_angle(heading, camera_mind_record(mind).heading_goal,
+            limit);
+        const float offset = wrap_angle(float(double(camera_mind_record(mind).heading_goal) - heading));
         bool settled = kRadians > engine_absolute(offset);
         if (!settled)
         {
-            const float hold = get(mind, field::heading_goal_hold);
+            const float hold = camera_mind_record(mind).heading_goal_hold;
             if (hold > 0.f)
             {
                 const float remaining = hold - runtime_actor_rate(camera) * runtime_frame_step(context.clock);
-                set(mind, field::heading_goal_hold, remaining);
+                camera_mind_record(mind).heading_goal_hold = remaining;
                 if (!(0.f < remaining))
                 {
-                    set(mind, field::heading_goal_hold, 0.f);
+                    camera_mind_record(mind).heading_goal_hold = 0.f;
                     settled = true;
                 }
             }
         }
         if (settled)
         {
-            set(mind, field::heading_goal_active, 0);
-            set(mind, field::heading_restart, 1);
+            camera_mind_record(mind).heading_goal_active = 0;
+            camera_mind_record(mind).heading_restart = 1;
         }
-        heading = clamp_camera_heading(heading, get(mind, field::heading_goal), get(mind, field::heading));
+        heading = clamp_camera_heading(heading, camera_mind_record(mind).heading_goal,
+            camera_mind_record(mind).heading);
         return;
     }
-    if (0.f > context.tunables.real(0x00434030) && !target.mind.empty() && get(target.mind, mind_field::target_mode) != 0)
+    if (0.f > context.tunables.real(0x00434030) && !target.mind.empty() && mind_record(target.mind).target_mode != 0)
     {
-        if (get(mind, field::heading_held) == 0)
+        if (camera_mind_record(mind).heading_held == 0)
         {
-            set(mind, field::heading, heading);
+            camera_mind_record(mind).heading = heading;
         }
         else
         {
-            heading = get(mind, field::heading);
+            heading = camera_mind_record(mind).heading;
         }
-        set(mind, field::heading_held, 1);
+        camera_mind_record(mind).heading_held = 1;
         return;
     }
-    set(mind, field::heading_held, 0);
+    camera_mind_record(mind).heading_held = 0;
 }
 
 // Xbox 0x0013D640
@@ -585,16 +586,16 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
         const float dz = eye.z - focus.z;
         const float dx = eye.x - focus.x;
         const float planar = float(retail_square_root(dz * dz + dx * dx));
-        if (get(mind, field::heading_restart) != 0)
+        if (camera_mind_record(mind).heading_restart != 0)
         {
-            set(mind, field::heading, heading);
-            set(mind, field::heading_restart, 0);
+            camera_mind_record(mind).heading = heading;
+            camera_mind_record(mind).heading_restart = 0;
         }
         heading = camera_stick_turn(watched, mind, context) + heading;
         ease_camera_heading(mind, camera, heading, watched, context);
-        if (distance > get(mind, field::distance) && distance > planar)
+        if (distance > camera_mind_record(mind).distance && distance > planar)
         {
-            distance = planar > get(mind, field::distance) ? planar : get(mind, field::distance);
+            distance = planar > camera_mind_record(mind).distance ? planar : camera_mind_record(mind).distance;
             if (context.tunables.real(0x0042753C) > distance)
             {
                 distance = context.tunables.real(0x0042753C);
@@ -602,7 +603,7 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
         }
         else
         {
-            set(mind, field::distance, distance);
+            camera_mind_record(mind).distance = distance;
         }
         position = focus;
         const float reach = distance;
@@ -651,7 +652,7 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
                     context.tunables.real(0x00427518) * magnitude);
             }
         }
-        set(mind, field::heading_restart, 1);
+        camera_mind_record(mind).heading_restart = 1;
     }
     else
     {
@@ -665,16 +666,17 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
         probe.z = eye.z;
     }
     const float floor = camera_floor_height(watched, probe, focus, context.tunables.real(0x004274F0));
-    set(mind, field::above_floor, position.y > floor ? 1 : 0);
+    camera_mind_record(mind).above_floor = position.y > floor ? 1 : 0;
     position.y = floor;
 }
 
 // Xbox 0x000791A0
 void set_camera_heading_goal(std::span<u8> mind, float heading, float hold, u32 keep_side, float speed, u32 tag)
 {
-    const float current = wrap_angle(float(double(get(mind, field::heading_goal)) - get(mind, field::heading)));
-    const float wanted = wrap_angle(float(double(heading) - get(mind, field::heading)));
-    const u32 active = get(mind, field::heading_goal_active);
+    const float current = wrap_angle(float(double(camera_mind_record(mind).heading_goal)
+        - camera_mind_record(mind).heading));
+    const float wanted = wrap_angle(float(double(heading) - camera_mind_record(mind).heading));
+    const u32 active = camera_mind_record(mind).heading_goal_active;
     if (keep_side != 0 && active != 0)
     {
         const float current_side = current >= 0.f ? kOne : kNegativeOne;
@@ -688,12 +690,12 @@ void set_camera_heading_goal(std::span<u8> mind, float heading, float hold, u32 
             return;
         }
     }
-    set(mind, field::heading_goal, heading);
-    set(mind, field::heading_goal_hold, hold);
-    set(mind, field::heading_goal_active, 1);
-    set(mind, field::heading_goal_speed, speed);
-    set(mind, field::heading_restart, active == 0 ? 1 : 0);
-    set(mind, field::heading_goal_tag, tag);
+    camera_mind_record(mind).heading_goal = heading;
+    camera_mind_record(mind).heading_goal_hold = hold;
+    camera_mind_record(mind).heading_goal_active = 1;
+    camera_mind_record(mind).heading_goal_speed = speed;
+    camera_mind_record(mind).heading_restart = active == 0 ? 1 : 0;
+    camera_mind_record(mind).heading_goal_tag = tag;
 }
 
 namespace
@@ -855,7 +857,7 @@ void choose_camera_heading(RuntimeCameraMindView& view, std::span<const u8> requ
     if (navigation_record_reaches_point(record, eye, i32(context.tunables.word(0x0042751C)),
             i32(context.tunables.word(0x00427520)), 1) != 0)
     {
-        set(view.mind, field::route_reaches_eye, 1);
+        camera_mind_record(view.mind).route_reaches_eye = 1;
         return;
     }
     Vec3 center{real(record, 4), real(record, 0x14) * kHalf + real(record, 8), real(record, 0xC)};
@@ -866,7 +868,7 @@ void choose_camera_heading(RuntimeCameraMindView& view, std::span<const u8> requ
         set_camera_heading_goal(view.mind, heading, context.tunables.real(0x00427514), 1,
             context.tunables.real(0x004274F4), 0);
     }
-    set(view.mind, field::route_reaches_eye, 0);
+    camera_mind_record(view.mind).route_reaches_eye = 0;
 }
 
 // Xbox 0x00079450
@@ -890,7 +892,8 @@ u32 settle_camera_position(RuntimeCameraMindView& view, Vec3& eye, u32 target, V
         entity_copy_match_block(contact.data(), entity_detail::g_segment_slots[0].pool.begin);
         result = 1;
         bool blocked = false;
-        if (get(view.mind, field::heading_goal_active) == 0 || get(view.mind, field::heading_goal_tag) == 0)
+        if (camera_mind_record(view.mind).heading_goal_active == 0
+            || camera_mind_record(view.mind).heading_goal_tag == 0)
         {
             const RuntimeDirectorActor watched = context.actor_at(target);
             if (camera_input_turn(watched, context) == 0.f)
@@ -967,7 +970,8 @@ void track_camera_obstruction(RuntimeCameraMindView& view, Vec3& eye, Vec3& posi
         {
             return;
         }
-        const float side = runtime_relative_angle(angle, get(view.mind, field::heading)) >= 0.f ? kOne : kNegativeOne;
+        const float side = runtime_relative_angle(angle, camera_mind_record(view.mind).heading) >= 0.f ? kOne
+            : kNegativeOne;
         const long double swing = (double(kHalfPi) - double(context.tunables.real(0x00427510)) * kRadians) * side;
         const float heading = float(angle - swing);
         set_camera_heading_goal(view.mind, heading, context.tunables.real(0x00427514) * kFloorMargin, 1,
@@ -991,13 +995,14 @@ void track_camera_obstruction(RuntimeCameraMindView& view, Vec3& eye, Vec3& posi
         && forward.z * pushed.z + forward.y * pushed.y + forward.x * pushed.x > context.tunables.real(0x0042750C))
     {
         const float step = runtime_frame_step(context.clock);
-        set(view.mind, field::pushed_time, step * runtime_actor_rate(view.camera) + get(view.mind, field::pushed_time));
+        camera_mind_record(view.mind).pushed_time = step * runtime_actor_rate(view.camera)
+            + camera_mind_record(view.mind).pushed_time;
     }
     else
     {
-        set(view.mind, field::pushed_time, 0.f);
+        camera_mind_record(view.mind).pushed_time = 0.f;
     }
-    if (!(get(view.mind, field::pushed_time) > context.tunables.real(0x00427500)))
+    if (!(camera_mind_record(view.mind).pushed_time > context.tunables.real(0x00427500)))
     {
         return;
     }
@@ -1021,14 +1026,14 @@ void track_camera_obstruction(RuntimeCameraMindView& view, Vec3& eye, Vec3& posi
         std::bit_cast<u32>((kept.y - focus.y) * pull + focus.y),
         std::bit_cast<u32>((kept.z - focus.z) * pull + focus.z)};
     view.body_message(message);
-    set(view.mind, field::pushed_time, 0.f);
+    camera_mind_record(view.mind).pushed_time = 0.f;
 }
 
 // Xbox 0x000781F0
 u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8> request, float distance,
     const RuntimeCameraRigContext& context)
 {
-    const u32 target = get(view.mind, mind_field::target);
+    const u32 target = mind_record(view.mind).target;
     if (target == 0)
     {
         return 0;
@@ -1038,10 +1043,10 @@ u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8
     {
         choose_camera_heading(view, request, eye, context);
     }
-    else if (get(view.mind, field::heading_goal_active) != 0)
+    else if (camera_mind_record(view.mind).heading_goal_active != 0)
     {
-        set(view.mind, field::heading_goal_active, 0);
-        set(view.mind, field::heading_restart, 1);
+        camera_mind_record(view.mind).heading_goal_active = 0;
+        camera_mind_record(view.mind).heading_restart = 1;
     }
     Vec3 position{};
     Vec3 focus{};
@@ -1049,7 +1054,7 @@ u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8
     track_camera_obstruction(view, eye, position, focus, target, distance, context);
     if (read_u32(request, 0x2A0) != 0)
     {
-        set(view.mind, mind_field::goal_point, position);
+        mind_record(view.mind).goal_point = position;
         Vec3 aim{};
         aim_camera_offset(aim, eye, position, target, context.tunables.real(0x004274DC), 0.f,
             context.tunables.real(0x004274E0), context);
@@ -1059,7 +1064,7 @@ u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8
     }
     else
     {
-        set(view.mind, mind_field::goal_point, eye);
+        mind_record(view.mind).goal_point = eye;
         const u32 message[1]{3};
         view.body_message(message);
     }

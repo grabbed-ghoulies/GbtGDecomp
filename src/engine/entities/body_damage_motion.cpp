@@ -1,4 +1,5 @@
 #include "body_damage_motion.h"
+#include "mind_fields.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "player_mind_targets.h"
@@ -31,8 +32,9 @@ float wrap_target_remainder(long double remainder)
 u32 runtime_body_target_direction(const Actor& actor, std::span<const u8> target, float heading)
 {
     const Vec3 position = actor_world_position(actor);
-    const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x,
-        get(target, mind_target_field::shape_position).y - position.y, get(target, mind_target_field::shape_position).z - position.z};
+    const Vec3 direction{mind_target_record(target).shape.position.x - position.x,
+        mind_target_record(target).shape.position.y - position.y, mind_target_record(target).shape.position.z
+            - position.z};
     float angle;
     runtime_direction_angle(direction, angle);
     const float reference = heading + std::bit_cast<float>(0x3F490FDBu);
@@ -58,8 +60,9 @@ i32 runtime_body_target_turn_direction(const Actor& actor,
     std::span<const u8> target, u32* within_angle)
 {
     const Vec3 position = actor_world_position(actor);
-    const Vec3 direction{get(target, mind_target_field::shape_position).x - position.x,
-        get(target, mind_target_field::shape_position).y - position.y, get(target, mind_target_field::shape_position).z - position.z};
+    const Vec3 direction{mind_target_record(target).shape.position.x - position.x,
+        mind_target_record(target).shape.position.y - position.y, mind_target_record(target).shape.position.z
+            - position.z};
     float angle;
     runtime_direction_angle(direction, angle);
     const float difference = float(static_cast<long double>(angle) - actor.euler.y);

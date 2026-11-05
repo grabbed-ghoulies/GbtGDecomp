@@ -350,14 +350,15 @@ bool find_runtime_goal_volume_target(const OccupancyRecord& volume, u32& output,
 {
     RuntimeMindEvents& events = context.entry.events;
     std::span<u8> mind = events.mind;
-    if (get(mind, mind_field::target_record) != 0)
+    if (mind_record(mind).target_record != 0)
     {
-        output = get(mind, mind_field::target_record);
+        output = mind_record(mind).target_record;
         return true;
     }
     float distance;
     RuntimeMindTarget* target = find_runtime_mind_target(context.entry.actor, context.entry.allowed, 0, 0,
-        &distance, get(mind, mind_field::target_categories), (get(mind, mind_field::target_flags) & ~0x20u) | 8u, context.entry.targets);
+        &distance, mind_record(mind).target_categories, (mind_record(mind).target_flags & ~0x20u) | 8u,
+            context.entry.targets);
     if (target != nullptr)
     {
         Vec3 position;
@@ -385,11 +386,11 @@ bool find_runtime_goal_volume_target(const OccupancyRecord& volume, u32& output,
     set_runtime_mind_alert_event(events, address);
     if (target == nullptr)
     {
-        set(mind, mind_field::target, 0);
+        mind_record(mind).target = 0;
     }
-    else if (target->bytes[0x14] == 0)
+    else if (mind_target_record(target->bytes).kind == 0)
     {
-        set(mind, mind_field::target, get(target->bytes, mind_target_field::actor));
+        mind_record(mind).target = mind_target_record(target->bytes).actor;
     }
     output = address;
     return target != nullptr;
@@ -421,7 +422,7 @@ u32 seek_runtime_player_free_position(RuntimePlayerStrategyGoals& context)
     {
         clear_runtime_player_mind_requests(*context.setup.mind);
         std::span<u8> mind = context.entry.events.mind;
-        set(mind, mind_field::goal_point, candidate);
+        mind_record(mind).goal_point = candidate;
         RuntimeMindGoalContext& goals = context.entry.goals;
         if (player_record(actor).owner_class == 1)
         {
@@ -835,11 +836,11 @@ void update_runtime_base_strategy(RuntimePlayerStrategyGoals& context)
     case 0x3FF:
     {
         std::span<u8> mind = context.entry.events.mind;
-        if (get(mind, mind_field::target_record) != 0
-            && runtime_mind_target_occupancy_differs(*context.target_at(get(mind, mind_field::target_record)),
+        if (mind_record(mind).target_record != 0
+            && runtime_mind_target_occupancy_differs(*context.target_at(mind_record(mind).target_record),
                 read_u16(actor, 6), context.entry.allowed))
         {
-            set(mind, mind_field::target_record, 0);
+            mind_record(mind).target_record = 0;
         }
         u32 reached;
         if (!mind_requests_pending(context))
@@ -902,9 +903,9 @@ bool strategy_goal_gate(RuntimePlayerStrategyGoals& context)
 void adopt_message_target(RuntimeMindTarget& target, RuntimePlayerStrategyGoals& context)
 {
     set_runtime_mind_target(context.entry.events, target.address);
-    if (get(target.bytes, mind_target_field::kind) == 0)
+    if (mind_target_record(target.bytes).kind == 0)
     {
-        set(context.entry.events.mind, mind_field::target, get(target.bytes, mind_target_field::actor));
+        mind_record(context.entry.events.mind).target = mind_target_record(target.bytes).actor;
     }
 }
 }
@@ -916,7 +917,7 @@ u32 runtime_player_mind_target(RuntimePlayerStrategyGoals& context)
     {
         return 0;
     }
-    return get(context.entry.events.mind, mind_field::target_record);
+    return mind_record(context.entry.events.mind).target_record;
 }
 
 // Xbox 0x00042070
@@ -927,7 +928,7 @@ RuntimeMindTarget* runtime_actor_active_target(const RuntimeStrategyMessageActor
     {
         return nullptr;
     }
-    return target->bytes[0x18] == 0 ? target : nullptr;
+    return mind_target_record(target->bytes).unk_18 == 0 ? target : nullptr;
 }
 
 // Xbox 0x00028420
@@ -990,8 +991,8 @@ void resolve_runtime_goal_alert(RuntimePlayerStrategyGoals& context)
     }
     std::span<u8> mind = context.entry.events.mind;
     std::span<const u8> actor = context.entry.actor_bytes;
-    u32 flags = get(mind, mind_field::target_flags);
-    const u32 category = get(mind, mind_field::target_categories);
+    u32 flags = mind_record(mind).target_flags;
+    const u32 category = mind_record(mind).target_categories;
     const auto alerted = [&actor]()
     {
         return player_record(actor).countdown_56 > 0.0f || player_record(actor).provoked != 0;
@@ -1029,7 +1030,7 @@ void resolve_runtime_goal_alert(RuntimePlayerStrategyGoals& context)
             return;
         }
         target = find_runtime_mind_target(context.entry.actor, context.entry.allowed, 0, 0, &distance,
-            get(mind, mind_field::target_categories), (get(mind, mind_field::target_flags) & ~0x20u) | 8u, context.entry.targets);
+            mind_record(mind).target_categories, (mind_record(mind).target_flags & ~0x20u) | 8u, context.entry.targets);
         if (target == nullptr)
         {
             return;
@@ -1109,7 +1110,7 @@ void complete_runtime_goal_contact(u32 first, u32 second, RuntimeBaseStrategyMes
     if (target != nullptr)
     {
         set_runtime_mind_target(goals.entry.events, target->address);
-        set(goals.entry.events.mind, mind_field::target, second);
+        mind_record(goals.entry.events.mind).target = second;
     }
     clear_runtime_player_goal_volume(goals);
     enter_runtime_player_goal_action(goals);
@@ -1185,7 +1186,7 @@ void dispatch_runtime_base_strategy_message(std::span<const u32> message, Runtim
         return;
     case 0x24:
         if (player_record(actor).mode == 1 && strategy_goal_gate(goals) &&
-            get(goals.entry.events.mind, mind_field::target_record) == 0)
+            mind_record(goals.entry.events.mind).target_record == 0)
         {
             clear_runtime_player_mind_requests(*goals.setup.mind);
         }

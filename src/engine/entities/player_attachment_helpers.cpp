@@ -1,4 +1,5 @@
 #include "player_attachment_helpers.h"
+#include "mind_fields.h"
 #include <cstddef>
 #include "weapon_fields.h"
 #include "player_fields.h"
@@ -139,9 +140,9 @@ bool runtime_player_body_point_is_near(const RuntimePlayerAttachmentEligibility&
     }
     const float reach = body_record(body).radius_scale * context.body_actor.radius_xz;
     const Vec3 owner = actor_world_position(context.body_actor);
-    const float range = ((model_radius + margin) + get(target, mind_target_field::shape_radius)) + reach;
-    const float dz = owner.z - get(target, mind_target_field::shape_position).z;
-    const float dx = owner.x - get(target, mind_target_field::shape_position).x;
+    const float range = ((model_radius + margin) + mind_target_record(target).shape.radius) + reach;
+    const float dz = owner.z - mind_target_record(target).shape.position.z;
+    const float dx = owner.x - mind_target_record(target).shape.position.x;
     return range * range >= dz * dz + dx * dx;
 }
 

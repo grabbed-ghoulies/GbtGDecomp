@@ -34,7 +34,7 @@ void refresh_runtime_cinema_mind_action_permission(std::span<u8> mind,
             }
             while (index < allowed_count);
         }
-        set(mind, mind_field::target_range, 0.f);
+        mind_record(mind).target_range = 0.f;
     }
 }
 
@@ -43,22 +43,22 @@ void update_runtime_cinema_mind_sound(std::span<u8> mind,
     std::span<const u8> body, std::span<const u8> resource, Actor& actor,
     const RuntimeActorClock& clock, u32& random, RuntimeActorSoundQueues& sounds)
 {
-    const i32 count = i32(get(mind, cinema_mind_field::sound_count));
+    const i32 count = i32(cinema_mind_record(mind).sound_count);
     if (count != 0)
     {
         if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
         {
             const float step = runtime_frame_step(clock);
             const float rate = runtime_actor_rate(actor);
-            const float timer = get(mind, cinema_mind_field::sound_timer);
+            const float timer = cinema_mind_record(mind).sound_timer;
             if (timer > 0.f)
             {
                 const float remaining = timer - rate * step;
-                set(mind, cinema_mind_field::sound_timer, remaining);
+                cinema_mind_record(mind).sound_timer = remaining;
                 // COMISS zero,remaining / JC: unordered also exits.
                 if (remaining <= 0.f)
                 {
-                    value(mind, 0x8C, 0.f);
+                    cinema_mind_record(mind).sound_timer = 0.f;
                     random = random * 0x19660Du + 0x3C6EF35Fu;
                     const float fraction = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
                     const i32 selected = i32(fraction * float(count));
@@ -68,7 +68,7 @@ void update_runtime_cinema_mind_sound(std::span<u8> mind,
                     const float maximum = read_f32(resource, 0xC);
                     random = random * 0x19660Du + 0x3C6EF35Fu;
                     const float delay = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
-                    value(mind, 0x8C, (maximum - minimum) * delay + minimum);
+                    cinema_mind_record(mind).sound_timer = (maximum - minimum) * delay + minimum;
                 }
             }
         }

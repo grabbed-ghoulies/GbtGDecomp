@@ -48,6 +48,17 @@ struct ThrownProjectileState
     std::array<u8, 0x24> command_attachments{}; // +0xF4C, the attachments 0x0013B8B0 records at launch
 };
 static_assert(sizeof(ThrownProjectileState) == 0xF70);
+// The record's start as the thrown and homing projectiles share it, which is all the trail 0x000CC910 touches.
+struct ProjectileTrailFields
+{
+    WeaponBase base{}; // +0
+    std::array<u8, 0x14> unk_E54{}; // +0xE54, each class's own hits and flight animation words
+    float trail_scale = 0.f; // +0xE68, zero draws none
+    float trail_timer = 0.f; // +0xE6C
+};
+static_assert(sizeof(ProjectileTrailFields) == 0xE70);
+static_assert(offsetof(ThrownProjectileState, trail_scale) == offsetof(ProjectileTrailFields, trail_scale));
+static_assert(offsetof(ThrownProjectileState, trail_timer) == offsetof(ProjectileTrailFields, trail_timer));
 void thrown_projectile_object_sizes(ObjectSizes& sizes); // Xbox 0x000CB550
 bool initialize_runtime_thrown_projectile(RuntimeWeaponActor& weapon,
     std::span<const u8> parameters); // Xbox 0x000CB5E0

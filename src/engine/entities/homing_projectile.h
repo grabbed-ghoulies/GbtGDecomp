@@ -1,6 +1,7 @@
 #pragma once
 #include "weapon_fields.h"
 
+#include "thrown_projectile.h"
 #include "weapon_actor.h"
 #include "actor_frame_render.h"
 #include "../graphics/glow_pass.h"
@@ -58,6 +59,8 @@ struct HomingProjectileState
     u32 contact_tail = 0; // +0xF5C, 0x00141A30's last word
 };
 static_assert(sizeof(HomingProjectileState) == 0xF60);
+static_assert(offsetof(HomingProjectileState, trail_scale) == offsetof(ProjectileTrailFields, trail_scale));
+static_assert(offsetof(HomingProjectileState, trail_timer) == offsetof(ProjectileTrailFields, trail_timer));
 void homing_projectile_object_sizes(ObjectSizes& sizes); // Xbox 0x000CC770
 bool initialize_runtime_homing_projectile(RuntimeWeaponActor& weapon,
     std::span<const u8> parameters); // Xbox 0x000CC800

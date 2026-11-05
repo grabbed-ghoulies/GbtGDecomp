@@ -654,7 +654,9 @@ bool update_runtime_thrown_projectile_shatter(RuntimeWeaponActor& weapon)
 // Xbox 0x000CC910, ECX actor
 void trail_runtime_thrown_projectile(RuntimeWeaponActor& weapon)
 {
-    const float scale = fields_of(weapon.bytes).trail_scale;
+    // The homing projectile's flight runs this too, so the view stops at the words both classes share.
+    auto& fields = actor_record_view<ProjectileTrailFields>(std::span<u8>(weapon.bytes));
+    const float scale = fields.trail_scale;
     if (scale == 0.f) // DAT_0032B100.
     {
         return;
@@ -665,9 +667,9 @@ void trail_runtime_thrown_projectile(RuntimeWeaponActor& weapon)
     }
     const i32 rate = *weapon.services.pal == 0 || *weapon.services.pal_override != 0 ? 0x3C : 0x32;
     auto trails = weapon.services.trail(weapon.self_address());
-    float timer = fields_of(weapon.bytes).trail_timer;
+    float timer = fields.trail_timer;
     request_actor_trail(weapon.actor, scale, timer, rate / 2, trails); // 0x0013B030
-    fields_of(weapon.bytes).trail_timer = timer;
+    fields.trail_timer = timer;
 }
 
 // Xbox 0x00148E60, EAX velocity, EDX euler, ECX quiet, ESI actor

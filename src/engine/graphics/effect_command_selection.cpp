@@ -64,15 +64,15 @@ u32 find_actor_effect_fallback_command(const EffectParticle& particle, ActorEffe
         {
             if (read_u32(command, 4) == 0x1B5E)
             {
-                set(effect.bytes, actor_effect_field::command, previous);
+                effect_header(effect.bytes).command = previous;
                 previous = read_u32(command, 0) + address;
             }
             address += read_u32(command, 0);
             command = resolve(address);
         }
         while (read_u32(command, 4) != 2);
-        return get(effect.bytes, actor_effect_field::command);
+        return effect_header(effect.bytes).command;
     }
-    return get(effect.bytes, actor_effect_field::command);
+    return effect_header(effect.bytes).command;
 }
 }

@@ -102,7 +102,7 @@ void set_actor_effect_sound(ActorEffectNode& effect, const char* name,
     {
         if (!equal_sound_names(name, "XACT_SOUNDBANK_GMISC_NOSOUND"))
         {
-            const Vec3 position = read<Vec3>(effect.bytes.data(), 0x1C);
+            const Vec3 position = effect_header(effect.bytes).position;
             queue_actor_sound(effect.sound, 0, nullptr, 0, &position, nullptr, 1.f, name, queues);
         }
     }
@@ -237,40 +237,39 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
         {
         case 0x1F41:
             cursor = node + 8;
-            store_effect_field(effect->bytes, actor_effect_field::volume, u32{0});
-            store_effect_field(effect->bytes, actor_effect_field::volume_size, 0.f);
-            store_effect_field(effect->bytes, actor_effect_field::volume_size, 0.f, 1);
-            store_effect_field(effect->bytes, actor_effect_field::volume_size, 0.f, 2);
+            effect_header(effect->bytes).volume = u32{0};
+            effect_header(effect->bytes).volume_size.x = 0.f;
+            effect_header(effect->bytes).volume_size.y = 0.f;
+            effect_header(effect->bytes).volume_size.z = 0.f;
             break;
         case 0x1F42:
             cursor = node + 0xC;
-            store_effect_field(effect->bytes, actor_effect_field::volume, u32{1});
-            store_effect_field(effect->bytes, actor_effect_field::volume_size, read<u32>(node, 8));
-            store_effect_field(effect->bytes, actor_effect_field::volume_size, 0.f, 1);
-            store_effect_field(effect->bytes, actor_effect_field::volume_size, 0.f, 2);
+            effect_header(effect->bytes).volume = u32{1};
+            effect_header(effect->bytes).volume_size.x = std::bit_cast<float>(read<u32>(node, 8));
+            effect_header(effect->bytes).volume_size.y = 0.f;
+            effect_header(effect->bytes).volume_size.z = 0.f;
             break;
         case 0x1F43:
         case 0x1F44:
         {
             const bool separate = read<u32>(node, 4) == 0x1F44;
             cursor = node + (separate ? 0x1C : 0x18);
-            store_effect_field(effect->bytes, actor_effect_field::volume, u32{2});
-            store_effect_field(effect->bytes, actor_effect_field::volume_size, read<float>(node, 0xC) * 0.5f);
-            store_effect_field(effect->bytes, actor_effect_field::volume_size, 0.f, 1);
-            store_effect_field(effect->bytes, actor_effect_field::volume_size,
-                read<float>(node, separate ? 0x10 : 0xC) * 0.5f, 2);
+            effect_header(effect->bytes).volume = u32{2};
+            effect_header(effect->bytes).volume_size.x = read<float>(node, 0xC) * 0.5f;
+            effect_header(effect->bytes).volume_size.y = 0.f;
+            effect_header(effect->bytes).volume_size.z = read<float>(node, separate ? 0x10 : 0xC) * 0.5f;
             if (read<i32>(node, 8) != 0)
             {
-                effect->bytes[0x18] |= 4;
+                effect_header(effect->bytes).flags |= 4;
             }
             const float minimum = read<float>(node, separate ? 0x14 : 0x10);
             float maximum = read<float>(node, separate ? 0x18 : 0x14);
-            store_effect_field(effect->bytes, actor_effect_field::volume_lower, minimum * radians, 1);
+            effect_header(effect->bytes).volume_lower.y = minimum * radians;
             if (minimum > maximum)
             {
                 maximum += 360.f;
             }
-            store_effect_field(effect->bytes, actor_effect_field::volume_upper, maximum * radians, 1);
+            effect_header(effect->bytes).volume_upper.y = maximum * radians;
             break;
         }
         case 0x1F45:
@@ -278,19 +277,19 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
             cursor = node + 0x18;
             if (read<u32>(node, 4) == 0x1F45)
             {
-                store_effect_field(effect->bytes, actor_effect_field::volume, u32{3});
-                store_effect_field(effect->bytes, actor_effect_field::volume_size, read<u32>(node, 0x10));
-                store_effect_field(effect->bytes, actor_effect_field::volume_size, 0.f, 1);
-                store_effect_field(effect->bytes, actor_effect_field::volume_size, read<u32>(node, 0x14), 2);
+                effect_header(effect->bytes).volume = u32{3};
+                effect_header(effect->bytes).volume_size.x = std::bit_cast<float>(read<u32>(node, 0x10));
+                effect_header(effect->bytes).volume_size.y = 0.f;
+                effect_header(effect->bytes).volume_size.z = std::bit_cast<float>(read<u32>(node, 0x14));
             }
             else
             {
-                store_effect_field(effect->bytes, actor_effect_field::volume, u32{4});
-                store_effect_field(effect->bytes, actor_effect_field::volume_size, read<Vec3>(node, 0xC));
+                effect_header(effect->bytes).volume = u32{4};
+                effect_header(effect->bytes).volume_size = read<Vec3>(node, 0xC);
             }
             if (read<i32>(node, 8) != 0)
             {
-                effect->bytes[0x18] |= 4;
+                effect_header(effect->bytes).flags |= 4;
             }
             break;
         case 0x1F47:
@@ -301,41 +300,41 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
             if (type == 0x1F47)
             {
                 cursor = node + 0x20;
-                store_effect_field(effect->bytes, actor_effect_field::volume, u32{5});
+                effect_header(effect->bytes).volume = u32{5};
                 const float value = read<float>(node, 0xC) * 0.5f;
-                store_effect_field(effect->bytes, actor_effect_field::volume_size, Vec3{value, value, value});
+                effect_header(effect->bytes).volume_size = Vec3{value, value, value};
             }
             else
             {
                 cursor = node + (type == 0x1F48 ? 0x28 : 0x20);
-                store_effect_field(effect->bytes, actor_effect_field::volume, u32{type == 0x1F48 ? 5u : 6u});
-                store_effect_field(effect->bytes, actor_effect_field::volume_size, read<Vec3>(node, 0xC));
+                effect_header(effect->bytes).volume = u32{type == 0x1F48 ? 5u : 6u};
+                effect_header(effect->bytes).volume_size = read<Vec3>(node, 0xC);
             }
             if (read<i32>(node, 8) != 0)
             {
-                effect->bytes[0x18] |= 4;
+                effect_header(effect->bytes).flags |= 4;
             }
             if (type != 0x1F49)
             {
                 const size_t offset = type == 0x1F47 ? 0x10 : 0x18;
                 const float minimum = read<float>(node, offset);
                 float maximum = read<float>(node, offset + 4);
-                store_effect_field(effect->bytes, actor_effect_field::volume_lower, minimum * radians, 1);
+                effect_header(effect->bytes).volume_lower.y = minimum * radians;
                 if (minimum > maximum)
                 {
                     maximum += 360.f;
                 }
-                store_effect_field(effect->bytes, actor_effect_field::volume_upper, maximum * radians, 1);
+                effect_header(effect->bytes).volume_upper.y = maximum * radians;
             }
             const size_t offset = type == 0x1F48 ? 0x20 : 0x18;
             const float minimum = read<float>(node, offset);
             float maximum = read<float>(node, offset + 4);
-            store_effect_field(effect->bytes, actor_effect_field::volume_lower, minimum * radians);
+            effect_header(effect->bytes).volume_lower.x = minimum * radians;
             if (minimum > maximum)
             {
                 maximum += 360.f;
             }
-            store_effect_field(effect->bytes, actor_effect_field::volume_upper, maximum * radians);
+            effect_header(effect->bytes).volume_upper.x = maximum * radians;
             break;
         }
         case 0x1F4A:
@@ -346,11 +345,11 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
         {
             const u32 type = read<u32>(node, 4);
             cursor = node + 0x14;
-            const size_t offset = type == 0x1F4A   ? actor_effect_field::volume_euler.offset
-                                  : type == 0x1F4B ? actor_effect_field::volume_spin_rate.offset
-                                  : type == 0x1F4C ? actor_effect_field::offset.offset
-                                  : type == 0x1F4D ? actor_effect_field::spin.offset
-                                                   : actor_effect_field::spin_rate.offset;
+            const size_t offset = type == 0x1F4A   ? offsetof(ActorEffectHeader, volume_euler)
+                                  : type == 0x1F4B ? offsetof(ActorEffectHeader, volume_spin_rate)
+                                  : type == 0x1F4C ? offsetof(ActorEffectHeader, offset)
+                                  : type == 0x1F4D ? offsetof(ActorEffectHeader, spin)
+                                                   : offsetof(ActorEffectHeader, spin_rate);
             const Vec3 value = read<Vec3>(node, 8);
             if (type == 0x1F4C)
             {
@@ -386,7 +385,7 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
                 release_animation_resource(context.models.registry, effect->texture);
                 effect->texture = {};
             }
-            store_effect_field(effect->bytes, actor_effect_field::draw_mode, read<u32>(node, 8));
+            effect_header(effect->bytes).draw_mode = read<u32>(node, 8);
             break;
         case 0x1F51:
             cursor = node + 0x110;
@@ -408,14 +407,14 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
                 {
                     return 0;
                 }
-                store_effect_field(effect->bytes, actor_effect_field::emitting, -2.f);
+                effect_header(effect->bytes).emitting = -2.f;
                 if (read<i32>(node, 0x10C) == 0)
                 {
-                    effect->bytes[0x18] &= 0x7F;
+                    effect_header(effect->bytes).flags &= 0x7F;
                 }
                 else
                 {
-                    effect->bytes[0x18] |= 0x80;
+                    effect_header(effect->bytes).flags |= 0x80;
                 }
                 if (node[0x8C] != 0)
                 {
@@ -425,34 +424,33 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
                 {
                     if ((options->flags & 0x40) != 0)
                     {
-                        store_effect_field(effect->bytes, actor_effect_field::scale, options->scale);
+                        effect_header(effect->bytes).scale = options->scale;
                     }
                     if ((options->flags & 8) != 0)
                     {
                         const auto* binding = static_cast<const ActorEffectBinding*>(options->user);
                         if (binding == nullptr)
                         {
-                            store_effect_field(effect->bytes, actor_effect_field::binding_mode, u32{0});
-                            store_effect_field(effect->bytes, actor_effect_field::binding_index, i32{-1});
+                            effect_header(effect->bytes).binding_mode = u32{0};
+                            effect_header(effect->bytes).binding_index = i32{-1};
                         }
                         else
                         {
                             effect->binding_actor = binding->actor;
                             if (binding->mode == 0)
                             {
-                                store_effect_field(effect->bytes, actor_effect_field::binding_index, binding->index);
-                                store_effect_field(effect->bytes, actor_effect_field::binding_mode, u32{0});
+                                effect_header(effect->bytes).binding_index = binding->index;
+                                effect_header(effect->bytes).binding_mode = u32{0};
                             }
                             else if (binding->mode == 1)
                             {
-                                store_effect_field(effect->bytes, actor_effect_field::binding_locator,
-                                    static_cast<i16>(binding->index));
-                                store_effect_field(effect->bytes, actor_effect_field::binding_mode, u32{1});
+                                effect_header(effect->bytes).binding_locator = static_cast<i16>(binding->index);
+                                effect_header(effect->bytes).binding_mode = u32{1};
                             }
                             else if (binding->mode == 2)
                             {
                                 effect->binding_joint = static_cast<i32>(actor_effect_joint(*binding->actor, binding->index));
-                                store_effect_field(effect->bytes, actor_effect_field::binding_mode, u32{2});
+                                effect_header(effect->bytes).binding_mode = u32{2};
                             }
                         }
                         break;
@@ -466,20 +464,19 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
             if (read<i32>(node, 0xC) == 0)
             {
                 const float interval = 1.f / read<float>(node, 8);
-                store_effect_field(effect->bytes, actor_effect_field::emitting, interval);
+                effect_header(effect->bytes).emitting = interval;
                 context.random_state = context.random_state * 0x19660D + 0x3C6EF35F;
                 const float random = std::bit_cast<float>((context.random_state & 0x7FFFFF) | 0x3F800000) - 1.f;
-                store_effect_field(effect->bytes, actor_effect_field::emit_timer, random * interval);
+                effect_header(effect->bytes).emit_timer = random * interval;
             }
             else
             {
-                store_effect_field(effect->bytes, actor_effect_field::emitting, -2.f);
+                effect_header(effect->bytes).emitting = -2.f;
             }
             break;
         case 0x1F53:
             cursor = node + 0x10;
-            store_effect_field(effect->bytes, actor_effect_field::life,
-                read<i32>(node, 0xC) == 0 ? read<float>(node, 8) : -1.f);
+            effect_header(effect->bytes).life = read<i32>(node, 0xC) == 0 ? read<float>(node, 8) : -1.f;
             break;
         case 0x1F54:
             cursor = node + 0x88;
@@ -487,26 +484,26 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
             break;
         case 0x1F55:
             cursor = node + 0x108;
-            std::strcpy(reinterpret_cast<char*>(effect->bytes.data() + 0x15C), reinterpret_cast<const char*>(node + 8));
-            std::strcpy(reinterpret_cast<char*>(effect->bytes.data() + 0x1DC), reinterpret_cast<const char*>(node + 0x88));
+            std::strcpy(effect_header(effect->bytes).particle_sound.data(), reinterpret_cast<const char*>(node + 8));
+            std::strcpy(effect_header(effect->bytes).collision_sound.data(), reinterpret_cast<const char*>(node + 0x88));
             break;
         case 0x1F56:
             cursor = node + 0x88;
-            std::strcpy(reinterpret_cast<char*>(effect->bytes.data() + 0x25C), reinterpret_cast<const char*>(node + 8));
+            std::strcpy(effect_header(effect->bytes).collision_effect.data(), reinterpret_cast<const char*>(node + 8));
             break;
         case 0x1F57:
             cursor = node + 0x18;
             if (read<i32>(node, 8) == 0)
             {
-                store_effect_field(effect->bytes, actor_effect_field::velocity_mode, u32{1});
+                effect_header(effect->bytes).velocity_mode = u32{1};
             }
             else if (read<i32>(node, 8) == 1)
             {
-                store_effect_field(effect->bytes, actor_effect_field::velocity_mode, u32{2});
+                effect_header(effect->bytes).velocity_mode = u32{2};
             }
-            store_effect_field(effect->bytes, actor_effect_field::speed, read<u32>(node, 0xC));
-            store_effect_field(effect->bytes, actor_effect_field::speed, read<u32>(node, 0x10), 1);
-            store_effect_field(effect->bytes, actor_effect_field::motion_scale, read<u32>(node, 0x14));
+            effect_header(effect->bytes).speed[0] = std::bit_cast<float>(read<u32>(node, 0xC));
+            effect_header(effect->bytes).speed[1] = std::bit_cast<float>(read<u32>(node, 0x10));
+            effect_header(effect->bytes).motion_scale = std::bit_cast<float>(read<u32>(node, 0x14));
             break;
         case 0x1F58:
         {
@@ -523,43 +520,41 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
             {
                 retained_mode = 5;
             }
-            store_effect_field(effect->bytes, actor_effect_field::speed, read<u32>(node, 0xC));
-            store_effect_field(effect->bytes, actor_effect_field::speed, read<u32>(node, 0x10), 1);
-            store_effect_field(effect->bytes, actor_effect_field::motion_scale, read<u32>(node, 0x14));
-            store_effect_field(effect->bytes, actor_effect_field::velocity_mode,
-                read<i32>(node, 0x78) == 0 ? retained_mode : 2);
-            store_effect_field(effect->bytes, actor_effect_field::angle_lower, read<float>(node, 0x18) * radians);
-            store_effect_field(effect->bytes, actor_effect_field::angle_upper, read<float>(node, 0x1C) * radians);
-            store_effect_field(effect->bytes, actor_effect_field::angle_lower, read<float>(node, 0x20) * radians, 1);
-            store_effect_field(effect->bytes, actor_effect_field::angle_upper, read<float>(node, 0x24) * radians, 1);
-            store_effect_field(effect->bytes, actor_effect_field::angle_lower, read<float>(node, 0x28) * radians, 2);
-            store_effect_field(effect->bytes, actor_effect_field::angle_upper, read<float>(node, 0x2C) * radians, 2);
+            effect_header(effect->bytes).speed[0] = std::bit_cast<float>(read<u32>(node, 0xC));
+            effect_header(effect->bytes).speed[1] = std::bit_cast<float>(read<u32>(node, 0x10));
+            effect_header(effect->bytes).motion_scale = std::bit_cast<float>(read<u32>(node, 0x14));
+            effect_header(effect->bytes).velocity_mode = read<i32>(node, 0x78) == 0 ? retained_mode : 2;
+            effect_header(effect->bytes).angle_lower.x = read<float>(node, 0x18) * radians;
+            effect_header(effect->bytes).angle_upper.x = read<float>(node, 0x1C) * radians;
+            effect_header(effect->bytes).angle_lower.y = read<float>(node, 0x20) * radians;
+            effect_header(effect->bytes).angle_upper.y = read<float>(node, 0x24) * radians;
+            effect_header(effect->bytes).angle_lower.z = read<float>(node, 0x28) * radians;
+            effect_header(effect->bytes).angle_upper.z = read<float>(node, 0x2C) * radians;
             set_actor_effect_movement(*effect, read<u32>(node, 0x4C), read<Vec3>(node, 0x50),
                 read<Vec3>(node, 0x5C), read<Vec3>(node, 0x68), read<i32>(node, 0x74));
             const Vec3 euler = read<Vec3>(node, 0x3C);
             if (read<i32>(node, 0x48) == 0)
             {
-                store_effect_field(effect->bytes, actor_effect_field::volume_euler, euler);
+                effect_header(effect->bytes).volume_euler = euler;
             }
             else
             {
-                const Vec3 base = read<Vec3>(effect->bytes.data(), 0x50);
-                store_effect_field(effect->bytes, actor_effect_field::volume_euler,
-                    Vec3{euler.x + base.x, euler.y + base.y, euler.z + base.z});
+                const Vec3 base = effect_header(effect->bytes).euler;
+                effect_header(effect->bytes).volume_euler = Vec3{euler.x + base.x, euler.y + base.y, euler.z + base.z};
             }
-            store_effect_field(effect->bytes, actor_effect_field::volume_spin_rate, read<Vec3>(node, 0x30));
+            effect_header(effect->bytes).volume_spin_rate = read<Vec3>(node, 0x30);
             break;
         }
         case 0x1F59:
             cursor = node + 0x14;
             if (read<float>(node, 8) == 0.f && read<float>(node, 0xC) == 0.f && read<float>(node, 0x10) == 0.f)
             {
-                effect->bytes[0x18] &= 0xEF;
+                effect_header(effect->bytes).flags &= 0xEF;
             }
             else
             {
-                store_effect_field(effect->bytes, actor_effect_field::jitter, read<Vec3>(node, 8));
-                effect->bytes[0x18] |= 0x10;
+                effect_header(effect->bytes).jitter = read<Vec3>(node, 8);
+                effect_header(effect->bytes).flags |= 0x10;
             }
             break;
         case 0x1F5A:
@@ -571,8 +566,8 @@ u32 interpret_actor_effect_nodes(ActorEffectNode* effect, const u8*& cursor,
             break;
         case 0x1F5B:
             cursor = node + 0x10;
-            store_effect_field(effect->bytes, actor_effect_field::particle_size, read<u32>(node, 8));
-            store_effect_field(effect->bytes, actor_effect_field::size_variance, read<u32>(node, 0xC));
+            effect_header(effect->bytes).particle_size = std::bit_cast<float>(read<u32>(node, 8));
+            effect_header(effect->bytes).size_variance = std::bit_cast<float>(read<u32>(node, 0xC));
             break;
         default:
             if (read<i32>(cursor, 4) > 7999 && read<i32>(cursor, 4) < 0x1F5D)

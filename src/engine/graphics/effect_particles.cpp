@@ -20,29 +20,29 @@ float random_fraction(u32& state)
 // Xbox 0x000EF1D0
 u32 actor_effect_emission_count(ActorEffectNode& effect, float step)
 {
-    const float interval = get(effect.bytes, actor_effect_field::emitting);
+    const float interval = effect_header(effect.bytes).emitting;
     u32 count = 0;
     if (interval != -1.f && interval != -3.f)
     {
         if (interval == -2.f)
         {
-            return u32(i32(std::bit_cast<i16>(get(effect.bytes, actor_effect_field::capacity))) -
-                i32(std::bit_cast<i16>(get(effect.bytes, actor_effect_field::used_count))));
+            return u32(i32(std::bit_cast<i16>(effect_header(effect.bytes).capacity)) -
+                i32(std::bit_cast<i16>(effect_header(effect.bytes).used_count)));
         }
-        if (0.f >= get(effect.bytes, actor_effect_field::emit_timer))
+        if (0.f >= effect_header(effect.bytes).emit_timer)
         {
-            float timer = get(effect.bytes, actor_effect_field::emit_timer);
+            float timer = effect_header(effect.bytes).emit_timer;
             do
             {
-                timer += get(effect.bytes, actor_effect_field::emitting);
+                timer += effect_header(effect.bytes).emitting;
                 ++count;
             }
             while (0.f >= timer);
-            set(effect.bytes, actor_effect_field::emit_timer, timer);
+            effect_header(effect.bytes).emit_timer = timer;
         }
-        if (get(effect.bytes, actor_effect_field::emit_timer) > 0.f - step)
+        if (effect_header(effect.bytes).emit_timer > 0.f - step)
         {
-            set(effect.bytes, actor_effect_field::emit_timer, get(effect.bytes, actor_effect_field::emit_timer) - step);
+            effect_header(effect.bytes).emit_timer = effect_header(effect.bytes).emit_timer - step;
         }
     }
     return count;
@@ -92,13 +92,13 @@ void initialize_actor_effect_particle(EffectParticle& particle, const ActorEffec
     particle.spin_bounce = 1.f;
     particle.size = 1.f;
     particle.unk_55 = 1;
-    const float variance = get(effect.bytes, actor_effect_field::size_variance);
+    const float variance = effect_header(effect.bytes).size_variance;
     const float minimum = 1.f - variance;
     const float range = (variance + 1.f) - minimum;
     const float fraction = random_fraction(random);
     const __m128 varied = _mm_add_ss(_mm_mul_ss(_mm_set_ss(range), _mm_set_ss(fraction)), _mm_set_ss(minimum));
     const float scale =
-        _mm_cvtss_f32(_mm_mul_ss(varied, _mm_set_ss(get(effect.bytes, actor_effect_field::particle_size))));
+        _mm_cvtss_f32(_mm_mul_ss(varied, _mm_set_ss(effect_header(effect.bytes).particle_size)));
     particle.size_scale = scale;
 }
 
@@ -106,15 +106,15 @@ void initialize_actor_effect_particle(EffectParticle& particle, const ActorEffec
 void initialize_actor_effect_particle_frames(EffectParticle& particle, const ActorEffectNode& effect,
     u32& random, i32 pal, i32 pal_override)
 {
-    const float first = get(effect.bytes, actor_effect_field::frame_rate_low);
-    const float second = get(effect.bytes, actor_effect_field::frame_rate_high);
+    const float first = effect_header(effect.bytes).frame_rate_low;
+    const float second = effect_header(effect.bytes).frame_rate_high;
     const bool varies = first != 0.f || second != 0.f;
-    const u8 flags = get(effect.bytes, actor_effect_field::frame_flags);
+    const u8 flags = effect_header(effect.bytes).frame_flags;
     if (!varies && (flags & 1) == 0)
     {
         return;
     }
-    const u32 count = get(effect.bytes, actor_effect_field::frame_count);
+    const u32 count = effect_header(effect.bytes).frame_count;
     if (count < 2)
     {
         return;
@@ -184,15 +184,15 @@ void initialize_actor_effect_particle_frames(EffectParticle& particle, const Act
             particle.frames.value = particle.frames.lower;
         }
     }
-    if ((get(effect.bytes, actor_effect_field::frame_flags) & 8) != 0)
+    if ((effect_header(effect.bytes).frame_flags & 8) != 0)
     {
         mode = random_fraction(random) > .5f ? 5 : 6;
     }
-    else if ((get(effect.bytes, actor_effect_field::frame_flags) & 4) != 0)
+    else if ((effect_header(effect.bytes).frame_flags & 4) != 0)
     {
         mode = 9;
     }
-    else if ((get(effect.bytes, actor_effect_field::frame_flags) & 0x10) == 0)
+    else if ((effect_header(effect.bytes).frame_flags & 0x10) == 0)
     {
         mode = 1;
     }
@@ -204,7 +204,7 @@ void initialize_actor_effect_particle_frames(EffectParticle& particle, const Act
 
 EffectParticle& actor_effect_particle(ActorEffectNode& effect, size_t index)
 {
-    const size_t offset = actor_effect_field::particles_offset + index * sizeof(EffectParticle);
+    const size_t offset = sizeof(ActorEffectHeader) + index * sizeof(EffectParticle);
     detail::check_retail_range(effect.bytes.size(), u32(offset), sizeof(EffectParticle));
     return *reinterpret_cast<EffectParticle*>(effect.bytes.data() + offset);
 }
@@ -213,17 +213,17 @@ EffectParticle& actor_effect_particle(ActorEffectNode& effect, size_t index)
 EffectParticle* allocate_actor_effect_particle(ActorEffectNode& effect, u32 owner_address, u32 user,
     u32& random, i32 pal, i32 pal_override)
 {
-    const i16 slot = std::bit_cast<i16>(get(effect.bytes, actor_effect_field::free_head));
+    const i16 slot = std::bit_cast<i16>(effect_header(effect.bytes).free_head);
     if (slot != -1)
     {
         EffectParticle& particle = actor_effect_particle(effect, size_t(slot));
-        set(effect.bytes, actor_effect_field::free_head, particle.next_free);
+        effect_header(effect.bytes).free_head = particle.next_free;
         particle.command = user;
         particle.next_free = 0xFFFE;
         particle.owner = owner_address;
-        set(effect.bytes, actor_effect_field::used_count, u16(get(effect.bytes, actor_effect_field::used_count) + 1));
+        effect_header(effect.bytes).used_count = u16(effect_header(effect.bytes).used_count + 1);
         initialize_actor_effect_particle(particle, effect, random);
-        const u32 kind = get(effect.bytes, actor_effect_field::draw_mode);
+        const u32 kind = effect_header(effect.bytes).draw_mode;
         if (kind == 0 || kind == 2)
         {
             initialize_actor_effect_particle_frames(particle, effect, random, pal, pal_override);

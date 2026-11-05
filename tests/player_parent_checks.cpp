@@ -646,7 +646,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         const u16 secondary_token = 2;
         std::memcpy(secondary->bytes.data() + 0x18, &secondary_token, 2);
         put(secondary->bytes, 8, 0);
-        std::array<u8, 32> timed{};
+        std::array<u8, 0x390> timed{};
         ActorEffectNode timed_effect{std::span<u8>(timed), {}, {}, nullptr, 0};
         std::array<ActorEffectNode*, 1> timed_rows{&timed_effect};
         auto* first_head = &first_list.sentinel;

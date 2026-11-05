@@ -25,7 +25,7 @@ u32 simulate_actor_effect_particle(EffectParticle& particle, ActorEffectNode& ow
             return 0;
         }
     }
-    const u32 kind = get(owner.bytes, actor_effect_field::draw_mode);
+    const u32 kind = effect_header(owner.bytes).draw_mode;
     if (kind == 0 || kind == 2)
     {
         if ((particle.frames.mode & 2) != 0)
@@ -82,14 +82,14 @@ u32 simulate_actor_effect_particle(EffectParticle& particle, ActorEffectNode& ow
     {
         particle.unk_108 = particle.unk_108 - step;
     }
-    if (get(owner.bytes, actor_effect_field::unk_BC) != -1.f)
+    if (effect_header(owner.bytes).unk_BC != -1.f)
     {
-        const Vec3 origin = get(owner.bytes, actor_effect_field::position);
+        const Vec3 origin = effect_header(owner.bytes).position;
         const float x = particle.position.x - origin.x;
         const float y = particle.position.y - origin.y;
         const float z = particle.position.z - origin.z;
         const float squared = (x * x + y * y) + z * z;
-        if (squared > get(owner.bytes, actor_effect_field::unk_BC))
+        if (squared > effect_header(owner.bytes).unk_BC)
         {
             const u32 fallback = find_actor_effect_fallback_command(particle, owner, context.resolve);
             if (fallback != 0)

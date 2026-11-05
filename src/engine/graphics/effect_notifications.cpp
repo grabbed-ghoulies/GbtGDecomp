@@ -21,7 +21,7 @@ void emit_positioned_actor_effect(const char* name, const Vec3& position,
         g_last_actor_effect = -1;
         if (index != -1)
         {
-            g_actor_effect_nodes[index]->bytes[0x18] |= 8;
+            effect_header(g_actor_effect_nodes[index]->bytes).flags |= 8;
         }
     }
 }
@@ -31,8 +31,8 @@ void notify_actor_effect_particle(const ActorEffectNode& owner, u32 collided,
     const Vec3& position, const u32& frame, u32& last_sound_frame,
     AudioEventVoices& voices, ActorEffectStreamContext& context)
 {
-    const char* sound = reinterpret_cast<const char*>(owner.bytes.data()
-        + (collided == 0 ? 0x15C : 0x1DC));
+    const ActorEffectHeader& header = effect_header(owner.bytes);
+    const char* sound = collided == 0 ? header.particle_sound.data() : header.collision_sound.data();
     u32 now = frame;
 #if !defined(GBTG_RETAIL_GAME_ONLY)
     now = rare_replay_retail_frame(frame); // Rare Replay: the spacing is in retail ticks.
@@ -43,11 +43,11 @@ void notify_actor_effect_particle(const ActorEffectNode& owner, u32 collided,
         last_sound_frame = now;
     }
     u32 prefix;
-    std::memcpy(&prefix, owner.bytes.data() + 0x25C, sizeof(prefix));
+    std::memcpy(&prefix, header.collision_effect.data(), sizeof(prefix));
     if (prefix == 0x5F646961u)
     {
         emit_positioned_actor_effect(
-            reinterpret_cast<const char*>(owner.bytes.data() + 0x25C), position, context);
+            header.collision_effect.data(), position, context);
     }
 }
 }

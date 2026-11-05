@@ -51,7 +51,7 @@ bool execute_actor_effect_commands(EffectParticle& particle, ActorEffectNode& ow
     const auto detach = [&]
     {
         particle.next_free = 0xFFFD;
-        set(owner.bytes, actor_effect_field::free_count, u16(get(owner.bytes, actor_effect_field::free_count) + 1));
+        effect_header(owner.bytes).free_count = u16(effect_header(owner.bytes).free_count + 1);
     };
     const auto update_duration = [&](std::span<const u8> command)
     {
@@ -109,12 +109,12 @@ bool execute_actor_effect_commands(EffectParticle& particle, ActorEffectNode& ow
         }
         case 0x1B5B:
             cursor = address + 0xC;
-            particle.gravity = get(command, value_command::value) * get(owner.bytes, actor_effect_field::scale);
+            particle.gravity = get(command, value_command::value) * effect_header(owner.bytes).scale;
             break;
         case 0x1B5C:
             cursor = address + 0x10;
             particle.gravity = command_range(get(command, range_command::low), get(command, range_command::high), random)
-                * get(owner.bytes, actor_effect_field::scale);
+                * effect_header(owner.bytes).scale;
             break;
         case 0x1B5E:
             cursor = address + 0xC;

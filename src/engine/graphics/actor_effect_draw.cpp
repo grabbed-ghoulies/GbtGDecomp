@@ -30,7 +30,7 @@ void draw_actor_effect_particle(ActorEffectNode& effect, size_t index, Billboard
         | truncated_byte(channels.blue()) << 16
         | truncated_byte(channels.alpha()) << 24;
     // The dump reads the scale through the particle's owner, this effect.
-    const float scale = get(effect.bytes, actor_effect_field::scale) * particle.size;
+    const float scale = effect_header(effect.bytes).scale * particle.size;
     if (scale == 0.f) // DAT_0032B100
     {
         return;
@@ -49,7 +49,7 @@ void draw_actor_effect_particle(ActorEffectNode& effect, size_t index, Billboard
     }
     const Vec3 position = particle.position;
     const u32 frame = u32(static_cast<i32>(particle.frames.value));
-    switch (get(effect.bytes, actor_effect_field::draw_mode))
+    switch (effect_header(effect.bytes).draw_mode)
     {
     case 0:
         queue_billboard(queue, effect.texture.data(), color, frame, position, size.data(), spin.z);
@@ -69,7 +69,7 @@ void draw_actor_effect_sprite(ActorEffectNode& effect, size_t index, RuntimeDisp
         | truncated_byte(channels.blue()) << 16
         | truncated_byte(channels.alpha()) << 24;
     // The dump reads the scale through the particle's owner, this effect.
-    const float scale = get(effect.bytes, actor_effect_field::scale) * particle.size;
+    const float scale = effect_header(effect.bytes).scale * particle.size;
     if (scale == 0.f) // DAT_0032B100
     {
         return;
@@ -87,7 +87,7 @@ void draw_actor_effect_sprite(ActorEffectNode& effect, size_t index, RuntimeDisp
             euler.z + particle.bounded_channels[2].value};
     }
     const Vec3 position = particle.position;
-    if (get(effect.bytes, actor_effect_field::draw_mode) == 2)
+    if (effect_header(effect.bytes).draw_mode == 2)
     {
         // CVTTSS2SI: truncation toward zero.
         const i32 frame = static_cast<i32>(particle.frames.value);
@@ -191,7 +191,7 @@ void draw_actor_effect_model(ActorEffectNode& effect, size_t index, u32 model_cp
     const EffectParticle& particle = actor_effect_particle(effect, index);
     const auto& channels = particle.colour_channels;
     // The dump reads the scale through the particle's owner, this effect.
-    const float size = get(effect.bytes, actor_effect_field::scale) * particle.size;
+    const float size = effect_header(effect.bytes).scale * particle.size;
     if (size == 0.f) // UCOMISS DAT_0032B100; JNP skips only an ordered equality.
     {
         return;
@@ -231,14 +231,14 @@ void draw_actor_effect_model(ActorEffectNode& effect, size_t index, u32 model_cp
 i32 draw_actor_effect_particles(ActorEffectNode& effect, BillboardQueue& queue, RuntimeDisplaySetupContext& display,
     SceneModelDrawContext& models, u32 model_cpu)
 {
-    const u32 type = get(effect.bytes, actor_effect_field::draw_mode);
+    const u32 type = effect_header(effect.bytes).draw_mode;
     if (type == 2)
     {
         begin_world_sprite_draw(display);
-        set_world_sprite_depth_mode(get(effect.bytes, actor_effect_field::depth_mode), display);
+        set_world_sprite_depth_mode(effect_header(effect.bytes).depth_mode, display);
     }
     i32 drawn = 0;
-    const i32 count = static_cast<i16>(get(effect.bytes, actor_effect_field::capacity));
+    const i32 count = static_cast<i16>(effect_header(effect.bytes).capacity);
     u32 index = 0;
     if (0 < count)
     {

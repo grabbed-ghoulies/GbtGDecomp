@@ -725,7 +725,12 @@ Code reads three kinds of retail data by address, and they get different treatme
 - **`.data` values** are writable, so they stay reads and need names. `CameraRigTunables` (DAT_004274B8.., 0xEC bytes, copied once at
   boot) holds the camera rig's. `g_camera_view_tunables` stays words, as scripts write them, with `camera_view_tunable` naming the
   indices. Names come from what each value feeds; those that only pass on stay `unk_`.
-- **Strings and tables** (`image.string`, `exe_real` on `.data` tables and the rest) are still read by address.
+- **Settings blocks** become one struct when every word has a reader, or an `unk_` if it has none. `JumpOnTunables` (DAT_00428680,
+  0x60 bytes) is a host copy, as the jump-on constructor writes its take-off duration. The menus' are views of the image, as nothing in
+  the dumps writes them: `FinalScoreLayout` (DAT_00428A88, 0x184), `SlotSelectLayout` (DAT_00428F90, 0x9C), `FeaturesLayout`
+  (DAT_00428C28, 0x58). `SlotPlateRow` (DAT_0042902C, stride 0x124) and `SlotChapterRow` (DAT_00429290, stride 0x10C) overlap: the
+  chapter table starts at the third plate's texture name.
+- **Strings and other tables** (`image.string`, the smaller menus' `exe_real` reads and the rest) are still read by address.
 
 The offset census doesn't count reads by address, so its total understates these.
 

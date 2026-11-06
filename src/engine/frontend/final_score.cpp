@@ -66,9 +66,88 @@ float frame_step(const GameSelectControlServices& s)
     return 0.f;
 }
 
-i32 exe_int(const GameSelectControlServices& s, u32 address)
+// DAT_00428A88, the final score pages' settings in the executable's data. Nothing in the dumps writes them.
+struct FinalScoreLayout
 {
-    return i32(read_u32(s.image.memory(address, 4), 0));
+    // The scores page.
+    float row_text_scale; // DAT_00428A88, 0.75
+    float rank_text_scale; // DAT_00428A8C, 2
+    float score_text_scale; // DAT_00428A90, 2
+    float icon_gap; // DAT_00428A94, 20
+    float icon_scale[4]; // DAT_00428A98, a row's
+    float panel_margin; // DAT_00428AA8, 10
+    float panel_radius; // DAT_00428AAC, 0.1
+    float panel_offset[2]; // DAT_00428AB0, 0, -15
+    float panel_height; // DAT_00428AB8, 130
+    u32 panel_color; // DAT_00428ABC, 0x9E404040
+    float title_y; // DAT_00428AC0, 50
+    float score_y; // DAT_00428AC4, 70
+    float row_offset_y; // DAT_00428AC8, 60
+    float value_gap; // DAT_00428ACC, 0
+    float rank_gap; // DAT_00428AD0, 20
+    float rank_offset_y; // DAT_00428AD4, 120
+    float bat_scale; // DAT_00428AD8, 2
+    float bat_depth; // DAT_00428ADC, 0.4
+    float label_time; // DAT_00428AE0, 3
+    float value_time; // DAT_00428AE4, 1.8
+    float rank_time; // DAT_00428AE8, 0.3
+    float rank_line_time; // DAT_00428AEC, 1.7
+    float score_time; // DAT_00428AF0, 2
+    float row_end_time; // DAT_00428AF4, 1
+    i32 time_rank_base; // DAT_00428AF8, 180 minutes
+    i32 time_rank_step; // DAT_00428AFC, 25 minutes
+    i32 kills_rank_base; // DAT_00428B00, 700
+    i32 kills_rank_step; // DAT_00428B04, 20
+    i32 faints_rank_base; // DAT_00428B08, 20
+    i32 faints_rank_step; // DAT_00428B0C, 10
+    // The end page.
+    float end_text_scale; // DAT_00428B10, 2
+    float end_banner_y; // DAT_00428B14, 280
+    float end_time; // DAT_00428B18, 3
+    float unk_B1C[6]; // DAT_00428B1C, -16, 22, 32, 4, 1, 0.75; no translated reader
+    u32 dialog_keys[6]; // DAT_00428B34, string addresses, one picked at random (0x000D3450)
+    u32 unk_B4C; // DAT_00428B4C, 0
+    // The summary page.
+    float summary_rank_text_scale; // DAT_00428B50, 2
+    float summary_entry_gap; // DAT_00428B54, 10
+    float summary_icon_scale[4][2]; // DAT_00428B58, a row's
+    float summary_icon_grow_time[4]; // DAT_00428B78, a row's
+    float summary_panel_margin; // DAT_00428B88, 10
+    float summary_panel_radius; // DAT_00428B8C, 0.1
+    float summary_panel_offset[2]; // DAT_00428B90, -50, 0
+    u32 summary_panel_color; // DAT_00428B98, 0x9E404040
+    float unk_B9C; // DAT_00428B9C, 20
+    float summary_title_y; // DAT_00428BA0, 50
+    float unk_BA4; // DAT_00428BA4, -150
+    float summary_value_text_scale; // DAT_00428BA8, 1
+    float unk_BAC; // DAT_00428BAC, 0
+    // The result page.
+    float result_title_text_scale; // DAT_00428BB0, 2
+    float result_score_text_scale; // DAT_00428BB4, 2
+    float result_title_y; // DAT_00428BB8, 85
+    float result_score_y; // DAT_00428BBC, 280
+    float result_ditty_time; // DAT_00428BC0, 0.5
+    float result_rank_line_time; // DAT_00428BC4, 2
+    float result_brew_time; // DAT_00428BC8, 2.5
+    float prompts_offset_x; // DAT_00428BCC, -16
+    float prompts_bottom; // DAT_00428BD0, 22
+    float prompts_spacing; // DAT_00428BD4, 32
+    float prompts_origin_x; // DAT_00428BD8, 4
+    float prompts_icon_scale; // DAT_00428BDC, 1
+    float prompts_text_scale; // DAT_00428BE0, 0.75
+    i32 happy_total; // DAT_00428BE4, 66: at or above, reallyhappy
+    i32 average_total; // DAT_00428BE8, 33: at or above, reallyaverage
+    float brew_count_text_scale; // DAT_00428BEC, 1
+    float brew_scale[2]; // DAT_00428BF0, 1, 1
+    float brew_offset[2]; // DAT_00428BF8, 200, 68
+    float brew_count_offset[2]; // DAT_00428C00, 25, 24
+    float brew_grow_time; // DAT_00428C08, 0.2
+};
+static_assert(sizeof(FinalScoreLayout) == 0x184);
+
+const FinalScoreLayout& layout(const GameSelectControlServices& s)
+{
+    return *reinterpret_cast<const FinalScoreLayout*>(s.image.memory(0x00428A88, sizeof(FinalScoreLayout)).data());
 }
 
 const char16_t* current_name(FinalScoreServices& services)
@@ -198,11 +277,6 @@ const FinalScorePage& page_of(i32 page)
     return pages[page - 1];
 }
 
-float exe_real(const GameSelectControlServices& s, u32 address)
-{
-    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
-}
-
 FinalScoreScoresPage& scores_of(FinalScoreServices& services)
 {
     if (services.scores == nullptr)
@@ -307,8 +381,8 @@ void fill_runtime_final_score_row(i32 index, FinalScoreServices& services)
 void rank_runtime_final_score_time(u16& rank, char16_t* value, FinalScoreServices& services)
 {
     const auto& s = services.frontend;
-    const i32 base = exe_int(s, 0x00428AF8); // 180 minutes
-    const i32 step = exe_int(s, 0x00428AFC); // 25 minutes
+    const i32 base = layout(s).time_rank_base;
+    const i32 step = layout(s).time_rank_step;
     std::array<i32, 25> thresholds{};
     for (i32 index = 0; index < 25; ++index)
     {
@@ -326,8 +400,8 @@ void rank_runtime_final_score_time(u16& rank, char16_t* value, FinalScoreService
 void rank_runtime_final_score_kills(u16& rank, char16_t* value, FinalScoreServices& services)
 {
     const auto& s = services.frontend;
-    const i32 base = exe_int(s, 0x00428B00); // 700
-    const i32 step = exe_int(s, 0x00428B04); // 20
+    const i32 base = layout(s).kills_rank_base;
+    const i32 step = layout(s).kills_rank_step;
     std::array<i32, 25> thresholds{};
     for (i32 index = 0; index < 25; ++index)
     {
@@ -345,8 +419,8 @@ void rank_runtime_final_score_kills(u16& rank, char16_t* value, FinalScoreServic
 void rank_runtime_final_score_faints(u16& rank, char16_t* value, FinalScoreServices& services)
 {
     const auto& s = services.frontend;
-    const i32 base = exe_int(s, 0x00428B08); // 20
-    const i32 step = exe_int(s, 0x00428B0C); // 10
+    const i32 base = layout(s).faints_rank_base;
+    const i32 step = layout(s).faints_rank_step;
     std::array<i32, 25> thresholds{};
     for (i32 index = 0; index < 25; ++index)
     {
@@ -575,7 +649,7 @@ void start_runtime_final_score_intro(FinalScoreServices& services)
         const float one = std::bit_cast<float>(read_u32(s.image.memory(0x0032B0F8, 4), 0));
         const float scale = std::bit_cast<float>(read_u32(s.image.memory(0x0032B664, 4), 0)); // -6
         const i32 index = i32((unit - one) * scale); // CVTTSS2SI: 0..-5
-        const char* key = s.image.string(read_u32(s.image.memory(0x00428B34u - u32(index) * 4u, 4), 0));
+        const char* key = s.image.string(layout(s).dialog_keys[size_t(-index)]);
         request_namespaced_localtext("aid_loctext_ghoulies_dialog_dialogs", "dialogs", key,
             dialogue->measurement.wide_scratch, dialogue->measurement.localtext); // 0x000FF0A0 into DAT_00507E78
         enqueue_runtime_dialogue(dialogue->measurement.wide_scratch, 0, *dialogue); // 0x000582E0
@@ -655,28 +729,28 @@ void lay_out_runtime_final_score_row(i32 index, FinalScoreServices& services)
         s.localtext); // 0x000FF120, ESI the score text, EDI the tally row's name, EBX +4
     std::char_traits<char16_t>::copy(row.value.text.data(), tally.value.data(),
         std::char_traits<char16_t>::length(tally.value.data()) + 1); // lstrcpyW(+0x228, the tally's +0x188)
-    const float small = exe_real(s, 0x00428A88);
+    const float small = layout(s).row_text_scale;
     const float label_width = runtime_text_line_width(s.metrics, 0, row.label.text.data(), small); // 0x00060710
-    float width = runtime_text_line_width(s.metrics, 0, row.value.text.data(), small) + exe_real(s, 0x00428ACC)
+    float width = runtime_text_line_width(s.metrics, 0, row.value.text.data(), small) + layout(s).value_gap
         + label_width; // 0x00060710
     if (width > s.hud.safe_width) // DAT_0050971C
     {
         width = s.hud.safe_width;
     }
     const float left = cx - width * half;
-    const float top = exe_real(s, 0x00428AC8) + cy;
+    const float top = layout(s).row_offset_y + cy;
     row.label.x = left; // +0x204
     row.label.y = top; // +0x208
     row.value.y = top; // +0x42C
     row.value.x = left + label_width; // +0x428
     format_wide_integer(tally.rank, row.rank.text.data(), 10); // 0x00166B36, +0x434
     format_wide_integer(tally.rank_count, row.rank_count.text.data(), 10); // 0x00166B36, +0x640
-    const float large = exe_real(s, 0x00428A8C);
+    const float large = layout(s).rank_text_scale;
     const float rank_width = runtime_text_line_width(s.metrics, 0, row.rank.text.data(), large); // 0x00060710
     const float count_width = runtime_text_line_width(s.metrics, 0, row.rank_count.text.data(), large);
     const float slash_width = runtime_text_line_width(s.metrics, 0, page.slash.text.data(), large) * half;
-    const float gap = exe_real(s, 0x00428AD0);
-    const float lower = cy + exe_real(s, 0x00428AD4);
+    const float gap = layout(s).rank_gap;
+    const float lower = cy + layout(s).rank_offset_y;
     row.rank.y = cy; // +0x638
     row.rank.x = cx; // +0x634
     row.rank.y = lower;
@@ -694,7 +768,7 @@ void lay_out_runtime_final_score_row(i32 index, FinalScoreServices& services)
     }
     row.icon = icon; // +0x210
     row.unk_218 = read_u32(s.image.memory(0x00314F48, 4), 0); // +0x21C
-    const float scale = exe_real(s, 0x00428A98 + u32(index) * 4);
+    const float scale = layout(s).icon_scale[size_t(index)];
     row.icon_scale = {scale, scale}; // +0x220, +0x224
 }
 
@@ -711,7 +785,7 @@ void lay_out_runtime_final_score_rows(FinalScoreServices& services)
     }
     auto& rows = page.rows;
     const float half = 0.5f; // DAT_0032B0F4.
-    const float gap = exe_real(s, 0x00428A94);
+    const float gap = layout(s).icon_gap;
     const float widths = icon_width(rows[0]) * rows[0].icon_scale[0] + icon_width(rows[1]) * rows[1].icon_scale[0]
         + icon_width(rows[2]) * rows[2].icon_scale[0] + icon_width(rows[3]) * rows[3].icon_scale[0];
     const float left = cx - (gap * 3.f + widths) * half; // DAT_0032B260.
@@ -813,33 +887,33 @@ void set_runtime_final_score_scores_state(i32 next, FinalScoreServices& services
         }
         return;
     case 3:
-        row.label.record = add_line(page, row.label, exe_real(s, 0x00428A88), 0, s); // 0x0005F580, EAX 0
+        row.label.record = add_line(page, row.label, layout(s).row_text_scale, 0, s); // 0x0005F580, EAX 0
         request_audio_event_voice("XACT_SOUNDBANK_GPICKUPDITTIES_EVENTREQICON", 1, s.voices); // 0x000395E0
         if (page.snare == -1)
         {
             page.snare = start_runtime_final_score_loop("XACT_SOUNDBANK_GPROPS_SNAREROLL", services); // 0x000D27D0
         }
-        page.timer = exe_real(s, 0x00428AE0);
+        page.timer = layout(s).label_time;
         return;
     case 4:
-        row.value.record = add_line(page, row.value, exe_real(s, 0x00428A88), 0, s); // 0x0005F580, EAX 0
+        row.value.record = add_line(page, row.value, layout(s).row_text_scale, 0, s); // 0x0005F580, EAX 0
         request_audio_event_voice("XACT_SOUNDBANK_GSTREAMSDITTIES_SCOREFANFARE", 1, s.voices); // 0x000395E0
-        page.timer = exe_real(s, 0x00428AE4);
+        page.timer = layout(s).value_time;
         return;
     case 5:
     {
-        const float large = exe_real(s, 0x00428A8C);
+        const float large = layout(s).rank_text_scale;
         row.rank.record = add_line(page, row.rank, large, 1, s); // 0x0005F580, EAX 1
         page.slash.record = add_line(page, page.slash, large, 1, s);
         row.rank_count.record = add_line(page, row.rank_count, large, 1, s);
         request_audio_event_voice("XACT_SOUNDBANK_GPICKUPDITTIES_KEYAPPEAR", 1, s.voices); // 0x000395E0
-        page.timer = exe_real(s, 0x00428AE8);
+        page.timer = layout(s).rank_time;
         return;
     }
     case 6:
         request_audio_event_voice(runtime_final_score_rank_line(tally.rank, 0, tally.rank_count, services), 1,
             s.voices); // 0x000D4570 (SI the rank, CX 0, DX the count), 0x000395E0
-        page.timer = exe_real(s, 0x00428AEC);
+        page.timer = layout(s).rank_line_time;
         return;
     case 7:
     {
@@ -848,15 +922,15 @@ void set_runtime_final_score_scores_state(i32 next, FinalScoreServices& services
             s.localtext); // 0x000FF120, EDI 0x00324918, EBX +0x257C
         page.score.x = s.hud.center_x; // +0x277C
         page.score.y = s.hud.center_y;
-        page.score.y = exe_real(s, 0x00428AC4);
+        page.score.y = layout(s).score_y;
         page.total = page.total + tally.rank;
         char16_t digits[20]{};
         format_wide_integer(i32(page.total), digits, 10); // 0x00166B36
         std::char_traits<char16_t>::copy(page.score.text.data() + std::char_traits<char16_t>::length(
             page.score.text.data()), digits, std::char_traits<char16_t>::length(digits) + 1); // lstrcatW
-        page.score.record = add_line(page, page.score, exe_real(s, 0x00428A90), 1, s); // 0x0005F580, EAX 1
+        page.score.record = add_line(page, page.score, layout(s).score_text_scale, 1, s); // 0x0005F580, EAX 1
         request_audio_event_voice("XACT_SOUNDBANK_GPICKUPDITTIES_REAPERICON", 1, s.voices); // 0x000395E0
-        page.timer = exe_real(s, 0x00428AF0);
+        page.timer = layout(s).score_time;
         return;
     }
     case 8:
@@ -866,7 +940,7 @@ void set_runtime_final_score_scores_state(i32 next, FinalScoreServices& services
         row.rank_count.record = 0;
         row.rank.record = 0;
         row.value.record = 0;
-        page.timer = exe_real(s, 0x00428AF4);
+        page.timer = layout(s).row_end_time;
         row.label.record = 0;
         stop_runtime_final_score_loop(row.voice, services); // 0x000D2810, AX the row's voice
         row.voice = -1;
@@ -895,29 +969,29 @@ void start_runtime_final_score_scores(FinalScoreServices& services)
         s.localtext); // 0x000FF120, EDI 0x00324924, EBX +0x2140
     page.title.x = s.hud.center_x; // +0x2340
     page.title.y = s.hud.center_y;
-    page.title.y = exe_real(s, 0x00428AC0);
+    page.title.y = layout(s).title_y;
     page.slash.x = s.hud.center_x; // +0x2570
     page.slash.y = s.hud.center_y;
-    page.slash.y = page.slash.y + exe_real(s, 0x00428AD4);
+    page.slash.y = page.slash.y + layout(s).rank_offset_y;
     std::char_traits<char16_t>::copy(page.slash.text.data(), u"/", 2); // lstrcpyW(+0x2370, 0x00324920)
     allocate_dialogue_text_pool(page.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0x234C
     page.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     lay_out_runtime_final_score_rows(services); // 0x000D1DC0
     auto& rows = page.rows;
     page.panel_size[0] = (rows[3].icon_position[0] - rows[0].icon_position[0]) + icon_width(rows[0])
-        + exe_real(s, 0x00428AA8) * 2.f; // +0x2360, DAT_0032B110.
-    page.panel_size[1] = exe_real(s, 0x00428AB8); // +0x2364
-    page.panel_color = read_u32(s.image.memory(0x00428ABC, 4), 0); // +0x2368
+        + layout(s).panel_margin * 2.f; // +0x2360, DAT_0032B110.
+    page.panel_size[1] = layout(s).panel_height; // +0x2364
+    page.panel_color = layout(s).panel_color; // +0x2368
     page.panel_position = {s.hud.center_x, s.hud.center_y}; // +0x2358
-    page.panel_position[0] = page.panel_position[0] + exe_real(s, 0x00428AB0);
-    page.panel_position[1] = page.panel_position[1] + exe_real(s, 0x00428AB4);
+    page.panel_position[0] = page.panel_position[0] + layout(s).panel_offset[0];
+    page.panel_position[1] = page.panel_position[1] + layout(s).panel_offset[1];
     page.row = 0;
-    page.bat = s.create_bat({0.f, 0.f}, 0.f, exe_real(s, 0x00428ADC)); // 0x0013B580(EAX {0, 0}, 0, 0.4)
+    page.bat = s.create_bat({0.f, 0.f}, 0.f, layout(s).bat_depth); // 0x0013B580(EAX {0, 0}, 0, 0.4)
     if (page.bat == nullptr)
     {
         throw Error("0x000D1540: 0x0013B580 made no dialogue bat");
     }
-    const float scale = exe_real(s, 0x00428AD8);
+    const float scale = layout(s).bat_scale;
     if (page.bat->scale_200 != scale) // +0x200
     {
         page.bat->scale_200 = scale;
@@ -1021,7 +1095,7 @@ void draw_runtime_final_score_scores(FinalScoreServices& services)
     const float half = 0.5f; // DAT_0032B0F4.
     draw_runtime_dialogue_panel(float(i32(page.panel_position[0]) - i32(page.panel_size[0] * half)),
         float(i32(page.panel_position[1]) - i32(page.panel_size[1] * half)), float(i32(page.panel_size[0])),
-        float(i32(page.panel_size[1])), exe_real(s, 0x00428AAC), page.panel_color, s.outer); // 0x00061360
+        float(i32(page.panel_size[1])), layout(s).panel_radius, page.panel_color, s.outer); // 0x00061360
     const u32 color = read_u32(s.image.memory(0x00314F48, 4), 0);
     for (auto& row : page.rows)
     {
@@ -1090,13 +1164,13 @@ void set_runtime_final_score_end_state(i32 next, FinalScoreServices& services)
     if (next == 1)
     {
         page.banner.record = create_dialogue_text_record(*page.pool, page.banner.text.data(), page.banner.x,
-            page.banner.y, exe_real(s, 0x00428B10), exe_real(s, 0x00428B10), 1.f, 1, 0, 1, s.metrics,
+            page.banner.y, layout(s).end_text_scale, layout(s).end_text_scale, 1.f, 1, 0, 1, s.metrics,
             s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0, EAX 1
         return;
     }
     if (next == 2)
     {
-        page.timer = exe_real(s, 0x00428B18);
+        page.timer = layout(s).end_time;
         return;
     }
     if (next == 4)
@@ -1116,7 +1190,7 @@ void start_runtime_final_score_end(FinalScoreServices& services)
         s.localtext); // 0x000FF120, EDI 0x00324930, EBX +4
     page.banner.x = s.hud.center_x; // +0x204
     page.banner.y = s.hud.center_y;
-    page.banner.y = exe_real(s, 0x00428B14);
+    page.banner.y = layout(s).end_banner_y;
     allocate_dialogue_text_pool(page.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0x210
     page.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     set_runtime_final_score_cutscene(0, 0, services); // 0x000D4280
@@ -1160,7 +1234,7 @@ void tick_runtime_final_score_end(FinalScoreServices& services)
         if (dialogue_text_record_animating(*page.pool, page.banner.record, s.fonts, s.fallback_texture) == 0)
         {
             page.state = 2;
-            page.timer = exe_real(s, 0x00428B18);
+            page.timer = layout(s).end_time;
         }
         break;
     case 2:
@@ -1240,7 +1314,7 @@ void build_runtime_final_score_summary_entry(i32 row, FinalScoreServices& servic
     std::char_traits<char16_t>::copy(entry.value.text.data(), tally_row.value.data(),
         std::char_traits<char16_t>::length(tally_row.value.data()) + 1); // lstrcpyW(+0x14, tally +0x188)
     entry.value_width = runtime_text_line_width(s.metrics, 0, entry.value.text.data(),
-        exe_real(s, 0x00428BA8)); // 0x00060710, EAX 0, ECX +0x14, XMM6 DAT_00428BA8
+        layout(s).summary_value_text_scale); // 0x00060710, EAX 0, ECX +0x14, XMM6 DAT_00428BA8
     format_wide_integer(tally_row.rank, entry.rank.text.data(), 10); // 0x00166B36, ESI +0x224
     char16_t part[64]{};
     std::char_traits<char16_t>::copy(part, u" / ", 4); // wsprintfW(0x003249B8)
@@ -1254,12 +1328,12 @@ void build_runtime_final_score_summary_entry(i32 row, FinalScoreServices& servic
     format_wide_integer(tally_row.rank_count, part, 10); // 0x00166B36
     append(part);
     entry.rank_width = runtime_text_line_width(s.metrics, 0, entry.rank.text.data(),
-        exe_real(s, 0x00428B50)); // 0x00060710, EAX 0, ECX +0x224, XMM6 DAT_00428B50
-    const std::array<float, 2> full_scale{exe_real(s, 0x00428B58 + u32(row) * 8),
-        exe_real(s, 0x00428B5C + u32(row) * 8)};
+        layout(s).summary_rank_text_scale); // 0x00060710, EAX 0, ECX +0x224, XMM6 DAT_00428B50
+    const std::array<float, 2> full_scale{layout(s).summary_icon_scale[size_t(row)][0],
+        layout(s).summary_icon_scale[size_t(row)][1]};
     entry.icon = std::make_unique<ButtonBatMenuSprite>(); // 0x000F72D0(0x2C)
     initialize_menu_sprite(*entry.icon, tally_row.icon.data(), position, full_scale,
-        exe_real(s, 0x00428B78 + u32(row) * 4), s); // 0x00144780, EAX tally +0x100, EBX 0x00428B58 + row * 8
+        layout(s).summary_icon_grow_time[size_t(row)], s); // 0x00144780, EAX tally +0x100, EBX 0x00428B58 + row * 8
 }
 
 // Xbox 0x000D3990
@@ -1282,7 +1356,7 @@ void layout_runtime_final_score_summary(FinalScoreServices& services)
             width = icon_extent(*icon, 8, icon->full_scale[0]);
         }
     }
-    page.panel_size[0] = exe_real(s, 0x00428B88) * margin + width;
+    page.panel_size[0] = layout(s).summary_panel_margin * margin + width;
     page.panel_size[1] = 0.f;
     if (first != nullptr)
     {
@@ -1294,14 +1368,14 @@ void layout_runtime_final_score_summary(FinalScoreServices& services)
         if (icon != nullptr)
         {
             page.panel_size[1] = page.panel_size[1] + icon_extent(*icon, 0xA, icon->full_scale[1]);
-            page.panel_size[1] = page.panel_size[1] + exe_real(s, 0x00428B54);
+            page.panel_size[1] = page.panel_size[1] + layout(s).summary_entry_gap;
         }
     }
-    page.panel_size[1] = exe_real(s, 0x00428B88) * margin + page.panel_size[1];
-    page.panel_color = read_u32(s.image.memory(0x00428B98, 4), 0);
+    page.panel_size[1] = layout(s).summary_panel_margin * margin + page.panel_size[1];
+    page.panel_color = layout(s).summary_panel_color;
     page.panel_position = {s.hud.center_x, s.hud.center_y};
-    page.panel_position[0] = page.panel_position[0] + exe_real(s, 0x00428B90);
-    page.panel_position[1] = exe_real(s, 0x00428B94) + page.panel_position[1];
+    page.panel_position[0] = page.panel_position[0] + layout(s).summary_panel_offset[0];
+    page.panel_position[1] = layout(s).summary_panel_offset[1] + page.panel_position[1];
 }
 
 // Xbox 0x000D35A0
@@ -1314,7 +1388,7 @@ void start_runtime_final_score_summary(FinalScoreServices& services)
         s.localtext); // 0x000FF120, EDI 0x003249C0, EBX +0x10C8
     page.title.x = s.hud.center_x; // +0x12C8
     page.title.y = s.hud.center_y;
-    page.title.y = exe_real(s, 0x00428BA0);
+    page.title.y = layout(s).summary_title_y;
     allocate_dialogue_text_pool(page.pool, 1, 0x400C0, 0, s.text_pools); // 0x0005F390, ESI +0x10C4
     page.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     for (i32 row = 0; row < 4; ++row)
@@ -1391,7 +1465,7 @@ void draw_runtime_final_score_summary(FinalScoreServices& services)
     const float x = float(i32(page.panel_position[0]) - i32(page.panel_size[0] * half));
     const float y = float(i32(page.panel_position[1]) - i32(page.panel_size[1] * half));
     draw_runtime_dialogue_panel(x, y, float(i32(page.panel_size[0])), float(i32(page.panel_size[1])),
-        exe_real(s, 0x00428B8C), page.panel_color, s.outer); // 0x00061360
+        layout(s).summary_panel_radius, page.panel_color, s.outer); // 0x00061360
     // 0x000D3D80, inlined.
     for (auto& entry : page.entries)
     {
@@ -1436,10 +1510,10 @@ void set_runtime_final_score_super_scary_state(i32 next, FinalScoreServices& ser
     {
     case 1:
         page.title.record = create_dialogue_text_record(*page.pool, page.title.text.data(), page.title.x,
-            page.title.y, exe_real(s, 0x00428BB0), exe_real(s, 0x00428BB0), 1.f, 1, 0, 1, s.metrics,
+            page.title.y, layout(s).result_title_text_scale, layout(s).result_title_text_scale, 1.f, 1, 0, 1, s.metrics,
             s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0, EAX 1
         page.score.record = create_dialogue_text_record(*page.pool, page.score.text.data(), page.score.x,
-            page.score.y, exe_real(s, 0x00428BB4), exe_real(s, 0x00428BB4), 1.f, 1, 0, 1, s.metrics,
+            page.score.y, layout(s).result_score_text_scale, layout(s).result_score_text_scale, 1.f, 1, 0, 1, s.metrics,
             s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0, EAX 1
         return;
     case 2:
@@ -1448,13 +1522,13 @@ void set_runtime_final_score_super_scary_state(i32 next, FinalScoreServices& ser
         // DAT_0032B5CC (about -1/20), truncated, steps back by 0x80.
         const i32 step = i32(float(u16(tally.total)) * -0.049504947f); // DAT_0032B5CC.
         request_audio_event_voice(s.image.string(u32(0x00305438 - step * 0x80)), 1, s.voices); // 0x000395E0
-        page.timer = exe_real(s, 0x00428BC0);
+        page.timer = layout(s).result_ditty_time;
         return;
     }
     case 3:
         request_audio_event_voice(runtime_final_score_rank_line(u16(tally.total), 0, 100, services), 1,
             s.voices); // 0x000D4570 (SI the total, CX 0, DX 100), 0x000395E0
-        page.timer = exe_real(s, 0x00428BC4);
+        page.timer = layout(s).result_rank_line_time;
         return;
     case 4:
         if (u16(tally.save_19c) != 0)
@@ -1467,16 +1541,16 @@ void set_runtime_final_score_super_scary_state(i32 next, FinalScoreServices& ser
             format_wide_integer(u16(tally.save_19c), page.brew_count.text.data(), 10); // 0x00166B36, +0x428
             page.brew_count.x = s.hud.center_x; // +0x628
             page.brew_count.y = s.hud.center_y;
-            page.brew_count.x = page.brew_count.x + exe_real(s, 0x00428BF8);
-            page.brew_count.y = page.brew_count.y + exe_real(s, 0x00428BFC);
-            page.brew_count.x = page.brew_count.x + exe_real(s, 0x00428C00);
-            page.brew_count.y = page.brew_count.y + exe_real(s, 0x00428C04);
+            page.brew_count.x = page.brew_count.x + layout(s).brew_offset[0];
+            page.brew_count.y = page.brew_count.y + layout(s).brew_offset[1];
+            page.brew_count.x = page.brew_count.x + layout(s).brew_count_offset[0];
+            page.brew_count.y = page.brew_count.y + layout(s).brew_count_offset[1];
             page.brew_count.record = create_dialogue_text_record(*page.pool, page.brew_count.text.data(),
-                page.brew_count.x, page.brew_count.y, exe_real(s, 0x00428BEC), exe_real(s, 0x00428BEC), 1.f, 0, 0,
+                page.brew_count.x, page.brew_count.y, layout(s).brew_count_text_scale, layout(s).brew_count_text_scale, 1.f, 0, 0,
                 1, s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F580, EAX 0
             request_audio_event_voice("XACT_SOUNDBANK_GFINALSCORE_BUTLERSBREW", 1, s.voices); // 0x000395E0
         }
-        page.timer = exe_real(s, 0x00428BC8);
+        page.timer = layout(s).result_brew_time;
         return;
     case 5:
         if (page.prompts == nullptr)
@@ -1502,11 +1576,11 @@ void start_runtime_final_score_super_scary(FinalScoreServices& services)
         s.localtext); // 0x000FF120, EDI 0x003249FC, EBX +4
     page.title.x = s.hud.center_x; // +0x204
     page.title.y = s.hud.center_y;
-    page.title.y = exe_real(s, 0x00428BB8);
+    page.title.y = layout(s).result_title_y;
     format_wide_integer(u16(tally.total), page.score.text.data(), 10); // 0x00166B36, ESI +0x210
     page.score.x = s.hud.center_x; // +0x410
     page.score.y = s.hud.center_y;
-    page.score.y = exe_real(s, 0x00428BBC);
+    page.score.y = layout(s).result_score_y;
     char16_t hundred[20]{};
     format_wide_integer(100, hundred, 10); // 0x00166B36
     const auto append = [&page](const char16_t* text)
@@ -1518,15 +1592,15 @@ void start_runtime_final_score_super_scary(FinalScoreServices& services)
     append(hundred);
     allocate_dialogue_text_pool(page.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0x41C
     page.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
-    const float icon_scale = exe_real(s, 0x00428BDC);
-    const float spacing = exe_real(s, 0x00428BD4);
+    const float icon_scale = layout(s).prompts_icon_scale;
+    const float spacing = layout(s).prompts_spacing;
     const float lift = spacing * 0.5f * icon_scale; // DAT_0032B0F4.
-    const std::array<float, 2> anchor{s.hud.center_x + exe_real(s, 0x00428BCC),
-        s.hud.inner_bottom - exe_real(s, 0x00428BD0)}; // DAT_0050974C
+    const std::array<float, 2> anchor{s.hud.center_x + layout(s).prompts_offset_x,
+        s.hud.inner_bottom - layout(s).prompts_bottom}; // DAT_0050974C
     const std::array<float, 2> row_step{icon_scale * 0.f, 0.f - icon_scale * spacing};
-    const std::array<float, 2> origin{lift + exe_real(s, 0x00428BD8), 0.f - lift};
+    const std::array<float, 2> origin{lift + layout(s).prompts_origin_x, 0.f - lift};
     create_dialogue_widget(page.prompts, 0, nullptr, anchor, row_step, origin, nullptr, icon_scale,
-        exe_real(s, 0x00428BE0), "finalscore", state_of(services).text, 0x400C0,
+        layout(s).prompts_text_scale, "finalscore", state_of(services).text, 0x400C0,
         s.widget_allocation); // 0x00141E20, EAX +0x634
     auto& prompts = *page.prompts;
     const float fade = 0.2f; // DAT_0032B1AC.
@@ -1537,17 +1611,17 @@ void start_runtime_final_score_super_scary(FinalScoreServices& services)
     }
     prompts.pool->end_time = fade;
     prompts.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
-    const std::array<float, 2> position{exe_real(s, 0x00428BF8) + s.hud.center_x,
-        exe_real(s, 0x00428BFC) + s.hud.center_y};
-    const std::array<float, 2> full_scale{exe_real(s, 0x00428BF0), exe_real(s, 0x00428BF4)};
+    const std::array<float, 2> position{layout(s).brew_offset[0] + s.hud.center_x,
+        layout(s).brew_offset[1] + s.hud.center_y};
+    const std::array<float, 2> full_scale{layout(s).brew_scale[0], layout(s).brew_scale[1]};
     page.brew = std::make_unique<ButtonBatMenuSprite>(); // 0x000F72D0(0x2C)
     initialize_menu_sprite(*page.brew, "aid_texture_ghoulies_scoreboard_energy_butlersbrew", position, full_scale,
-        exe_real(s, 0x00428C08), s); // 0x00144780, EAX 0x003056B8, EBX 0x00428BF0
+        layout(s).brew_grow_time, s); // 0x00144780, EAX 0x003056B8, EBX 0x00428BF0
     const i32 total = i32(u16(tally.total));
     i32 kind = 4; // reallyhappy
-    if (total < exe_int(s, 0x00428BE4)) // 66
+    if (total < layout(s).happy_total)
     {
-        kind = (exe_int(s, 0x00428BE8) <= total ? 1 : 0) + 2; // 33: reallyaverage, else reallysad
+        kind = (layout(s).average_total <= total ? 1 : 0) + 2; // reallyaverage, else reallysad
     }
     set_runtime_final_score_cutscene(1, kind, services); // 0x000D4280
     set_runtime_final_score_super_scary_state(1, services); // 0x000D4BE0, EAX 1
@@ -1596,7 +1670,7 @@ void tick_runtime_final_score_super_scary(FinalScoreServices& services)
             page.state = 3;
             request_audio_event_voice(runtime_final_score_rank_line(u16(tally_of(services).total), 0, 100,
                 services), 1, s.voices); // 0x000D4570 (SI the total, CX 0, DX 100), 0x000395E0
-            page.timer = exe_real(s, 0x00428BC4);
+            page.timer = layout(s).result_rank_line_time;
         }
         break;
     case 3:

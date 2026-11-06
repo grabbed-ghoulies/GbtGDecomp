@@ -43,9 +43,32 @@ GameFeaturesWidget& features(GameSelectWidget& widget)
     return static_cast<GameFeaturesWidget&>(widget);
 }
 
-float exe_real(const GameSelectControlServices& s, u32 address)
+// DAT_00428C28, the features screen's settings in the executable's data. Nothing in the dumps writes them.
+struct FeaturesLayout
 {
-    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
+    float title_text_scale; // DAT_00428C28, 0.8
+    float banner_text_scale; // DAT_00428C2C, 1
+    float banner_position[2]; // DAT_00428C30, 320, 90
+    float title_position[2]; // DAT_00428C38, 320, 50
+    float prompts_left; // DAT_00428C40, 75
+    float prompts_bottom; // DAT_00428C44, 16
+    float prompts_spacing; // DAT_00428C48, 32
+    float prompts_origin_x; // DAT_00428C4C, 4
+    float prompts_icon_scale; // DAT_00428C50, 1
+    float prompts_text_scale; // DAT_00428C54, 0.75
+    float pool_origin[2]; // DAT_00428C58, 3, 0.7
+    float menu_offset[2]; // DAT_00428C60, 0, 15
+    i32 menu_visible_rows; // DAT_00428C68, 7
+    float menu_row_spacing; // DAT_00428C6C, 16
+    float menu_text_scale; // DAT_00428C70, 0.6
+    u32 menu_wrap; // DAT_00428C74, 1
+    float menu_origin[2]; // DAT_00428C78, 2, 0.5
+};
+static_assert(sizeof(FeaturesLayout) == 0x58);
+
+const FeaturesLayout& layout(const GameSelectControlServices& s)
+{
+    return *reinterpret_cast<const FeaturesLayout*>(s.image.memory(0x00428C28, sizeof(FeaturesLayout)).data());
 }
 
 i32 exe_integer(const GameSelectControlServices& s, u32 address)
@@ -348,24 +371,24 @@ void open_runtime_game_features(std::span<u8> owner, GameSelectControlState& con
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     allocate_dialogue_text_pool(w.pool, 0, 1, 0x400C0, s.text_pools); // 0x0005F390, ESI +0x41C
-    w.pool->origin = {exe_real(s, 0x00428C58), exe_real(s, 0x00428C5C), std::bit_cast<float>(3u)};
+    w.pool->origin = {layout(s).pool_origin[0], layout(s).pool_origin[1], std::bit_cast<float>(3u)};
     copy_wide(w.title.text.data(), w.name); // lstrcpyW(+4, +0x48C)
-    w.title.x = exe_real(s, 0x00428C38);
-    w.title.y = exe_real(s, 0x00428C3C);
+    w.title.x = layout(s).title_position[0];
+    w.title.y = layout(s).title_position[1];
     w.title.record = 0;
     if (s.text.data() != nullptr) // IsBadReadPtr(DAT_005462C4, 1)
     {
         lookup_borrowed_localtext(s.text, "gameselect", "features_featuresbanner", w.banner.text.data(),
             s.localtext); // 0x000FF120, EBX +0x210, EDI 0x00324BE0
     }
-    w.banner.x = exe_real(s, 0x00428C30);
-    w.banner.y = exe_real(s, 0x00428C34);
+    w.banner.x = layout(s).banner_position[0];
+    w.banner.y = layout(s).banner_position[1];
     w.banner.record = 0;
-    const std::array<float, 2> anchor{s.hud.center_x + exe_real(s, 0x00428C60),
-        s.hud.center_y + exe_real(s, 0x00428C64)}; // DAT_00509730, DAT_00509734
-    create_runtime_button_bat_menu(anchor, exe_integer(s, 0x00428C68), exe_real(s, 0x00428C6C),
-        exe_real(s, 0x00428C70), 0, exe_real(s, 0x00428C78), exe_real(s, 0x00428C7C), std::bit_cast<float>(3u),
-        read_u32(s.image.memory(0x00428C74, 4), 0), 1, 1, s); // 0x00143550, EAX the anchor
+    const std::array<float, 2> anchor{s.hud.center_x + layout(s).menu_offset[0],
+        s.hud.center_y + layout(s).menu_offset[1]}; // DAT_00509730, DAT_00509734
+    create_runtime_button_bat_menu(anchor, layout(s).menu_visible_rows, layout(s).menu_row_spacing,
+        layout(s).menu_text_scale, 0, layout(s).menu_origin[0], layout(s).menu_origin[1], std::bit_cast<float>(3u),
+        layout(s).menu_wrap, 1, 1, s); // 0x00143550, EAX the anchor
     start_pause_ditty(s.ditty, s.streams); // The 0x000E5B40 inline, while DAT_00429BB8 is clear.
     set_runtime_game_features_state(w, 1, s); // 0x000D8840(1)
 }
@@ -474,24 +497,24 @@ void set_runtime_game_features_state(GameFeaturesWidget& w, i32 state, GameSelec
     std::memcpy(resource, "aid_loctext_ghoulies_gameselect_gameselecttext", 47); // 0x0020A574
     if (w.state == 1)
     {
-        const float icon = exe_real(s, 0x00428C50);
-        const float text = exe_real(s, 0x00428C54);
-        const float spacing = exe_real(s, 0x00428C48);
-        const std::array<float, 2> anchor{s.hud.inner_left + exe_real(s, 0x00428C40),
-            s.hud.inner_bottom - exe_real(s, 0x00428C44)}; // DAT_00509740, DAT_0050974C
+        const float icon = layout(s).prompts_icon_scale;
+        const float text = layout(s).prompts_text_scale;
+        const float spacing = layout(s).prompts_spacing;
+        const std::array<float, 2> anchor{s.hud.inner_left + layout(s).prompts_left,
+            s.hud.inner_bottom - layout(s).prompts_bottom}; // DAT_00509740, DAT_0050974C
         const std::array<float, 2> row_step{icon * 0.f, 0.f - icon * spacing};
         const float half = spacing * 0.5f * icon; // DAT_0032B0F4.
-        const std::array<float, 2> origin{half + exe_real(s, 0x00428C4C), 0.f - half};
+        const std::array<float, 2> origin{half + layout(s).prompts_origin_x, 0.f - half};
         std::array<char16_t, 0x200> scratch{};
         const float width = measure_dialogue_widget_width(resource, s.image.memory(kFeaturesRows, 0x310).data(), icon,
             text, "gameselect", scratch.data(), s.widgets); // 0x001428F0, EAX the resource, ECX the rows
         const std::array<float, 2> column{width, 0.f};
         // Both records' ids go to +0x20C: retail stores the banner's over the title's.
         w.title.record = create_dialogue_text_record(*w.pool, w.title.text.data(), w.title.x, w.title.y,
-            exe_real(s, 0x00428C28), exe_real(s, 0x00428C28), 1.f, 1, 0, 1, s.metrics, s.viewport_width,
+            layout(s).title_text_scale, layout(s).title_text_scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width,
             s.next_text_id, s.random); // 0x0005F5C0, EAX 1
         w.title.record = create_dialogue_text_record(*w.pool, w.banner.text.data(), w.banner.x, w.banner.y,
-            exe_real(s, 0x00428C2C), exe_real(s, 0x00428C2C), 1.f, 1, 0, 1, s.metrics, s.viewport_width,
+            layout(s).banner_text_scale, layout(s).banner_text_scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width,
             s.next_text_id, s.random);
         if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
         {
@@ -507,7 +530,7 @@ void set_runtime_game_features_state(GameFeaturesWidget& w, i32 state, GameSelec
             prompts.progress = fade;
         }
         prompts.pool->end_time = fade;
-        prompts.pool->origin = {exe_real(s, 0x00428C58), exe_real(s, 0x00428C5C), std::bit_cast<float>(3u)};
+        prompts.pool->origin = {layout(s).pool_origin[0], layout(s).pool_origin[1], std::bit_cast<float>(3u)};
         add_features(s); // 0x000D85A0
         open_runtime_button_bat_menu(s); // 0x00143B10
     }

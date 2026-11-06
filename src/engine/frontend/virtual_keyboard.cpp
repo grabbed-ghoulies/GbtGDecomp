@@ -37,11 +37,6 @@ u32 exe_word(const GameSelectControlServices& s, u32 address)
     return read_u32(s.image.memory(address, 4), 0);
 }
 
-float exe_real(const GameSelectControlServices& s, u32 address)
-{
-    return std::bit_cast<float>(exe_word(s, address));
-}
-
 float frame_step(const GameSelectControlServices& s)
 {
     if (s.freeze <= 0.f)
@@ -1140,7 +1135,7 @@ u32 read_keyboard_input(VirtualKeyboard& k, GameSelectControlServices& s)
         }
         k.repeat = 0.f;
         direction();
-        k.repeat = exe_real(s, 0x0020AE84);
+        k.repeat = 0.085f; // DAT_0020AE84.
     }
     return action;
 }

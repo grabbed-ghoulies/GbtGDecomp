@@ -1,4 +1,5 @@
 #include "gameselect_features.h"
+#include "gameselect_page_layout.h"
 #include "button_bat_menu.h"
 #include "dialogue_activation.h"
 #include "dialogue_draw_outer.h"
@@ -43,32 +44,9 @@ GameFeaturesWidget& features(GameSelectWidget& widget)
     return static_cast<GameFeaturesWidget&>(widget);
 }
 
-// DAT_00428C28, the features screen's settings in the executable's data. Nothing in the dumps writes them.
-struct FeaturesLayout
+const GameSelectPageLayout& layout(const GameSelectControlServices& s)
 {
-    float title_text_scale; // DAT_00428C28, 0.8
-    float banner_text_scale; // DAT_00428C2C, 1
-    float banner_position[2]; // DAT_00428C30, 320, 90
-    float title_position[2]; // DAT_00428C38, 320, 50
-    float prompts_left; // DAT_00428C40, 75
-    float prompts_bottom; // DAT_00428C44, 16
-    float prompts_spacing; // DAT_00428C48, 32
-    float prompts_origin_x; // DAT_00428C4C, 4
-    float prompts_icon_scale; // DAT_00428C50, 1
-    float prompts_text_scale; // DAT_00428C54, 0.75
-    float pool_origin[2]; // DAT_00428C58, 3, 0.7
-    float menu_offset[2]; // DAT_00428C60, 0, 15
-    i32 menu_visible_rows; // DAT_00428C68, 7
-    float menu_row_spacing; // DAT_00428C6C, 16
-    float menu_text_scale; // DAT_00428C70, 0.6
-    u32 menu_wrap; // DAT_00428C74, 1
-    float menu_origin[2]; // DAT_00428C78, 2, 0.5
-};
-static_assert(sizeof(FeaturesLayout) == 0x58);
-
-const FeaturesLayout& layout(const GameSelectControlServices& s)
-{
-    return *reinterpret_cast<const FeaturesLayout*>(s.image.memory(0x00428C28, sizeof(FeaturesLayout)).data());
+    return gameselect_page_layout(s, 0x00428C28);
 }
 
 i32 exe_integer(const GameSelectControlServices& s, u32 address)

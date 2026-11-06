@@ -38,9 +38,27 @@ GameSelectControlServices& services(const char* reader)
     return *g_app_error_services;
 }
 
-float exe_real(const GameSelectControlServices& s, u32 address)
+// DAT_00339F5C, the error screen's settings in the executable's data, before its button rows.
+struct AppErrorLayout
 {
-    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
+    float wrap_width; // DAT_00339F5C, 540
+    float title_position[2]; // DAT_00339F60, 320, 65
+    float title_text_scale; // DAT_00339F68, 1.5
+    float message_position[2]; // DAT_00339F6C, 320, 140
+    float message_text_scale; // DAT_00339F74, 1
+    float prompts_left; // DAT_00339F78, 75
+    float prompts_bottom; // DAT_00339F7C, 16
+    float prompts_spacing; // DAT_00339F80, 32
+    float prompts_origin_x; // DAT_00339F84, 4
+    float prompts_icon_scale; // DAT_00339F88, 0.8
+    float prompts_text_scale; // DAT_00339F8C, 0.6
+    float pool_origin[2]; // DAT_00339F90, 3, 0.7
+};
+static_assert(sizeof(AppErrorLayout) == 0x3C);
+
+const AppErrorLayout& layout(const GameSelectControlServices& s)
+{
+    return *reinterpret_cast<const AppErrorLayout*>(s.image.memory(0x00339F5C, sizeof(AppErrorLayout)).data());
 }
 
 // A row's key (+4 of each 0x48-byte row after the 0x40-byte name): the strcpy into the set.
@@ -95,14 +113,14 @@ void open_screen(GameSelectControlServices& s)
     e.page = load_runtime_cutscene("aid_cutscene_ghoulies_dialogs_dialogpage1", 6, &e.camera,
         s.cutscenes); // 0x0004D680, 0x002180E0
     camera_bind_named_view(0, "AppMainErrorDialog"); // 0x00048CF0, EBX 0x0031C2D0
-    const float scale = exe_real(s, 0x00339F88); // 0.8
-    const float half = exe_real(s, 0x00339F80) * 0.5f * scale; // DAT_0032B0F4.
-    const std::array<float, 2> anchor{s.hud.inner_left + exe_real(s, 0x00339F78),
-        s.hud.inner_bottom - exe_real(s, 0x00339F7C)}; // DAT_00509740, DAT_0050974C
-    const std::array<float, 2> row_step{scale * 0.f, 0.f - scale * exe_real(s, 0x00339F80)};
-    const std::array<float, 2> origin{half + exe_real(s, 0x00339F84), 0.f - half};
+    const float scale = layout(s).prompts_icon_scale;
+    const float half = layout(s).prompts_spacing * 0.5f * scale; // DAT_0032B0F4.
+    const std::array<float, 2> anchor{s.hud.inner_left + layout(s).prompts_left,
+        s.hud.inner_bottom - layout(s).prompts_bottom}; // DAT_00509740, DAT_0050974C
+    const std::array<float, 2> row_step{scale * 0.f, 0.f - scale * layout(s).prompts_spacing};
+    const std::array<float, 2> origin{half + layout(s).prompts_origin_x, 0.f - half};
     create_resource_dialogue_widget(e.widget, 0, e.rows, anchor, row_step, origin, nullptr, scale,
-        exe_real(s, 0x00339F8C), "apperror", resource, 0x80, s.widget_allocation); // 0x00141DA0, ESI DAT_004DE9A0
+        layout(s).prompts_text_scale, "apperror", resource, 0x80, s.widget_allocation); // 0x00141DA0, ESI DAT_004DE9A0
     auto& widget = *e.widget;
     const float fade = 0.2f; // DAT_0032B1AC.
     widget.duration = fade; // +0x10
@@ -111,16 +129,16 @@ void open_screen(GameSelectControlServices& s)
         widget.progress = fade;
     }
     widget.pool->end_time = fade; // +0x1020 +0x20
-    widget.pool->origin = {exe_real(s, 0x00339F90), exe_real(s, 0x00339F94), std::bit_cast<float>(3u)};
+    widget.pool->origin = {layout(s).pool_origin[0], layout(s).pool_origin[1], std::bit_cast<float>(3u)};
     allocate_dialogue_text_pool(e.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI DAT_004DEA10
-    e.pool->origin = {exe_real(s, 0x00339F90), exe_real(s, 0x00339F94), std::bit_cast<float>(3u)};
-    e.title_record = create_dialogue_text_record(*e.pool, e.title.data(), exe_real(s, 0x00339F60),
-        exe_real(s, 0x00339F64), exe_real(s, 0x00339F68), exe_real(s, 0x00339F68), 1.f, 1, 0, 1, s.metrics,
+    e.pool->origin = {layout(s).pool_origin[0], layout(s).pool_origin[1], std::bit_cast<float>(3u)};
+    e.title_record = create_dialogue_text_record(*e.pool, e.title.data(), layout(s).title_position[0],
+        layout(s).title_position[1], layout(s).title_text_scale, layout(s).title_text_scale, 1.f, 1, 0, 1, s.metrics,
         s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0, EAX 1
-    e.message_record = create_dialogue_text_record(*e.pool, e.message.data(), exe_real(s, 0x00339F6C),
-        exe_real(s, 0x00339F70), exe_real(s, 0x00339F74), exe_real(s, 0x00339F74), 1.f, 1, 0, 1, s.metrics,
+    e.message_record = create_dialogue_text_record(*e.pool, e.message.data(), layout(s).message_position[0],
+        layout(s).message_position[1], layout(s).message_text_scale, layout(s).message_text_scale, 1.f, 1, 0, 1, s.metrics,
         s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0, EAX 1
-    e.pool->wrap_width = exe_real(s, 0x00339F5C); // +0x10, 540
+    e.pool->wrap_width = layout(s).wrap_width; // +0x10
 }
 }
 

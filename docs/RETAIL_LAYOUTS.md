@@ -727,10 +727,10 @@ Code reads three kinds of retail data by address, and they get different treatme
   indices. Names come from what each value feeds; those that only pass on stay `unk_`.
 - **Settings blocks** become one struct when every word has a reader, or an `unk_` if it has none. `JumpOnTunables` (DAT_00428680,
   0x60 bytes) is a host copy, as the jump-on constructor writes its take-off duration. The menus' are views of the image, as nothing in
-  the dumps writes them: `FinalScoreLayout` (DAT_00428A88, 0x184), `SlotSelectLayout` (DAT_00428F90, 0x9C), `FeaturesLayout`
-  (DAT_00428C28, 0x58). `SlotPlateRow` (DAT_0042902C, stride 0x124) and `SlotChapterRow` (DAT_00429290, stride 0x10C) overlap: the
+  the dumps writes them: `FinalScoreLayout` (DAT_00428A88, 0x184), `SlotSelectLayout` (DAT_00428F90, 0x9C), `AppErrorLayout`
+  (DAT_00339F5C, 0x3C), and `GameSelectPageLayout` (0x58), shared by the features, options and four replay pages. `SlotPlateRow` (DAT_0042902C, stride 0x124) and `SlotChapterRow` (DAT_00429290, stride 0x10C) overlap: the
   chapter table starts at the third plate's texture name.
-- **Strings and other tables** (`image.string`, the smaller menus' `exe_real` reads and the rest) are still read by address.
+- **Strings and other tables** (`image.string` and the retail tables `data(...)` hands to named bindings) are still read by address.
 
 The offset census doesn't count reads by address, so its total understates these.
 

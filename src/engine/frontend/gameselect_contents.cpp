@@ -38,8 +38,25 @@ namespace gbtg
 {
 namespace
 {
-constexpr u32 kChapterTextures = 0x00428C84; // Stride 0x104: the texture, +0x80 the movie.
-constexpr u32 kChapterLayout = 0x0030699C; // Stride 0x1C.
+// DAT_00428C80, a chapter's panel name and images.
+struct ChapterTextureRow
+{
+    u32 name_key; // +0, a string's address
+    char texture[0x80]; // +0x4
+    char movie[0x80]; // +0x84
+};
+static_assert(sizeof(ChapterTextureRow) == 0x104);
+
+// DAT_00306994, a chapter panel's place. The sizes are fractions of the screen.
+struct ChapterPanelLayout
+{
+    float x; // +0
+    float y; // +0x4
+    float raised_size[2]; // +0x8
+    float rest_size[2]; // +0x10
+    float bat_offset_y; // +0x18
+};
+static_assert(sizeof(ChapterPanelLayout) == 0x1C);
 
 [[noreturn]] void untranslated(const char* what)
 {
@@ -81,9 +98,16 @@ u32 exe_word(const GameSelectControlServices& s, u32 address)
     return read_u32(s.image.memory(address, 4), 0);
 }
 
-float exe_real(const GameSelectControlServices& s, u32 address)
+const ChapterTextureRow& chapter_textures(const GameSelectControlServices& s, u32 chapter)
 {
-    return std::bit_cast<float>(exe_word(s, address));
+    return *reinterpret_cast<const ChapterTextureRow*>(
+        s.image.memory(0x00428C80 + chapter * sizeof(ChapterTextureRow), sizeof(ChapterTextureRow)).data());
+}
+
+const ChapterPanelLayout& chapter_layout(const GameSelectControlServices& s, u32 chapter)
+{
+    return *reinterpret_cast<const ChapterPanelLayout*>(
+        s.image.memory(0x00306994 + chapter * sizeof(ChapterPanelLayout), sizeof(ChapterPanelLayout)).data());
 }
 
 float screen_width(const GameSelectControlServices& s)
@@ -276,10 +300,10 @@ bool load_chapter_names(GameContentsWidget& w, GameSelectControlServices& s)
         {
             release_texture(assets.sprite.texture, s);
         }
-        const u32 row = kChapterTextures + u32(index) * 0x104;
-        assets.sprite.texture = acquire_texture(s.image.string(row), s);
-        std::strcpy(panel.movie_name.data(), s.image.string(row + 0x80));
-        panel.name_key = exe_word(s, row - 4);
+        const ChapterTextureRow& row = chapter_textures(s, u32(index));
+        assets.sprite.texture = acquire_texture(row.texture, s);
+        std::strcpy(panel.movie_name.data(), row.movie);
+        panel.name_key = row.name_key;
         if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
         {
             return false;
@@ -355,9 +379,9 @@ bool select_chapter_movie(GameContentsWidget& w, GameSelectControlServices& s)
     {
         return true;
     }
-    const u32 layout = kChapterLayout + u32(index) * 0x1C;
-    w.bat_target[0] = exe_real(s, layout - 8);
-    w.bat_target[1] = exe_real(s, layout + 0x10) + exe_real(s, layout - 4);
+    const ChapterPanelLayout& layout = chapter_layout(s, u32(index));
+    w.bat_target[0] = layout.x;
+    w.bat_target[1] = layout.bat_offset_y + layout.y;
     auto& panel = chapter_panel(w, index);
     if (panel.movie_held < 1)
     {
@@ -391,7 +415,7 @@ void select_chapter_background(GameContentsWidget& w, GameSelectControlServices&
     old_background.scale[1] = background.scale[1];
     old_background.position[0] = background.position[0];
     old_background.position[1] = background.position[1];
-    w.background.texture = acquire_texture(s.image.string(kChapterTextures + u32(chapter(w)) * 0x104), s);
+    w.background.texture = acquire_texture(chapter_textures(s, u32(chapter(w))).texture, s);
     background.scale[1] = screen_height(s) / texture_height(w.background.texture);
     background.scale[0] = screen_width(s) / texture_width(w.background.texture);
     w.background_fade_timer = s.bat_screen(*w.bat).flight_duration; // Bat +0x93C
@@ -440,20 +464,20 @@ void tick_chapter_select(GameContentsWidget& w, GameSelectControlServices& s)
     }
     const float fraction = w.background_fade;
     panel.box_color = blend_color(exe_word(s, 0x003069E8), exe_word(s, 0x003069EC), fraction, s); // 0x00101730
-    const u32 layout = kChapterLayout + u32(index) * 0x1C;
+    const ChapterPanelLayout& layout = chapter_layout(s, u32(index));
     const float width = texture_width(w.chapters[index].sprite.texture);
-    const float rest_x = (exe_real(s, layout + 8) * screen_width(s)) / width; // DAT_003069A4
-    panel_sprite.scale[0] = ((exe_real(s, layout) * screen_width(s)) / width - rest_x) * fraction + rest_x;
+    const float rest_x = (layout.rest_size[0] * screen_width(s)) / width; // DAT_003069A4
+    panel_sprite.scale[0] = ((layout.raised_size[0] * screen_width(s)) / width - rest_x) * fraction + rest_x;
     const float height = texture_height(w.chapters[index].sprite.texture);
-    const float rest_y = (screen_height(s) * exe_real(s, layout + 0xC)) / height; // DAT_003069A8
-    panel_sprite.scale[1] = ((screen_height(s) * exe_real(s, layout + 4)) / height - rest_y) * fraction + rest_y;
+    const float rest_y = (screen_height(s) * layout.rest_size[1]) / height; // DAT_003069A8
+    panel_sprite.scale[1] = ((screen_height(s) * layout.raised_size[1]) / height - rest_y) * fraction + rest_y;
     const float scale_x = 640.f; // DAT_0032B6B0.
     const float base = 12.f; // DAT_0032B470.
     const float grow = 20.f; // DAT_0032B234.
-    const float from_x = exe_real(s, layout + 8) * scale_x + base;
-    panel.box_width = ((exe_real(s, layout) * scale_x + grow) - from_x) * fraction + from_x;
-    const float from_y = exe_real(s, layout + 0xC) * 480.f + base; // DAT_0032B6AC.
-    panel.box_height = ((exe_real(s, layout + 4) * 480.f + grow) - from_y) * fraction + from_y; // DAT_0032B6AC.
+    const float from_x = layout.rest_size[0] * scale_x + base;
+    panel.box_width = ((layout.raised_size[0] * scale_x + grow) - from_x) * fraction + from_x;
+    const float from_y = layout.rest_size[1] * 480.f + base; // DAT_0032B6AC.
+    panel.box_height = ((layout.raised_size[1] * 480.f + grow) - from_y) * fraction + from_y; // DAT_0032B6AC.
     if (1.f <= fraction) // DAT_0032B0F8.
     {
         if (index == 0)
@@ -1120,27 +1144,27 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
         auto& panel = chapter_panel(w, index);
         auto& name = panel.name;
         auto& panel_sprite = panel.sprite;
-        const u32 layout = kChapterLayout + u32(index) * 0x1C + 8; // EDI, DAT_003069A4
+        const ChapterPanelLayout& layout = chapter_layout(s, u32(index));
         const char16_t error[] = u"error";
         std::copy(std::begin(error), std::end(error), name.text.data());
         name.x = s.hud.center_x;
         name.y = s.hud.center_y + 38.f; // DAT_0032B6B8.
         name.record = 0;
-        panel_sprite.position[0] = exe_real(s, layout - 0x10);
-        panel_sprite.position[1] = exe_real(s, layout - 0xC);
-        panel_sprite.scale[0] = exe_real(s, layout);
-        panel_sprite.scale[1] = exe_real(s, layout + 4);
-        const u32 row = kChapterTextures + u32(index) * 0x104;
-        w.chapters[index].sprite.texture = acquire_texture(s.image.string(row), s);
+        panel_sprite.position[0] = layout.x;
+        panel_sprite.position[1] = layout.y;
+        panel_sprite.scale[0] = layout.rest_size[0];
+        panel_sprite.scale[1] = layout.rest_size[1];
+        const ChapterTextureRow& row = chapter_textures(s, u32(index));
+        w.chapters[index].sprite.texture = acquire_texture(row.texture, s);
         panel_sprite.color = white;
         const auto& texture = w.chapters[index].sprite.texture;
-        panel_sprite.scale[0] = (screen_width(s) * exe_real(s, layout)) / texture_width(texture);
-        panel_sprite.scale[1] = (screen_height(s) * exe_real(s, layout + 4)) / texture_height(texture);
+        panel_sprite.scale[0] = (screen_width(s) * layout.rest_size[0]) / texture_width(texture);
+        panel_sprite.scale[1] = (screen_height(s) * layout.rest_size[1]) / texture_height(texture);
         char* movie = panel.movie_name.data();
-        std::strcpy(movie, s.image.string(row + 0x80));
+        std::strcpy(movie, row.movie);
         panel.box_color = exe_word(s, 0x003069EC);
-        panel.box_width = exe_real(s, layout) * 640.f + 12.f; // DAT_0032B6B0, DAT_0032B470.
-        panel.box_height = exe_real(s, layout + 4) * 480.f + 12.f; // DAT_0032B6AC, DAT_0032B470.
+        panel.box_width = layout.rest_size[0] * 640.f + 12.f; // DAT_0032B6B0, DAT_0032B470.
+        panel.box_height = layout.rest_size[1] * 480.f + 12.f; // DAT_0032B6AC, DAT_0032B470.
         panel.movie_held = 0;
         w.chapters[index].movie = allocate_runtime_movie(movie, 0x14, s.movies); // 0x001071A0
         panel.movie_frames = 0;
@@ -1167,7 +1191,7 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
     }
     auto& background = w.background;
     auto& old_background = w.old_background;
-    w.background.texture = acquire_texture(s.image.string(kChapterTextures + u32(chapter(w)) * 0x104), s);
+    w.background.texture = acquire_texture(chapter_textures(s, u32(chapter(w))).texture, s);
     background.color = white;
     background.position[0] = s.hud.center_x;
     background.position[1] = s.hud.center_y;

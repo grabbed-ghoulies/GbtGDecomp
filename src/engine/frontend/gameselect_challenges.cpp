@@ -40,7 +40,19 @@ RuntimeChallengeSelection g_challenge_selection;
 namespace
 {
 constexpr u32 kChallengeRows = 0x00305CD8; // "challengeMenu_basic"
-constexpr u32 kCarousel = 0x00305C48; // Five slots of {x, y, scale x, scale y, -}, stride 0x14.
+constexpr u32 kIntroKeyPrefix = 0x00428C0C; // Holds the address of "challengeintros_".
+constexpr u32 kCounterPreset = 0x00428C10; // {scale, 0.5, 0.1, 10, white}
+constexpr u32 kPanelRadius = 0x00428C18; // 0.1, the counter preset's third word
+
+// DAT_00305C48, five slots.
+struct ChallengeCarouselSlot
+{
+    float x; // +0
+    float y; // +0x4
+    float scale[2]; // +0x8
+    float unk_10; // +0x10
+};
+static_assert(sizeof(ChallengeCarouselSlot) == 0x14);
 constexpr u32 kAidTag = 0x5F646961u; // "aid_"
 constexpr i32 kLast = 0x14; // Challenge 21, the one with its own scene order.
 
@@ -179,11 +191,11 @@ void draw_picture(std::span<const u8> texture, const float* position, const floa
     }
 }
 
-// The counter preset at 0x00428C10 ({scale, 0.5, 0.1, 10, white}) with its own scale and alpha.
+// The counter preset with its own scale and alpha.
 std::array<u8, 0x14> counter_preset(GameSelectControlServices& s)
 {
     std::array<u8, 0x14> preset{};
-    std::memcpy(preset.data(), s.image.memory(0x00428C10, 0x14).data(), 0x14);
+    std::memcpy(preset.data(), s.image.memory(kCounterPreset, 0x14).data(), 0x14);
     return preset;
 }
 
@@ -271,12 +283,13 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
     {
         return;
     }
-    const auto slot_real = [&s](i32 index, u32 field)
+    const auto slot_at = [&s](i32 index) -> const ChallengeCarouselSlot&
     {
-        return exe_real(s, kCarousel + u32(index * 0x14) + field);
+        return *reinterpret_cast<const ChallengeCarouselSlot*>(
+            s.image.memory(0x00305C48 + u32(index) * sizeof(ChallengeCarouselSlot), sizeof(ChallengeCarouselSlot)).data());
     };
-    std::array<float, 2> position{slot_real(slot, 0), slot_real(slot, 4)};
-    std::array<float, 2> scale{slot_real(slot, 8), slot_real(slot, 0xC)};
+    std::array<float, 2> position{slot_at(slot).x, slot_at(slot).y};
+    std::array<float, 2> scale{slot_at(slot).scale[0], slot_at(slot).scale[1]};
     const float one = 1.f; // DAT_0032B0F8.
     if (w.fade < one)
     {
@@ -286,11 +299,11 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
         const i32 from = left ? slot - 1 : slot + 1;
         if (left ? 0 < slot : slot + 1 < 5)
         {
-            position[0] = (position[0] - slot_real(from, 0)) * w.fade + slot_real(from, 0);
-            position[1] = (position[1] - slot_real(from, 4)) * w.fade + slot_real(from, 4);
-            scale[0] = (scale[0] - slot_real(from, 8)) * w.fade + slot_real(from, 8);
-            const float height = slot_real(from, 0xC);
-            scale[1] = (slot_real(slot, 0xC) - height) * w.fade + height;
+            position[0] = (position[0] - slot_at(from).x) * w.fade + slot_at(from).x;
+            position[1] = (position[1] - slot_at(from).y) * w.fade + slot_at(from).y;
+            scale[0] = (scale[0] - slot_at(from).scale[0]) * w.fade + slot_at(from).scale[0];
+            const float height = slot_at(from).scale[1];
+            scale[1] = (slot_at(slot).scale[1] - height) * w.fade + height;
         }
     }
     if (4 < w.state && slot == 2)
@@ -308,7 +321,7 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
     const float left = position[0] - width * half;
     const float top = position[1] - height * half;
     draw_runtime_dialogue_panel(float(i32(left)), float(i32(top)), float(i32(width)), float(i32(height)),
-        exe_real(s, 0x00428C18), challenge.box_color, s.outer); // 0x00061360, radius 0.1
+        exe_real(s, kPanelRadius), challenge.box_color, s.outer); // 0x00061360, radius 0.1
     draw_picture(challenge.texture, position.data(), scale.data(), challenge.color, s);
     if (challenge.unlocked != 0)
     {
@@ -621,18 +634,18 @@ void open_runtime_game_challenges_menu(std::span<u8> owner, GameSelectControlSta
         }
         challenge.trophy = i32(read_u32(g_game_progress.words_194c, size_t(challenge.index) * 4)); // DAT_004E194C
         challenge.number = {};
-        challenge.number.word_2c = exe_word(s, 0x00428C10);
+        challenge.number.word_2c = exe_word(s, kCounterPreset);
         challenge.number.value = index + 1 < 0 ? 0 : index + 1;
         challenge.number.target = challenge.number.value;
-        update_runtime_hud_counter_digits(challenge.number, s.image.memory(0x00428C10, 0x14)); // 0x0012F990
+        update_runtime_hud_counter_digits(challenge.number, s.image.memory(kCounterPreset, 0x14)); // 0x0012F990
         release(params, s); // 0x00035C00, EBX the params
     }
     w.count = i32(u32(s.profile.progress.bytes[4] >> 5) & 1u | 0x14u);
     w.books = {};
-    w.books.word_2c = exe_word(s, 0x00428C10);
+    w.books.word_2c = exe_word(s, kCounterPreset);
     w.books.value = found < 0 ? 0 : found;
     w.books.target = w.books.value;
-    update_runtime_hud_counter_digits(w.books, s.image.memory(0x00428C10, 0x14)); // 0x0012F990
+    update_runtime_hud_counter_digits(w.books, s.image.memory(kCounterPreset, 0x14)); // 0x0012F990
     w.books_icon = acquire_required("aid_texture_ghoulies_scoreboard_pauseicons_bonusbooks", s); // 0x003063F0
     w.books_icon_half_width = texture_width(w.books_icon) * 0.5f; // DAT_0032B0F4.
     w.picture.texture = acquire_named(entry(w, selection.selected).texture_name.data(), s);
@@ -938,7 +951,7 @@ void set_runtime_game_challenges_state(GameChallengesWidget& w, i32 state, GameS
     case 4:
     {
         std::array<char, 0x100> key{};
-        copy_string(key.data(), s.image.string(exe_word(s, 0x00428C0C))); // PTR "challengeintros_"
+        copy_string(key.data(), s.image.string(exe_word(s, kIntroKeyPrefix)));
         std::strcat(key.data(), entry(w, selection.selected).key.data());
         if (s.cutscenes.dialogue == nullptr)
         {

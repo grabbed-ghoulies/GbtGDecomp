@@ -1,4 +1,5 @@
 #include "imp_flying_strategy.h"
+#include "gbtg/retail_field.h"
 #include "strategy_fields.h"
 #include "mind_fields.h"
 #include "actor_clock.h"
@@ -72,9 +73,9 @@ void load_goal(const char* name, RuntimeImpFlyingStrategy& context)
     load_runtime_mind_goal(name, goals_of(context).entry.goals); // 0x0002A8E0
 }
 
-float parameter(RuntimeImpFlyingStrategy& context, size_t offset)
+const ImpFlyingParameters& parameters_of(RuntimeImpFlyingStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<ImpFlyingParameters>(context.parameters);
 }
 
 float roll(RuntimeImpFlyingStrategy& context)
@@ -355,7 +356,7 @@ void set_dive_phase(u32 phase, RuntimeImpFlyingStrategy& context)
         return;
     case 2:
         end_dive_effect(context); // 0x000B6360
-        fields_of(strategy).hold = parameter(context, 0x10);
+        fields_of(strategy).hold = parameters_of(context).hold_time;
         return;
     case 3:
     {
@@ -364,7 +365,7 @@ void set_dive_phase(u32 phase, RuntimeImpFlyingStrategy& context)
         EntityBitBlock& bits = body_bits(context, "0x000B63A0");
         bits.bytes[4] &= 0x7F;
         bits.bytes[4] &= 0xFE;
-        hover_at(parameter(context, 0xC), context); // 0x000B6950
+        hover_at(parameters_of(context).unstuck_hover_height, context); // 0x000B6950
         return;
     }
     default:
@@ -441,7 +442,7 @@ void tick_idle(RuntimeImpFlyingStrategy& context)
         change_state(roll_runtime_actor_attack(attributes(context), goals.random) ? 0x3EF : 0x3ED, context); // 0x000196F0
         return;
     }
-    if (runtime_mind_target_within(parameter(context, 0), goals)) // 0x000BABF0
+    if (runtime_mind_target_within(parameters_of(context).evade_reach, goals)) // 0x000BABF0
     {
         body_record(body).move_class = 3;
         clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
@@ -452,7 +453,7 @@ void tick_idle(RuntimeImpFlyingStrategy& context)
     {
         return;
     }
-    if (runtime_mind_target_within_second(parameter(context, 4), goals)) // 0x000B5C50
+    if (runtime_mind_target_within_second(parameters_of(context).hover_reach, goals)) // 0x000B5C50
     {
         body_record(body).move_class = 3;
         hover_around(false, context); // 0x000B6630
@@ -542,7 +543,7 @@ void tick_arrow_dive(RuntimeImpFlyingStrategy& context)
             actor_marker_world_position(actor, 0, end);
             fields_of(strategy).lunge_end = end;
             fields_of(strategy).lunge_start = actor_world_position(actor); // 0x000412A0, EDI strategy +0xD8
-            fields_of(strategy).lunge = parameter(context, 0x24);
+            fields_of(strategy).lunge = parameters_of(context).lunge_time;
             fields_of(strategy).lunging = 1u;
             break;
         }
@@ -555,7 +556,7 @@ void tick_arrow_dive(RuntimeImpFlyingStrategy& context)
         }
         const Vec3 start = fields_of(strategy).lunge_start;
         const Vec3 end = fields_of(strategy).lunge_end;
-        const float total = parameter(context, 0x24);
+        const float total = parameters_of(context).lunge_time;
         const Vec3 position{lunge_axis(start.x, end.x, lunge, total), lunge_axis(start.y, end.y, lunge, total),
             lunge_axis(start.z, end.z, lunge, total)};
         set_runtime_actor_body_position(actor, position); // 0x0002B430
@@ -580,7 +581,7 @@ void tick_landing(RuntimeImpFlyingStrategy& context)
         if ((body_bits(context, "0x000B5F10").bytes[6] & 1) != 0)
         {
             fields_of(strategy).landing_step = 2u;
-            hover_at(parameter(context, 8), context); // 0x000B6950
+            hover_at(parameters_of(context).hover_height, context); // 0x000B6950
         }
         return;
     case 2:
@@ -619,7 +620,7 @@ void enter_rise(RuntimeImpFlyingStrategy& context)
         const float floor = body_record(body).ground_point.y;
         height = actor_world_position(goals.entry.actor).y - floor; // 0x000412A0 on body +8
     }
-    const float hover = parameter(context, 8);
+    const float hover = parameters_of(context).hover_height;
     if (!(hover < height - 5.f) && height + 5.f >= hover) // DAT_0032B184.
     {
         change_state(0x401, context);

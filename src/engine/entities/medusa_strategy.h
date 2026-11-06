@@ -11,6 +11,32 @@
 
 namespace gbtg
 {
+// DAT_004287F0, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct MedusaParameters
+{
+    float target_reach; // +0x0
+    float gaze_time_low; // +0x4
+    float gaze_time_high; // +0x8
+    float spin_delay; // +0xC, 0x000B9D60 passes it as both ends of its range.
+    float unk_10; // +0x10
+    float face_delay; // +0x14
+    float attack_lead; // +0x18, How far out the attack's facing point lies.
+    float attack_delay; // +0x1C
+    float eye_pitch_offset; // +0x20, In degrees.
+    float eye_yaw_offset; // +0x24, In degrees.
+    float gaze_near; // +0x28, Also the gaze probe's radius.
+    float gaze_far; // +0x2C
+    float cone_pitch; // +0x30, In degrees; the two light cones'.
+    float cone_yaw; // +0x34, In degrees; the second cone negates it.
+    float cone_spread; // +0x38
+    float cone_length; // +0x3C
+    float cone_fade; // +0x40
+    float cone_spot_offset; // +0x44
+    std::array<float, 3> turn_rates; // +0x48, The body's turn_rates.
+    float unk_54; // +0x54
+};
+static_assert(sizeof(MedusaParameters) == 0x58);
+
 // entityStrategyMedusa (factory type 0x4B, getter 0x000BB1D0, vtable 0x00505F30; the factory table's row 0x4A
 // carries the name) over the base strategy (type 8): the Medusa. She walks at random (0x401) until her
 // special-attack timer (+0x150, drawn from the attributes' first two floats) runs out, then gazes (0x3EF): two light

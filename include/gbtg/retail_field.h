@@ -137,6 +137,15 @@ struct IsSpan<std::span<E, N>> : std::true_type
 };
 } // namespace detail
 
+// A read-only block of the executable image as its struct. The block must be bound and whole.
+template <typename T>
+const T& retail_view(std::span<const u8> bytes)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    detail::check_retail_range(bytes.size(), 0, sizeof(T));
+    return *reinterpret_cast<const T*>(bytes.data());
+}
+
 // The bytes of a record kept as a struct, for the functions that still take a retail byte span. A span is already
 // the bytes: passing one would give the span object's own pointer and length.
 template <typename T>

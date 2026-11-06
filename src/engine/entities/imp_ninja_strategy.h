@@ -6,6 +6,18 @@
 
 namespace gbtg
 {
+// DAT_00303198, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct ImpNinjaParameters
+{
+    float target_reach; // +0x0, A target this close stops her meditating.
+    float unk_04; // +0x4
+    float random_move_chance; // +0x8, Idle: below this she moves at random, else walks.
+    float meditate_chance; // +0xC
+    float meditation_shortest; // +0x10
+    float meditation_longest; // +0x14
+};
+static_assert(sizeof(ImpNinjaParameters) == 0x18);
+
 // entityStrategyImpNinja (factory type 0x49, getter 0x000B7AB0, vtable 0x00505EF8; the factory table's row 0x48
 // carries the name) over the base strategy (type 8): the ninja imp. It wanders ("randommove" / "randomwalk") or
 // meditates ("meditate", 0x412) while nothing is near, and once queued on its target psychs up (0x3ED), then kicks

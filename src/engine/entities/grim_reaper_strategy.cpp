@@ -1,4 +1,5 @@
 #include "grim_reaper_strategy.h"
+#include "gbtg/retail_field.h"
 #include "weapon_fields.h"
 #include <cstddef>
 #include "strategy_fields.h"
@@ -86,9 +87,9 @@ EntityBitBlock& body_bits(RuntimeGrimReaperStrategy& context)
     return *bits;
 }
 
-float block(RuntimeGrimReaperStrategy& context, size_t offset)
+const GrimReaperParameters& parameters_of(RuntimeGrimReaperStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<GrimReaperParameters>(context.parameters);
 }
 
 AudioBankStreams& streams_of(RuntimeGrimReaperStrategy& context)
@@ -282,7 +283,7 @@ bool target_within_reach(RuntimeMindTarget* target, RuntimeGrimReaperStrategy& c
         return false;
     }
     const long double distance = runtime_target_distance(actor_of(context), target->bytes); // 0x00041560
-    return static_cast<long double>(block(context, 0)) > distance;
+    return static_cast<long double>(parameters_of(context).reach) > distance;
 }
 
 // Xbox 0x000AD2D0, EBX target, ESI actor: the target has got beyond his reach.
@@ -296,7 +297,7 @@ bool target_escaped(RuntimeMindTarget* target, RuntimeGrimReaperStrategy& contex
     const long double dx = static_cast<long double>(position.x) - mind_target_record(target->bytes).shape.position.x;
     const long double dy = static_cast<long double>(position.y) - mind_target_record(target->bytes).shape.position.y;
     const long double dz = static_cast<long double>(position.z) - mind_target_record(target->bytes).shape.position.z;
-    return std::sqrt(dz * dz + (dy * dy + dx * dx)) > static_cast<long double>(block(context, 0));
+    return std::sqrt(dz * dz + (dy * dy + dx * dx)) > static_cast<long double>(parameters_of(context).reach);
 }
 
 void set_model_flag(u8 value, RuntimeGrimReaperStrategy& context)
@@ -392,7 +393,7 @@ void start_swing(RuntimeGrimReaperStrategy& context)
         end_grab(context); // 0x000AD200
     }
     fields_of(strategy).swing = 1u;
-    fields_of(strategy).wind_up = block(context, 0x34);
+    fields_of(strategy).wind_up = parameters_of(context).wind_up_time;
 }
 
 // Xbox 0x000ACF40, ESI strategy: the swing ends.
@@ -420,8 +421,8 @@ void cue_sound(RuntimeGrimReaperStrategy& context)
         return;
     }
     const std::span<u8> strategy = strategy_of(context);
-    const float low = block(context, 0x20);
-    const float high = block(context, 0x24);
+    const float low = parameters_of(context).cue_time_low;
+    const float high = parameters_of(context).cue_time_high;
     const float roll = random_unit(context);
     const float left = fields_of(strategy).cue - actor_step(context);
     fields_of(strategy).cue = left;
@@ -459,12 +460,12 @@ void tick_pace(RuntimeGrimReaperStrategy& context)
     {
         return;
     }
-    fields_of(strategy).pace_time = block(context, 0x2C);
+    fields_of(strategy).pace_time = parameters_of(context).pace_interval;
     if (kOne > fields_of(strategy).speed)
     {
         if (fields_of(strategy).slowed == 0)
         {
-            const float speed = block(context, 8) + fields_of(strategy).speed;
+            const float speed = parameters_of(context).speed_step + fields_of(strategy).speed;
             fields_of(strategy).speed = speed;
             if (speed > kOne)
             {
@@ -473,20 +474,20 @@ void tick_pace(RuntimeGrimReaperStrategy& context)
         }
         else
         {
-            const float held = fields_of(strategy).held_speed + block(context, 8);
+            const float held = fields_of(strategy).held_speed + parameters_of(context).speed_step;
             fields_of(strategy).held_speed = held;
             if (held > kOne)
             {
                 fields_of(strategy).held_speed = kOne;
             }
-            fields_of(strategy).slow = block(context, 0x30) * block(context, 8) + fields_of(strategy).slow;
-            fields_of(strategy).slow_length = block(context, 0x30) * block(context, 8)
+            fields_of(strategy).slow = parameters_of(context).hit_slow * parameters_of(context).speed_step + fields_of(strategy).slow;
+            fields_of(strategy).slow_length = parameters_of(context).hit_slow * parameters_of(context).speed_step
                 + fields_of(strategy).slow_length;
         }
     }
-    if (block(context, 0x14) > fields_of(strategy).turn_speed)
+    if (parameters_of(context).turn_speed_limit > fields_of(strategy).turn_speed)
     {
-        fields_of(strategy).turn_speed = block(context, 0x10) + fields_of(strategy).turn_speed;
+        fields_of(strategy).turn_speed = parameters_of(context).turn_speed_step + fields_of(strategy).turn_speed;
     }
     if (target_valid(context)) // 0x000AE0A0
     {
@@ -666,11 +667,11 @@ bool initialize_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
     fields_of(strategy).grabbing = 0u;
     EntityBitBlock& bits = body_bits(context);
     bits.bytes[0] = u8(bits.bytes[0] | 0x80);
-    fields_of(strategy).fly = block(context, 0x28);
-    fields_of(strategy).pace_time = block(context, 0x2C);
+    fields_of(strategy).fly = parameters_of(context).fly_time;
+    fields_of(strategy).pace_time = parameters_of(context).pace_interval;
     bits.bytes[7] = u8(bits.bytes[7] | 8);
-    const float low = block(context, 0x20);
-    const float high = block(context, 0x24);
+    const float low = parameters_of(context).cue_time_low;
+    const float high = parameters_of(context).cue_time_high;
     const float roll = random_unit(context);
     g_flags_ea9c |= 0x10u; // DAT_0050EA9C: no more time limits while he is out.
     fields_of(strategy).cue = (high - low) * roll + low;
@@ -809,7 +810,7 @@ void dispatch_runtime_grim_reaper_message(std::span<const u32> message, RuntimeG
                 fields_of(strategy).held_speed = fields_of(strategy).speed;
             }
             fields_of(strategy).speed = kEpsilon;
-            const float slow = block(context, 0x30) * fields_of(strategy).held_speed;
+            const float slow = parameters_of(context).hit_slow * fields_of(strategy).held_speed;
             fields_of(strategy).slow = slow;
             fields_of(strategy).slow_length = slow;
             if (strategy_base(strategy).pause_count == 0 && kind_running(context)

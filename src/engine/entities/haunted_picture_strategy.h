@@ -18,6 +18,25 @@ namespace haunted_picture_parameter
 {
 constexpr u32 kSize = 0x18;
 } // namespace haunted_picture_parameter
+// 0x00302E80, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct HauntedPictureMovement
+{
+    float unk_00; // +0x0
+    float unk_04; // +0x4, The move settings start here: 0x0013A000 takes this block +4.
+    float ring_radius; // +0x8
+    float move_radius; // +0xC, strategy_move_settings_field::radius.
+    float move_approach; // +0x10
+    float move_speed_low; // +0x14
+    float move_speed_high; // +0x18
+    float nearest; // +0x1C, The heading spread's distances.
+    float farthest; // +0x20
+    float heading_spread; // +0x24, In degrees.
+    float unk_28; // +0x28
+    float sway_period; // +0x2C
+    float sway_amplitude; // +0x30
+};
+static_assert(sizeof(HauntedPictureMovement) == 0x34);
+
 struct HauntedPictureStrategyState
 {
     StrategyBase base{}; // +0

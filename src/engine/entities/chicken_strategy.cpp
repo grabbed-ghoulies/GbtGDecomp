@@ -1,4 +1,5 @@
 #include "chicken_strategy.h"
+#include "gbtg/retail_field.h"
 #include "body_fields.h"
 #include "strategy_fields.h"
 #include "actor_transform.h"
@@ -111,7 +112,7 @@ void dispatch_runtime_chicken_message(std::span<const u32> message, RuntimeChick
             const long double dy = (long double)own.y - other.y;
             const long double dz = (long double)own.z - other.z;
             const long double distance = std::sqrt(dz * dz + dy * dy + dx * dx);
-            if ((long double)read_f32(context.parameters, 0) > distance) // FCOMPI; JBE keeps it unarmed.
+            if ((long double)retail_view<ChickenParameters>(context.parameters).provoke_reach > distance) // FCOMPI; JBE keeps it unarmed.
             {
                 fields_of(strategy).provoked = 1u;
             }

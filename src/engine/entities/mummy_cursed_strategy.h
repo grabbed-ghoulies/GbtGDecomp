@@ -9,6 +9,28 @@ namespace gbtg
 {
 struct RuntimeActorResourceReference;
 
+// DAT_00428848, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct MummyCursedParameters
+{
+    float target_reach; // +0x0
+    float unk_04; // +0x4
+    float knockdown_near; // +0x8, Closer to the victim: evade.
+    float knockdown_far; // +0xC, Farther: come into range.
+    float special_near; // +0x10, The same for the cursed actor.
+    float special_far; // +0x14
+    float phase_three_time_low; // +0x18
+    float phase_three_time_high; // +0x1C
+    float phase_four_time_low; // +0x20
+    float phase_four_time_high; // +0x24
+    float pull_step; // +0x28
+    float pull_stop_distance; // +0x2C
+    float whack_reach; // +0x30
+    float pull_abandon_distance; // +0x34
+    float meter_time; // +0x38
+    u32 unk_3C; // +0x3C, Nonzero ends form 1's drop early.
+};
+static_assert(sizeof(MummyCursedParameters) == 0x40);
+
 // entityStrategyMummyCursed (factory type 0x4D, getter 0x000BDA20, vtable 0x00505F68; the factory table's row 0x4C
 // carries the name) over the base strategy (type 8): the cursed mummy. Holding (0x401) it wanders ("randomwalk",
 // "randomworriedwalk" once cursed) and evades ("evade") a target in reach; a target it may queue on is either cursed

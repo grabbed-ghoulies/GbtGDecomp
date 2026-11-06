@@ -1,4 +1,5 @@
 #include "mummy_cursed_strategy.h"
+#include "gbtg/retail_field.h"
 #include <cstddef>
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
@@ -99,9 +100,9 @@ EntityBitBlock& body_bits(RuntimeMummyCursedStrategy& context, const char* calle
     return *bits;
 }
 
-float parameter(RuntimeMummyCursedStrategy& context, size_t offset)
+const MummyCursedParameters& parameters_of(RuntimeMummyCursedStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<MummyCursedParameters>(context.parameters);
 }
 
 // Mind +0x58: the first pending mind request.
@@ -159,16 +160,16 @@ float roll(RuntimeMummyCursedStrategy& context)
 // Xbox 0x000BC720, EAX the block: a time between the block's +0x18 and +0x1C.
 float phase_three_time(RuntimeMummyCursedStrategy& context)
 {
-    const float low = parameter(context, 0x18);
-    const float high = parameter(context, 0x1C);
+    const float low = parameters_of(context).phase_three_time_low;
+    const float high = parameters_of(context).phase_three_time_high;
     return (high - low) * roll(context) + low;
 }
 
 // Xbox 0x000BC6D0, EAX the block: a time between the block's +0x20 and +0x24.
 float phase_four_time(RuntimeMummyCursedStrategy& context)
 {
-    const float low = parameter(context, 0x20);
-    const float high = parameter(context, 0x24);
+    const float low = parameters_of(context).phase_four_time_low;
+    const float high = parameters_of(context).phase_four_time_high;
     return (high - low) * roll(context) + low;
 }
 
@@ -356,7 +357,7 @@ void set_curse_form(u32 form, RuntimeMummyCursedStrategy& context)
         clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).curse_events),
             context.lists); // 0x0013B810, EBX +0x2A4
         dispatch_callouts(0x43, offsetof(MummyCursedStrategyState, spawn_events), context); // 0x0003BE20, actor +0x8C
-        if (read_u32(context.parameters, 0x3C) != 0)
+        if (parameters_of(context).unk_3C != 0)
         {
             return;
         }
@@ -398,7 +399,7 @@ void set_curse_form(u32 form, RuntimeMummyCursedStrategy& context)
         return;
     }
     fields_of(strategy).curse_effect = context.create_effect(fields_of(strategy_of(context)).curse_effect_name.data(), address); // 0x00107720, 0x00107520, 0x000663E0
-    context.start_meter(address, fields_of(strategy).cursed, parameter(context, 0x38)); // 0x0012E5E0
+    context.start_meter(address, fields_of(strategy).cursed, parameters_of(context).meter_time); // 0x0012E5E0
     context.scare_near(kScareRadius); // 0x0013B660, ESI actor
     EntityBitBlock& bits = body_bits(context, "0x000BC910");
     bits.bytes[0] = u8(bits.bytes[0] | 0x20);
@@ -442,7 +443,7 @@ bool target_in_reach(RuntimeMummyCursedStrategy& context)
     const long double dx = static_cast<long double>(position.x) - mind_target_record(target->bytes).shape.position.x;
     const long double dy = static_cast<long double>(position.y) - mind_target_record(target->bytes).shape.position.y;
     const long double dz = static_cast<long double>(position.z) - mind_target_record(target->bytes).shape.position.z;
-    return static_cast<long double>(parameter(context, 0)) > std::sqrt(dz * dz + (dy * dy + dx * dx));
+    return static_cast<long double>(parameters_of(context).target_reach) > std::sqrt(dz * dz + (dy * dy + dx * dx));
 }
 
 // Xbox 0x000BCB80, ESI strategy: a target in reach is evaded ("evade").
@@ -568,12 +569,12 @@ void set_phase(u32 phase, RuntimeMummyCursedStrategy& context)
         fields_of(strategy).pulling = 0u;
         fields_of(strategy).whacked = 0u;
         const Actor& victim = actor_at(fields_of(strategy).victim, context, "0x000BD504");
-        if (parameter(context, 8) > runtime_actor_distance(actor_of(context), victim)) // 0x00041490
+        if (parameters_of(context).knockdown_near > runtime_actor_distance(actor_of(context), victim)) // 0x00041490
         {
             load_goal(context.goal_evade_knockdown, context);
             return;
         }
-        if (runtime_actor_distance(actor_of(context), victim) > parameter(context, 0xC)) // 0x00041490
+        if (runtime_actor_distance(actor_of(context), victim) > parameters_of(context).knockdown_far) // 0x00041490
         {
             load_goal(context.goal_come_into_range_knockdown, context);
         }
@@ -672,7 +673,7 @@ bool pull_ends(const Vec3& victim, float distance, RuntimeMummyCursedStrategy& c
             return true;
         }
     }
-    return distance > parameter(context, 0x34);
+    return distance > parameters_of(context).pull_abandon_distance;
 }
 
 // Xbox 0x000BCFB0: the grab's phases.
@@ -696,7 +697,7 @@ void update_grab(RuntimeMummyCursedStrategy& context)
         const float x = body_record(victim_body).position.x;
         const float y = body_record(victim_body).position.y;
         const float z = body_record(victim_body).position.z;
-        const float pull = -parameter(context, 0x28);
+        const float pull = -parameters_of(context).pull_step;
         const float angle = runtime_actor_angle_toward(victim, actor); // 0x00041900, EAX the victim
         const float moved_x = float(retail_sin(angle) * pull + x); // 0x00153320
         const float moved_z = float(retail_cos(angle) * pull + z); // 0x00153230
@@ -758,7 +759,7 @@ void update_grab(RuntimeMummyCursedStrategy& context)
         const float distance = float(runtime_actor_distance(actor, victim)); // 0x00041490
         const Vec3 point = actor_world_position(victim); // 0x000412A0
         face_victim(); // 0x001345B0
-        if (parameter(context, 0x2C) > distance)
+        if (parameters_of(context).pull_stop_distance > distance)
         {
             set_phase(5, context);
             return;
@@ -786,7 +787,7 @@ void update_grab(RuntimeMummyCursedStrategy& context)
         const RuntimeMindTarget* target = mind_target(context);
         const long double distance = runtime_target_distance(actor, target == nullptr ? std::span<const u8>()
                                                                                        : target->bytes); // 0x00041560
-        if (static_cast<long double>(parameter(context, 0x30)) > distance)
+        if (static_cast<long double>(parameters_of(context).whack_reach) > distance)
         {
             if (fields_of(strategy).phase == 7)
             {
@@ -894,12 +895,12 @@ void set_curse_step(u32 step, RuntimeMummyCursedStrategy& context)
             return;
         }
         const Actor& cursed = actor_at(fields_of(strategy).cursed, context, "0x000BD99F");
-        if (parameter(context, 0x10) > runtime_actor_distance(actor_of(context), cursed)) // 0x00041490
+        if (parameters_of(context).special_near > runtime_actor_distance(actor_of(context), cursed)) // 0x00041490
         {
             load_goal(context.goal_evade_special, context);
             return;
         }
-        if (runtime_actor_distance(actor_of(context), cursed) > parameter(context, 0x14)) // 0x00041490
+        if (runtime_actor_distance(actor_of(context), cursed) > parameters_of(context).special_far) // 0x00041490
         {
             load_goal(context.goal_come_into_range_special, context);
         }

@@ -1,4 +1,5 @@
 #include "medusa_strategy.h"
+#include "gbtg/retail_field.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "strategy_fields.h"
@@ -96,9 +97,9 @@ void load_goal(const char* name, RuntimeMedusaStrategy& context)
     load_runtime_mind_goal(name, goals_of(context).entry.goals); // 0x0002A8E0
 }
 
-float parameter(RuntimeMedusaStrategy& context, size_t offset)
+const MedusaParameters& parameters_of(RuntimeMedusaStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<MedusaParameters>(context.parameters);
 }
 
 EntityBitBlock& body_bits(RuntimeMedusaStrategy& context, const char* caller)
@@ -205,15 +206,15 @@ void make_cones(RuntimeMedusaStrategy& context)
     if (fields_of(strategy).first_cone < 0)
     {
         fields_of(strategy).first_cone = add_runtime_light_cone(cones_of(context, "0x000BA700"), actor, address, 7,
-            parameter(context, 0x30) * kDegree, parameter(context, 0x34) * kDegree, parameter(context, 0x38),
-            parameter(context, 0x3C), parameter(context, 0x40), parameter(context, 0x44)); // 0x0011AEE0
+            parameters_of(context).cone_pitch * kDegree, parameters_of(context).cone_yaw * kDegree, parameters_of(context).cone_spread,
+            parameters_of(context).cone_length, parameters_of(context).cone_fade, parameters_of(context).cone_spot_offset); // 0x0011AEE0
     }
     if (fields_of(strategy).second_cone < 0)
     {
         fields_of(strategy).second_cone = add_runtime_light_cone(cones_of(context, "0x000BA700"), actor, address, 6,
-            parameter(context, 0x30) * kDegree, parameter(context, 0x34) * -0.01745329238474369f, // DAT_0032B54C.
-            parameter(context, 0x38), parameter(context, 0x3C), parameter(context, 0x40),
-            parameter(context, 0x44)); // 0x0011AEE0
+            parameters_of(context).cone_pitch * kDegree, parameters_of(context).cone_yaw * -0.01745329238474369f, // DAT_0032B54C.
+            parameters_of(context).cone_spread, parameters_of(context).cone_length, parameters_of(context).cone_fade,
+            parameters_of(context).cone_spot_offset); // 0x0011AEE0
     }
     if (fields_of(strategy).rattle_sound == 0)
     {
@@ -337,9 +338,9 @@ bool gaze_reaches_target(RuntimeMedusaStrategy& context, const Vec3& eye, const 
     }
     Vec3 near = eye;
     Vec3 far = eye;
-    add_sound_direction(near, euler.x, euler.y, parameter(context, 0x28)); // 0x00106220
-    add_sound_direction(far, euler.x, euler.y, parameter(context, 0x2C)); // 0x00106220
-    const float radius = parameter(context, 0x28);
+    add_sound_direction(near, euler.x, euler.y, parameters_of(context).gaze_near); // 0x00106220
+    add_sound_direction(far, euler.x, euler.y, parameters_of(context).gaze_far); // 0x00106220
+    const float radius = parameters_of(context).gaze_near;
     entity_record_movement_probe(far, near, std::bit_cast<u32>(radius), 4, 0); // 0x001226C0, EBX far
     if ((context.runtime_flags & 0x400) != 0)
     {
@@ -373,8 +374,8 @@ void gaze(RuntimeMedusaStrategy& context, u32 attacking)
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = actor_of(context);
     constexpr float kDegree = 0.01745329238474369f; // DAT_0032B0FC.
-    const float pitch_offset = parameter(context, 0x20) * kDegree;
-    const float yaw_offset = parameter(context, 0x24) * kDegree;
+    const float pitch_offset = parameters_of(context).eye_pitch_offset * kDegree;
+    const float yaw_offset = parameters_of(context).eye_yaw_offset * kDegree;
     Vec3 eye{};
     Vec3 euler{};
     Vec3 second_euler{};
@@ -434,7 +435,7 @@ void gaze(RuntimeMedusaStrategy& context, u32 attacking)
 // The target's point lies within the parameters' reach (+0).
 bool target_near(RuntimeMedusaStrategy& context)
 {
-    return runtime_mind_target_within(parameter(context, 0), goals_of(context)); // 0x000BABF0
+    return runtime_mind_target_within(parameters_of(context).target_reach, goals_of(context)); // 0x000BABF0
 }
 
 // Xbox 0x000BAC90, ECX strategy, EBX actor: a live, standing target near enough and in a clear walk, with no attack
@@ -466,7 +467,7 @@ bool can_attack(RuntimeMedusaStrategy& context)
 // toward a point the parameters' +0x18 out from it.
 bool face_attack(RuntimeMedusaStrategy& context)
 {
-    const float out = parameter(context, 0x18);
+    const float out = parameters_of(context).attack_lead;
     if (!(out > 0.f))
     {
         return false;
@@ -500,7 +501,7 @@ void set_walk_mode(u32 mode, RuntimeMedusaStrategy& context)
     }
     if (fields_of(strategy).walk_mode == 2)
     {
-        fields_of(strategy).attack_delay = parameter(context, 0x1C);
+        fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
     }
     fields_of(strategy).walk_mode = mode;
     if (mode == 1)
@@ -611,8 +612,8 @@ void tick_gaze(RuntimeMedusaStrategy& context)
             return;
         }
         fields_of(strategy).gaze_phase = 3u;
-        fields_of(strategy).spin_delay = runtime_body_random_range(goals.random, parameter(context, 0xC),
-            parameter(context, 0xC)); // 0x000191C0
+        fields_of(strategy).spin_delay = runtime_body_random_range(goals.random, parameters_of(context).spin_delay,
+            parameters_of(context).spin_delay); // 0x000191C0
     };
     switch (phase)
     {
@@ -626,7 +627,7 @@ void tick_gaze(RuntimeMedusaStrategy& context)
         {
             request_attack(context); // 0x000BA010
         }
-        fields_of(strategy).face_delay = parameter(context, 0x14);
+        fields_of(strategy).face_delay = parameters_of(context).face_delay;
         return;
     case 2:
     {
@@ -726,7 +727,7 @@ void tick_walk(RuntimeMedusaStrategy& context)
         {
             return;
         }
-        fields_of(strategy).attack_delay = parameter(context, 0x1C);
+        fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
         fields_of(strategy).walk_mode = 1u;
         strategy_base(strategy).attacking = 0;
         return;
@@ -979,12 +980,10 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
         if (fields_of(strategy).gaze_phase != 1)
         {
             fields_of(strategy).gaze_phase = 1u;
-            fields_of(strategy).gaze_time = runtime_body_random_range(goals.random, parameter(context, 4),
-                parameter(context, 8)); // 0x000191C0
+            fields_of(strategy).gaze_time = runtime_body_random_range(goals.random, parameters_of(context).gaze_time_low,
+                parameters_of(context).gaze_time_high); // 0x000191C0
         }
-        put_u32(body, offsetof(BodyRecord, turn_rates), read_u32(context.parameters, 0x48));
-       body_record(body).turn_rates[1] = parameter(context, 0x4C);
-       body_record(body).turn_rates[2] = parameter(context, 0x50);
+        body_record(body).turn_rates = parameters_of(context).turn_rates;
         fields_of(strategy).gaze_toggle = 0u;
         return;
     case 0x3F0:
@@ -1015,7 +1014,7 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
         {
             if (fields_of(strategy).walk_mode == 2)
             {
-                fields_of(strategy).attack_delay = parameter(context, 0x1C);
+                fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
             }
             fields_of(strategy).walk_mode = 1u;
             strategy_base(strategy).attacking = 0;
@@ -1085,7 +1084,7 @@ void leave_runtime_medusa_state(u16 state, RuntimeMedusaStrategy& context)
         {
             if (fields_of(strategy).walk_mode == 2)
             {
-                fields_of(strategy).attack_delay = parameter(context, 0x1C);
+                fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
             }
             fields_of(strategy).walk_mode = 0u;
         }

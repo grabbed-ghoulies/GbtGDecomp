@@ -5,6 +5,18 @@
 
 namespace gbtg
 {
+// DAT_00302B5C, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct ChickenParameters
+{
+    float provoke_reach; // +0x0, A class 7 hit this close arms the transform.
+    float unk_04; // +0x4
+    float unk_08; // +0x8
+    float unk_0C; // +0xC
+    float unk_10; // +0x10
+    float unk_14; // +0x14
+};
+static_assert(sizeof(ChickenParameters) == 0x18);
+
 // entityStrategyChicken (factory type 0x3A, getter 0x000A9FE0, vtable 0x00505D38; the factory table's row 0x39
 // carries the name) over the base strategy (type 8): a farmyard chicken. It wanders far ("far") until it is hit by
 // itself or by an actor of class 7 within the parameters' reach; then, once body bit 0x29 is up, it transforms (state

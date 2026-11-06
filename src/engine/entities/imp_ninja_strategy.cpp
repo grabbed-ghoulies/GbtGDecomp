@@ -1,4 +1,5 @@
 #include "imp_ninja_strategy.h"
+#include "gbtg/retail_field.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "strategy_fields.h"
@@ -68,9 +69,9 @@ void load_goal(const char* name, RuntimeImpNinjaStrategy& context)
     load_runtime_mind_goal(name, goals_of(context).entry.goals); // 0x0002A8E0
 }
 
-float parameter(RuntimeImpNinjaStrategy& context, size_t offset)
+const ImpNinjaParameters& parameters_of(RuntimeImpNinjaStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<ImpNinjaParameters>(context.parameters);
 }
 
 float roll(RuntimeImpNinjaStrategy& context)
@@ -317,13 +318,13 @@ void choose_attack(RuntimeImpNinjaStrategy& context)
 void choose_idle(RuntimeImpNinjaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (fields_of(strategy).transformed == 0 && !(parameter(context, 0xC) < roll(context))
+    if (fields_of(strategy).transformed == 0 && !(parameters_of(context).meditate_chance < roll(context))
         && !runtime_imp_ninja_target_near(context)) // 0x000B7FE0
     {
         change_state(0x412, context);
         return;
     }
-    load_goal(!(parameter(context, 8) < roll(context)) ? context.goal_random_move : context.goal_random_walk,
+    load_goal(!(parameters_of(context).random_move_chance < roll(context)) ? context.goal_random_move : context.goal_random_walk,
         context);
 }
 
@@ -422,7 +423,7 @@ bool runtime_imp_ninja_target_near(RuntimeImpNinjaStrategy& context)
     {
         return false;
     }
-    const float reach = parameter(context, 0);
+    const float reach = parameters_of(context).target_reach;
     const Vec3 position = actor_world_position(goals_of(context).entry.actor); // 0x000412A0
     const float dx = position.x - mind_target_record(target->bytes).shape.position.x;
     const float dz = position.z - mind_target_record(target->bytes).shape.position.z;
@@ -597,8 +598,8 @@ void enter_runtime_imp_ninja_state(u16 state, u16 previous, RuntimeImpNinjaStrat
         {
             fields_of(strategy).meditation_step = 1u;
             load_goal(context.goal_meditate, context);
-            const float shortest = parameter(context, 0x10);
-            const float longest = parameter(context, 0x14);
+            const float shortest = parameters_of(context).meditation_shortest;
+            const float longest = parameters_of(context).meditation_longest;
             fields_of(strategy).meditation = (longest - shortest) * roll(context) + shortest;
         }
         strategy_base(strategy).attacking = 1;

@@ -9,6 +9,23 @@ namespace gbtg
 {
 struct RuntimeActorResourceReference;
 
+// DAT_003031B8, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct JessieClydeParameters
+{
+    float cue_time; // +0x0
+    float attack_reach; // +0x4
+    float unk_08; // +0x8
+    float call_reach; // +0xC, Message 0x77 from a target this close counts.
+    float eye_reach; // +0x10
+    float special_time_low; // +0x14
+    float special_time_high; // +0x18
+    float scare_intensity; // +0x1C
+    float scare_scale; // +0x20
+    float scare_forward; // +0x24
+    float scare_rise; // +0x28
+};
+static_assert(sizeof(JessieClydeParameters) == 0x2C);
+
 // entityStrategyJessieClyde (factory type 0x4A, getter 0x000B9440, vtable 0x00505F14; the factory table's row 0x49
 // carries the name) over the base strategy (type 8): Jessie Clyde. She starts calm (+0x40): she walks about
 // ("randomwalk") and, struck or with her target in view and near, transforms (+0xF0 step 1, "transform", her effect

@@ -730,6 +730,10 @@ Code reads three kinds of retail data by address, and they get different treatme
   the dumps writes them: `FinalScoreLayout` (DAT_00428A88, 0x184), `SlotSelectLayout` (DAT_00428F90, 0x9C), `AppErrorLayout`
   (DAT_00339F5C, 0x3C), and `GameSelectPageLayout` (0x58), shared by the features, options and four replay pages. `SlotPlateRow` (DAT_0042902C, stride 0x124) and `SlotChapterRow` (DAT_00429290, stride 0x10C) overlap: the
   chapter table starts at the third plate's texture name.
+- **Strategy parameter blocks** are views of the image through `retail_view`, as nothing in the dumps writes them: `ChickenParameters`,
+  `GrimReaperParameters`, `HauntedPictureMovement`, `HunchbackParameters`, `ImpFlyingParameters`, `ImpNinjaParameters`, `JessieClydeParameters`,
+  `MedusaParameters`, `MummyCursedParameters`. Retail reaches them through the strategy's +0x38, so the dumps name no `DAT_` for their words.
+  The `parameters` span an initializer takes is a different thing, the creation parameters. Unread words are `unk_`; the chicken only reads +0.
 - **The boot shader tables** (`graphics/boot_shader_tables.h`) are .data rows whose handles 0x00065EE0 and 0x00063FB0 write at boot, so code
   reads them through the image by name: `kBillboardVertexShader.handle`, `.constants`, `kDiffusePixelShader`. Names come from the shader
   source's own comment or the pass that binds the row. Vertex rows 3..6, 11, 17..19, 21, 23 and pixel rows 1, 3..7, 18 have no binder in the dumps.

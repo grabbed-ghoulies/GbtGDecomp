@@ -1,4 +1,5 @@
 #include "haunted_picture_strategy.h"
+#include "gbtg/retail_field.h"
 #include "actor_fields.h"
 #include "body_fields.h"
 #include "strategy_fields.h"
@@ -157,8 +158,8 @@ float runtime_haunted_picture_range_fraction(std::span<const u8> target, Runtime
     const float dx = position.x - mind_target_record(target).shape.position.x;
     const float dy = position.y - mind_target_record(target).shape.position.y;
     const float dz = position.z - mind_target_record(target).shape.position.z;
-    const float nearest = read_f32(context.movement, 0x1C);
-    const float farthest = read_f32(context.movement, 0x20);
+    const float nearest = retail_view<HauntedPictureMovement>(context.movement).nearest;
+    const float farthest = retail_view<HauntedPictureMovement>(context.movement).farthest;
     if (farthest == nearest)
     {
         return 1.f; // DAT_0032B0F8.
@@ -202,7 +203,7 @@ float select_runtime_haunted_picture_heading(std::span<const u8> target, Runtime
     {
         scale = fraction * 2.f;
     }
-    const float width = read_f32(context.movement, 0x24) * scale * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
+    const float width = retail_view<HauntedPictureMovement>(context.movement).heading_spread * scale * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
     return randomize_runtime_navigation_heading(chosen, width, goals_of(context).random); // 0x00100C70
 }
 
@@ -212,10 +213,10 @@ void circle_runtime_haunted_picture_target(const RuntimeMindTarget& target, floa
     RuntimeHauntedPictureStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const std::span<const u8> movement = context.movement;
+    const HauntedPictureMovement& movement = retail_view<HauntedPictureMovement>(context.movement);
     const float heading = select_runtime_haunted_picture_heading(target.bytes, context); // 0x000B09C0
     const Vec3 origin = actor_world_position(actor_of(context)); // 0x000412A0
-    const float ring = read_f32(movement, 8);
+    const float ring = movement.ring_radius;
     Vec3 point{};
     RuntimeNavigationHeadingSearch search{origin, i32(mind_target_record(target.bytes).floor), ring - .5f, ring
         + .5f, nullptr,
@@ -226,12 +227,12 @@ void circle_runtime_haunted_picture_target(const RuntimeMindTarget& target, floa
         return;
     }
     const float tau = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
-    const float period = read_f32(movement, 0x2C);
+    const float period = movement.sway_period;
     const float angle = period == 0.f ? tau : clamp_angle(phase / period * tau);
-    const float amplitude = read_f32(movement, 0x30);
+    const float amplitude = movement.sway_amplitude;
     const float sway = float(retail_sin(angle) * static_cast<long double>(amplitude)); // 0x00153320
     clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
-    request_runtime_strategy_sway(point, movement.subspan(4), sway, amplitude, goals); // 0x0013A000, ESI table +4
+    request_runtime_strategy_sway(point, context.movement.subspan(4), sway, amplitude, goals); // 0x0013A000, ESI table +4
 }
 
 // Xbox 0x000B0680, EAX strategy

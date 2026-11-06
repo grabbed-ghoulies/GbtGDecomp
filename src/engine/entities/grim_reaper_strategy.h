@@ -14,6 +14,26 @@ struct RuntimeBodyCollisionState;
 struct RuntimeBodyAttachmentLists;
 struct RuntimeActorSoundQueues;
 
+// DAT_00302B7C, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct GrimReaperParameters
+{
+    float reach; // +0x0
+    float unk_04; // +0x4
+    float speed_step; // +0x8
+    float unk_0C; // +0xC
+    float turn_speed_step; // +0x10
+    float turn_speed_limit; // +0x14
+    float unk_18; // +0x18
+    float unk_1C; // +0x1C
+    float cue_time_low; // +0x20
+    float cue_time_high; // +0x24
+    float fly_time; // +0x28
+    float pace_interval; // +0x2C
+    float hit_slow; // +0x30
+    float wind_up_time; // +0x34
+};
+static_assert(sizeof(GrimReaperParameters) == 0x38);
+
 // entityStrategyGrimReaper (factory type 0x3F, getter 0x000AD3B0, vtable 0x00505DE0) over the base strategy (type 8):
 // the Grim Reaper an event's failed time limit sends (0x000CF7B0). He chases his target (state 0x401) ever faster,
 // pointing and laughing now and then; near enough he swings (0x40C), his hands' contact shapes live for the swing's

@@ -1,4 +1,5 @@
 #include "hunchback_strategy.h"
+#include "gbtg/retail_field.h"
 #include <cstddef>
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
@@ -93,9 +94,9 @@ void clear_requests(RuntimeHunchbackStrategy& context)
     clear_runtime_player_mind_requests(*goals_of(context).setup.mind);
 }
 
-float parameter(RuntimeHunchbackStrategy& context, size_t offset)
+const HunchbackParameters& parameters_of(RuntimeHunchbackStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<HunchbackParameters>(context.parameters);
 }
 
 float roll(RuntimeHunchbackStrategy& context)
@@ -105,11 +106,9 @@ float roll(RuntimeHunchbackStrategy& context)
     return std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
 }
 
-// A value between the block's two floats at `offset` and `offset + 4`.
-float roll_between(RuntimeHunchbackStrategy& context, size_t offset)
+float roll_between(RuntimeHunchbackStrategy& context, const HunchbackRange& range)
 {
-    const float least = parameter(context, offset);
-    return (parameter(context, offset + 4) - least) * roll(context) + least;
+    return (range.most - range.least) * roll(context) + range.least;
 }
 
 RuntimeMindTarget* selected_target(RuntimeHunchbackStrategy& context, bool& found)
@@ -192,7 +191,7 @@ void recover_runtime_hunchback(RuntimeHunchbackStrategy& context)
     if (2 < phase && phase < 5 && phase != 5)
     {
         fields_of(strategy).special_phase = 5u;
-        fields_of(strategy).special_time = roll_between(context, 0x40);
+        fields_of(strategy).special_time = roll_between(context, parameters_of(context).recovery_time);
     }
 }
 
@@ -206,18 +205,18 @@ float runtime_hunchback_stun_time(RuntimeHunchbackStrategy& context)
         const float health = float(i32(body_record(body).energy)) / float(i32(most));
         if (0.25f > health) // DAT_0032B104.
         {
-            return parameter(context, 0x28);
+            return parameters_of(context).stun_time_quarter;
         }
         if (0.5f > health) // DAT_0032B0F4.
         {
-            return parameter(context, 0x24);
+            return parameters_of(context).stun_time_half;
         }
         if (0.75f > health) // DAT_0032B2AC.
         {
-            return parameter(context, 0x20);
+            return parameters_of(context).stun_time_three_quarters;
         }
     }
-    return parameter(context, 0x1C);
+    return parameters_of(context).stun_time_healthy;
 }
 
 // Xbox 0x000B2F20, ECX strategy, EAX phase
@@ -238,8 +237,8 @@ void set_runtime_hunchback_idle_phase(u32 phase, RuntimeHunchbackStrategy& conte
     {
         fields_of(strategy).taunt_delay = 0.05f; // DAT_0032B250.
         fields_of(strategy).taunts = 0;
-        const i32 least = i32(read_u32(context.parameters, 0x14));
-        const i32 most = i32(read_u32(context.parameters, 0x18));
+        const i32 least = i32(parameters_of(context).taunt_limit_least);
+        const i32 most = i32(parameters_of(context).taunt_limit_most);
         fields_of(strategy).taunt_limit = i32(float(most - least) * roll(context) + float(least)); // CVTTSS2SI
         return;
     }
@@ -293,7 +292,7 @@ void set_runtime_hunchback_special_phase(u32 phase, RuntimeHunchbackStrategy& co
         increment_runtime_body_latches(body, actor, context.latches); // 0x0001FC40, ECX body
         const char* effect = fields_of(strategy).charge_effect.data();
         fields_of(strategy).effect = context.create_effect(effect, strategy_base(strategy).actor); // 0x0003DF40
-        const float time = roll_between(context, 0x2C);
+        const float time = roll_between(context, parameters_of(context).charge_time);
         strategy_base(strategy).attacking = 1;
         fields_of(strategy).armed = 1u;
         fields_of(strategy).special_time = time;
@@ -302,11 +301,11 @@ void set_runtime_hunchback_special_phase(u32 phase, RuntimeHunchbackStrategy& co
     }
     case 4:
         load_goal(context.goal_special, context);
-        fields_of(strategy).special_time = roll_between(context, 0x34);
-        put_u32(body, offsetof(BodyRecord, ease_rate), read_u32(context.parameters, 0x3C));
+        fields_of(strategy).special_time = roll_between(context, parameters_of(context).special_time);
+        body_record(body).ease_rate = parameters_of(context).special_ease_rate;
         return;
     case 5:
-        fields_of(strategy).special_time = roll_between(context, 0x40);
+        fields_of(strategy).special_time = roll_between(context, parameters_of(context).recovery_time);
         return;
     case 6:
         clear_requests(context); // 0x00029E80, EBX mind
@@ -447,12 +446,12 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
             change_state(0x401, context);
             return;
         }
-        if (target_beyond(*target, parameter(context, 8), context)) // 0x000B2CD0
+        if (target_beyond(*target, parameters_of(context).far_reach, context)) // 0x000B2CD0
         {
             change_state(0x401, context);
             return;
         }
-        if (runtime_mind_target_within(parameter(context, 0), goals)) // 0x000BABF0
+        if (runtime_mind_target_within(parameters_of(context).attack_reach, goals)) // 0x000BABF0
         {
             change_state(roll_runtime_actor_attack(context.checks.attributes, goals.random) ? 0x3EF : 0x40C,
                 context); // 0x000196F0
@@ -464,7 +463,7 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
     {
         // The tail jump to 0x000B2DD0.
         selected_target(context, found);
-        if (runtime_mind_target_within_second(parameter(context, 4), goals)) // 0x000B5C50
+        if (runtime_mind_target_within_second(parameters_of(context).close_reach, goals)) // 0x000B5C50
         {
             change_state(0x3FE, context);
             return;
@@ -478,7 +477,7 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
             {
                 load_goal(context.goal_taunt, context);
                 fields_of(strategy).taunts = fields_of(strategy).taunts + 1;
-                fields_of(strategy).taunt_delay = roll_between(context, 0xC); // 0x000B2B70, EAX the block
+                fields_of(strategy).taunt_delay = roll_between(context, parameters_of(context).taunt_delay); // 0x000B2B70, EAX the block
             }
         };
         switch (fields_of(strategy).idle_phase)
@@ -535,7 +534,7 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
             {
                 throw Error("0x000B3300 measures the reach to a target the mind does not hold");
             }
-            if (target_beyond(*target, parameter(context, 0), context) && fields_of(strategy).dizzy_step != 3)
+            if (target_beyond(*target, parameters_of(context).attack_reach, context) && fields_of(strategy).dizzy_step != 3)
             {
                 fields_of(strategy).dizzy_step = 3u;
                 const std::array<float, 2> push{1.f, 0.f}; // DAT_0032B0F8.
@@ -563,7 +562,7 @@ void update_runtime_hunchback_strategy(RuntimeHunchbackStrategy& context)
         {
             throw Error("0x000B33B0 measures the reach to a target the mind does not hold");
         }
-        if (target_beyond(*target, parameter(context, 0), context))
+        if (target_beyond(*target, parameters_of(context).attack_reach, context))
         {
             change_state(0x401, context);
         }

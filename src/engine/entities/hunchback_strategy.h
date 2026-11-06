@@ -12,6 +12,34 @@ namespace gbtg
 {
 struct RuntimeBodyCollisionState;
 
+struct HunchbackRange
+{
+    float least;
+    float most;
+};
+
+// DAT_00428770, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct HunchbackParameters
+{
+    float attack_reach; // +0x0
+    float close_reach; // +0x4
+    float far_reach; // +0x8
+    HunchbackRange taunt_delay; // +0xC
+    i32 taunt_limit_least; // +0x14
+    i32 taunt_limit_most; // +0x18
+    float stun_time_healthy; // +0x1C, Health 3/4 and up.
+    float stun_time_three_quarters; // +0x20
+    float stun_time_half; // +0x24
+    float stun_time_quarter; // +0x28
+    HunchbackRange charge_time; // +0x2C
+    HunchbackRange special_time; // +0x34
+    float special_ease_rate; // +0x3C, The body's ease_rate during the special.
+    HunchbackRange recovery_time; // +0x40
+    float unk_48; // +0x48
+    float unk_4C; // +0x4C
+};
+static_assert(sizeof(HunchbackParameters) == 0x50);
+
 // entityStrategyHunchback (factory type 0x45, getter 0x000B3A90, vtable 0x00505E88) over the base strategy (type 8):
 // the hunchback. Idle (0x401) he steps out, taunts a few times and runs about; a target within the block's +4 sends him
 // evading (0x3FE), from which a target past +8 brings him back, and one within +0 makes him block (0x40C) or, on an

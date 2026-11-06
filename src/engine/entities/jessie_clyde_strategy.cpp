@@ -1,4 +1,5 @@
 #include "jessie_clyde_strategy.h"
+#include "gbtg/retail_field.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "strategy_fields.h"
@@ -87,9 +88,9 @@ EntityBitBlock& body_bits(RuntimeJessieClydeStrategy& context, const char* calle
     return *bits;
 }
 
-float parameter(RuntimeJessieClydeStrategy& context, size_t offset)
+const JessieClydeParameters& parameters_of(RuntimeJessieClydeStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<JessieClydeParameters>(context.parameters);
 }
 
 // Mind +0x58: the first pending mind request.
@@ -240,7 +241,7 @@ bool target_in_view(RuntimeJessieClydeStrategy& context)
     {
         return false;
     }
-    return runtime_actor_point_within(actor_of(context), target->bytes, parameter(context, 0x10)); // 0x000416C0
+    return runtime_actor_point_within(actor_of(context), target->bytes, parameters_of(context).eye_reach); // 0x000416C0
 }
 
 // Xbox 0x000B8100, EAX actor, EDI strategy: calm, she walks about until struck, provoked or seeing her target near,
@@ -310,7 +311,7 @@ bool ready_to_attack(RuntimeJessieClydeStrategy& context)
     {
         return false;
     }
-    return runtime_actor_point_within(actor_of(context), target->bytes, parameter(context, 4)); // 0x000416C0
+    return runtime_actor_point_within(actor_of(context), target->bytes, parameters_of(context).attack_reach); // 0x000416C0
 }
 
 // Xbox 0x000B86E0, ECX strategy: the attack: the special (0x3EF) when open or by the attributes' +8 chance, else the
@@ -407,14 +408,14 @@ void step_shout(u32 step, RuntimeJessieClydeStrategy& context)
         }
     }
     const float facing = read_f32(goals_of(context).entry.actor_bytes, 0x18);
-    const float forward = parameter(context, 0x24);
+    const float forward = parameters_of(context).scare_forward;
     point.x = float(retail_sin(facing) * forward + point.x); // 0x00153320
     const long double cosine = retail_cos(facing); // 0x00153230
     EntityBitBlock& bits = body_bits(context, "0x000B8A70");
-    point.y = parameter(context, 0x28) + point.y;
+    point.y = parameters_of(context).scare_rise + point.y;
     bits.bytes[2] = u8(bits.bytes[2] & 0x7F);
     point.z = float(cosine * forward + point.z);
-    context.scare_at(point, actor_address(context), parameter(context, 0x1C), parameter(context, 0x20), 1,
+    context.scare_at(point, actor_address(context), parameters_of(context).scare_intensity, parameters_of(context).scare_scale, 1,
         1); // 0x0013B270
 }
 
@@ -546,8 +547,8 @@ void step_special(u32 step, RuntimeJessieClydeStrategy& context)
     {
         return;
     }
-    const float shortest = parameter(context, 0x14);
-    fields_of(strategy).special_time = (parameter(context, 0x18) - shortest) * roll(context) + shortest;
+    const float shortest = parameters_of(context).special_time_low;
+    fields_of(strategy).special_time = (parameters_of(context).special_time_high - shortest) * roll(context) + shortest;
     make_effect(context);
     increment_runtime_body_latch_mask(body_of(context), 0x3F, actor_of(context), context.latches); // 0x0001F3F0
     fields_of(strategy).special_effect = 1u;
@@ -618,7 +619,7 @@ void target_called(u32 actor, RuntimeJessieClydeStrategy& context)
     {
         return;
     }
-    if (!runtime_actor_point_within(actor_of(context), target->bytes, parameter(context, 0xC))) // 0x000416C0
+    if (!runtime_actor_point_within(actor_of(context), target->bytes, parameters_of(context).call_reach)) // 0x000416C0
     {
         return;
     }
@@ -877,7 +878,7 @@ void enter_runtime_jessie_clyde_state(u16 state, u16 previous, RuntimeJessieClyd
         step_special(1, context); // 0x000B8F30, the same first step as 0x000B9300.
         return;
     case 0x401:
-        fields_of(strategy).cue = read_f32(context.parameters, 0);
+        fields_of(strategy).cue = parameters_of(context).cue_time;
         return;
     case 0x403:
         // 0x000B88A0.

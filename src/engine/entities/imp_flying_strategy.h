@@ -5,6 +5,22 @@
 
 namespace gbtg
 {
+// DAT_00303124, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct ImpFlyingParameters
+{
+    float evade_reach; // +0x0, A target this close is evaded.
+    float hover_reach; // +0x4, A target this close is hovered around.
+    float hover_height; // +0x8
+    float unstuck_hover_height; // +0xC
+    float hold_time; // +0x10
+    float unk_14; // +0x14
+    float unk_18; // +0x18
+    float unk_1C; // +0x1C
+    float unk_20; // +0x20
+    float lunge_time; // +0x24
+};
+static_assert(sizeof(ImpFlyingParameters) == 0x28);
+
 // entityStrategyImpFlying (factory type 0x48, getter 0x000B6B70, vtable 0x00505EDC; the factory table's row 0x47
 // carries the name) over the base strategy (type 8): the flying imp. It hovers to clear points 30 units around itself
 // at a random height ("evade" when its target is near), whacks a queued target with its wings ("wingwhackprepare",

@@ -32,7 +32,7 @@ constexpr RetailField<u32, 0x1C> ride{}; // ride phase 1
 constexpr RetailField<u32, 0x20> hit{}; // ride phase 3
 constexpr RetailField<u32, 0x24> hold{}; // ride phase 2
 constexpr RetailField<u32, 0x28> keep_riding{}; // set: the ride ends only when shaken off, and then knocked down
-constexpr RetailField<float, 0x2C> take_off_blend{}; // stored into DAT_004286B0
+constexpr RetailField<float, 0x2C> take_off_duration{}; // stored into DAT_004286B0
 constexpr RetailField<std::array<char, 0x80>, 0x30> hold_sound{};
 constexpr u32 kSize = 0xB0;
 static_assert(retail_fits(kSize, hold_sound));
@@ -106,6 +106,40 @@ struct RuntimeJumpOnPeer
     const RuntimeBodyModelNodes* model = nullptr; // Actor +0x204's records (0x00040980).
     const RuntimeDialogueInputDevice* input = nullptr; // Actor +0x960, or null.
 };
+// DAT_00428680, the jump on/off state's tunables. Each is named from what reads it; the fractions are of the
+// playing animation's length. The stick tracking is the 0x00109810 preset.
+struct JumpOnTunables
+{
+    float leap_arc_height = 0.f; // +0, 12.5 (0x0009A870, 0x0009A9C0)
+    i32 head_marker_index = 0; // +0x4, 0: the model record of kind 4 to ride, clamped to the count
+    float hold_time_low = 0.f; // +0x8, 0.2 (0x00099CA0)
+    float hold_time_high = 0.f; // +0xC, 0.3
+    float idle_ride_time_low = 0.f; // +0x10, 2.0 (0x00099C40)
+    float idle_ride_time_high = 0.f; // +0x14, 2.1
+    float leave_ride_time_low = 0.f; // +0x18, 1.0, on leaving phase 3 (0x00099550, 0x00099CA0)
+    float leave_ride_time_high = 0.f; // +0x1C, 6.0
+    float leap_start_fraction = 0.f; // +0x20, 0.49, opens the leap window (0x0009AB00, 0x0009AF60)
+    float leap_end_fraction = 0.f; // +0x24, 1.0
+    float unk_28 = 0.f; // +0x28, 0, no translated reader
+    float jump_off_end_fraction = 0.f; // +0x2C, 0.47 (0x0009B010)
+    float take_off_duration = 0.f; // +0x30, 1.0; the constructor writes it from its parameters (0x0009A4C0)
+    float leap_duration = 0.f; // +0x34, 1.0 (0x0009B160 phase 2)
+    float unk_38 = 0.f; // +0x38, 1.0, no translated reader
+    float jump_off_duration = 0.f; // +0x3C, 1.0 (0x0009B010)
+    float release_duration = 0.f; // +0x40, 1.0 (0x0009AB00, 0x0009B160 phase 5)
+    float gaze_distance = 0.f; // +0x44, 2.2 (0x00099AD0, through 0x00106220)
+    float gaze_pitch = 0.f; // +0x48, -0.873
+    float unk_4C = 0.f; // +0x4C, 0.0872, no translated reader
+    struct
+    {
+        float threshold = 0.f; // +0x50, 0.33
+        float rise = 0.f; // +0x54, 0.5
+        float decay = 0.f; // +0x58, 0.1
+        float cap = 0.f; // +0x5C, 7.0
+    } tracking;
+};
+static_assert(sizeof(JumpOnTunables) == 0x60);
+
 struct RuntimeJumpOnStateContext
 {
     std::span<u8> body;
@@ -122,7 +156,7 @@ struct RuntimeJumpOnStateContext
     RuntimeBodySpatialNotifications& spatial; // 0x0001D780.
     RuntimeBodyStateContext shape; // 0x0001FEB0.
     RuntimeActorSoundQueues& sounds;
-    std::span<u8> globals; // DAT_00428680, 0x60 bytes; the constructor writes +0x30 (DAT_004286B0).
+    JumpOnTunables& tunables; // DAT_00428680.
     const Vec3& default_position; // DAT_0050DD80.
     const Vec3& default_euler; // DAT_0050DD74.
     u32& random; // DAT_0054DD7C.

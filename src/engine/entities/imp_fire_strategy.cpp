@@ -284,7 +284,7 @@ bool roll_runtime_imp_fire_attachment(RuntimeImpFireStrategy& context)
         return false;
     }
     const Actor& target = goals.target_at(mind_record(mind).target_record)->actor;
-    i32 index = context.attachment_limit;
+    i32 index = context.head_marker_index;
     const RuntimeBodyModelNodes* model = context.model_of(target);
     const u32 count = count_runtime_body_model_kind(model, 4);
     if (count == 0)

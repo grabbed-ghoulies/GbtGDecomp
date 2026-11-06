@@ -683,8 +683,7 @@ struct SceneActorServices::State
     std::span<const u8> ghoul_intro_names; // DAT_00506E40, loaded once like 0x0011C3F0 does.
     std::unique_ptr<RuntimeGhoulIntroTunables> ghoul_intro_tunables;
     std::unique_ptr<RuntimeGhoulIntroContext> ghoul_intro_context;
-    i32 attachment_limit = 0; // DAT_00428684.
-    std::array<u8, 0x60> jump_globals{}; // DAT_00428680.., the jump on/off state's tunables (+0x30 written).
+    JumpOnTunables jump_tunables{}; // DAT_00428680..
     float skeleton_fetch_delay = 0.f; // DAT_004288AC.
     std::unordered_map<const Actor*, std::unique_ptr<SceneActorModelViews>> model_views;
     // HUD meters the player strategy drives.

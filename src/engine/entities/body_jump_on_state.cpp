@@ -48,16 +48,6 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-float global(RuntimeJumpOnStateContext& context, u32 address)
-{
-    return read_f32(context.globals, address - 0x00428680);
-}
-
-i32 head_marker(RuntimeJumpOnStateContext& context)
-{
-    return i32(read_u32(context.globals, 0x00428684 - 0x00428680));
-}
-
 float roll(u32& random)
 {
     random = random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C.
@@ -225,7 +215,7 @@ void place_on_leap(const JumpOnState& state, RuntimeJumpOnStateContext& context)
     const long double arc = retail_sin(fraction * 3.1415927410125732f); // 0x00153320, DAT_0032B148.
    body_record(context.body).position.x = x;
    body_record(context.body).position.z = z;
-    body_record(context.body).position.y = float(arc * static_cast<long double>(global(context, 0x00428680))
+    body_record(context.body).position.y = float(arc * static_cast<long double>(context.tunables.leap_arc_height)
         + static_cast<long double>(y));
 }
 }
@@ -291,13 +281,13 @@ bool initialize_runtime_jump_on_state(JumpOnState& state, std::span<const u8> pa
     state.ride.hit = found.hit != nullptr ? 1u : 0u;
     found.hold = find(parameter::hold.offset);
     state.ride.hold = found.hold != nullptr ? 1u : 0u;
-    put_float(context.globals, 0x004286B0 - 0x00428680, get(parameters, parameter::take_off_blend));
+    context.tunables.take_off_duration = get(parameters, parameter::take_off_duration);
     const char* sound = reinterpret_cast<const char*>(parameters.data() + parameter::hold_sound.offset);
     std::memcpy(state.ride.hold_sound.data(), sound, std::strlen(sound) + 1);
     state.shape_mode = u32(set_runtime_body_shape_mode(0, context.shape)); // 0x0001FEB0, BL 0
     state.released = 1u;
     state.phase = 1u;
-    start_retimed(found.take_off, global(context, 0x004286B0), "0x0009A4C0", context); // 0x0001AFF0
+    start_retimed(found.take_off, context.tunables.take_off_duration, "0x0009A4C0", context); // 0x0001AFF0
     return true;
 }
 
@@ -350,7 +340,7 @@ void tick_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext& c
     {
     case 1:
     {
-        if (!runtime_jump_on_window_open(global(context, 0x004286A0), context)) // 0x0009A170
+        if (!runtime_jump_on_window_open(context.tunables.leap_start_fraction, context)) // 0x0009A170
         {
             return;
         }
@@ -423,7 +413,7 @@ void tick_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext& c
         leave_ride();
         state.phase = 5u;
         hold_runtime_jump_on_body(1, state, context); // 0x0009A420
-        retime_slot(0, global(context, 0x004286C0), context); // 0x00030DB0, EAX 0
+        retime_slot(0, context.tunables.release_duration, context); // 0x00030DB0, EAX 0
         release_runtime_jump_on_claim(state, context); // 0x0009B300
         return;
     case 5:
@@ -524,7 +514,7 @@ bool runtime_jump_on_target_open(u32 target, RuntimeJumpOnStateContext& context)
         return false;
     }
     const RuntimeJumpOnPeer peer = context.peer_at(actor);
-    if (head_record(peer, head_marker(context)) == nullptr || body_record(peer.body).energy == 0)
+    if (head_record(peer, context.tunables.head_marker_index) == nullptr || body_record(peer.body).energy == 0)
     {
         return false;
     }
@@ -566,8 +556,8 @@ bool runtime_jump_on_target_pose(Vec3& position, Vec3& euler, RuntimeJumpOnState
         return false;
     }
     const RuntimeJumpOnPeer peer = context.peer_at(actor);
-    runtime_jump_on_marker_position(peer, head_marker(context), position); // 0x0009A330
-    runtime_jump_on_marker_euler(peer, head_marker(context), euler); // 0x0009A3A0
+    runtime_jump_on_marker_position(peer, context.tunables.head_marker_index, position); // 0x0009A330
+    runtime_jump_on_marker_euler(peer, context.tunables.head_marker_index, euler); // 0x0009A3A0
     return true;
 }
 
@@ -686,7 +676,7 @@ void start_runtime_jump_on_leap(JumpOnState& state, RuntimeJumpOnStateContext& c
     const MinaPlayer* player = first_player(context);
     const float duration = player != nullptr ? player->duration : 0.f; // Slot 0 player +0x20.
     start_runtime_leap(state.leap, target_euler, start_euler, start, end,
-        (global(context, 0x004286A4) - global(context, 0x004286A0)) * duration); // 0x00103650
+        (context.tunables.leap_end_fraction - context.tunables.leap_start_fraction) * duration); // 0x00103650
 }
 
 // Xbox 0x0009B010, EAX ridden
@@ -703,12 +693,12 @@ void start_runtime_jump_off_leap(Actor* ridden, JumpOnState& state, RuntimeJumpO
     {
         landing = state.leap.start; // Where the leap on began.
     }
-    start_retimed(animations_of(body_state_key(state)).jump_off, global(context, 0x004286BC), "0x0009B010", context);
+    start_retimed(animations_of(body_state_key(state)).jump_off, context.tunables.jump_off_duration, "0x0009B010", context);
     const MinaPlayer* player = first_player(context);
     const float position = player != nullptr ? player->position : 0.f; // Slot 0 player +0x14.
     const float duration = player != nullptr ? player->duration : 0.f; // +0x20.
     // x87: (DAT_004286AC - position) * duration, stored as a float.
-    const float length = float((static_cast<long double>(global(context, 0x004286AC)) - position)
+    const float length = float((static_cast<long double>(context.tunables.jump_off_end_fraction) - position)
         * static_cast<long double>(duration));
     const Vec3 start = actor_world_position(context.actor); // 0x000412A0
     const Vec3 start_euler = actor_world_euler(context.actor); // 0x00041820
@@ -724,11 +714,11 @@ void set_runtime_jump_on_phase(u32 phase, JumpOnState& state, RuntimeJumpOnState
     switch (phase)
     {
     case 1:
-        start_retimed(animations_of(body_state_key(state)).take_off, global(context, 0x004286B0),
+        start_retimed(animations_of(body_state_key(state)).take_off, context.tunables.take_off_duration,
             "0x0009B160", context); // 0x0001AFF0
         return;
     case 2:
-        retime_slot(0, global(context, 0x004286B4), context); // 0x00030DB0, EAX 0
+        retime_slot(0, context.tunables.leap_duration, context); // 0x00030DB0, EAX 0
         start_runtime_jump_on_leap(state, context); // 0x0009AF60
         hold_runtime_jump_on_body(0, state, context); // The tail jump to 0x0009A420, ECX 0
         return;
@@ -740,7 +730,7 @@ void set_runtime_jump_on_phase(u32 phase, JumpOnState& state, RuntimeJumpOnState
         return;
     case 5:
         hold_runtime_jump_on_body(1, state, context); // 0x0009A420
-        retime_slot(0, global(context, 0x004286C0), context); // 0x00030DB0, EAX 0
+        retime_slot(0, context.tunables.release_duration, context); // 0x00030DB0, EAX 0
         release_runtime_jump_on_claim(state, context); // 0x0009B300
         return;
     case 6:
@@ -812,8 +802,8 @@ Actor* end_runtime_ride(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
     }
     else if (phase == 3)
     {
-        ride.ride_time = (global(context, 0x0042869C) - global(context, 0x00428698))
-            * roll(context.random) + global(context, 0x00428698);
+        ride.ride_time = (context.tunables.leave_ride_time_high - context.tunables.leave_ride_time_low)
+            * roll(context.random) + context.tunables.leave_ride_time_low;
     }
     ride.phase = 0u;
     Actor* host = detach_runtime_ride(context); // 0x00099EE0
@@ -887,7 +877,7 @@ bool tick_runtime_ride(JumpOnState& state, u32 keep_riding, RuntimeJumpOnStateCo
         {
             return true;
         }
-        if (ride.hold_time == 0.f && ride.tracking.accumulation == global(context, 0x004286DC))
+        if (ride.hold_time == 0.f && ride.tracking.accumulation == context.tunables.tracking.cap)
         {
             return true;
         }
@@ -992,8 +982,8 @@ void steer_runtime_ride_host(JumpOnRide& ride, RuntimeJumpOnStateContext& contex
     Vec3 point = actor_world_position(*host.actor); // 0x000412A0
     point.y = host.actor->radius_y * body_record(host.body).height_scale + point.y; // Host +0x34, body +0x884.
     Vec3 direction{};
-    add_sound_direction(direction, global(context, 0x004286C8),
-        host.actor->euler.y + ride.wobble, global(context, 0x004286C4)); // 0x00106220
+    add_sound_direction(direction, context.tunables.gaze_pitch,
+        host.actor->euler.y + ride.wobble, context.tunables.gaze_distance); // 0x00106220
     if (host.mind.empty())
     {
         throw Error("0x00099AD0 steers a host with no mind");
@@ -1005,8 +995,8 @@ void steer_runtime_ride_host(JumpOnRide& ride, RuntimeJumpOnStateContext& contex
 // Xbox 0x00099C40
 void roll_runtime_ride_idle(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
 {
-    ride.ride_time = (global(context, 0x00428694) - global(context, 0x00428690))
-        * roll(context.random) + global(context, 0x00428690);
+    ride.ride_time = (context.tunables.idle_ride_time_high - context.tunables.idle_ride_time_low)
+        * roll(context.random) + context.tunables.idle_ride_time_low;
 }
 
 // Xbox 0x00099CA0, EDI ride
@@ -1019,8 +1009,8 @@ void set_runtime_ride_phase(JumpOnRide& ride, u32 phase, RuntimeJumpOnStateConte
     }
     else if (previous == 3)
     {
-        ride.ride_time = (global(context, 0x0042869C) - global(context, 0x00428698))
-            * roll(context.random) + global(context, 0x00428698);
+        ride.ride_time = (context.tunables.leave_ride_time_high - context.tunables.leave_ride_time_low)
+            * roll(context.random) + context.tunables.leave_ride_time_low;
     }
     ride.phase = phase;
     const JumpOnAnimations& found = animations_of(reinterpret_cast<const u8*>(&ride) - offsetof(JumpOnState, ride));
@@ -1043,8 +1033,8 @@ void set_runtime_ride_phase(JumpOnRide& ride, u32 phase, RuntimeJumpOnStateConte
             queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f, sound,
                 context.sounds); // 0x0012A260, EBX actor +0x614
         }
-        ride.hold_time = (global(context, 0x0042868C) - global(context, 0x00428688))
-            * roll(context.random) + global(context, 0x00428688);
+        ride.hold_time = (context.tunables.hold_time_high - context.tunables.hold_time_low)
+            * roll(context.random) + context.tunables.hold_time_low;
         return;
     }
     case 3:
@@ -1059,7 +1049,7 @@ void set_runtime_ride_phase(JumpOnRide& ride, u32 phase, RuntimeJumpOnStateConte
 void attach_runtime_ride(RuntimeJumpOnStateContext& context)
 {
     const RuntimeJumpOnPeer target = target_peer(context, "0x00099DF0");
-    const u8* row = head_record(target, head_marker(context));
+    const u8* row = head_record(target, context.tunables.head_marker_index);
     if (row == nullptr)
     {
         throw Error("0x00099DF0 binds the rider to a head marker its target does not have");
@@ -1166,7 +1156,7 @@ void track_runtime_ride_input(JumpOnRide& ride, RuntimeJumpOnStateContext& conte
     const u32 accumulate = ride.hold_time == 0.f && !busy && ride.phase == 2
         ? 1u : 0u;
     update_runtime_player_input_tracking(retail_bytes(ride.tracking), axes,
-        context.globals.subspan(0x004286D0 - 0x00428680, 0x10), accumulate, context.clock); // 0x00109810
+        retail_bytes(context.tunables.tracking), accumulate, context.clock); // 0x00109810
 }
 
 // Xbox 0x001050A0, ECX timer

@@ -1801,7 +1801,7 @@ RuntimeJumpOnStateContext& SceneBodyMessages::jump_on_context()
         unbound("jump on/off state of a body with no +0x15C bit block");
     }
     if (services_.intro == nullptr || services_.story_byte == nullptr || !services_.jump_peer
-        || !services_.reply_message || services_.jump_globals.empty())
+        || !services_.reply_message || services_.jump_tunables == nullptr)
     {
         unbound("jump on/off state services");
     }
@@ -1810,7 +1810,7 @@ RuntimeJumpOnStateContext& SceneBodyMessages::jump_on_context()
         player_.actor_bytes, *player_.body_bits, player_.body_selection, services_.clock,
         player_.actor_instance.animation, player_.mind, player_.actor_instance.live_attachments, services_.latches,
         spatial_, services_.state_context(services_.address_of(player_.body.data())), services_.sounds,
-        services_.jump_globals, services_.default_position, services_.default_euler, services_.random,
+        *services_.jump_tunables, services_.default_position, services_.default_euler, services_.random,
         services_.scene_flags, services_.player_blocked, services_.player_modes, services_.player_mode,
         *services_.intro, *services_.story_byte, player_.scene.input_state, services_.occupancy_initial,
         services_.image_string,

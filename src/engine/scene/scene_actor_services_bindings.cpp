@@ -108,8 +108,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     mind_goal_names = strings(0x003397BC, 0x31);
     decay_enabled = data(0x0030F144, 4);
     std::memcpy(&intro_scale, data(0x00433BEC, 4).data(), 4);
-    std::memcpy(&attachment_limit, data(0x00428684, 4).data(), 4);
-    std::memcpy(jump_globals.data(), data(0x00428680, jump_globals.size()).data(), jump_globals.size());
+    std::memcpy(&jump_tunables, data(0x00428680, sizeof(jump_tunables)).data(), sizeof(jump_tunables));
     std::memcpy(&skeleton_fetch_delay, data(0x004288AC, 4).data(), 4);
     // 0x00116DA0, from 0x0011CAC0 before scene startup.
     queue_limits[0] = 3;
@@ -511,7 +510,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return model_views_of(actor).nodes; // Actor +0x204 block directory.
         },
-        attachment_limit,
+        jump_tunables.head_marker_index,
         [this](const Actor& actor)
         {
             return address_of(object_of_actor(const_cast<Actor&>(actor)).bytes.get());
@@ -3902,7 +3901,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         dispatch_contact_words(player, words, contacts, contacts_word);
     };
-    body_services->jump_globals = jump_globals;
+    body_services->jump_tunables = &jump_tunables;
     body_services->struggle_preset = data(0x00302728, 0x10);
     body_services->bandaged_preset = data(0x0030260C, 0x10);
     body_services->actor_fade = [this](u32 address, float duration, const float* tint)

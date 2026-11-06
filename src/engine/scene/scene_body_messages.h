@@ -177,7 +177,7 @@ struct SceneBodyServices
     std::span<u32> contact_session{};
     // The jump on/off state (type 0x79): its globals (DAT_00428680, 0x60 bytes, +0x30 written), any actor's
     // vtable +0xC with the reply left in the words, the intro notices and the story byte, and another actor's views.
-    std::span<u8> jump_globals{};
+    JumpOnTunables* jump_tunables{};
     std::function<void(u32 address, std::span<u32> words)> reply_message{};
     RuntimeIntroNotices* intro{};
     u8* story_byte{};

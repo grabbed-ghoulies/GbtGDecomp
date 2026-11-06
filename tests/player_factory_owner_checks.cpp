@@ -210,7 +210,7 @@ void check_player_factory_owner()
         notice_player};
     float occupancy_initial = 0.f;
     std::array<u8, 0x40> imp_fire_parameters{};
-    const i32 attachment_limit = 0;
+    const i32 head_marker_index = 0;
     const float skeleton_fetch_delay = 0.f;
     const std::unordered_map<const u8*, const RuntimeAttachmentRequestTables*> attack_tables;
     NativePlayerFactoryOwner players{NativePlayerFactoryBindings{actors, NativePlayerSceneBindings{factory, pools,
@@ -275,7 +275,7 @@ void check_player_factory_owner()
         {
             throw Error("test scene has no target models");
         },
-        attachment_limit, {}, {}, {}, {}, {}, skeleton_fetch_delay, {}, sounds, {}, attack_tables, {}, {}, {}}}};
+        head_marker_index, {}, {}, {}, {}, {}, skeleton_fetch_delay, {}, sounds, {}, attack_tables, {}, {}, {}}}};
     players.install(types);
     require(types[5].parent == 2 && types[6].parent == 1 && types[0x27].parent == 6 && types[0x2A].parent == 0x27
         && types[8].parent == 1 && types[0x4F].parent == 8 && types[0x46].parent == 8 && types[7].parent == 1

@@ -1431,7 +1431,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           scene_bindings.target_of, scene_bindings.actor_bytes_of},
       imp_fire{strategy_messages, target_checks, target_queue, scene_bindings.imp_fire_parameters,
           owner_instance.animation, scene_bindings.registry, scene_bindings.create_effect, scene_bindings.object_message,
-          scene_bindings.body_at, scene_bindings.body_of, scene_bindings.model_of, scene_bindings.attachment_limit,
+          scene_bindings.body_at, scene_bindings.body_of, scene_bindings.model_of, scene_bindings.head_marker_index,
           "aid_objparams_ghoulies_fx_mutatehalo", "attack", "mutateup", "jumpbite", "jumpbiteprepare"},
       butler{strategy_messages, scene_bindings.actor_address, scene_bindings.first_live_attachment_at,
           scene_bindings.actor_bytes_at,

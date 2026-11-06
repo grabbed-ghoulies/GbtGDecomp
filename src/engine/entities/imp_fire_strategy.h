@@ -31,7 +31,7 @@ struct RuntimeImpFireStrategy
     std::function<RuntimeStrategyBodyView(u32)> body_at; // Body named by strategy +0x3C.
     std::function<RuntimeStrategyBodyView(const Actor&)> body_of; // Actor +0x95C.
     std::function<const RuntimeBodyModelNodes*(const Actor&)> model_of; // Actor +0x204.
-    const i32& attachment_limit; // DAT_00428684.
+    const i32& head_marker_index; // DAT_00428684.
     const char* effect_name; // "aid_objparams_ghoulies_fx_mutatehalo", 0x00303058.
     const char* goal_attack; // "attack", 0x003211E4.
     const char* goal_mutate; // "mutateup", 0x0032164C.

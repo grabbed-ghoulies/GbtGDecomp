@@ -165,7 +165,7 @@ struct NativePlayerSceneBindings
     std::function<RuntimeStrategyBodyView(u32)> body_at;
     std::function<RuntimeStrategyBodyView(const Actor&)> body_of; // Actor +0x95C.
     std::function<const RuntimeBodyModelNodes*(const Actor&)> model_of; // Actor +0x204.
-    const i32& attachment_limit; // DAT_00428684.
+    const i32& head_marker_index; // DAT_00428684.
     // Butler strategy (type 0x3B, vtable 0x00505D70).
     std::function<u32(const Actor&)> actor_address; // Retail address of an actor.
     std::function<std::span<const u8>(const Actor&)> actor_bytes; // An actor's bytes (+0x8F8 target record).

@@ -614,8 +614,7 @@ void SceneActorServices::State::background_update(NativeBackgroundInstance& back
         }
         RuntimeEffectDebris debris{{debris_pool->particles, kEffectDebrisCount}, debris_pool->types,
             debris_pool->free_head, game.clock.frame, random};
-        const Vec3 plane{read_f32(data(0x00433FFC, 12), 0), read_f32(data(0x00433FFC, 12), 4),
-            read_f32(data(0x00433FFC, 12), 8)};
+        const Vec3 plane = effect_collision_plane();
         const Vec3 minimum{g_amb_color_lo[0], g_amb_color_lo[1], g_amb_color_lo[2]};
         const Vec3 maximum{g_amb_color_hi[0], g_amb_color_hi[1], g_amb_color_hi[2]};
         RuntimeEffectCollisionContext movement{effect_collision, clock, *display_view, plane,
@@ -661,8 +660,7 @@ void SceneActorServices::State::tick_owned_effect(ActorEffectNode& effect, float
     }
     RuntimeEffectDebris debris{{debris_pool->particles, kEffectDebrisCount}, debris_pool->types,
         debris_pool->free_head, game.clock.frame, random};
-    const Vec3 plane{read_f32(data(0x00433FFC, 12), 0), read_f32(data(0x00433FFC, 12), 4),
-        read_f32(data(0x00433FFC, 12), 8)};
+    const Vec3 plane = effect_collision_plane();
     const Vec3 minimum{g_amb_color_lo[0], g_amb_color_lo[1], g_amb_color_lo[2]};
     const Vec3 maximum{g_amb_color_hi[0], g_amb_color_hi[1], g_amb_color_hi[2]};
     RuntimeEffectCollisionContext movement{effect_collision, clock, *display_view, plane,

@@ -1051,6 +1051,12 @@ struct SceneActorServices::State
         return image.memory(address, size);
     }
     // A shader record's constant pointer as its 0xC dwords in the image, or null when the pointer is 0.
+    // DAT_00433FFC: the plane normal 0x0013C0B0 tests particles against, offset by DAT_0032B184. Inferred from that dump.
+    Vec3 effect_collision_plane() const
+    {
+        const auto words = data(0x00433FFC, 12);
+        return {read_f32(words, 0), read_f32(words, 4), read_f32(words, 8)};
+    }
     const u32* shader_constants_at(u32 pointer) const
     {
         const u32 address = read_u32(data(pointer, 4), 0);
@@ -1202,7 +1208,7 @@ struct SceneActorServices::State
                 return resources.memory.address_of(static_cast<const u8*>(pointer));
             },
             clock, display_view, display_setup.get(), model_draw.get(),
-            {&g_scene_ambient_tint_0, &g_scene_ambient_tint_1, &g_scene_ambient_tint_2, &g_scene_ambient_tint_3}, origin, read_f32(data(0x0032B5C8, 4), 0)};
+            {&g_scene_ambient_tint_0, &g_scene_ambient_tint_1, &g_scene_ambient_tint_2, &g_scene_ambient_tint_3}, origin, 3500.f}; // DAT_0032B5C8.
     }
     RuntimeLightCones light_cones{}; // DAT_0050EF20 / DAT_00510560 (0x0011AEA0 / 0x0011AEE0 / 0x000BA840).
     i32& frontend_state = g_challenge_run.state; // DAT_004E17C8, the running challenge's state.

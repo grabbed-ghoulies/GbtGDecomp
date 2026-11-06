@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../graphics/boot_shader_tables.h"
 
 // Actor drawing, view presentation, render targets, textures and the inspector's views.
 namespace gbtg
@@ -58,7 +59,8 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
             {
                 std::unique_ptr<ActorDrawModelView> model;
                 ActorDrawState state = actor_draw_state(*object, actor, model);
-                RuntimeBoneDebrisDraw draw{state.model, read_u32(data(0x00427424, 4), 0), *model_draw};
+                const u32 material_second = read_u32(data(0x00427424, 4), 0);
+                RuntimeBoneDebrisDraw draw{state.model, material_second, *model_draw};
                 classes->draw_bone_debris(*object, pass, draw);
                 return;
             }
@@ -102,8 +104,9 @@ void SceneActorServices::State::actor_draw(Actor& actor, i32 view, i32 pass)
             {
                 std::unique_ptr<ActorDrawModelView> model;
                 ActorDrawState state = actor_draw_state(*object, actor, model);
+                const u32 material_second = read_u32(data(0x00427428, 4), 0);
                 RuntimeAvatarAfterimageDraw draw{{object->bytes.get(), object->size}, actor, state.model,
-                    read_u32(data(0x00427428, 4), 0), *model_draw, *glow_pass};
+                    material_second, *model_draw, *glow_pass};
                 draw_runtime_avatar_afterimage(pass, draw);
                 return;
             }
@@ -678,8 +681,9 @@ void SceneActorServices::State::present_view(i32 view)
         {
             draw_screen_effects(RuntimeScreenEffects{screen_tint, pulse, g_transition_guard, screen_lines,
                 glow_targets.page_texture, resources.memory.address_of(glow_targets.page_texture),
-                read_u32(data(0x00427224, 4), 0), shader_constants_at(0x00427218), read_u32(data(0x00427314, 4), 0),
-                shader_constants_at(0x00427308), read_u32(data(0x00425E9C, 4), 0), game.clock.time},
+                read_u32(data(kScreenQuadVertexShader.handle, 4), 0), shader_constants_at(kScreenQuadVertexShader.constants),
+                read_u32(data(kBlurQuadVertexShader.handle, 4), 0), shader_constants_at(kBlurQuadVertexShader.constants),
+                read_u32(data(kBlurPixelShader, 4), 0), game.clock.time},
                 *dialogue_outer); // 0x000615E0
         },
         [this]()

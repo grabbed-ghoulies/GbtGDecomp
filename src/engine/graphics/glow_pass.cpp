@@ -1,4 +1,5 @@
 #include "glow_pass.h"
+#include "boot_shader_tables.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
 
@@ -245,13 +246,13 @@ void set_runtime_glow_depth_states(RuntimeGlowPass& context)
     simple(context, 0x40300, 1, 0x00181C60);
     simple(context, 0x40340, 5, 0x00181C64);
     simple(context, 0x40304, 1, 0x00181C5C);
-    d3d.vertex_shader(context.word_at(0x0042720C));
-    if (const u32 constants = context.word_at(0x00427200); constants != 0)
+    d3d.vertex_shader(context.word_at(kZSpriteVertexShader.handle));
+    if (const u32 constants = context.word_at(kZSpriteVertexShader.constants); constants != 0)
     {
         const auto words = constant_words(constants, context);
         d3d.constants_not_inline(0x60, words.data(), 0xC);
     }
-    d3d.pixel_shader(context.word_at(0x00425DEC));
+    d3d.pixel_shader(context.word_at(kZSpritePixelShader));
     context.texture_modes(0x54420);
     std::array<float, 16> world;
     for (u32 index = 0; index < 16; ++index)
@@ -281,14 +282,14 @@ void set_runtime_glow_color_states(u32 vertex_shader, u32 pixel_shader, u32 colo
     simple(context, 0x40364, 0x202, 0x00181C88);
     simple(context, 0x4036C, 0xFFFFFFFFu, 0x00181C90);
     simple(context, 0x40368, 0, 0x00181C8C);
-    d3d.vertex_shader(context.word_at(0x004271F4 + vertex_shader * 0x18));
-    if (const u32 constants = context.word_at(0x004271E8 + vertex_shader * 0x18); constants != 0)
+    d3d.vertex_shader(context.word_at(boot_vertex_shader(vertex_shader).handle));
+    if (const u32 constants = context.word_at(boot_vertex_shader(vertex_shader).constants); constants != 0)
     {
         const auto words = constant_words(constants, context);
         d3d.constants_not_inline(0x60, words.data(), 0xC);
     }
     d3d.texture(0, context.targets.page_texture);
-    d3d.pixel_shader(context.word_at(0x00425DEC + pixel_shader * 0x10));
+    d3d.pixel_shader(context.word_at(boot_pixel_shader(pixel_shader)));
     const auto channels = color_channels(color);
     context.outer.d3d.pixel_constants(0, channels.data(), 1);
 }

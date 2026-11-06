@@ -1,4 +1,5 @@
 #include "light_cones.h"
+#include "boot_shader_tables.h"
 #include "vector_normalize.h"
 #include "../audio/listener_settings.h"
 #include "../entities/entity_collision.h"
@@ -374,13 +375,13 @@ void draw_runtime_light_cones(RuntimeLightConeDraw& context)
     deferred(context, 0x001819B8) = 0;
     d3d(context).vertex_shader(0x42); // 0x001739F0
     d3d(context).cull(0x900); // 0x00171420
-    d3d(context).vertex_shader(pass.word(0x00427404)); // 0x001739F0
-    const u32 constants = pass.word(0x004273F8);
+    d3d(context).vertex_shader(pass.word(kLightConeVertexShader.handle)); // 0x001739F0
+    const u32 constants = pass.word(kLightConeVertexShader.constants);
     if (constants != 0)
     {
         d3d(context).constants(0x60, pass.floats(constants), 0xC); // 0x001735D0, ECX 0x60
     }
-    d3d(context).pixel_shader(pass.word(0x00425F1C)); // 0x00175370
+    d3d(context).pixel_shader(pass.word(kDiffusePixelShader)); // 0x00175370
     Matrix world{};
     Matrix view{};
     Matrix projection{};

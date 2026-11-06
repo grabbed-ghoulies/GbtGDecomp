@@ -1,4 +1,5 @@
 #include "door_shadow_draw.h"
+#include "boot_shader_tables.h"
 #include "../audio/listener_settings.h"
 
 #include <bit>
@@ -141,7 +142,7 @@ void draw_runtime_door_shadows(RuntimeDoorShadowDraw& context)
     context.deferred[0] |= 1;
     context.deferred[7] = 2;
     context.vertex_shader(0x13);
-    context.pixel_shader(context.image.word(0x00425F1C));
+    context.pixel_shader(context.image.word(kDiffusePixelShader));
     std::array<float, 16> view, projection;
     context.d3d.get_transform(0, view.data());
     context.d3d.get_transform(1, projection.data());

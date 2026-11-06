@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../graphics/boot_shader_tables.h"
 #include "../entities/mind_fields.h"
 #include <cstddef>
 #include "../entities/body_fields.h"
@@ -211,19 +212,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return runtime_area_dialogue_active(area_dialogue);
         }});
     {
-        const auto constant = [this](u32 address)
-        {
-            float value;
-            std::memcpy(&value, data(address, 4).data(), 4);
-            return value;
-        };
         scoreboard_resources = std::make_unique<RuntimeScoreboardResources>(RuntimeScoreboardResources{
             resources.registry, resources.error, data(0x00314170, 0x10)});
         scoreboard_update = std::make_unique<RuntimeScoreboardUpdate>(RuntimeScoreboardUpdate{*scoreboard_hud,
             *scoreboard_resources, audio.voices, g_scene_paused, *reinterpret_cast<const float*>(g_scene_times), g_scene_hold_time,
             g_scene_flags->bytes[0], challenge_mode, challenge_count, data(0x00314170, 0x10),
-            data(0x00312A1C, 0x10), data(0x00312F8C, 0x10), constant(0x0032B110), constant(0x0032B248),
-            constant(0x0032B244), constant(0x0032B210), constant(0x0032B254),
+            data(0x00312A1C, 0x10), data(0x00312F8C, 0x10), 2.f, 0.6f, 0.8f, 1.5f, 0.1f, // DAT_0032B110, DAT_0032B248, DAT_0032B244, DAT_0032B210, DAT_0032B254.
             [this](std::span<u32> message)
             {
                 // 0x00122D10: DAT_00511B40 holds the players' actor +0x93C nodes (links[1]).
@@ -380,7 +374,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             return address_of(pointer);
         },
         actor_tags.data(), object_tags.data(), statsheet.data(), statsheet, weapon_names.data(), class_names.data(),
-        read_u32(data(0x00338EE0, 4), 0), matrix_boundaries,
+        read_u32(data(0x00338EE0, 4), 0), // initial_channel_word
+        matrix_boundaries,
         [this](FactoryObject& object) -> RuntimePlayerAttachmentActor&
         {
             attaching_object = &object;
@@ -2156,16 +2151,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     event_board_resources = std::make_unique<RuntimeScoreboardResources>(RuntimeScoreboardResources{
         resources.registry, resources.error, data(0x00314170, 0x10)});
     {
-        const auto constant = [this](u32 address)
-        {
-            float value;
-            std::memcpy(&value, data(address, 4).data(), 4);
-            return value;
-        };
         event_sequence = std::make_unique<ScriptEventSequenceContext>(ScriptEventSequenceContext{*doors,
             scoreboard_globals.score_board, *event_board_resources, audio.voices, prompt_owner,
-            g_script_30d0c, data(0x0042890C, 0x14 * 0x13), constant(0x0032B24C),
-            constant(0x0032B110), constant(0x0032B210),
+            g_script_30d0c, data(0x0042890C, 0x14 * 0x13), 1.2f, 2.f, 1.5f, // DAT_0032B24C, DAT_0032B110, DAT_0032B210.
             [this]()
             {
                 // DAT_00511B40: the first case-list node (player actor +0x93C, links[1]); its +0x20 is the body.
@@ -2407,10 +2395,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         g_retail_dialogue_tokens, g_retail_dialogue_sound_swaps,
         {reinterpret_cast<const i32*>(g_game_progress.words_18f8.data()), g_game_progress.words_18f8.size() / 4},
         g_challenge_selection.selected, g_challenge_run.score, story_byte, g_flags_ea9c});
+    const float initial_scale = read_f32(data(0x00424910, 4), 0);
+    const float drawing_scale = read_f32(data(0x0042493C, 4), 0);
     measurement = std::make_unique<DialogueMeasurementContext>(DialogueMeasurementContext{*tags, resources.metrics,
         resources.text, {g_runtime_profile.challenges.size, g_runtime_profile.challenges.bytes.data()}, 0, 0, 0, 0,
         0, 0, 0.f,
-        read_f32(data(0x00424910, 4), 0), read_f32(data(0x0042493C, 4), 0), paragraph_disabled,
+        initial_scale, drawing_scale, paragraph_disabled,
         wide_scratch.data(), narrow_scratch.data()});
     widget_allocation = std::make_unique<DialogueWidgetAllocationContext>(DialogueWidgetAllocationContext{
         widget_context, text_registry});
@@ -2442,9 +2432,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         accept_runtime_dialogue_button(dialogue_state);
     });
+    const u32 first_category = read_u32(data(0x00421A1C, 4), 0);
+    const u32 second_category = read_u32(data(0x00421A24, 4), 0);
     dialogue = std::make_unique<RuntimeDialogueActivationContext>(RuntimeDialogueActivationContext{dialogue_state,
         g_flags_ea9c, active_strategies, frontend_pause, random, story_byte, hud_size[0], hud.inner_bottom,
-        hud.text_width, read_u32(data(0x00421A1C, 4), 0), read_u32(data(0x00421A24, 4), 0),
+        hud.text_width, first_category, second_category,
         image.string(0x00323C2C), reinterpret_cast<const char*>(data(0x002FEAB8, 0x80).data()),
         data(0x002FEB50, 4).data(), replacement_source.data(), replacement_target.data(), *widget_allocation,
         *widget_bats, dialogue_page, page_settings, *measurement, input_activation, input_release, listener, voices,
@@ -2533,19 +2525,24 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         render_frames.emplace(&render_frame_storage[index], DialogueRenderFrame{{}, frame_cameras[index]});
     }
+    const u32 quad_one = read_u32(data(0x0042515C, 4), 0);
+    const std::array<float, 2> quad_top{read_f32(data(0x0042514C, 8), 0), read_f32(data(0x0042514C, 8), 4)};
+    const std::array<float, 2> quad_bottom{read_f32(data(0x00425154, 8), 0), read_f32(data(0x00425154, 8), 4)};
+    const float ordinary_line_scale = read_f32(data(0x00424908, 4), 0);
+    const float tab_line_scale = read_f32(data(0x0042490C, 4), 0);
     dialogue_draw = std::make_unique<RuntimeDialogueDrawContext>(RuntimeDialogueDrawContext{*dialogue,
         dialogue_draw_state, resources.metrics, d3d_device.dialogue(), model_renderer, render_frames, deferred_states,
         light_override, fog.disabled, sampling_scratch, sampling_active, dialogue_projection, dialogue_view,
         dialogue_world, sprite_world,
         std::span<const u32, 4>(reinterpret_cast<const u32*>(&entity_detail::g_display_records[0].fitted_x), 4),
         render_height, render_width, hud_size[0], hud_size[1], 0xFFFFFFFFu, // DAT_00314F48.
-        read_u32(data(0x004273D4, 4), 0), read_u32(data(0x00425E6C, 4), 0), shader_constants_at(0x004273C8),
-        {0, 0, 0}, read_u32(data(0x0042515C, 4), 0), {read_f32(data(0x0042514C, 8), 0), read_f32(data(0x0042514C, 8), 4)},
-        {read_f32(data(0x00425154, 8), 0), read_f32(data(0x00425154, 8), 4)}, fallback_texture.data(), 0.f, 0,
+        read_u32(data(kDialogueVertexShader.handle, 4), 0), read_u32(data(kTexturedDiffusePixelShader, 4), 0),
+        shader_constants_at(kDialogueVertexShader.constants),
+        {0, 0, 0}, quad_one, quad_top, quad_bottom, fallback_texture.data(), 0.f, 0,
         []() -> std::int64_t
         {
             return host_performance_counter();
-        }, read_f32(data(0x00424908, 4), 0), read_f32(data(0x0042490C, 4), 0)});
+        }, ordinary_line_scale, tab_line_scale});
     display_setup = std::make_unique<RuntimeDisplaySetupContext>(RuntimeDisplaySetupContext{*dialogue_draw,
         clip_bounds, device_projection, device_view, device_world, projection_transpose, default_world, frontend_pause,
         display_address});
@@ -2558,8 +2555,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     scoreboard_hud->damage_preset = data(0x00312F8C, 0x14);
     dialogue_outer = std::make_unique<RuntimeDialogueOuterDrawContext>(RuntimeDialogueOuterDrawContext{*dialogue_draw,
         render_targets, d3d_device.outer(), *sprites, &resources.special_textures, *display_setup, text_draw_count,
-        entity_detail::g_aspect_preset, entity_detail::g_video_widescreen, g_flags_ea9c, display_address, read_u32(data(0x004271F4, 4), 0),
-        read_u32(data(0x00425E0C, 4), 0), shader_constants_at(0x004271E8), line_retained});
+        entity_detail::g_aspect_preset, entity_detail::g_video_widescreen, g_flags_ea9c, display_address,
+        read_u32(data(kScreenLineVertexShader.handle, 4), 0), read_u32(data(kPassColourPixelShader, 4), 0),
+        shader_constants_at(kScreenLineVertexShader.constants), line_retained});
     dialogue_draw->panel_color = 0xE0202020u; // DAT_002FF2E0.
     dialogue_draw->panel_alpha = 224.f; // DAT_0032B49C.
     dialogue_draw->outer = dialogue_outer.get();
@@ -2901,12 +2899,14 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }});
     g_chapter5_countdown = chapter5_countdown_services.get();
     // The Super Scary challenge (factory type 0x98) a trophy head's attack creates.
+    const i32 button_count = i32(read_u32(data(0x00427958, 4), 0));
+    const u32 panel_color = read_u32(data(0x0042795C, 4), 0);
     super_scary_services = std::make_unique<SuperScaryControlServices>(SuperScaryControlServices{
         resources.registry, resources.error, scene_cutscene_runtime(game), voices, audio.streams, random, g_pause_count,
         g_flags_ea9c, g_scene_flags->bytes[0], g_runtime_profile.progress.bytes, frontend_state, prompt_owner,
         powerup_rows[0x12].active, // DAT_005122F0, the ShockerBlocker powerup row.
-        powerup_rows[0xA].active, data(0x00302198, 4 * 0x50), i32(read_u32(data(0x00427958, 4), 0)),
-        read_u32(data(0x0042795C, 4), 0), 0xFFFFFFFFu, 0xFF0000FFu, // DAT_00314F48, DAT_00314F30.
+        powerup_rows[0xA].active, data(0x00302198, 4 * 0x50), button_count,
+        panel_color, 0xFFFFFFFFu, 0xFF0000FFu, // DAT_00314F48, DAT_00314F30.
         hud_size, display_view, scene_name.data(), clock,
         [](u8 mask, i32 release)
         {
@@ -3282,8 +3282,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         *ambient_context, light_direction,
         *reinterpret_cast<const std::array<float, 4>*>(background_ambient.light_color.data()), override_base_color,
         environment_primary, environment_secondary});
+    const float override_intensity = read_f32(data(0x0042A580, 4), 0);
     light_construction = std::make_unique<SceneLightConstructionContext>(SceneLightConstructionContext{*environment,
-        scene_color, retained_scene_color, g_scene_light_intensity, read_f32(data(0x0042A580, 4), 0), directional_light, shaders.records,
+        scene_color, retained_scene_color, g_scene_light_intensity, override_intensity, directional_light, shaders.records,
         temporary_lights});
     model_draw = std::make_unique<SceneModelDrawContext>(SceneModelDrawContext{render_image, *light_construction,
         matrix_boundaries});
@@ -4185,7 +4186,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         targets, target_views, target_eligibility, target_addresses, target_queries, embedded_targets, query,
         powerup_rows[0x11].active, // DAT_005122D8, the ReverseControls powerup row.
-        data(0x002FFF24, 0x10), read_f32(data(0x004275B8, 4), 0),
+        data(0x002FFF24, 0x10),
+        read_f32(data(0x004275B8, 4), 0), // angular_limit
         scoreboard_globals.meter_bd0, // DAT_00433BD0, the meter buzzer 0x0012ED30 plays and clears
         statsheet, data(0x00433D5C, 0xC), powerup_rows[11].active, powerup_rows[8].active,
         [this](u32 address) -> const u8*

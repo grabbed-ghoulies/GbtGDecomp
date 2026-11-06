@@ -1,4 +1,5 @@
 #include "background_cloth_draw.h"
+#include "boot_shader_tables.h"
 #include "d3dx_view.h"
 #include "scene_d3d_device.h"
 #include "vector_normalize.h"
@@ -79,11 +80,11 @@ void constant(RuntimeBackgroundClothDraw& context, u32 reg, const std::array<flo
 }
 
 // SetPixelShader, SetVertexShader and, when the shader's constant table is set, its twelve words at c0x60.
-void bind_shaders(RuntimeBackgroundClothDraw& context, u32 pixel, u32 vertex, u32 table)
+void bind_shaders(RuntimeBackgroundClothDraw& context, u32 pixel, BootVertexShader vertex)
 {
     d3d(context).pixel_shader(context.pass.word(pixel)); // 0x00175370
-    d3d(context).vertex_shader(context.pass.word(vertex)); // 0x001739F0
-    const u32 constants = context.pass.word(table);
+    d3d(context).vertex_shader(context.pass.word(vertex.handle)); // 0x001739F0
+    const u32 constants = context.pass.word(vertex.constants);
     if (constants != 0)
     {
         d3d(context).constants(0x60, context.pass.floats(constants), 0xC); // 0x001735D0, ECX 0x60
@@ -259,7 +260,7 @@ void begin_runtime_background_cloth_pass(RuntimeBackgroundClothDraw& context)
     set_dialogue_texture_state(context.pass.outer.draw); // 0x0005E2A0
     d3d(context).stencil_enable(0); // 0x00172330
     d3d(context).pixel_shader(0); // 0x00175370
-    bind_shaders(context, 0x00425ECC, 0x00427344, 0x00427338);
+    bind_shaders(context, kClothRampPixelShader, kClothRampVertexShader);
     load_frame_transform(context);
     constant(context, 0x64, light);
     constant(context, 0x65, ambient);
@@ -293,7 +294,7 @@ void draw_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBackgro
     }
     if (cloth_header(bytes).own_shaders == 0)
     {
-        bind_shaders(context, 0x00425EBC, 0x0042732C, 0x00427320);
+        bind_shaders(context, kClothColouredPixelShader, kClothColouredVertexShader);
     }
     const u32 texture = cloth_header(bytes).texture;
     if (texture == 0)
@@ -345,7 +346,7 @@ void draw_runtime_background_cloth(RuntimeBackgroundCloth& cloth, RuntimeBackgro
     }
     if (cloth_header(bytes).own_shaders == 0)
     {
-        bind_shaders(context, 0x00425ECC, 0x00427344, 0x00427338);
+        bind_shaders(context, kClothRampPixelShader, kClothRampVertexShader);
     }
 }
 
@@ -363,7 +364,7 @@ void draw_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgro
     }
     if (cloth_header(bytes).own_shaders == 0)
     {
-        bind_shaders(context, 0x00425EBC, 0x0042732C, 0x00427320);
+        bind_shaders(context, kClothColouredPixelShader, kClothColouredVertexShader);
     }
     const u32 texture = cloth_header(bytes).texture;
     if (texture == 0)
@@ -427,7 +428,7 @@ void draw_runtime_background_water(RuntimeBackgroundCloth& cloth, RuntimeBackgro
     }
     if (cloth_header(bytes).own_shaders == 0)
     {
-        bind_shaders(context, 0x00425ECC, 0x00427344, 0x00427338);
+        bind_shaders(context, kClothRampPixelShader, kClothRampVertexShader);
     }
 }
 
@@ -566,11 +567,11 @@ void begin_runtime_shadow_projector(RuntimeBackgroundClothDraw& context)
     context.pass.multisample_target_mode(1); // 0x001725D0
     if (context.projector.alternate == 0)
     {
-        bind_shaders(context, 0x00425E6C, 0x0042729C, 0x00427290);
+        bind_shaders(context, kTexturedDiffusePixelShader, kShadowProjectorVertexShader);
     }
     else
     {
-        bind_shaders(context, 0x00425E7C, 0x004272B4, 0x004272A8);
+        bind_shaders(context, kTexturedDiffuseClippedPixelShader, kShadowProjectorClippedVertexShader);
     }
     deferred(context, 0x00181968) |= 0x801;
     deferred(context, 0x001819A0) = 4;
@@ -1138,7 +1139,7 @@ void draw_runtime_refraction(RuntimeSceneRefraction& refraction, u32 disabled, R
     deferred(context, 0x00181968) |= 4;
     deferred(context, 0x00181A78) = 3;
     context.pass.texture(2, back_texture);
-    d3d(context).pixel_shader(context.pass.word(0x00425EAC)); // D3DDevice_SetPixelShader
+    d3d(context).pixel_shader(context.pass.word(kRefractionPixelShader)); // D3DDevice_SetPixelShader
     d3d(context).vertex_shader(0x140304); // D3DFVF_XYZRHW | D3DFVF_TEX3, sets 1 and 2 three-dimensional
     d3d(context).draw_vertices_up(8, 4, refraction.quad.data(), 0x30); // D3DDevice_DrawVerticesUP, a quad
     d3d(context).stencil_enable(0);

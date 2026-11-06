@@ -720,8 +720,8 @@ the offset, size and span length. All ten regular modes are byte-identical to th
 Code reads three kinds of retail data by address, and they get different treatment:
 
 - **`.rdata` floats (0x32Bxxx)** can't change, so they are literals with a `DAT_` comment: `const float scale_x = 640.f; // DAT_0032B6B0.`
-  344 reads were converted by script, which checked that the section isn't writable and that each literal round-trips to the XBE's
-  bits. `constant(...)` in `scene_actor_services_bindings.cpp` still binds some by reference.
+  The reads were converted by script, which checked that the section isn't writable and that each literal round-trips to the XBE's
+  bits.
 - **`.data` values** are writable, so they stay reads and need names. `CameraRigTunables` (DAT_004274B8.., 0xEC bytes, copied once at
   boot) holds the camera rig's. `g_camera_view_tunables` stays words, as scripts write them, with `camera_view_tunable` naming the
   indices. Names come from what each value feeds; those that only pass on stay `unk_`.
@@ -730,6 +730,11 @@ Code reads three kinds of retail data by address, and they get different treatme
   the dumps writes them: `FinalScoreLayout` (DAT_00428A88, 0x184), `SlotSelectLayout` (DAT_00428F90, 0x9C), `AppErrorLayout`
   (DAT_00339F5C, 0x3C), and `GameSelectPageLayout` (0x58), shared by the features, options and four replay pages. `SlotPlateRow` (DAT_0042902C, stride 0x124) and `SlotChapterRow` (DAT_00429290, stride 0x10C) overlap: the
   chapter table starts at the third plate's texture name.
+- **The boot shader tables** (`graphics/boot_shader_tables.h`) are .data rows whose handles 0x00065EE0 and 0x00063FB0 write at boot, so code
+  reads them through the image by name: `kBillboardVertexShader.handle`, `.constants`, `kDiffusePixelShader`. Names come from the shader
+  source's own comment or the pass that binds the row. Vertex rows 3..6, 11, 17..19, 21, 23 and pixel rows 1, 3..7, 18 have no binder in the dumps.
+- **Single .data values** handed to a long aggregate take a local named after the receiving field (`quad_top`, `panel_color`), or a comment
+  naming it where the list is too long for a local to sit near.
 - **Strings and other tables** (`image.string` and the retail tables `data(...)` hands to named bindings) are still read by address.
 
 The offset census doesn't count reads by address, so its total understates these.

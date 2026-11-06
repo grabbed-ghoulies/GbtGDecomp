@@ -378,8 +378,7 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
     auto& chosen = chosen_plate(w);
     chosen.box_color = selected;
     set_color_alpha(chosen.box_color, truncate_byte(static_cast<long double>(fraction) * 196.f)); // DAT_0032B378.
-    double limit;
-    std::memcpy(&limit, s.image.memory(0x0032B370, 8).data(), 8);
+    const double limit = 1.0; // DAT_0032B370.
     if (!(double(fraction) < limit))
     {
         w.plates_fading = 0;

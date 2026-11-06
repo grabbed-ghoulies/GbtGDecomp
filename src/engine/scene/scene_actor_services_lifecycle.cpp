@@ -540,7 +540,7 @@ void SceneActorServices::State::bind_book_services()
         {
             return actors->view(object_of_actor(actor)).startup.models.secondary.get();
         },
-        dialogue_outer->capture_configuration, 0, read_u32(data(0x004231C4, 4), 0), // DAT_005462A4 is never written.
+        dialogue_outer->capture_configuration, 0, read_u32(data(0x004231C4, 4), 0), // page_clear_color; DAT_005462A4 is never written.
         text_registry, resources.metrics, widget_context.viewport_width, next_widget_id, random, resources.font_views,
         fallback_texture.data(), resources.text, voices,
         [this](float width)
@@ -561,8 +561,9 @@ void SceneActorServices::State::bind_gameselect_services()
         nullptr}};
     RuntimeScreenTextureBoundaries textures = screen_texture_boundaries();
     gameselect_services = std::make_unique<GameSelectControlServices>(GameSelectControlServices{resources.registry,
-        resources.error, g_runtime_profile, g_flags_ea9c, gameselect_text, image.string(read_u32(data(0x00430CF8, 4),
-        0)), scene_order_held, scene_order_release, g_pause_count, input_activation, input_release, frontend_input_address,
+        resources.error, g_runtime_profile, g_flags_ea9c, gameselect_text,
+        image.string(read_u32(data(0x00430CF8, 4), 0)), // scene_order
+        scene_order_held, scene_order_release, g_pause_count, input_activation, input_release, frontend_input_address,
         game.clock.frame, g_frontend_next_row, gameselect_stream_wait, 5.f, // DAT_0032B184.
         [this](i32 id) -> i32
         {

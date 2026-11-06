@@ -36,8 +36,8 @@ i16 play_start_button_laugh(u32& random, const SceneExecutableResources& image, 
     const i16 index = allocate_audio_event_voice(0, voices);
     if (index != -1)
     {
-        const float one = std::bit_cast<float>(*reinterpret_cast<const u32*>(image.memory(0x0032B0F8, 4).data()));
-        const float scale = std::bit_cast<float>(*reinterpret_cast<const u32*>(image.memory(0x0032B100, 4).data()));
+        const float one = 1.f; // DAT_0032B0F8.
+        const float scale = 0.f; // DAT_0032B100: retail scales by zero, so the first laugh always plays.
         const i32 pick = static_cast<i32>((unit - one) * scale);
         voices.voices[size_t(index)].stop = 1;
         prepare_audio_event_voice(index, image.string(0x00314D68u - u32(pick) * 0x80u), voices);

@@ -1,4 +1,5 @@
 #include "scene_point_light_pass.h"
+#include "boot_shader_tables.h"
 #include "../camera/runtime_display_setup.h"
 #include "../camera/view_frustum.h"
 #include "../frontend/dialogue_draw_context.h"
@@ -145,10 +146,10 @@ u32 clear_color(u32 color)
     return (((a << 8 | r) << 8 | g) << 8) | b;
 }
 
-void bind_boot_vertex_shader(RuntimeScenePointLightPass& context, u32 handle, u32 constants)
+void bind_boot_vertex_shader(RuntimeScenePointLightPass& context, BootVertexShader shader)
 {
-    d3d(context).vertex_shader(context.word(handle)); // 0x001739F0
-    const u32 table = context.word(constants);
+    d3d(context).vertex_shader(context.word(shader.handle)); // 0x001739F0
+    const u32 table = context.word(shader.constants);
     if (table != 0)
     {
         d3d(context).constants(0x60, context.floats(table), 0xC); // 0x001735D0, ECX 0x60
@@ -253,7 +254,7 @@ void begin_runtime_scene_point_lights(u32 grid_offset, u32 color, RuntimeScenePo
         set_state(context, 0x4035C, 1);
         deferred(context, 0x181C70) = 1;
         outer.clear(0, nullptr, 0xF1, clear_color(color), 1.f, 0); // 0x00176970
-        bind_boot_vertex_shader(context, 0x004272CC, 0x004272C0);
+        bind_boot_vertex_shader(context, kPointLightLitVertexShader);
     }
     else
     {
@@ -262,7 +263,7 @@ void begin_runtime_scene_point_lights(u32 grid_offset, u32 color, RuntimeScenePo
         context.z_bias(4); // 0x00171660
         set_state(context, 0x4035C, 0);
         deferred(context, 0x181C70) = 0;
-        bind_boot_vertex_shader(context, 0x004272E4, 0x004272D8);
+        bind_boot_vertex_shader(context, kPointLightFlatVertexShader);
         context.multisample_antialias(0); // 0x00172600
         d3d(context).multisample_mode(2); // 0x001725A0
         context.multisample_target_mode(2); // 0x001725D0
@@ -372,7 +373,7 @@ void begin_runtime_scene_point_lights(u32 grid_offset, u32 color, RuntimeScenePo
         set_state(context, 0x40358, 0x1010101);
         deferred(context, 0x181C7C) = 0x1010101;
     }
-    d3d(context).pixel_shader(context.word(0x00425E8C)); // 0x00175370
+    d3d(context).pixel_shader(context.word(kPointLightPixelShader)); // 0x00175370
 }
 
 // Xbox 0x00063770, EAX grid
@@ -642,7 +643,7 @@ void finish_runtime_scene_point_lights(RuntimeScenePointLightPass& context)
             targets.copy_texture = context.address_of(context.pages.depth_texture); // DAT_005047E8
         }
         copy_runtime_back_buffer(0, 0, targets.copy_texture, outer); // 0x0013DF80, EAX 0, ECX 0
-        d3d(context).pixel_shader(context.word(0x00425EFC)); // 0x00175370
+        d3d(context).pixel_shader(context.word(kPointLightModulatePixelShader)); // 0x00175370
         d3d(context).vertex_shader(0x202); // 0x001739F0
         deferred(context, 0x181968) |= 2;
         deferred(context, 0x1819F0) = 4;

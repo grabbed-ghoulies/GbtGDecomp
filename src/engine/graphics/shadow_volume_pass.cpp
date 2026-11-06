@@ -1,4 +1,5 @@
 #include "shadow_volume_pass.h"
+#include "boot_shader_tables.h"
 #include "d3dx_matrix.h"
 #include "d3dx_view.h"
 #include "../camera/display_view.h"
@@ -207,8 +208,8 @@ void draw_runtime_shadow_volumes(RuntimeShadowVolumes& volumes, RuntimeBackgroun
     deferred(context, 0x00181968) |= 0x801;
     deferred(context, 0x00181A30) = 1;
     d3d(context).pixel_shader(0); // D3DDevice_SetPixelShader
-    d3d(context).vertex_shader(context.pass.word(0x0042735C)); // D3DDevice_SetVertexShader
-    const u32 table = context.pass.word(0x00427350);
+    d3d(context).vertex_shader(context.pass.word(kShadowVolumeVertexShader.handle)); // D3DDevice_SetVertexShader
+    const u32 table = context.pass.word(kShadowVolumeVertexShader.constants);
     if (table != 0)
     {
         d3d(context).constants(0x60, context.pass.floats(table), 0xC); // 0x001735D0, ECX 0x60
@@ -301,7 +302,7 @@ void draw_runtime_shadow_volumes(RuntimeShadowVolumes& volumes, RuntimeBackgroun
     simple(context, 0x40364, 0x205, 0x00181C88);
     simple(context, 0x40368, 0, 0x00181C8C);
     d3d(context).vertex_shader(0xA00404); // The quad's FVF: XYZRHW and its texture sets (DAT_00430B00, stride 0x40).
-    d3d(context).pixel_shader(context.pass.word(0x00425EDC));
+    d3d(context).pixel_shader(context.pass.word(kShadowVolumePixelShader));
     outer.pixel_constants(0, reinterpret_cast<const float*>(volumes.regions[0].source + 4),
         1); // D3DDevice_SetPixelShaderConstant, *DAT_0050EAA0 + 4
     context.pass.texture(0, page);

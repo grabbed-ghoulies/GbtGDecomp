@@ -761,8 +761,7 @@ void SceneActorServices::update_effects(RuntimeEffectPassScratch& scratch)
     state.pal = state.game.clock.pal ? 1 : 0;
     RuntimeEffectDebris debris{{state.debris_pool->particles, kEffectDebrisCount}, state.debris_pool->types,
         state.debris_pool->free_head, state.game.clock.frame, state.random};
-    const Vec3 plane{read_f32(state.data(0x00433FFC, 12), 0),
-        read_f32(state.data(0x00433FFC, 12), 4), read_f32(state.data(0x00433FFC, 12), 8)};
+    const Vec3 plane = state.effect_collision_plane();
     const Vec3 minimum{g_amb_color_lo[0], g_amb_color_lo[1], g_amb_color_lo[2]};
     const Vec3 maximum{g_amb_color_hi[0], g_amb_color_hi[1], g_amb_color_hi[2]};
     RuntimeEffectCollisionContext movement{state.effect_collision, state.clock, *state.display_view,
@@ -1109,15 +1108,13 @@ void SceneActorServices::show_script_scene_name(const char* key, u32 show, i32 r
         {
             allocate_dialogue_text_pool(state.script_title_pool, 0, 0, 0x5E4, state.text_registry); // 0x0005F390
             state.random = state.random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C
-            state.script_title_pool->origin = {read_f32(state.data(0x0032B20C, 4), 0),
-                read_f32(state.data(0x0032B0F4, 4), 0), std::bit_cast<float>(state.random)};
+            state.script_title_pool->origin = {2.5f, 0.5f, std::bit_cast<float>(state.random)}; // DAT_0032B20C, DAT_0032B0F4.
         }
         RuntimeDialogueTextPool& pool = *state.script_title_pool;
         create_dialogue_text_record(pool, u"spam", -100.f, -100.f, 0.1f, 0.1f, delay, 0, 0, 0, state.resources.metrics,
             state.widget_context.viewport_width, state.next_widget_id, state.random); // 0x0005F550, EAX 0
-        const float line = runtime_text_line_height(state.resources.metrics, 0,
-            read_f32(state.data(0x0032B110, 4), 0)); // 0x000606D0, ECX 0
-        const float half = read_f32(state.data(0x0032B0F4, 4), 0);
+        const float line = runtime_text_line_height(state.resources.metrics, 0, 2.f); // 0x000606D0, ECX 0, DAT_0032B110.
+        const float half = 0.5f; // DAT_0032B0F4.
         create_dialogue_text_record(pool, name, float(state.render_width) * half,
             (float(state.render_height) - line) * half, 1.5f, 1.5f, lifetime, 1, 0, 0, state.resources.metrics,
             state.widget_context.viewport_width, state.next_widget_id, state.random); // 0x0005F580 into 0x0005F5C0

@@ -331,22 +331,22 @@ void release_nowrite_textures(SlotSelectWidget& w, GameSelectControlServices& s)
 // Xbox 0x000DF580, EAX widget: the plates' colors back to rest, the selected box highlighted.
 void reset_plate_colors(SlotSelectWidget& w, GameSelectControlServices& s)
 {
-    const u32 white = exe_word(s, 0x00314F48);
-    const u32 rest = exe_word(s, 0x00308B1C);
+    const u32 white = 0xFFFFFFFFu; // DAT_00314F48.
+    const u32 rest = 0x80069764u; // DAT_00308B1C.
     for (size_t index = 0; index < 3; ++index)
     {
         auto& plate = w.plates[index];
         plate.plate_sprite.color = white;
         plate.box_color = rest;
     }
-    chosen_plate(w).box_color = exe_word(s, 0x00308B18);
+    chosen_plate(w).box_color = 0xC43EF7B6u; // DAT_00308B18.
 }
 
 // Xbox 0x000DF3E0, ESI widget: the plates fade in over DAT_00429014 seconds.
 void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
 {
-    const u32 rest = exe_word(s, 0x00308B1C);
-    const u32 white = exe_word(s, 0x00314F48);
+    const u32 rest = 0x80069764u; // DAT_00308B1C.
+    const u32 white = 0xFFFFFFFFu; // DAT_00314F48.
     count_down(w.plate_fade_timer, frame_step(s));
     const float duration = layout(s).plate_fade_time;
     float fraction;
@@ -374,7 +374,7 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
         w.plates[index].plate_sprite.color = plate;
         w.plates[index].box_color = box;
     }
-    const u32 selected = exe_word(s, 0x00308B18);
+    const u32 selected = 0xC43EF7B6u; // DAT_00308B18.
     auto& chosen = chosen_plate(w);
     chosen.box_color = selected;
     set_color_alpha(chosen.box_color, truncate_byte(static_cast<long double>(fraction) * 196.f)); // DAT_0032B378.
@@ -386,7 +386,7 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
         for (size_t index = 0; index < 3; ++index)
         {
             w.plates[index].plate_sprite.color = white;
-            w.plates[index].box_color = exe_word(s, 0x00308B1C);
+            w.plates[index].box_color = 0x80069764u; // DAT_00308B1C.
         }
         chosen.box_color = selected;
     }
@@ -528,7 +528,7 @@ void raise_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
         set_color_alpha(w.old_background.color, u8(0xFF - alpha));
     }
     const float fraction = w.background_fade;
-    p.box_color = blend_runtime_color(exe_word(s, 0x00308B18), exe_word(s, 0x00308B1C), fraction, s);
+    p.box_color = blend_runtime_color(0xC43EF7B6u, 0x80069764u, fraction, s); // DAT_00308B18, DAT_00308B1C.
     const SlotPlateRow& row = plate_row(s, u32(slot));
     const float width = screen_width(s);
     const float plate_width = texture_width(w.plates[slot].plate_sprite.texture);
@@ -913,7 +913,7 @@ void set_plate_overlay(SlotSelectWidget::Plate& plate, GameSelectSprite& overlay
     overlay.scale[1] = layout.scale[1];
     overlay.position[0] = plate.plate_sprite.position[0] + layout.offset[0];
     overlay.position[1] = plate.plate_sprite.position[1] + layout.offset[1];
-    overlay.color = exe_word(s, 0x00314F48);
+    overlay.color = 0xFFFFFFFFu; // DAT_00314F48.
     set_color_alpha(overlay.color, u8(layout.alpha));
 }
 
@@ -1044,7 +1044,7 @@ void open_runtime_slot_select(std::span<u8> owner, GameSelectControlState& contr
         auto& name = w.slot_names[index];
         name[0] = 0;
     }
-    const u32 white = exe_word(s, 0x00314F48);
+    const u32 white = 0xFFFFFFFFu; // DAT_00314F48.
     auto& background_sprite = w.background;
     auto& old_background_sprite = w.old_background;
     w.background.texture = acquire_texture(background, s);
@@ -1110,7 +1110,7 @@ void open_runtime_slot_select(std::span<u8> owner, GameSelectControlState& contr
         plate.broken_sprite.texture = {};
         copy_movie_name(w, index, movie.movie);
         p.movie_uv = {movie.movie_uv[0], movie.movie_uv[1]};
-        p.box_color = exe_word(s, 0x00308B1C);
+        p.box_color = 0x80069764u; // DAT_00308B1C.
         p.box_width = row.rest_size[0] * 640.f + layout(s).box_margin; // DAT_0032B6B0.
         p.box_height = row.rest_size[1] * 480.f + layout(s).box_margin; // DAT_0032B6AC.
     }
@@ -1138,7 +1138,7 @@ void close_runtime_slot_select(GameSelectWidget& widget, GameSelectControlServic
         activate_actor_bind_tree(*w.bat); // 0x00112CC0, ESI the bat: message 0x80 retires it.
         w.bat = nullptr;
     }
-    const u32 cleared = exe_word(s, 0x00314F30);
+    const u32 cleared = 0xFF0000FFu; // DAT_00314F30.
     if (w.background.texture.data() != nullptr)
     {
         release_texture(w.background.texture, s);
@@ -1365,7 +1365,7 @@ void draw_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
                     alpha = 0.f;
                 }
             }
-            const u32 color = with_alpha(exe_word(s, 0x00314F48), truncate_byte(alpha));
+            const u32 color = with_alpha(0xFFFFFFFFu, truncate_byte(alpha)); // DAT_00314F48.
             const float uv_top[2]{16.f, 4.f}; // DAT_0032B1F4, DAT_0032B1B0.
             // The movie frame over the plate the frame was chosen for (`chosen`, read on entry), scaled by the
             // selected plate's (+0xB2C now).
@@ -1565,7 +1565,7 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
             plate_sprite.scale[1] = (screen_height(s) * row.rest_size[1]) / texture_height(plate);
             p.box_width = row.rest_size[0] * 640.f + layout(s).box_margin; // DAT_0032B6B0.
             p.box_height = row.rest_size[1] * 480.f + layout(s).box_margin; // DAT_0032B6AC.
-            p.box_color = exe_word(s, 0x00308B1C);
+            p.box_color = 0x80069764u; // DAT_00308B1C.
             if (w.plates[index].nowrite_sprite.texture.data() != nullptr)
             {
                 auto& nowrite = p.nowrite_sprite;

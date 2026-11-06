@@ -563,7 +563,7 @@ void SceneActorServices::State::bind_gameselect_services()
     gameselect_services = std::make_unique<GameSelectControlServices>(GameSelectControlServices{resources.registry,
         resources.error, g_runtime_profile, g_flags_ea9c, gameselect_text, image.string(read_u32(data(0x00430CF8, 4),
         0)), scene_order_held, scene_order_release, g_pause_count, input_activation, input_release, frontend_input_address,
-        game.clock.frame, g_frontend_next_row, gameselect_stream_wait, read_f32(data(0x0032B184, 4), 0),
+        game.clock.frame, g_frontend_next_row, gameselect_stream_wait, 5.f, // DAT_0032B184.
         [this](i32 id) -> i32
         {
             return runtime_stream_bank_busy(id, nullptr, nullptr, audio.wavebank_streams); // 0x00039D50

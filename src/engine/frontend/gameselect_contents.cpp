@@ -333,14 +333,14 @@ void release_chapter_textures(GameContentsWidget& w, GameSelectControlServices& 
 // Xbox 0x000DA530, EAX the widget: every chapter's colors back to rest, the selected one lit.
 void reset_chapter_colors(GameContentsWidget& w, GameSelectControlServices& s)
 {
-    const u32 white = exe_word(s, 0x00314F48);
-    const u32 rest = exe_word(s, 0x003069EC);
+    const u32 white = 0xFFFFFFFFu; // DAT_00314F48.
+    const u32 rest = 0x80069764u; // DAT_003069EC.
     for (size_t index = 0; index < 3; ++index)
     {
         chapter_sprite(w, index).color = white;
         chapter_panel(w, index).box_color = rest;
     }
-    chapter_panel(w, chapter(w)).box_color = exe_word(s, 0x003069E8);
+    chapter_panel(w, chapter(w)).box_color = 0xC43EF7B6u; // DAT_003069E8.
 }
 
 // Xbox 0x000D9F10, ESI the widget: the cursor bat, made once.
@@ -463,7 +463,7 @@ void tick_chapter_select(GameContentsWidget& w, GameSelectControlServices& s)
         set_color_alpha(w.old_background.color, u8(0xFF - alpha));
     }
     const float fraction = w.background_fade;
-    panel.box_color = blend_color(exe_word(s, 0x003069E8), exe_word(s, 0x003069EC), fraction, s); // 0x00101730
+    panel.box_color = blend_color(0xC43EF7B6u, 0x80069764u, fraction, s); // 0x00101730, DAT_003069E8, DAT_003069EC.
     const ChapterPanelLayout& layout = chapter_layout(s, u32(index));
     const float width = texture_width(w.chapters[index].sprite.texture);
     const float rest_x = (layout.rest_size[0] * screen_width(s)) / width; // DAT_003069A4
@@ -498,8 +498,8 @@ void tick_chapter_select(GameContentsWidget& w, GameSelectControlServices& s)
 // Xbox 0x000DA3B0, ESI the widget: the opening fade of every chapter's colors.
 void tick_contents_fade_in(GameContentsWidget& w, GameSelectControlServices& s)
 {
-    const u32 white = exe_word(s, 0x00314F48);
-    const u32 rest = exe_word(s, 0x003069EC);
+    const u32 white = 0xFFFFFFFFu; // DAT_00314F48.
+    const u32 rest = 0x80069764u; // DAT_003069EC.
     count_down(w.panel_fade_timer, frame_step(s));
     const float scaled = (w.panel_fade_timer - 2.f) * -0.5f; // DAT_0032B110, DAT_0032B1C4.
     float fraction;
@@ -518,7 +518,7 @@ void tick_contents_fade_in(GameContentsWidget& w, GameSelectControlServices& s)
         chapter_sprite(w, index).color = faded_white;
         chapter_panel(w, index).box_color = faded_rest;
     }
-    const u32 lit = exe_word(s, 0x003069E8);
+    const u32 lit = 0xC43EF7B6u; // DAT_003069E8.
     chapter_panel(w, chapter(w)).box_color = lit;
     set_color_alpha(chapter_panel(w, chapter(w)).box_color, truncate_byte(fraction * 255.f)); // DAT_0032B158.
     if (0.f <= fraction) // DAT_0032B370.
@@ -546,7 +546,7 @@ void show_completed_splat(GameSelectControlServices& s)
         }
     }
     auto& splat = w.splat;
-    splat.color = exe_word(s, 0x00314F48);
+    splat.color = 0xFFFFFFFFu; // DAT_00314F48.
     set_color_alpha(splat.color, 0x9B);
     splat.position[0] = s.hud.center_x;
     splat.position[1] = s.hud.center_y;
@@ -1006,7 +1006,7 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
             other_sprite.scale[1] = (screen_height(s) * scale) / texture_height(texture);
             other.box_width = 114.399994f; // DAT_0032B694.
             other.box_height = 88.799995f; // DAT_0032B698.
-            other.box_color = exe_word(s, 0x003069EC);
+            other.box_color = 0x80069764u; // DAT_003069EC.
         }
         select_chapter_movie(w, s); // 0x000D9F60, EDI the widget
         select_chapter_background(w, s); // 0x000DA1E0, ESI the widget
@@ -1067,7 +1067,7 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
 {
     auto& s = services;
     auto& w = contents(widget);
-    const u32 white = exe_word(s, 0x00314F48);
+    const u32 white = 0xFFFFFFFFu; // DAT_00314F48.
     w.owner = &control;
     (void)owner; // the control's bytes; the widget reaches the control through +0xF28
     w.name = s.frontend.selected_name.data(); // +0xF20, DAT_00429CC4
@@ -1162,7 +1162,7 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
         panel_sprite.scale[1] = (screen_height(s) * layout.rest_size[1]) / texture_height(texture);
         char* movie = panel.movie_name.data();
         std::strcpy(movie, row.movie);
-        panel.box_color = exe_word(s, 0x003069EC);
+        panel.box_color = 0x80069764u; // DAT_003069EC.
         panel.box_width = layout.rest_size[0] * 640.f + 12.f; // DAT_0032B6B0, DAT_0032B470.
         panel.box_height = layout.rest_size[1] * 480.f + 12.f; // DAT_0032B6AC, DAT_0032B470.
         panel.movie_held = 0;
@@ -1252,7 +1252,7 @@ void close_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServ
         activate_actor_bind_tree(*w.bat); // 0x00112CC0
         w.bat = nullptr;
     }
-    const u32 rest = exe_word(s, 0x00314F30);
+    const u32 rest = 0xFF0000FFu; // DAT_00314F30.
     if (w.background.texture.data() != nullptr)
     {
         release_texture(w.background.texture, s);
@@ -1474,7 +1474,7 @@ void draw_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
             {
                 alpha = 0.f;
             }
-            const u32 color = with_alpha(exe_word(s, 0x00314F48), truncate_byte(alpha)); // 0x001673D8
+            const u32 color = with_alpha(0xFFFFFFFFu, truncate_byte(alpha)); // 0x001673D8, DAT_00314F48.
             const float scale[2]{(texture_width(w.chapters[selected].sprite.texture) * panel_sprite.scale[0])
                     / texture_width(shown),
                 (texture_height(w.chapters[selected].sprite.texture) * panel_sprite.scale[1])

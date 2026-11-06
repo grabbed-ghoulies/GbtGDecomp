@@ -193,7 +193,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     scoreboard_hud = std::make_unique<RuntimeScoreboardHud>(RuntimeScoreboardHud{scoreboard_globals, *brew,
         *health_display, overlay_digits, powerup_board, hud_enabled, g_flags_ea9c, score_refresh, score_points,
         health_style, difficulty, prompt_lock, prompt_owner, hud, hud_size[0], data(0x00313390, 12 * 0x80),
-        read_u32(data(0x00314F48, 4), 0), resources.registry, resources.error,
+        0xFFFFFFFFu, resources.registry, resources.error, // DAT_00314F48.
         [this](RuntimeDialogueWidget* widget)
         {
             destroy_dialogue_widget(widget, resources.registry, *text_registry);
@@ -925,9 +925,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         resource_error(resources.error, 2); // 0x00032700
     }
     ghoul_intro_tunables = std::make_unique<RuntimeGhoulIntroTunables>(RuntimeGhoulIntroTunables{
-        data(0x0030C748, 0x34), read_f32(data(0x0032B17C, 4), 0), read_f32(data(0x0032B174, 4), 0),
-        read_f32(data(0x0032B0F4, 4), 0), read_f32(data(0x0032B580, 4), 0), read_f32(data(0x0032B248, 4), 0),
-        read_f32(data(0x0032B210, 4), 0), read_f32(data(0x0032B148, 4), 0)});
+        data(0x0030C748, 0x34), 0.85f, 0.9f, // DAT_0032B17C, DAT_0032B174.
+        0.5f, 2.7f, 0.6f, // DAT_0032B0F4, DAT_0032B580, DAT_0032B248.
+        1.5f, 3.1415927f}); // DAT_0032B210, DAT_0032B148.
     ghoul_intro_context = std::make_unique<RuntimeGhoulIntroContext>(RuntimeGhoulIntroContext{ghoul_intro, notices,
         *ghoul_intro_tunables, g_flags_ea9c, clock, active_strategies, door_camera_hold, random, actor_tags.data(),
         object_tags.data(), ghoul_intro_names, resources.text, resources.registry, resources.error, text_registry,
@@ -2538,7 +2538,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         light_override, fog.disabled, sampling_scratch, sampling_active, dialogue_projection, dialogue_view,
         dialogue_world, sprite_world,
         std::span<const u32, 4>(reinterpret_cast<const u32*>(&entity_detail::g_display_records[0].fitted_x), 4),
-        render_height, render_width, hud_size[0], hud_size[1], read_u32(data(0x00314F48, 4), 0),
+        render_height, render_width, hud_size[0], hud_size[1], 0xFFFFFFFFu, // DAT_00314F48.
         read_u32(data(0x004273D4, 4), 0), read_u32(data(0x00425E6C, 4), 0), shader_constants_at(0x004273C8),
         {0, 0, 0}, read_u32(data(0x0042515C, 4), 0), {read_f32(data(0x0042514C, 8), 0), read_f32(data(0x0042514C, 8), 4)},
         {read_f32(data(0x00425154, 8), 0), read_f32(data(0x00425154, 8), 4)}, fallback_texture.data(), 0.f, 0,
@@ -2560,8 +2560,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         render_targets, d3d_device.outer(), *sprites, &resources.special_textures, *display_setup, text_draw_count,
         entity_detail::g_aspect_preset, entity_detail::g_video_widescreen, g_flags_ea9c, display_address, read_u32(data(0x004271F4, 4), 0),
         read_u32(data(0x00425E0C, 4), 0), shader_constants_at(0x004271E8), line_retained});
-    dialogue_draw->panel_color = read_u32(data(0x002FF2E0, 4), 0);
-    dialogue_draw->panel_alpha = read_f32(data(0x0032B49C, 4), 0);
+    dialogue_draw->panel_color = 0xE0202020u; // DAT_002FF2E0.
+    dialogue_draw->panel_alpha = 224.f; // DAT_0032B49C.
     dialogue_draw->outer = dialogue_outer.get();
     dialogue_outer->panel_line_width = read_u32(data(0x00425168, 4), 0);
     brew->allocation = widget_allocation.get();
@@ -2906,7 +2906,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         g_flags_ea9c, g_scene_flags->bytes[0], g_runtime_profile.progress.bytes, frontend_state, prompt_owner,
         powerup_rows[0x12].active, // DAT_005122F0, the ShockerBlocker powerup row.
         powerup_rows[0xA].active, data(0x00302198, 4 * 0x50), i32(read_u32(data(0x00427958, 4), 0)),
-        read_u32(data(0x0042795C, 4), 0), read_u32(data(0x00314F48, 4), 0), read_u32(data(0x00314F30, 4), 0),
+        read_u32(data(0x0042795C, 4), 0), 0xFFFFFFFFu, 0xFF0000FFu, // DAT_00314F48, DAT_00314F30.
         hud_size, display_view, scene_name.data(), clock,
         [](u8 mask, i32 release)
         {
@@ -3750,14 +3750,14 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         rig_tunables, entity_detail::g_look_profile, motion_steps, std::span<u32>(node_cache),
         {data(0x00338F64, 0x24), data(0x00338F88, 0x24), data(0x00338EE0, 0x84), data(0x00338EA4, 0x3C)},
-        read_f32(data(0x0032B22C, 4), 0),
+        0.010000001f, // DAT_0032B22C.
         [this]()
         {
             std::array<float, 8> phases;
             std::memcpy(phases.data(), data(0x00339900, 0x20).data(), 0x20);
             return phases;
-        }(), read_f32(data(0x0032B4F8, 4), 0), read_f32(data(0x0032B3D8, 4), 0),
-        read_f32(data(0x0032B140, 4), 0), body_shape_push,
+        }(), 0.45f, -0.3f, // DAT_0032B4F8, DAT_0032B3D8.
+        1.5707964f, body_shape_push, // DAT_0032B140.
         [this]() -> std::span<const u8>
         {
             return door_pool == nullptr ? std::span<const u8>()

@@ -352,7 +352,7 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
             const float size = scale[0] * 3.f; // DAT_0032B260.
             const float at[2]{left + width, w.trophy_drop * size + top};
             const float trophy_scale[2]{size, size};
-            draw_runtime_dialogue_sprite(trophy.data(), at, trophy_scale, 0.f, exe_word(s, 0x00314F48), -1,
+            draw_runtime_dialogue_sprite(trophy.data(), at, trophy_scale, 0.f, 0xFFFFFFFFu, -1, // DAT_00314F48.
                 s.draw); // 0x0005CE30
         }
     }
@@ -398,7 +398,7 @@ void fade_in_entries(GameChallengesWidget& w, GameSelectControlServices& s)
     {
         fraction = 0.f;
     }
-    u32 color = exe_word(s, 0x00314F48);
+    u32 color = 0xFFFFFFFFu; // DAT_00314F48.
     set_color_alpha(color, truncate_byte(fraction * 255.f)); // DAT_0032B158.
     u32 box = exe_word(s, 0x00305FEC);
     set_color_alpha(box, truncate_byte(fraction * 128.f)); // DAT_0032B368.
@@ -600,7 +600,7 @@ void open_runtime_game_challenges_menu(std::span<u8> owner, GameSelectControlSta
             challenge.unlocked = index * 5 + 5 <= found ? 1 : 0;
         }
         challenge.texture = {};
-        challenge.color = exe_word(s, 0x00314F48);
+        challenge.color = 0xFFFFFFFFu; // DAT_00314F48.
         challenge.box_color = exe_word(s, 0x00305FEC);
         challenge.word_38 = 2;
         std::array<char16_t, 0x100> localized{};
@@ -649,7 +649,7 @@ void open_runtime_game_challenges_menu(std::span<u8> owner, GameSelectControlSta
     w.books_icon = acquire_required("aid_texture_ghoulies_scoreboard_pauseicons_bonusbooks", s); // 0x003063F0
     w.books_icon_half_width = texture_width(w.books_icon) * 0.5f; // DAT_0032B0F4.
     w.picture.texture = acquire_named(entry(w, selection.selected).texture_name.data(), s);
-    const u32 white = exe_word(s, 0x00314F48);
+    const u32 white = 0xFFFFFFFFu; // DAT_00314F48.
     const float middle_x = 320.f; // DAT_0032B564.
     const float middle_y = 240.f; // DAT_0032B680.
     w.picture.color = white;
@@ -698,7 +698,7 @@ void close_runtime_game_challenges(GameSelectWidget& widget, GameSelectControlSe
         activate_actor_bind_tree(*w.bat); // 0x00112CC0: message 0x80 retires it.
         w.bat = nullptr;
     }
-    const u32 cleared = exe_word(s, 0x00314F30);
+    const u32 cleared = 0xFF0000FFu; // DAT_00314F30.
     if (w.picture.texture.data() != nullptr)
     {
         release(w.picture.texture, s);

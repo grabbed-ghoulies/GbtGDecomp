@@ -646,8 +646,8 @@ void start_runtime_final_score_intro(FinalScoreServices& services)
     if (i32(dialogue->state.count) + 1 < 9) // DAT_004EE1E8
     {
         const float unit = std::bit_cast<float>((s.random & 0x7FFFFFu) | 0x3F800000u);
-        const float one = std::bit_cast<float>(read_u32(s.image.memory(0x0032B0F8, 4), 0));
-        const float scale = std::bit_cast<float>(read_u32(s.image.memory(0x0032B664, 4), 0)); // -6
+        const float one = 1.f; // DAT_0032B0F8.
+        const float scale = -6.f; // -6, DAT_0032B664.
         const i32 index = i32((unit - one) * scale); // CVTTSS2SI: 0..-5
         const char* key = s.image.string(layout(s).dialog_keys[size_t(-index)]);
         request_namespaced_localtext("aid_loctext_ghoulies_dialog_dialogs", "dialogs", key,
@@ -767,7 +767,7 @@ void lay_out_runtime_final_score_row(i32 index, FinalScoreServices& services)
         }
     }
     row.icon = icon; // +0x210
-    row.unk_218 = read_u32(s.image.memory(0x00314F48, 4), 0); // +0x21C
+    row.unk_218 = 0xFFFFFFFFu; // +0x21C, DAT_00314F48.
     const float scale = layout(s).icon_scale[size_t(index)];
     row.icon_scale = {scale, scale}; // +0x220, +0x224
 }
@@ -961,7 +961,7 @@ void start_runtime_final_score_scores(FinalScoreServices& services)
     auto& page = *services.scores;
     for (auto& row : page.rows)
     {
-        row.unk_218 = read_u32(s.image.memory(0x00314F48, 4), 0);
+        row.unk_218 = 0xFFFFFFFFu; // DAT_00314F48.
         row.voice = -1;
     }
     page.snare = -1;
@@ -1096,7 +1096,7 @@ void draw_runtime_final_score_scores(FinalScoreServices& services)
     draw_runtime_dialogue_panel(float(i32(page.panel_position[0]) - i32(page.panel_size[0] * half)),
         float(i32(page.panel_position[1]) - i32(page.panel_size[1] * half)), float(i32(page.panel_size[0])),
         float(i32(page.panel_size[1])), layout(s).panel_radius, page.panel_color, s.outer); // 0x00061360
-    const u32 color = read_u32(s.image.memory(0x00314F48, 4), 0);
+    const u32 color = 0xFFFFFFFFu; // DAT_00314F48.
     for (auto& row : page.rows)
     {
         if (row.icon.data() == nullptr)
@@ -1185,7 +1185,7 @@ void start_runtime_final_score_end(FinalScoreServices& services)
     auto& s = services.frontend;
     services.end = std::make_unique<FinalScoreEndPage>(); // 0x000F72D0(0x234), its words cleared
     auto& page = *services.end;
-    page.color = read_u32(s.image.memory(0x00314F48, 4), 0);
+    page.color = 0xFFFFFFFFu; // DAT_00314F48.
     lookup_borrowed_localtext(state_of(services).text, "finalscore", "theend_banner", page.banner.text.data(),
         s.localtext); // 0x000FF120, EDI 0x00324930, EBX +4
     page.banner.x = s.hud.center_x; // +0x204
@@ -1194,7 +1194,7 @@ void start_runtime_final_score_end(FinalScoreServices& services)
     allocate_dialogue_text_pool(page.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0x210
     page.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     set_runtime_final_score_cutscene(0, 0, services); // 0x000D4280
-    page.color = read_u32(s.image.memory(0x00314F48, 4), 0);
+    page.color = 0xFFFFFFFFu; // DAT_00314F48.
     page.position = {s.hud.center_x, s.hud.center_y};
     page.scale = {1.f, 1.f}; // DAT_0032B0F8.
     page.texture = acquire_animation_resource(s.resources, "aid_texture_ghoulies_finalscore_theend"); // 0x00035E90
@@ -1215,7 +1215,7 @@ void free_runtime_final_score_end(FinalScoreServices& services)
     if (page.texture.data() != nullptr)
     {
         release_animation_resource(s.resources, page.texture); // 0x00035C00
-        page.color = read_u32(s.image.memory(0x00314F48, 4), 0);
+        page.color = 0xFFFFFFFFu; // DAT_00314F48.
         page.position = {};
         page.scale = {};
         page.texture = {};

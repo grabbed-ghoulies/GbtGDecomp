@@ -96,7 +96,7 @@ void open_runtime_game_stream_wait(std::span<u8> owner, GameSelectControlState& 
     {
         resource_error(s.error, 2); // 0x00032700(2)
     }
-    w.picture.color = read_u32(s.image.memory(0x00314F48, 4), 0);
+    w.picture.color = 0xFFFFFFFFu; // DAT_00314F48.
     w.picture.position = {s.hud.center_x, s.hud.center_y}; // DAT_00509730, DAT_00509734
     const float one = 1.f; // DAT_0032B0F8.
     w.picture.scale = {one, one};

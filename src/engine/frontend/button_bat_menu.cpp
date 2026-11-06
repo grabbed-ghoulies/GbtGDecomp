@@ -66,7 +66,7 @@ void turn_sprite(ButtonBatMenuSprite& sprite, i32 state)
 void initialize_menu_sprite(ButtonBatMenuSprite& sprite, const char* name, const std::array<float, 2>& position,
     const std::array<float, 2>& full_scale, float duration, GameSelectControlServices& s)
 {
-    sprite.color = exe_word(s, 0x00314F48);
+    sprite.color = 0xFFFFFFFFu; // DAT_00314F48.
     sprite.position = {0.f, 0.f};
     sprite.scale = {0.f, 0.f};
     sprite.texture = {};

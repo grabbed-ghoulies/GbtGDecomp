@@ -655,7 +655,7 @@ void draw_book_map(RuntimeTransitionBook& book, TransitionBookServices& services
     const float one = 1.f; // DAT_0032B0F8.
     const u8 alpha = u8(truncate_runtime_float(
         (one - (0.3f - book.map_timer_ec) * 3.3333333f) * 255.f)); // 0x001673D8, DAT_0032B268, DAT_0032B3B4, DAT_0032B158.
-    const u32 color = (u32(alpha) << 24) | (read_u32(s.image.memory(0x00314F48, 4), 0) & 0x00FFFFFFu);
+    const u32 color = (u32(alpha) << 24) | (0xFFFFFFFFu & 0x00FFFFFFu); // DAT_00314F48.
     const std::array<float, 2> spot_scale{real(s, 0x00422060), real(s, 0x00422064)};
     begin_dialogue_sprite_draw(s.draw); // 0x0005CDC0
     for (i32 index = 0; index < book.map_points; ++index)

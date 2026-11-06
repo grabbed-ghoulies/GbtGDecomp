@@ -36,35 +36,34 @@ void send_weapon_callout(RuntimeWeaponActor& weapon, i32 id)
     dispatch_actor_resource_callout(weapon.view.startup.resource, id, nullptr, weapon.base().callouts);
 }
 
-// 0x00148F20 / 0x00149270 over their blocks: start +0, target +0xC, timer +0x18, bounces +0x1C.
-void update_hop_block(RuntimeWeaponActor& weapon, size_t block)
+// 0x00148F20 / 0x00149270 over their blocks.
+void update_hop_block(RuntimeWeaponActor& weapon, WeaponHop& hop)
 {
     Actor& actor = weapon.actor;
     auto bytes = weapon.bytes;
     const float step = frame_step(weapon.frame);
     const float rate = frame_rate(actor);
-    if (read_u32(bytes, block + 0x1C) == 0)
+    if (hop.bounces == 0)
     {
         bool done = false;
-        const float timer = read_f32(bytes, block + 0x18);
+        const float timer = hop.timer;
         if (timer > 0.f)
         {
             const float remaining = timer - rate * step;
-            std::memcpy(bytes.data() + block + 0x18, &remaining, 4);
+            hop.timer = remaining;
             if (!(0.f < remaining))
             {
-                const float zero = 0.f;
-                std::memcpy(bytes.data() + block + 0x18, &zero, 4);
+                hop.timer = 0.f;
                 done = true;
             }
         }
-        const float progress = 1.f - read_f32(bytes, block + 0x18) * std::bit_cast<float>(0x3FAAAAABu); // DAT_0032B3C0.
-        const float start_x = read_f32(bytes, block);
-        const float start_y = read_f32(bytes, block + 4);
-        const float start_z = read_f32(bytes, block + 8);
-        Vec3 position{(read_f32(bytes, block + 0xC) - start_x) * progress + start_x,
-            (read_f32(bytes, block + 0x10) - start_y) * progress + start_y,
-            (read_f32(bytes, block + 0x14) - start_z) * progress + start_z};
+        const float progress = 1.f - hop.timer * std::bit_cast<float>(0x3FAAAAABu); // DAT_0032B3C0.
+        const float start_x = hop.from.x;
+        const float start_y = hop.from.y;
+        const float start_z = hop.from.z;
+        Vec3 position{(hop.to.x - start_x) * progress + start_x,
+            (hop.to.y - start_y) * progress + start_y,
+            (hop.to.z - start_z) * progress + start_z};
         const float angle = progress * std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
         const float lift = float(retail_sin(angle)); // 0x00153320
         static_cast<void>(retail_cos(angle)); // 0x00153230, its result dropped.
@@ -74,7 +73,7 @@ void update_hop_block(RuntimeWeaponActor& weapon, size_t block)
         {
             send_weapon_callout(weapon, 0xC); // 0x0003BE20
             actor.anchor = Vec3{0.f, 15.f, 0.f}; // DAT_0032B214.
-            store32(bytes, block + 0x1C, read_u32(bytes, block + 0x1C) + 1);
+            hop.bounces = hop.bounces + 1;
         }
         return;
     }
@@ -83,12 +82,12 @@ void update_hop_block(RuntimeWeaponActor& weapon, size_t block)
     Vec3 velocity{actor.anchor.x, actor.anchor.y - dt * 50.f, actor.anchor.z}; // DAT_0032B1E0.
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     Vec3 next{velocity.x * dt + position.x, velocity.y * dt + position.y, velocity.z * dt + position.z};
-    const float floor = read_f32(bytes, block + 0x10);
+    const float floor = hop.to.y;
     if (floor > next.y && 0.f > velocity.y)
     {
-        const u32 bounces = read_u32(bytes, block + 0x1C) + 1;
+        const u32 bounces = hop.bounces + 1;
         next.y = floor;
-        store32(bytes, block + 0x1C, bounces);
+        hop.bounces = bounces;
         if (i32(bounces) >= 3)
         {
             velocity = Vec3{0.f, 0.f, 0.f};
@@ -108,14 +107,12 @@ void update_hop_block(RuntimeWeaponActor& weapon, size_t block)
 }
 
 // 0x00149230 / 0x00149580 over their blocks.
-void start_hop_block(RuntimeWeaponActor& weapon, size_t block, const Vec3& target)
+void start_hop_block(RuntimeWeaponActor& weapon, WeaponHop& hop, const Vec3& target)
 {
-    const Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
-    std::memcpy(weapon.bytes.data() + block, &position, 12);
-    std::memcpy(weapon.bytes.data() + block + 0xC, &target, 12);
-    store32(weapon.bytes, block + 0x1C, 0);
-    const float timer = 0.75f; // DAT_0032B2AC.
-    std::memcpy(weapon.bytes.data() + block + 0x18, &timer, 4);
+    hop.from = actor_world_position(weapon.actor); // 0x000412A0
+    hop.to = target;
+    hop.bounces = 0;
+    hop.timer = 0.75f; // DAT_0032B2AC.
 }
 }
 
@@ -195,9 +192,10 @@ void update_runtime_weapon_flight(RuntimeWeaponActor& weapon)
             break;
         }
         const u8* record = entity_detail::g_segment_slots[0].pool.begin; // DAT_00511A20 + 4.
-        const float normal_x = read_f32({record, 0x54}, 0xC);
-        const float normal_y = read_f32({record, 0x54}, 0x10);
-        const float normal_z = read_f32({record, 0x54}, 0x14);
+        const Vec3 contact_normal = segment_contact_normal({record, 0x54});
+        const float normal_x = contact_normal.x;
+        const float normal_y = contact_normal.y;
+        const float normal_z = contact_normal.z;
         if (!(std::bit_cast<float>(0x3F666666u) > normal_y)) // DAT_0032B174.
         {
             target = start;
@@ -338,25 +336,25 @@ void leave_runtime_weapon_follow(RuntimeWeaponActor& weapon)
 // Xbox 0x00149230, EAX actor, EBX target
 void start_runtime_weapon_hop(RuntimeWeaponActor& weapon, const Vec3& target)
 {
-    start_hop_block(weapon, offsetof(WeaponBase, hop), target);
+    start_hop_block(weapon, weapon_base(weapon.bytes).hop, target);
 }
 
 // Xbox 0x00149580, EAX actor, EBX target
 void start_runtime_weapon_drop(RuntimeWeaponActor& weapon, const Vec3& target)
 {
-    start_hop_block(weapon, offsetof(WeaponBase, drop), target);
+    start_hop_block(weapon, weapon_base(weapon.bytes).drop, target);
 }
 
 // Xbox 0x00148F20, EBX actor
 void update_runtime_weapon_hop(RuntimeWeaponActor& weapon)
 {
-    update_hop_block(weapon, offsetof(WeaponBase, hop));
+    update_hop_block(weapon, weapon_base(weapon.bytes).hop);
 }
 
 // Xbox 0x00149270, EBX actor
 void update_runtime_weapon_drop(RuntimeWeaponActor& weapon)
 {
-    update_hop_block(weapon, offsetof(WeaponBase, drop));
+    update_hop_block(weapon, weapon_base(weapon.bytes).drop);
 }
 
 // The head 0x00149750 and 0x000CD2A0 inline before their state change: +0x93C clears and the sound +0xD08 holds
@@ -634,7 +632,7 @@ void update_runtime_weapon_follow(RuntimeWeaponActor& weapon)
         if (entity_record_movement_probe(kept, position, std::bit_cast<u32>(radius), 0xC, 0x000C4000u) == 1) // 0x001226C0
         {
             const std::span<const u8> hit{entity_detail::g_segment_slots[0].pool.begin, 0x54}; // DAT_00511A20 +4.
-            const Vec3 normal{read_f32(hit, 0xC), read_f32(hit, 0x10), read_f32(hit, 0x14)};
+            const Vec3 normal = segment_contact_normal(hit);
             if (0.9f > normal.y) // DAT_0032B174.
             {
                 push_runtime_weapon_off_contact(next, normal, kept, position, position); // 0x00103330

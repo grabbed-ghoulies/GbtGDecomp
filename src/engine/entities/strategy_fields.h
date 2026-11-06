@@ -6,6 +6,18 @@
 
 namespace gbtg
 {
+// The base strategy's factory parameters (0x0002B740).
+namespace strategy_parameter
+{
+constexpr RetailField<u32, 0x08> actor{};
+constexpr RetailField<u16, 0x0C> unk_0C{};
+constexpr RetailField<u16, 0x0E> unk_0E{}; // copied to the strategy's unk_10
+constexpr RetailField<u16, 0x10> after_wait_state{};
+constexpr RetailField<u16, 0x12> resume_state{};
+constexpr RetailField<u16, 0x14> flagged_resume_state{};
+constexpr RetailField<u16, 0x16> unk_16{}; // copied to the strategy's unk_18
+} // namespace strategy_parameter
+
 // The base strategy (factory type 8, 0x38 bytes), the start of every strategy (see docs/RETAIL_LAYOUTS.md).
 struct StrategyBase
 {

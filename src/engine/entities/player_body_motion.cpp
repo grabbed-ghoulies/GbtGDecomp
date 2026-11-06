@@ -239,10 +239,10 @@ void apply_runtime_player_joint_targets(std::span<u8> body, RuntimePlayerJointTa
         for (size_t slot = 0; slot < 6; ++slot)
         {
             u8* record = context.records[slot];
-            if (record != nullptr && read_u16({record, 0x30}, 0) != 0)
+            if (record != nullptr && reinterpret_cast<RuntimeBodyJointMotion*>(record)->bone != 0)
             {
                 Vec3 position;
-                actor_transform_joint_point(context.actor, read_u16({record, 0x30}, 0),
+                actor_transform_joint_point(context.actor, reinterpret_cast<RuntimeBodyJointMotion*>(record)->bone,
                     actor_transform_origin, position);
                 u32 tracking;
                 const float weight = select_runtime_player_joint_target(body, slot, position, tracking, context);
@@ -252,20 +252,18 @@ void apply_runtime_player_joint_targets(std::span<u8> body, RuntimePlayerJointTa
                 }
                 record = context.records[slot];
                 const u32 yaw = std::bit_cast<u32>(parent_body_record(body).joints[slot].yaw_delta);
-                if (record != nullptr && read_u16({record, 0x30}, 0) != 0)
+                if (record != nullptr && reinterpret_cast<RuntimeBodyJointMotion*>(record)->bone != 0)
                 {
-                    const std::span<u8> bytes{record, 0x30};
-                    if (read_f32(bytes, 0x2C) != -1.f)
+            auto& motion = *reinterpret_cast<RuntimeBodyJointMotion*>(record);
+                    if (motion.pitch_limit != -1.f)
                     {
-                        const u32 pitch = std::bit_cast<u32>(parent_body_record(body).joints[slot].pitch_delta);
-                        std::memcpy(record + 0x20, &pitch, 4);
+                        motion.pitch_target = parent_body_record(body).joints[slot].pitch_delta;
                     }
-                    if (read_f32(bytes, 0x1C) != -1.f)
+                    if (motion.yaw_limit != -1.f)
                     {
-                        std::memcpy(record + 0x10, &yaw, 4);
+                        motion.yaw_target = std::bit_cast<float>(yaw);
                     }
-                    const float stored = weight;
-                    std::memcpy(record + 0xC, &stored, 4);
+                    motion.weight = weight;
                 }
             }
         }
@@ -430,8 +428,8 @@ void destroy_runtime_player_body(std::span<u8> body, RuntimeBodyShapeStorage& sh
 u8* append_runtime_player_joint_motion(std::span<const u8> parameters, u8*& cursor,
     float& first, float& second, float maximum, float acceleration, RuntimePlayerBodyMotion& context)
 {
-    const float a = read_f32(parameters, 4);
-    const float b = read_f32(parameters, 8);
+    const float a = get(parameters, player_joint_row::pitch_limit);
+    const float b = get(parameters, player_joint_row::yaw_limit);
     if (a != -1.f)
     {
         first += a;
@@ -440,9 +438,9 @@ u8* append_runtime_player_joint_motion(std::span<const u8> parameters, u8*& curs
     {
         second += b;
     }
-    if (read_u32(parameters, 0) != 0xFFFFFFFFu && context.model != nullptr && context.model->cpu.data() != nullptr)
+    if (get(parameters, player_joint_row::joint) != -1 && context.model != nullptr && context.model->cpu.data() != nullptr)
     {
-        const u32 joint = actor_lookup_joint_index(context.model->cpu, i16(read_u16(parameters, 0))) & 0xFFu;
+        const u32 joint = actor_lookup_joint_index(context.model->cpu, i16(get(parameters, player_joint_row::joint))) & 0xFFu;
         if (joint != 0xFFu && joint != 0xFFFFFFFFu)
         {
             if (context.controller == nullptr)
@@ -453,26 +451,23 @@ u8* append_runtime_player_joint_motion(std::span<const u8> parameters, u8*& curs
                 context.selector = 0;
             }
             u8* record = cursor;
-            const auto put = [&](size_t offset, float value)
-            {
-                std::memcpy(record + offset, &value, 4);
-            };
+            auto& motion = *reinterpret_cast<RuntimeBodyJointMotion*>(record);
             const float chosen_first = a != -1.f ? first : a;
             const float chosen_second = a != -1.f ? second : b;
-            put(0x2C, chosen_first);
-            put(4, maximum);
-            put(0x28, 0.f);
-            put(0x24, 0.f);
-            put(0x20, 0.f);
-            put(0x18, 0.f);
-            put(0x14, 0.f);
-            put(0x10, 0.f);
-            put(0x1C, chosen_second);
-            put(8, acceleration);
+            motion.pitch_limit = chosen_first;
+            motion.max_speed = maximum;
+            motion.pitch_speed = 0.f;
+            motion.pitch = 0.f;
+            motion.pitch_target = 0.f;
+            motion.yaw_speed = 0.f;
+            motion.yaw = 0.f;
+            motion.yaw_target = 0.f;
+            motion.yaw_limit = chosen_second;
+            motion.acceleration = acceleration;
             const u16 bone = u16(joint);
-            std::memcpy(record, &bone, 2);
-            put(0xC, 0.f);
-            cursor += 0x30;
+            motion.bone = bone;
+            motion.weight = 0.f;
+            cursor += sizeof(RuntimeBodyJointMotion);
             if (a != -1.f)
             {
                 first = 0.f;
@@ -500,19 +495,24 @@ void initialize_runtime_player_joint_motion(std::span<u8> body, std::span<const 
     const u8 count = count_runtime_player_body_joints(context.model, parameters);
     if (count != 0)
     {
-        u8* cursor = static_cast<u8*>(engine_heap_allocate(count * 0x30));
+        u8* cursor = static_cast<u8*>(engine_heap_allocate(count * i32(sizeof(RuntimeBodyJointMotion))));
         float first = 0.f, second = 0.f;
-        const float sum = (((read_f32(parameters, 0x814) + read_f32(parameters, 0x808))
-            + read_f32(parameters, 0x7FC)) + read_f32(parameters, 0x7F0)) + read_f32(parameters, 0x7E4);
+        namespace row = player_joint_row;
+        const auto joints = [&](size_t index)
+        {
+            return record(parameters, player_body_parameter::joint_rows, index);
+        };
+        const float sum = (((get(joints(5), row::yaw_limit) + get(joints(4), row::yaw_limit))
+            + get(joints(3), row::yaw_limit)) + get(joints(2), row::yaw_limit)) + get(joints(1), row::yaw_limit);
         parent_body_record(body).joint_limit = sum;
-        constexpr std::array<size_t, 6> offsets{0x800, 0x80C, 0x7F4, 0x7E8, 0x7D0, 0x7DC};
+        constexpr std::array<size_t, 6> rows{4, 5, 3, 2, 0, 1};
         constexpr std::array<u32, 6> multiplier_bits{0x3DCCCCCD, 0x3E4CCCCD, 0x3F333333, 0x3F333333, 0x3F800000, 0x3F800000};
         for (size_t i = 0; i < 6; ++i)
         {
             const float multiplier = std::bit_cast<float>(multiplier_bits[i]);
-            const float maximum = i < 4 ? read_f32(parameters, 0x818) * multiplier : read_f32(parameters, 0x818);
-            const float acceleration = i < 4 ? read_f32(parameters, 0x81C) * multiplier : read_f32(parameters, 0x81C);
-            context.records[i] = append_runtime_player_joint_motion(parameters.subspan(offsets[i], 12),
+            const float maximum = i < 4 ? get(parameters, player_body_parameter::joint_max_speed) * multiplier : get(parameters, player_body_parameter::joint_max_speed);
+            const float acceleration = i < 4 ? get(parameters, player_body_parameter::joint_acceleration) * multiplier : get(parameters, player_body_parameter::joint_acceleration);
+            context.records[i] = append_runtime_player_joint_motion(joints(rows[i]),
                 cursor, first, second, maximum, acceleration, context);
         }
     }
@@ -522,11 +522,11 @@ void initialize_runtime_player_joint_motion(std::span<u8> body, std::span<const 
 bool initialize_runtime_player_body(std::span<u8> body, std::span<const u8> parameters,
     RuntimePlayerBodyMotion& context)
 {
-    parent_body_record(body).collision_radius = read_f32(parameters, 0x7C8);
-    parent_body_record(body).collision_height = read_f32(parameters, 0x7CC);
+    parent_body_record(body).collision_radius = get(parameters, player_body_parameter::collision_radius);
+    parent_body_record(body).collision_height = get(parameters, player_body_parameter::collision_height);
     initialize_runtime_player_joint_motion(body, parameters, context);
     collect_runtime_player_body_shapes(context.nodes, context.shapes);
-    if (read_f32(parameters, 0x7C8) == 0.f)
+    if (get(parameters, player_body_parameter::collision_radius) == 0.f)
     {
         const u32 counter = body_record(body).holds + 1u;
         body_record(body).holds = counter;

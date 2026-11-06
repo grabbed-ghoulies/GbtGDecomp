@@ -1,4 +1,5 @@
 #include "body_arc_attack_state.h"
+#include "entity_collision.h"
 #include "player_fields.h"
 #include "mind_fields.h"
 #include "actor_pose_updates.h"
@@ -97,7 +98,7 @@ std::span<const u8> target_record(const ArcAttackState& state, RuntimeArcAttackS
 
 Vec3 record_position(std::span<const u8> record)
 {
-    return Vec3{read_f32(record, 0x20), read_f32(record, 0x24), read_f32(record, 0x28)};
+    return mind_target_record(record).shape.position;
 }
 
 // The first slot's play position (actor +0x50 -> +0x58 -> [0] -> +0x14), or 0 without a player.
@@ -245,7 +246,7 @@ void hit_runtime_arc_attack(ArcAttackState& state, const Vec3& normal, const Vec
         u32 victim = 0;
         if (state.target != 0)
         {
-            victim = read_u32(target_record(state, context), 0x10);
+            victim = mind_target_record(target_record(state, context)).actor;
             const Actor* target = context.actor_at(victim);
             if (target == nullptr)
             {
@@ -390,8 +391,8 @@ void launch_runtime_arc_attack(ArcAttackState& state, RuntimeArcAttackStateConte
     if (state.target != 0)
     {
         const auto record = target_record(state, context);
-        target = Vec3{read_f32(record, 0x20), read_f32(record, 0x30) * state.height_scale
-            + read_f32(record, 0x24), read_f32(record, 0x28)};
+        const MindTargetShape& shape = mind_target_record(record).shape;
+        target = Vec3{shape.position.x, shape.height * state.height_scale + shape.position.y, shape.position.z};
     }
     else
     {
@@ -533,9 +534,9 @@ bool runtime_arc_attack_meets_surface(const Vec3& velocity, std::span<const u8> 
         vy = float(0.0L * scale); // DAT_0032B100.
         vz = float(static_cast<long double>(vz) * scale);
     }
-    float nx = read_f32(contact, 0xC);
+    float nx = segment_contact_normal(contact).x;
     float ny = 0.f;
-    float nz = read_f32(contact, 0x14);
+    float nz = segment_contact_normal(contact).z;
     if (nx == 0.f && nz == 0.f)
     {
         return false;
@@ -563,7 +564,7 @@ bool runtime_arc_attack_reflects(std::span<const u32> message, RuntimeArcAttackS
     {
         return false;
     }
-    return read_u32(context.target_at(record), 0x10) == message[1] && message[4] != 0
+    return mind_target_record(context.target_at(record)).actor == message[1] && message[4] != 0
         && message[2] == context.actor_address;
 }
 }
@@ -600,7 +601,7 @@ bool initialize_runtime_arc_attack_state(ArcAttackState& state, std::span<const 
     }
     else
     {
-        state.lift_height = read_f32(target_record(state, context), 0x30) * state.height_scale;
+        state.lift_height = mind_target_record(target_record(state, context)).shape.height * state.height_scale;
     }
     copy_name(state.take_off_sound.data(), parameters, parameter::take_off_sound);
     copy_name(state.launch_sound.data(), parameters, parameter::launch_sound);
@@ -716,8 +717,8 @@ void message_runtime_arc_attack_state(ArcAttackState& state, std::span<u32> mess
         if (runtime_arc_attack_meets_surface(velocity, contact)
             || runtime_body_bit_set(context.bits, 0xD)) // 0x0008A030, 0x0001EF10
         {
-            const Vec3 normal{read_f32(contact, 0xC), read_f32(contact, 0x10), read_f32(contact, 0x14)};
-            const Vec3 position{read_f32(contact, 0), read_f32(contact, 4), read_f32(contact, 8)};
+            const Vec3 normal = segment_contact_normal(contact);
+            const Vec3 position = get(contact, segment_contact_field::point);
             hit_runtime_arc_attack(state, normal, position, context); // 0x00089DB0
             message[2] = 1;
         }

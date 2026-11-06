@@ -146,6 +146,17 @@ GBTG_MIND_VIEW(cinema_mind_record, CinemaMindRecord)
 GBTG_MIND_VIEW(mind_target_record, MindTargetRecord)
 GBTG_MIND_VIEW(mind_target_shape, MindTargetShape)
 
+// The base mind's factory parameters (0x00029F20, 0x00029A60).
+namespace mind_parameter
+{
+constexpr RetailField<float, 0x88> unk_2C_low{}; // the mind's unk_2C is drawn between these
+constexpr RetailField<float, 0x8C> unk_2C_high{};
+constexpr RetailField<u32, 0x90> target_flags{};
+constexpr RetailField<u32, 0x94> target_categories{};
+constexpr RetailField<float, 0x98> target_range{};
+constexpr RetailField<u32, 0x9C> actor{};
+} // namespace mind_parameter
+
 // The cinema mind's factory parameters after the base mind's.
 namespace cinema_mind_parameter
 {

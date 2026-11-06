@@ -5,6 +5,27 @@
 
 namespace gbtg
 {
+// An attachment target request row (0x0001BA20; the base row is 0x24 bytes).
+namespace target_request_row
+{
+constexpr RetailField<float, 0x0C> reach{}; // of the actor's radius; zero for no limit
+constexpr RetailField<i16, 0x10> low{}; // height above the actor, of its radius
+constexpr RetailField<i16, 0x12> high{};
+constexpr RetailField<u32, 0x20> flags{}; // 2 refuses a target with its own flag 2; 4 is close; 0x10 is optional
+} // namespace target_request_row
+// The pair table's rows (0x28 bytes, 0x0001C9A0).
+namespace pair_target_row
+{
+constexpr RetailField<u16, 0x24> classification{};
+constexpr RetailField<u16, 0x26> category{};
+} // namespace pair_target_row
+// The category table's rows (0x2C bytes, 0x0001C5E0).
+namespace category_target_row
+{
+constexpr RetailField<u32, 0x24> classification{}; // 0 for any
+constexpr RetailField<u32, 0x28> category{};
+} // namespace category_target_row
+
 struct RuntimeRequestBits
 {
     u32 count; // +0.

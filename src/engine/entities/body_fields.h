@@ -8,6 +8,23 @@ namespace gbtg
 {
 // The body record (actor +0x95C, built by 0x00024C50, the base's 0x894 bytes, 0x0001DA30) at its retail
 // offsets. See docs/RETAIL_LAYOUTS.md. +8 is the body's actor.
+// The parent player body's parameters' own part (0x00073450, 0x000734F0).
+namespace player_body_parameter
+{
+constexpr RetailField<float, 0x7C8> collision_radius{}; // zero holds the body
+constexpr RetailField<float, 0x7CC> collision_height{};
+constexpr RetailRecord<0x7D0, 0xC, 6> joint_rows{}; // player_joint_row
+constexpr RetailField<float, 0x818> joint_max_speed{};
+constexpr RetailField<float, 0x81C> joint_acceleration{};
+} // namespace player_body_parameter
+// One tracking joint's row (0x00073A90).
+namespace player_joint_row
+{
+constexpr RetailField<i32, 0x0> joint{}; // -1 for none
+constexpr RetailField<float, 0x4> pitch_limit{}; // -1 leaves the axis alone
+constexpr RetailField<float, 0x8> yaw_limit{}; // -1 leaves the axis alone
+} // namespace player_joint_row
+
 // A value pulsing about its base on a sine (0x00104DF0): the base plus up to amplitude of itself, for `duration` seconds at a time,
 // `rate` times a second.
 struct BodyOscillator

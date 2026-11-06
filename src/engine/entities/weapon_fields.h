@@ -43,6 +43,16 @@ constexpr RetailField<std::array<char, 0x80>, 0x578> voice_name{};
 constexpr u32 kSize = 0x5F8;
 static_assert(retail_fits(kSize, voice_name));
 } // namespace weapon_parameter
+// A weapon's hop to a point, then its bounces where it lands (0x00148F20).
+struct WeaponHop
+{
+    Vec3 from{}; // +0
+    Vec3 to{}; // +0xC, its y is the floor it bounces on
+    float timer = 0.f; // +0x18, 0.75 s at the start
+    u32 bounces = 0; // +0x1C, 0 while in the air on the way; 3 ends it
+};
+static_assert(sizeof(WeaponHop) == 0x20);
+
 struct WeaponBase
 {
     ActorBase base{}; // +0
@@ -122,8 +132,8 @@ struct WeaponBase
     u32 contact_mask = 0; // +0xC40
     u32 hit = 0; // +0xC44
     std::array<u8, 0x54> contact_match{}; // +0xC48, the contact's match block (0x000FCD70)
-    std::array<u8, 0x20> hop{}; // +0xC9C, from, to, timer, done (0x00149230)
-    std::array<u8, 0x20> drop{}; // +0xCBC, the same, for the drop (0x00149580)
+    WeaponHop hop{}; // +0xC9C (0x00149230)
+    WeaponHop drop{}; // +0xCBC (0x00149580)
     // +0xCDC: the follow motion (0x001495C0 / 0x00149750 / 0x00149D20).
     u32 starting = 0; // the first step out of what it starts inside is still to come
     Vec3 aim{}; // +0xCE0

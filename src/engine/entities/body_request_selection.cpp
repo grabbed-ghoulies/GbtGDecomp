@@ -781,11 +781,11 @@ const u8* select_runtime_attachment_second_target_row(RuntimeAttachmentTargetSel
             if (runtime_attachment_target_row_matches(context.requests.body, context.body.body_actor,
                 row, context.target.bytes, shape, direction, height_mask))
             {
-                if ((read_u32(row, 0x20) & 4) != 0)
+                if ((get(row, target_request_row::flags) & 4) != 0)
                 {
                     ++close;
                 }
-                if ((read_u32(row, 0x20) & 0x10) != 0)
+                if ((get(row, target_request_row::flags) & 0x10) != 0)
                 {
                     ++optional;
                 }
@@ -844,7 +844,7 @@ const u8* select_runtime_attachment_pair_target_row(RuntimeAttachmentTargetSelec
     for (u32 index = 0; index < rows.count; ++index)
     {
         const std::span<const u8> row{rows.rows + index * 0x28, 0x28};
-        if (read_u16(row, 0x24) == classification && read_u16(row, 0x26) == category
+        if (get(row, pair_target_row::classification) == classification && get(row, pair_target_row::category) == category
             && runtime_attachment_target_row_matches(context.requests.body, context.body.body_actor,
                 row, context.target.bytes, shape, direction, height_mask))
         {
@@ -909,8 +909,8 @@ const u8* select_runtime_attachment_category_target_row(RuntimeAttachmentTargetS
         }
         const u32 category = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
         const std::span<const u8> row{rows.rows + index * 0x2C, 0x2C};
-        if ((read_u32(row, 0x24) == 0 || read_u32(row, 0x24) == classification)
-            && read_u32(row, 0x28) == category
+        if ((get(row, category_target_row::classification) == 0 || get(row, category_target_row::classification) == classification)
+            && get(row, category_target_row::category) == category
             && runtime_attachment_target_row_matches(context.requests.body, context.body.body_actor,
                 row, context.target.bytes, shape, direction, height_mask))
         {
@@ -972,10 +972,10 @@ bool runtime_attachment_target_row_matches(std::span<const u8> body, const Actor
     {
         return false;
     }
-    if (read_f32(row, 0xC) != 0.f)
+    if (get(row, target_request_row::reach) != 0.f)
     {
         const Vec3 position = actor_world_position(actor);
-        const float radius = actor.radius_xz * read_f32(row, 0xC) + mind_target_record(target).shape.radius;
+        const float radius = actor.radius_xz * get(row, target_request_row::reach) + mind_target_record(target).shape.radius;
         const float dz = mind_target_record(target).shape.position.z - position.z;
         const float dx = mind_target_record(target).shape.position.x - position.x;
         if (dz * dz + dx * dx > radius * radius)
@@ -983,18 +983,18 @@ bool runtime_attachment_target_row_matches(std::span<const u8> body, const Actor
             return false;
         }
     }
-    if (shape != nullptr && (read_u16(row, 0x10) != 0 || read_u16(row, 0x12) != 0))
+    if (shape != nullptr && (get(row, target_request_row::low) != 0 || get(row, target_request_row::high) != 0))
     {
         const Vec3 position = actor_world_position(actor);
-        const std::span<const u8> shape_bytes{shape, 0x20};
-        const float top = float(i16(read_u16(row, 0x12))) * actor.radius_xz + position.y;
-        const float shape_bottom = read_f32(shape_bytes, 8);
+        const MindTargetShape& shape_record = mind_target_shape(std::span<const u8>(shape, 0x20));
+        const float top = float(get(row, target_request_row::high)) * actor.radius_xz + position.y;
+        const float shape_bottom = shape_record.position.y;
         if (shape_bottom > top)
         {
             return false;
         }
-        const float shape_top = read_f32(shape_bytes, 0x14) + shape_bottom;
-        const float bottom = float(i16(read_u16(row, 0x10))) * actor.radius_xz + position.y;
+        const float shape_top = shape_record.height + shape_bottom;
+        const float bottom = float(get(row, target_request_row::low)) * actor.radius_xz + position.y;
         if (bottom > shape_top)
         {
             return false;

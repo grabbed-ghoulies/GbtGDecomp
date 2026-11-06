@@ -8,6 +8,7 @@ namespace gbtg
 // A segment contact record (0x54 bytes).
 namespace segment_contact_field
 {
+constexpr RetailField<Vec3, 0x00> point{};
 constexpr RetailField<Vec3, 0x0C> normal{};
 constexpr RetailField<Vec3, 0x2C> center{}; // of the sphere swept
 constexpr RetailField<float, 0x38> radius{};

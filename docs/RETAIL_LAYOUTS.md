@@ -319,7 +319,7 @@ The shared actor records and the weapons followed: the avatars, bg break key, gh
 `WeaponBase` (replacing `weapon_field`, viewed with `weapon_base`) and each weapon class on it, with the extinguisher,
 single shot and water pistol on `GunWeaponState`. Words the host keeps natively are named `_word`, so a member marked
 "never read" really is unaccounted for: +0xF40 in the water pistol, for one. The chair (`ChairWeaponState`) had no
-descriptors, so its names come from `weapon_actor.cpp` alone. The hop and drop blocks are still read by inner offset,
+descriptors, so its names come from `weapon_actor.cpp` alone. The hop and drop blocks became `WeaponHop` later,
 and `read_u32(holder_bytes, 0xCE0)` and its like are the player's bytes (`PlayerRecord`). In the regular modes the
 chair and large projectile run in 9 modes, the bob in 3, and the candle, container, water pistol and thrown projectile
 in 1 each. The homing projectile, extinguisher and single shot run only in the all-mode run below, and the gun in none.
@@ -433,6 +433,11 @@ use `offsetof`, since the source can be an actor shorter than a weapon. The body
 overlay's: its state, alpha, switches, flashes, timers and a pulsing size (`BodyOscillator`, +0xBC), which named a run of `BodyRecord`'s
 `unk_` fields. Function names still say wash. The camera's stand action names its focus, rate and tunables; the two tunables passed to
 the aim stay `unk_`. The bound word 0x0001E770 reads at +0xB8 stays literal, as nothing says what that record is.
+
+`RuntimeBodyJointMotion` (0x30 bytes, from 0x00073A90, run by 0x0002F060) is a player body's tracking joint: bone, speed, acceleration
+and weight, then target, angle, speed and limit for yaw and for pitch. Its parameter rows are `player_joint_row`. The body's, mind's and
+base strategy's parameter blocks have names, `body_request_selection.cpp`'s three row tables do, and `WeaponHop` is the weapon's hop and
+drop. The strategy's state stays reached by `offsetof` in 0x0002B7A0, as it was read with a checked span there, not a whole-record view.
 
 `ActorBytes` became `ActorBase` once it had named fields. Parameter rows, presets and other read-only script and XBE data stay
 on descriptors, as elsewhere: `walk_alert_row_field`, `strategy_move_settings_field`, `input_tracking_preset_field`,

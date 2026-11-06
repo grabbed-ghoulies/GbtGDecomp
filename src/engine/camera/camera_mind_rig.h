@@ -1,4 +1,5 @@
 #pragma once
+#include <bit>
 #include "../entities/mind_fields.h"
 #include "../entities/actor_clock.h"
 #include "../entities/camera_director.h"
@@ -12,12 +13,94 @@ namespace gbtg
 // DAT_00434008..DAT_00434033, the camera view tunables: the retail .data words, then whatever 0x0013CBD0,
 // 0x00140E30 and the script's type 0x61 store.
 extern std::array<u32, 11> g_camera_view_tunables;
-// The camera rig tunables: .data DAT_004274B8..DAT_0042753F and g_camera_view_tunables, by retail address.
+// The camera rig's tunables (.data DAT_004274B8..DAT_004275A3, 0xEC bytes, copied once at boot): the target request's rig,
+// then the follow, pair and path requests'. Names come from what each feeds; `unk_` where it only passes on.
+struct CameraRigTunables
+{
+    u32 probe_radius = 0; // DAT_004274B8, a float's bits, as the movement probes take it
+    u32 unk_4274BC = 0; // DAT_004274BC
+    float wall_turn_distance = 0.f; // DAT_004274C0, a wall nearer than this turns the heading (0x00079720)
+    u32 checks_input_turn = 0; // DAT_004274C4
+    u32 skips_slide = 0; // DAT_004274C8 (0x00072CB0)
+    std::array<u32, 3> unk_4274CC{}; // DAT_004274CC
+    float single_target_pitch = 0.f; // DAT_004274D8, else view tunable many_target_pitch
+    float aim_range = 0.f; // DAT_004274DC
+    float aim_far = 0.f; // DAT_004274E0
+    u32 horizontal_pixels = 0; // DAT_004274E4
+    u32 raises_eye = 0; // DAT_004274E8
+    u32 pitches_eye = 0; // DAT_004274EC, else the eye rises by view tunable eye_raise
+    float floor_margin = 0.f; // DAT_004274F0
+    float heading_speed = 0.f; // DAT_004274F4
+    float fixed_heading_speed = 0.f; // DAT_004274F8
+    float fixed_heading_hold = 0.f; // DAT_004274FC
+    float pushed_time_limit = 0.f; // DAT_00427500
+    float push_gap_share = 0.f; // DAT_00427504, of the distance
+    float push_pull = 0.f; // DAT_00427508
+    float push_facing_dot = 0.f; // DAT_0042750C
+    float wall_swing_degrees = 0.f; // DAT_00427510
+    float heading_hold = 0.f; // DAT_00427514
+    float side_offset = 0.f; // DAT_00427518
+    u32 unk_51C = 0; // DAT_0042751C, passed to 0x00079320's reach test
+    u32 unk_520 = 0; // DAT_00427520, passed to 0x00079320's reach test
+    u32 slide_path_mode = 0; // DAT_00427524, passed to the path test
+    u32 probes_slide = 0; // DAT_00427528, a probe rather than a path test
+    u32 eye_path_mode = 0; // DAT_0042752C, passed to the path test
+    u32 checks_eye_path = 0; // DAT_00427530
+    float sweep_step_degrees = 0.f; // DAT_00427534
+    u32 sweep_passes = 0; // DAT_00427538
+    float min_distance = 0.f; // DAT_0042753C
+    u32 follow_point_mode = 0; // DAT_00427540, request kind 3 (0x00079E80)
+    float follow_height_share = 0.f; // DAT_00427544
+    std::array<u32, 2> unk_427548{}; // DAT_00427548
+    float follow_near = 0.f; // DAT_00427550
+    float follow_far = 0.f; // DAT_00427554
+    float follow_low_pitch = 0.f; // DAT_00427558
+    float follow_high_pitch = 0.f; // DAT_0042755C
+    u32 pair_point_mode = 0; // DAT_00427560, request kind 4 (0x0007A160)
+    float pair_height_share = 0.f; // DAT_00427564
+    u32 pair_levels_points = 0; // DAT_00427568, the second point takes the first's height
+    u32 pair_fits_view = 0; // DAT_0042756C
+    float pair_near = 0.f; // DAT_00427570
+    float pair_far = 0.f; // DAT_00427574
+    float pair_low_pitch = 0.f; // DAT_00427578
+    float pair_high_pitch = 0.f; // DAT_0042757C
+    float path_pitch_centre = 0.f; // DAT_00427580, the path request (0x0007AB00)
+    float path_pitch_spread = 0.f; // DAT_00427584
+    float path_low_distance = 0.f; // DAT_00427588
+    float path_high_distance = 0.f; // DAT_0042758C
+    float path_aim_range = 0.f; // DAT_00427590
+    float path_aim_far = 0.f; // DAT_00427594
+    u32 path_keeps_route = 0; // DAT_00427598, set: it tries to retarget the search's route first
+    u32 path_holds_target_point = 0; // DAT_0042759C
+    float path_floor_margin = 0.f; // DAT_004275A0
+};
+static_assert(sizeof(CameraRigTunables) == 0xEC);
+// g_camera_view_tunables's words (DAT_00434008..DAT_00434033): scripts write them, so they stay words.
+namespace camera_view_tunable
+{
+constexpr size_t many_target_pitch = 0; // DAT_00434008, script writes it
+constexpr size_t near_range = 1; // DAT_0043400C, the director's
+constexpr size_t vertical_pixels = 2; // DAT_00434010, script writes it
+constexpr size_t eye_raise = 3; // DAT_00434014, script writes it
+constexpr size_t unk_4 = 4; // DAT_00434018
+constexpr size_t look_tilt_degrees = 5; // DAT_0043401C
+constexpr size_t look_lift = 6; // DAT_00434020
+constexpr size_t aim_lift = 7; // DAT_00434024
+constexpr size_t aim_boost = 8; // DAT_00434028
+constexpr size_t free_speed = 9; // DAT_0043402C, script writes it
+constexpr size_t target_speed = 10; // DAT_00434030, script writes it; negative for free_speed
+} // namespace camera_view_tunable
 struct RuntimeCameraRigTunables
 {
-    std::array<u8, 0xEC> rig{}; // DAT_004274B8..DAT_004275A4: the kind-1 rig, then the kinds 3, 4 and 0x12 words.
-    float real(u32 address) const;
-    u32 word(u32 address) const;
+    CameraRigTunables rig{};
+    float view_real(size_t index) const
+    {
+        return std::bit_cast<float>(g_camera_view_tunables.at(index));
+    }
+    u32 view_word(size_t index) const
+    {
+        return g_camera_view_tunables.at(index);
+    }
 };
 struct RuntimeCameraRigContext
 {

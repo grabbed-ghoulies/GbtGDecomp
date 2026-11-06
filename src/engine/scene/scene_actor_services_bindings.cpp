@@ -3634,14 +3634,14 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }});
     install_runtime_push_buffer_dispatch(*push_buffers, node_callbacks);
     // Camera director (0x000AA250) and rig (0x000781F0) tunables are .data words read from the image.
-    std::memcpy(rig_tunables.rig.data(), data(0x004274B8, 0xEC).data(), 0xEC);
+    std::memcpy(&rig_tunables.rig, data(0x004274B8, sizeof(CameraRigTunables)).data(), sizeof(CameraRigTunables));
     motion_steps = i32(read_u32(data(0x004312E0, 4), 0));
     {
         const auto words = data(0x00428708, 0x2C);
         director_data = DirectorData{read_u32(words, 0), i32(read_u32(words, 4)), i32(read_u32(words, 8)),
             read_u32(words, 0xC), read_f32(words, 0x10), read_f32(words, 0x14), read_u32(words, 0x18),
             read_u32(words, 0x1C), i32(read_u32(words, 0x20)), read_u32(words, 0x24), read_u32(words, 0x28),
-            rig_tunables.real(0x0043400C)};
+            rig_tunables.view_real(camera_view_tunable::near_range)};
     }
     director_tunables = std::make_unique<RuntimeDirectorTunables>(RuntimeDirectorTunables{director_data.keep_state,
         director_data.minimum_count, director_data.minimum_priority, director_data.ground_heights,

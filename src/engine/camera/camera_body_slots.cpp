@@ -83,13 +83,13 @@ void aim_camera_body(RuntimeCameraBodySlots& camera)
     float lift = 0.f;
     if (camera.look_profile != 4)
     {
-        lift = camera.tunables.real(0x00434020);
+        lift = camera.tunables.view_real(camera_view_tunable::look_lift);
     }
     const Vec3 aim = body_record(camera.body).look_point;
     float yaw = 0.f;
     float pitch = 0.f;
     direction_to_yaw_pitch(aim.x - world.x, lift + aim.y - world.y, aim.z - world.z, yaw, pitch);
-    const Vec3 angles{0.f - (camera.tunables.real(0x0043401C) * kRadians + pitch), yaw + kPi,
+    const Vec3 angles{0.f - (camera.tunables.view_real(camera_view_tunable::look_tilt_degrees) * kRadians + pitch), yaw + kPi,
         camera_body_record(camera.body).unk_8F4};
     wrap_runtime_euler(angles, actor.euler);
     actor.xform_valid = 0;
@@ -125,7 +125,7 @@ u32 probe_camera_body_support(RuntimeCameraBodySlots& camera)
     u32 seen = 0;
     u32 passed;
     i32 limit;
-    if (camera.tunables.word(0x004274C8) != 0)
+    if (camera.tunables.rig.skips_slide != 0)
     {
         passed = 1;
         limit = 0;
@@ -143,7 +143,7 @@ u32 probe_camera_body_support(RuntimeCameraBodySlots& camera)
         entity_detail::SlideRecord& slot = slots[size_t(index)];
         snap = slide;
         const EntityMaskHost host{actor.mask_flag, actor.goal_ring, actor.mask_mode};
-        if (entity_record_movement_probe(snap, world, camera.tunables.word(0x004274B8), 4,
+        if (entity_record_movement_probe(snap, world, camera.tunables.rig.probe_radius, 4,
                 camera_collision_mask(host)) == 0)
         {
             passed = 1;

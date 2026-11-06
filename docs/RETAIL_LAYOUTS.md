@@ -715,6 +715,20 @@ files. One name was first declared too large: a 0x40-byte name at +0x10 in a 0x4
 check, where the old code had only taken a pointer. The names are now 0x30 bytes, and the range error now prints
 the offset, size and span length. All ten regular modes are byte-identical to the previous build.
 
+## Executable constants
+
+Code reads three kinds of retail data by address, and they get different treatment:
+
+- **`.rdata` floats (0x32Bxxx)** can't change, so they are literals with a `DAT_` comment: `const float scale_x = 640.f; // DAT_0032B6B0.`
+  344 reads were converted by script, which checked that the section isn't writable and that each literal round-trips to the XBE's
+  bits. `constant(...)` in `scene_actor_services_bindings.cpp` still binds some by reference.
+- **`.data` values** are writable, so they stay reads and need names. `CameraRigTunables` (DAT_004274B8.., 0xEC bytes, copied once at
+  boot) holds the camera rig's. `g_camera_view_tunables` stays words, as scripts write them, with `camera_view_tunable` naming the
+  indices. Names come from what each value feeds; those that only pass on stay `unk_`.
+- **Strings and tables** (`image.string`, `exe_real` on `.data` tables and the rest) are still read by address.
+
+The offset census doesn't count reads by address, so its total understates these.
+
 ## Next
 
 - Merge the per-file `word` / `put_word` / `real` copies into `retail_field.h` as their files are converted.

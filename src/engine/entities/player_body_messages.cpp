@@ -1,4 +1,5 @@
 #include "player_body_messages.h"
+#include "weapon_fields.h"
 #include <cstddef>
 #include "actor_transform.h"
 #include "player_mind_events.h"
@@ -155,7 +156,7 @@ void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> me
     {
         throw Error("vampire body message 0x19 has no contact views");
     }
-    if (get(message, body_message_field::id) != 0x19 || views.impact->source.bytes[0xDAC] != 0xC) // Message +0x1C's +0xDAC.
+    if (get(message, body_message_field::id) != 0x19 || views.impact->source.bytes[offsetof(WeaponBase, hit_kind)] != 0xC) // Message +0x1C's weapon.
     {
         dispatch_runtime_player_body_message(body, message, views, context);
         return;
@@ -164,7 +165,7 @@ void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> me
     {
         // 0x00105F90 writes the stack slot that held the body argument, and leaves it for a zero direction.
         float angle = std::bit_cast<float>(body_address);
-        Vec3 direction = get(message, impact_message::direction);
+        Vec3 direction = get(message, impact_message::velocity);
         runtime_direction_angle(direction, angle);
         constexpr float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148
         constexpr float minus_pi = std::bit_cast<float>(0xC0490FDBu); // DAT_0032B29C
@@ -182,9 +183,9 @@ void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> me
             return;
         }
     }
-    set(message, impact_message::unk_10, 1);
-    set(message, impact_message::unk_14, 0);
-    set(message, impact_message::unk_18, 1);
+    set(message, impact_message::handled, 1);
+    set(message, impact_message::result, 0);
+    set(message, impact_message::standing, 1);
 }
 
 // Xbox 0x00074080

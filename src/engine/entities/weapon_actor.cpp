@@ -1456,8 +1456,8 @@ u32 report_runtime_projectile_contact(RuntimeWeaponActor& weapon, Actor* holder,
         report[7] = contacts != nullptr ? services.bind_address(contacts, sizeof(GhoulySpawnPool)) : 0;
         std::memcpy(report.data() + 8, &point, 12);
         report[0xB] = notice.reply;
-        report[0xC] = notice.unused_14;
-        report[0xD] = notice.unused_18;
+        report[0xC] = notice.result;
+        report[0xD] = notice.standing;
         const u32 holder_address = services.actor_address(*holder);
         weapon.send(holder_address, report); // The holder's vtable +0xC.
         weapon.message(report); // This weapon's.

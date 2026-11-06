@@ -4,6 +4,13 @@
 
 namespace gbtg
 {
+// The actor's attribute block's words the hit messages read.
+namespace actor_attribute_field
+{
+constexpr RetailField<float, 0x190> hit_effect_scale{};
+constexpr RetailField<u8, 0x1A0> pushes_toward_bound{}; // set: a timer contact pushes from the source toward the bound's start
+} // namespace actor_attribute_field
+
 u32 receive_runtime_body_collision_hit(std::span<u8> body,
     RuntimeBodyAttachedActor& source, std::span<const u8> source_body,
     std::span<const u8> actor_bytes, const Vec3& normal, const Vec3& position,

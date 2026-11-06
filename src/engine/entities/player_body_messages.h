@@ -1,5 +1,6 @@
 #pragma once
 #include "gbtg/retail_field.h"
+#include "body_hit_message_fields.h"
 #include "body_message_dispatch.h"
 #include "body_source_contacts.h"
 #include "body_collision.h"
@@ -42,15 +43,6 @@ constexpr RetailField<Vec3, 0x1C> position{};
 constexpr RetailField<u8, 0x29> joint{};
 constexpr RetailField<u16, 0x2A> kind{};
 } // namespace collision_hit_message
-
-// Message 0x19: an impact; a hit from behind is answered in its reply words.
-namespace impact_message
-{
-constexpr RetailField<u32, 0x10> unk_10{};
-constexpr RetailField<u32, 0x14> unk_14{};
-constexpr RetailField<u32, 0x18> unk_18{};
-constexpr RetailField<Vec3, 0x20> direction{};
-} // namespace impact_message
 
 // Message 0x9E: movement added to the body.
 namespace movement_message

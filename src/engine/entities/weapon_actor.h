@@ -128,8 +128,8 @@ struct RuntimeProjectileHitNotice
     u32 strength = 0; // +8, weapon +0xDAD.
     u32 style = 0; // +0xC, weapon +0xDAE.
     u32 reply = 0; // +0x10.
-    u32 unused_14 = 0;
-    u32 unused_18 = 0;
+    u32 result = 0;
+    u32 standing = 0;
     Actor* weapon = nullptr; // +0x1C.
     Vec3 velocity{}; // +0x20.
     GhoulySpawnPool* contacts = nullptr; // +0x2C.

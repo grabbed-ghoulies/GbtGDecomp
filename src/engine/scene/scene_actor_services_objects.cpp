@@ -1189,8 +1189,8 @@ RuntimeSegmentContactActor& SceneActorServices::State::prop_contact_actor(entity
                     words[2] = notice.strength;
                     words[3] = notice.style;
                     words[4] = notice.reply;
-                    words[5] = notice.unused_14;
-                    words[6] = notice.unused_18;
+                    words[5] = notice.result;
+                    words[6] = notice.standing;
                     words[7] = address_of(notice.weapon);
                     std::memcpy(words.data() + 8, &notice.velocity, 12);
                     words[0xB] = records;
@@ -1198,8 +1198,8 @@ RuntimeSegmentContactActor& SceneActorServices::State::prop_contact_actor(entity
                     words[0xF] = notice.tail;
                     send(words, records);
                     notice.reply = words[4];
-                    notice.unused_14 = words[5];
-                    notice.unused_18 = words[6];
+                    notice.result = words[5];
+                    notice.standing = words[6];
                     return;
                 }
                 if (id == 0x1D || id == 0x18)
@@ -1349,16 +1349,16 @@ RuntimeSegmentContactActor& SceneActorServices::State::segment_contact_actor(ent
                         words[2] = notice.strength;
                         words[3] = notice.style;
                         words[4] = notice.reply;
-                        words[5] = notice.unused_14;
-                        words[6] = notice.unused_18;
+                        words[5] = notice.result;
+                        words[6] = notice.standing;
                         words[7] = address_of(notice.weapon);
                         std::memcpy(words.data() + 8, &notice.velocity, 12);
                         std::memcpy(words.data() + 0xC, &notice.point, 12);
                         words[0xF] = notice.tail;
                         dispatch_contact_words(*player, words, notice.contacts, 0xB);
                         notice.reply = words[4];
-                        notice.unused_14 = words[5];
-                        notice.unused_18 = words[6];
+                        notice.result = words[5];
+                        notice.standing = words[6];
                         return;
                     }
                     if (*static_cast<const u32*>(payload) == 0x1D || *static_cast<const u32*>(payload) == 0x18)

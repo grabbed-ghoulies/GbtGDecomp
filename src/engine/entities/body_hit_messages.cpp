@@ -1,4 +1,8 @@
 #include "body_hit_messages.h"
+#include "actor_fields.h"
+#include "body_hit_message_fields.h"
+#include "entity_collision.h"
+#include "weapon_fields.h"
 #include <cstddef>
 #include "actor_transform.h"
 #include "segment_records.h"
@@ -153,7 +157,7 @@ void receive_runtime_body_timer_contact(std::span<u8> body, std::span<const u8> 
     damage.joint = 1;
     const u32 one = 1;
     damage.latch_mask = one;
-    std::memcpy(&damage.position, message.data() + 0x14, 12);
+    std::memcpy(&damage.position, message.data() + timer_contact_message::position.offset, 12);
     const Vec3 source_position = actor_world_position(*source.actor);
     const Vec3 target_position = actor_world_position(context.processor.actor);
     Vec3 normal{source_position.x - target_position.x, 0.f, source_position.z - target_position.z};
@@ -166,16 +170,16 @@ void receive_runtime_body_timer_contact(std::span<u8> body, std::span<const u8> 
         normal.z = float(static_cast<long double>(normal.z) * reciprocal);
     }
     damage.normal = normal;
-    std::memcpy(&damage.push, message.data() + 8, 12);
+    std::memcpy(&damage.push, message.data() + timer_contact_message::push.offset, 12);
     damage.source = source.address;
     damage.attacker = source.address;
     damage.holder = source.address;
     Vec3 direction;
-    if (context.processor.attributes.data() != nullptr && context.processor.attributes[0x1A0] != 0 && bound.data() != nullptr)
+    if (context.processor.attributes.data() != nullptr && get(context.processor.attributes, actor_attribute_field::pushes_toward_bound) != 0 && bound.data() != nullptr)
     {
         const Vec3 position = actor_world_position(*source.actor);
-        direction = {read_f32(bound, 0x20) - position.x, read_f32(bound, 0x24) - position.y,
-            read_f32(bound, 0x28) - position.z};
+        const Vec3 start = get(bound, actor_capsule_field::start);
+        direction = {start.x - position.x, start.y - position.y, start.z - position.z};
     }
     else
     {
@@ -234,7 +238,7 @@ void receive_runtime_body_impact(std::span<u8> body, std::span<u8> message,
 {
     auto& flags = context.processor.flags;
     if ((((flags.bytes[2] & 2) == 0 && (flags.bytes[4] & 0x10) == 0) ||
-            body_record(body).unk_26C != read_u32(message, 8)) && (flags.bytes[3] & 0x10) == 0)
+            body_record(body).unk_26C != get(message, thrown_hit_message::source)) && (flags.bytes[3] & 0x10) == 0)
     {
         const u16 tag = find_runtime_player_tag_index(0x64, tag_rows, tag_names);
         BodyDamage damage{};
@@ -255,17 +259,17 @@ void receive_runtime_body_impact(std::span<u8> body, std::span<u8> message,
         damage.joint = views.contacts.begin[0x24];
         const u32 mask = 0x20;
         damage.latch_mask = mask;
-        std::memcpy(&damage.position, message.data() + 0x14, 12);
+        damage.position = get(message, thrown_hit_message::position);
         damage.contacts = views.contacts_address;
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
         damage.normal = normal;
-        std::memcpy(&damage.source, message.data() + 8, 4);
+        damage.source = get(message, thrown_hit_message::source);
         const Vec3 position = actor_world_position(context.processor.actor);
-        const Vec3 direction{0.f - (read_f32(message, 0x14) - position.x),
-            0.f - (read_f32(message, 0x18) - position.y), 0.f - (read_f32(message, 0x1C) - position.z)};
+        const Vec3 direction{0.f - (get(message, thrown_hit_message::position).x - position.x),
+            0.f - (get(message, thrown_hit_message::position).y - position.y), 0.f - (get(message, thrown_hit_message::position).z - position.z)};
         damage.direction = direction;
-        std::memcpy(&damage.starts_timer, message.data() + 0xC, 4);
+        damage.starts_timer = get(message, thrown_hit_message::starts_timer);
         const u32 one = 1;
         damage.unk_60 = one;
         damage.source_class = tag;
@@ -278,7 +282,7 @@ void receive_runtime_body_impact(std::span<u8> body, std::span<u8> message,
         Vec3 contact;
         runtime_body_damage_contact_position(damage, &views.contacts, contact);
         notify_runtime_body_impact_position(contact, result[0] == 0, context.processor.actions);
-        std::memcpy(message.data() + 4, &result[1], 4);
+        set(message, thrown_hit_message::result, result[1]);
     }
 }
 
@@ -290,20 +294,20 @@ void receive_runtime_body_projectile_contact(std::span<u8> body, std::span<u8> m
     {
         auto* host = views.source.host;
         BodyDamage damage{};
-        damage.kind = message[4];
-        damage.key = message[8];
-        damage.push_key = message[0xC];
+        damage.kind = get(message, projectile_contact_message::kind);
+        damage.key = get(message, projectile_contact_message::key);
+        damage.push_key = get(message, projectile_contact_message::push_key);
         damage.joint = views.contacts.begin[0x24];
         const u32 mask = 0x10;
         damage.latch_mask = mask;
-        std::memcpy(&damage.position, message.data() + 0x28, 12);
+        std::memcpy(&damage.position, message.data() + projectile_contact_message::position.offset, 12);
         damage.contacts = views.contacts_address;
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
         damage.normal = normal;
-        std::memcpy(&damage.source, message.data() + 0x14, 4);
-        std::memcpy(&damage.attacker, views.source.bytes.data() + 0xD8C, 4);
-        std::memcpy(&damage.holder, views.source.bytes.data() + 0xD8C, 4);
+        std::memcpy(&damage.source, message.data() + projectile_contact_message::source.offset, 4);
+        std::memcpy(&damage.attacker, views.source.bytes.data() + offsetof(WeaponBase, spawn_owner), 4);
+        std::memcpy(&damage.holder, views.source.bytes.data() + offsetof(WeaponBase, spawn_owner), 4);
         const float angle = runtime_actor_angle_toward(context.processor.actor, *views.source.actor);
         const Vec3 direction{float(retail_sin(angle)), 0.f, float(retail_cos(angle))};
         damage.direction = direction;
@@ -325,7 +329,7 @@ void receive_runtime_body_projectile_contact(std::span<u8> body, std::span<u8> m
         context.processor.second_source_live = host == nullptr ? 0 : player_record(host->bytes).live;
         std::array<u32, 4> result;
         receive_runtime_body_damage(body, damage, result, context);
-        std::memcpy(message.data() + 0x10, &result[1], 4);
+        std::memcpy(message.data() + projectile_contact_message::result.offset, &result[1], 4);
     }
 }
 
@@ -337,22 +341,22 @@ void receive_runtime_body_moving_contact(std::span<u8> body, std::span<u8> messa
     {
         auto* host = views.source.host;
         BodyDamage damage{};
-        damage.kind = message[4];
-        damage.key = message[8];
-        damage.push_key = message[0xC];
+        damage.kind = get(message, impact_message::kind);
+        damage.key = get(message, impact_message::key);
+        damage.push_key = get(message, impact_message::push_key);
         damage.joint = views.contacts.begin[0x24];
         const u32 mask = 8;
         damage.latch_mask = mask;
-        std::memcpy(&damage.position, message.data() + 0x30, 12);
+        damage.position = get(message, impact_message::position);
         damage.contacts = views.contacts_address;
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
         damage.normal = normal;
-        std::memcpy(&damage.push, message.data() + 0x20, 12);
-        std::memcpy(&damage.source, message.data() + 0x1C, 4);
-        std::memcpy(&damage.attacker, views.source.bytes.data() + 0xD8C, 4);
-        std::memcpy(&damage.holder, views.source.bytes.data() + 0xD8C, 4);
-        std::memcpy(&damage.direction, views.source.bytes.data() + 0x3C, 12);
+        damage.push = get(message, impact_message::velocity);
+        damage.source = get(message, impact_message::source);
+        std::memcpy(&damage.attacker, views.source.bytes.data() + offsetof(WeaponBase, spawn_owner), 4);
+        std::memcpy(&damage.holder, views.source.bytes.data() + offsetof(WeaponBase, spawn_owner), 4);
+        std::memcpy(&damage.direction, views.source.bytes.data() + offsetof(ActorBase, movement), 12);
         u16 actor_class;
         if (host == nullptr)
         {
@@ -371,14 +375,14 @@ void receive_runtime_body_moving_contact(std::span<u8> body, std::span<u8> messa
         context.processor.second_source_live = host == nullptr ? 0 : player_record(host->bytes).live;
         std::array<u32, 4> result;
         receive_runtime_body_damage(body, damage, result, context);
-        if (read_u32(message, 0x3C) == 0)
+        if (get(message, impact_message::no_reply) == 0)
         {
             dispatch_runtime_body_damage_reply(damage, result, context);
         }
-        std::memcpy(message.data() + 0x10, &one, 4);
-        std::memcpy(message.data() + 0x14, &result[2], 4);
+        set(message, impact_message::handled, one);
+        set(message, impact_message::result, result[2]);
         const u32 standing = result[2] == 0;
-        std::memcpy(message.data() + 0x18, &standing, 4);
+        set(message, impact_message::standing, standing);
     }
 }
 
@@ -439,16 +443,16 @@ void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
     damage.joint = views.contacts.begin[0x24];
     const u32 mask = 8;
     damage.latch_mask = mask;
-    std::memcpy(&damage.position, message.data() + 0x30, 12);
+    damage.position = get(message, impact_message::position);
     damage.contacts = views.contacts_address;
     Vec3 normal;
     normalized_segment_contact_direction(views.contacts, normal); // 0x000FCA60
     damage.normal = normal;
-    std::memcpy(&damage.push, message.data() + 0x20, 12);
-    std::memcpy(&damage.source, message.data() + 0x1C, 4);
-    std::memcpy(&damage.attacker, views.source.bytes.data() + 0xD8C, 4);
-    std::memcpy(&damage.holder, views.source.bytes.data() + 0xD8C, 4);
-    std::memcpy(&damage.direction, views.source.bytes.data() + 0x3C, 12);
+    damage.push = get(message, impact_message::velocity);
+    damage.source = get(message, impact_message::source);
+    std::memcpy(&damage.attacker, views.source.bytes.data() + offsetof(WeaponBase, spawn_owner), 4);
+    std::memcpy(&damage.holder, views.source.bytes.data() + offsetof(WeaponBase, spawn_owner), 4);
+    std::memcpy(&damage.direction, views.source.bytes.data() + offsetof(ActorBase, movement), 12);
     damage.source_class = actor_class;
     const u32 one = 1;
     damage.unk_5C = one;
@@ -459,10 +463,10 @@ void receive_runtime_body_front_hit(std::span<u8> body, std::span<u8> message,
     std::array<u32, 4> result;
     receive_runtime_body_damage(body, damage, result, context); // 0x00020DC0
     dispatch_runtime_body_damage_reply(damage, result, context); // 0x00020F80
-    std::memcpy(message.data() + 0x10, &one, 4);
-    std::memcpy(message.data() + 0x14, &result[2], 4);
+    set(message, impact_message::handled, one);
+    set(message, impact_message::result, result[2]);
     const u32 standing = result[2] == 0;
-    std::memcpy(message.data() + 0x18, &standing, 4);
+    set(message, impact_message::standing, standing);
 }
 
 // Xbox 0x000233A0
@@ -479,20 +483,20 @@ void receive_runtime_body_contact_health_hit(std::span<u8> body, std::span<u8> m
         damage.joint = views.contacts.begin[0x24];
         const u32 one = 1;
         damage.latch_mask = one;
-        std::memcpy(&damage.position, message.data() + 0x10, 12);
+        damage.position = get(message, contact_hit_message::position);
         damage.contacts = views.contacts_address;
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
         damage.normal = normal;
-        std::memcpy(&damage.source, message.data() + 8, 4);
+        damage.source = get(message, contact_hit_message::source);
         if (body_record(body).unk_278 == 0)
         {
             std::memcpy(&damage.attacker, body.data() + offsetof(BodyRecord, attacker), 4);
             std::memcpy(&damage.holder, body.data() + offsetof(BodyRecord, unk_274), 4);
         }
         const Vec3 position = actor_world_position(context.processor.actor);
-        const Vec3 direction{0.f - (read_f32(message, 0x10) - position.x),
-            0.f - (read_f32(message, 0x14) - position.y), 0.f - (read_f32(message, 0x18) - position.z)};
+        const Vec3 direction{0.f - (get(message, contact_hit_message::position).x - position.x),
+            0.f - (get(message, contact_hit_message::position).y - position.y), 0.f - (get(message, contact_hit_message::position).z - position.z)};
         damage.direction = direction;
         damage.starts_timer = one;
         damage.unk_60 = one;
@@ -517,7 +521,7 @@ void receive_runtime_body_contact_health_hit(std::span<u8> body, std::span<u8> m
                     &g_actor_creation_options, actions.events, 0);
             }
         }
-        std::memcpy(message.data() + 4, &result[1], 4);
+        set(message, contact_hit_message::result, result[1]);
     }
 }
 
@@ -536,15 +540,15 @@ void receive_runtime_body_contact_knockdown(std::span<u8> body, std::span<u8> me
         damage.latch_mask = one;
         damage.forced = one;
         damage.unblockable = one;
-        std::memcpy(&damage.position, message.data() + 0x10, 12);
+        damage.position = get(message, contact_hit_message::position);
         damage.contacts = views.contacts_address;
         Vec3 normal;
         normalized_segment_contact_direction(views.contacts, normal);
         damage.normal = normal;
-        std::memcpy(&damage.source, message.data() + 8, 4);
+        damage.source = get(message, contact_hit_message::source);
         const Vec3 position = actor_world_position(context.processor.actor);
-        const Vec3 direction{0.f - (read_f32(message, 0x10) - position.x),
-            0.f - (read_f32(message, 0x14) - position.y), 0.f - (read_f32(message, 0x18) - position.z)};
+        const Vec3 direction{0.f - (get(message, contact_hit_message::position).x - position.x),
+            0.f - (get(message, contact_hit_message::position).y - position.y), 0.f - (get(message, contact_hit_message::position).z - position.z)};
         damage.direction = direction;
         damage.unk_60 = one;
         context.contacts = &views.contacts;
@@ -566,7 +570,7 @@ void receive_runtime_body_contact_knockdown(std::span<u8> body, std::span<u8> me
                     &g_actor_creation_options, actions.events, 0);
             }
         }
-        std::memcpy(message.data() + 4, &result[1], 4);
+        set(message, contact_hit_message::result, result[1]);
     }
 }
 
@@ -577,10 +581,11 @@ void runtime_body_damage_contact_position(const BodyDamage& damage,
     if (contacts != nullptr)
     {
         const std::span<const u8> row{contacts->begin, 0x54};
-        float y = damage.position.y - read_f32(row, 0x30);
-        float z = damage.position.z - read_f32(row, 0x34);
-        const float radius = read_f32(row, 0x38) + 1.f;
-        float x = damage.position.x - read_f32(row, 0x2C);
+        const Vec3 center = get(row, segment_contact_field::center);
+        float y = damage.position.y - center.y;
+        float z = damage.position.z - center.z;
+        const float radius = get(row, segment_contact_field::radius) + 1.f;
+        float x = damage.position.x - center.x;
         const float squared = (y * y + z * z) + x * x;
         if (squared != 0.f)
         {
@@ -589,9 +594,9 @@ void runtime_body_damage_contact_position(const BodyDamage& damage,
             y = float(static_cast<long double>(y) * factor);
             z = float(static_cast<long double>(z) * factor);
         }
-        output.x = read_f32(row, 0x2C) + x;
-        output.y = read_f32(row, 0x30) + y;
-        output.z = read_f32(row, 0x34) + z;
+        output.x = center.x + x;
+        output.y = center.y + y;
+        output.z = center.z + z;
         return;
     }
     output = damage.position;
@@ -636,7 +641,7 @@ void notify_runtime_body_contact_hit_position(const Actor* source, const Vec3& p
     float scale = 1.f;
     if (attributes.data() != nullptr)
     {
-        scale = read_f32(attributes, 0x190);
+        scale = get(attributes, actor_attribute_field::hit_effect_scale);
     }
     if (!special)
     {
@@ -711,7 +716,7 @@ void notify_runtime_body_hit_position(const Actor* source, const Vec3& position,
     float scale = 1.f;
     if (attributes.data() != nullptr)
     {
-        scale = read_f32(attributes, 0x190);
+        scale = get(attributes, actor_attribute_field::hit_effect_scale);
     }
     if (!special)
     {
@@ -760,7 +765,7 @@ void receive_runtime_body_knock_back(std::span<u8> body, const Actor& actor,
     std::span<const u8> actor_bytes, RuntimeBodyAttachedActor* background,
     RuntimeBodyDamageEntry& context)
 {
-    const Vec3 movement{read_f32(actor_bytes, 0x3C), read_f32(actor_bytes, 0x40), read_f32(actor_bytes, 0x44)};
+    const Vec3 movement = actor_movement(actor_bytes);
     constexpr float kUp = 1.f; // DAT_0032B0F8.
     Vec3 facing{movement.x, 0.f, movement.z};
     if (facing.x == 0.f && facing.z == 0.f)
@@ -817,15 +822,15 @@ void receive_runtime_body_health_notice(std::span<u8> body, std::span<u8> messag
     std::span<const char* const, 4> second_names, RuntimeBodyDamageEntry& context)
 {
     const u32 actor = read_u32(body, 8);
-    const u32 amount = read_u32(message, 8);
+    const u32 amount = get(message, health_notice_message::amount);
     if (amount != 0)
     {
         const i32 remaining = std::bit_cast<i32>(u32(body_record(body).energy) - amount);
         const u16 health = u16(remaining) & u16((remaining < 1) - 1);
         body_record(body).energy = health;
     }
-    const u32 kind = read_u32(message, 0xC);
-    if (read_u32(message, 0x10) == 0)
+    const u32 kind = get(message, health_notice_message::kind);
+    if (get(message, health_notice_message::second_set) == 0)
     {
         switch (kind)
         {
@@ -863,10 +868,10 @@ void receive_runtime_body_health_notice(std::span<u8> body, std::span<u8> messag
             select_runtime_body_action_row(body, row, nullptr, actions);
         }
     }
-    const u32 updated_amount = read_u32(message, 8);
+    const u32 updated_amount = get(message, health_notice_message::amount);
     notify_runtime_body_damage(context.game, actor, 0, updated_amount, 0, 0, 0, 0, updated_amount == 0);
     const u32 handled = 1;
-    std::memcpy(message.data() + 4, &handled, 4);
+    set(message, health_notice_message::handled, handled);
 }
 
 // Xbox 0x00134E50

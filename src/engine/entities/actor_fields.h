@@ -10,7 +10,9 @@ namespace gbtg
 // them; the fields named here are the ones it doesn't. See docs/RETAIL_LAYOUTS.md.
 struct ActorBase
 {
-    std::array<u8, 0x194> unk_0{}; // +0, kept by the native Actor
+    std::array<u8, 0x3C> unk_0{}; // +0, kept by the native Actor
+    Vec3 movement{}; // +0x3C, a hit's push and direction (0x00020690, 0x00022E40); inferred from those uses
+    std::array<u8, 0x14C> unk_48{}; // +0x48, kept by the native Actor
     u16 bone = 0; // +0x194, 0: the animation moves the root bone (0x0002C2B0)
     std::array<u8, 0x66> unk_196{}; // +0x196, kept by the native Actor
     u16 marker_id = 0; // +0x1FC, the id other actors' `marker_next` and the marker lookups name, and its group
@@ -33,6 +35,12 @@ inline u16 actor_marker_id(std::span<const u8> bytes)
 inline u16 actor_marker_next(std::span<const u8> bytes)
 {
     return read_u16(bytes, offsetof(ActorBase, marker_next));
+}
+
+inline Vec3 actor_movement(std::span<const u8> bytes)
+{
+    return Vec3{read_f32(bytes, offsetof(ActorBase, movement)), read_f32(bytes, offsetof(ActorBase, movement) + 4),
+        read_f32(bytes, offsetof(ActorBase, movement) + 8)};
 }
 
 // An actor-derived record's bytes viewed as its struct.

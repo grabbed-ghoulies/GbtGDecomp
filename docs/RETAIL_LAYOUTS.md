@@ -422,6 +422,13 @@ whole-record view. The camera director's entry is `CameraDirectorEntry`, whose +
 so `camera_target_request` moved to `mind_request_fields.h`. A shape's first three bytes are still written singly (4, 0x20, 1) where
 `MindTargetShape::kind` declares one word; which layout is right wasn't settled.
 
+The hit messages have names in `body_hit_message_fields.h`, by message. Message 0x19 is what a weapon sends as
+`RuntimeProjectileHitNotice`, which settled `impact_message`: its old `unk_10`, `unk_14` and `unk_18` are the handled, result and
+standing words the handler answers in, and the notice's `unused_14` and `unused_18` weren't unused. Copies stay unchecked where the
+code didn't prove a length before: messages 0xF and 0x18 use `memcpy` through a field's `.offset`, and the source's +0xD8C and +0xDAC
+use `offsetof`, since the source can be an actor shorter than a weapon. The body animation dispatcher reads its kinds by name too.
+`ActorBase::movement` (+0x3C) and `actor_capsule_field` are inferred from a few uses.
+
 `ActorBytes` became `ActorBase` once it had named fields. Parameter rows, presets and other read-only script and XBE data stay
 on descriptors, as elsewhere: `walk_alert_row_field`, `strategy_move_settings_field`, `input_tracking_preset_field`,
 `cutscene_event_field` and `animation_event_field`. So do messages and mind requests, whose layout depends on an id or kind.

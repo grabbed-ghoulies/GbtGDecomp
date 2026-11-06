@@ -6,6 +6,44 @@ namespace gbtg
 // The body's own animation events (0x0001A8F0 runs them by kind; animation_event_field is the header). See
 // actor_event_messages.h for the kinds every actor runs.
 
+// The animation message (body message 7) that carries a command to 0x0001A8F0.
+namespace body_animation_message
+{
+constexpr RetailField<u32, 0x08> slot{};
+constexpr RetailField<u32, 0x10> phase{}; // 0 at the event's start, else its end
+} // namespace body_animation_message
+
+// Kinds 0xD, 0x15, 0x2B, 0x2C and 0x3A: a name at +0x10, of the kind's length.
+namespace named_event
+{
+constexpr RetailField<char, 0x10> name{};
+} // namespace named_event
+
+// Kind 7: the body's latches.
+namespace latch_mask_event
+{
+constexpr RetailField<u32, 0x10> mask{}; // the low byte is used
+} // namespace latch_mask_event
+
+// Kind 8: the body's four side counters, by bit.
+namespace side_counter_event
+{
+constexpr RetailField<u32, 0x10> mask{};
+} // namespace side_counter_event
+
+// Kind 0x19: the command attachments' list.
+namespace attachment_list_event
+{
+constexpr RetailField<u8, 0x10> clear{};
+} // namespace attachment_list_event
+
+// Kind 0x2E: a random timer between two values.
+namespace random_timer_event
+{
+constexpr RetailField<float, 0x10> low{};
+constexpr RetailField<float, 0x14> high{};
+} // namespace random_timer_event
+
 // Kinds 2 (the body's own, 0x0001AAF0) and 0xB (the attached actor's, 0x0001A290): contact shapes on while the event runs.
 namespace contact_shape_event
 {

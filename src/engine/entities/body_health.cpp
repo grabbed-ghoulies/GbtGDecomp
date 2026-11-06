@@ -1,4 +1,5 @@
 #include "body_health.h"
+#include "body_damage_curve.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "../audio/listener_settings.h"
@@ -12,14 +13,15 @@ void initialize_runtime_body_health(std::span<u8> body, std::span<const u8> para
     RuntimeBodyHealth& context)
 {
     const u16 tag = player_record(context.actor).damage_class;
+    const BodyDamageCurve& curve = retail_view<BodyDamageCurve>(context.curve);
     float health;
-    if (tag != 0 && context.curve[1] != context.curve[0])
+    if (tag != 0 && curve.key_last != curve.key_first)
     {
-        const float low = float(context.curve[0]);
-        const float high = float(context.curve[1]);
+        const float low = float(curve.key_first);
+        const float high = float(curve.key_last);
         const float value = float(context.tags[size_t(tag) * 0x87 - 0x47]);
-        const float maximum = read_f32(context.curve, 8);
-        const float minimum = read_f32(context.curve, 4);
+        const float maximum = curve.value_last;
+        const float minimum = curve.value_first;
         health = ((value - low) / (high - low)) * (maximum - minimum) + minimum;
         if (maximum > minimum)
         {
@@ -46,7 +48,7 @@ void initialize_runtime_body_health(std::span<u8> body, std::span<const u8> para
     }
     else
     {
-        health = read_f32(context.curve, 8);
+        health = curve.value_last;
     }
     const u16 integer = u16(truncate_runtime_float(health));
     body_record(body).energy = integer;

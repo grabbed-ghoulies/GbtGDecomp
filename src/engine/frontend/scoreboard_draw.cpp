@@ -84,7 +84,7 @@ void draw_glyph(u32 now, const u8* texture, const float* scale, float* position,
         }
         auto& context = *draw.immediate;
         begin_dialogue_sprite_draw(context); // 0x0005CDC0
-        draw_dialogue_texture(0, nullptr, const_cast<u8*>(texture), scale, nullptr, 0.f, read_u32(preset, 0x10),
+        draw_dialogue_texture(0, nullptr, const_cast<u8*>(texture), scale, nullptr, 0.f, retail_view<HudCounterPreset>(preset).colour,
             position, context); // 0x0005CA60, EAX the position, ECX frame 0, EDX no top coordinates
         --context.override_count; // DAT_00509B5C
         if (context.override_count == 0)
@@ -94,10 +94,10 @@ void draw_glyph(u32 now, const u8* texture, const float* scale, float* position,
     }
     else
     {
-        queue_runtime_hud_sprite(texture, position, scale, 0.f, read_u32(preset, 0x10), 0, draw); // 0x001221B0
+        queue_runtime_hud_sprite(texture, position, scale, 0.f, retail_view<HudCounterPreset>(preset).colour, 0, draw); // 0x001221B0
     }
-    const i32 width = i32(u32(read_u16({texture, 0xA}, 8)) >> 1) + std::bit_cast<i32>(read_u32(preset, 0xC));
-    position[0] = float(width) * read_f32(preset, 0) + position[0];
+    const i32 width = i32(u32(read_u16({texture, 0xA}, 8)) >> 1) + retail_view<HudCounterPreset>(preset).digit_gap;
+    position[0] = float(width) * retail_view<HudCounterPreset>(preset).scale + position[0];
 }
 }
 
@@ -163,7 +163,7 @@ void draw_runtime_hud_time(RuntimeHudCounter& counter, std::span<const u8> prese
     const i32 minutes = total_minutes % 60;
     const i32 seconds = counter.value % 60;
     // The colon's scale is the preset's first float on both axes.
-    const float size = read_f32(preset, 0);
+    const float size = retail_view<HudCounterPreset>(preset).scale;
     const float scale[2]{size, size};
     // Each part is a copy of the counter holding its own value, its digits refreshed (0x0012F990).
     const auto part = [&](i32 value)

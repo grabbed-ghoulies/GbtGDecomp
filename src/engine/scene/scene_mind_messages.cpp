@@ -1,4 +1,5 @@
 #include "scene_mind_messages.h"
+#include "../entities/body_damage_curve.h"
 #include "../entities/player_mind_control.h"
 #include "../entities/mind_fields.h"
 #include "../entities/body_action_ids.h"
@@ -423,8 +424,10 @@ SceneMindMessages::TargetAction::TargetAction(SceneMindMessages& owner, RuntimeM
               return owner.resolve_chain_address(address);
           }},
       length{owner.player_.body, owner.player_.actor_bytes, owner.player_.body_attributes.data(),
-          body_bits(owner.player_), owner.services_.chain_limits[0], owner.services_.chain_limits[1],
-          read_f32(owner.services_.chain_limits, 4), read_f32(owner.services_.chain_limits, 8),
+          body_bits(owner.player_), retail_view<BodyDamageCurve>(owner.services_.chain_limits).key_first,
+          retail_view<BodyDamageCurve>(owner.services_.chain_limits).key_last,
+          retail_view<BodyDamageCurve>(owner.services_.chain_limits).value_first,
+          retail_view<BodyDamageCurve>(owner.services_.chain_limits).value_last,
           owner.services_.class_table},
       requests{mind, chains, length, owner.services_.special_first, owner.services_.special_second,
           owner.services_.target_body(owner.services_.address_of(&target.actor))}, // Record +0x10 actor's body.

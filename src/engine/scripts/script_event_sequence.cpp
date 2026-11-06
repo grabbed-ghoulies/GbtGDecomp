@@ -290,7 +290,7 @@ void queue_script_event_step(const EventStep& step)
     }
     u8* row = pool->end;
     pool->end += pool->stride;
-    const u32 size = read_u32(context().step_sizes, size_t(type) * 0x14);
+    const u32 size = retail_row<EventStepType>(context().step_types, size_t(type)).size;
     if (size > sizeof(EventStep))
     {
         throw Error("script event step type " + std::to_string(type) + " size outside its record");
@@ -959,8 +959,9 @@ bool show_script_event_reminders(const SceneExecutableResources& image, RuntimeD
         {
             if (i32(dialogue.state.count) + 1 < 9) // DAT_004EE1E8
             {
-                // PTR_s_eventreminders_KillAll_00428918, stride 0x14 by step type.
-                const char* key = image.string(read_u32(image.memory(0x00428918u + type * 0x14u, 4), 0));
+                // PTR_s_eventreminders_KillAll_00428918.
+                const char* key = image.string(retail_view<EventStepType>(image.memory(kEventStepTypes + type * u32(sizeof(EventStepType)),
+                    sizeof(EventStepType))).reminder_key);
                 request_namespaced_localtext("aid_loctext_ghoulies_dialog_dialogs", "dialogs", key,
                     dialogue.measurement.wide_scratch, dialogue.measurement.localtext); // 0x000FF0A0 into DAT_00507E78
                 enqueue_runtime_dialogue(dialogue.measurement.wide_scratch, 0, dialogue); // 0x000582E0

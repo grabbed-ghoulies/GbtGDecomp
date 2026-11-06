@@ -732,8 +732,11 @@ Code reads three kinds of retail data by address, and they get different treatme
   chapter table starts at the third plate's texture name.
 - **Strategy parameter blocks** are views of the image through `retail_view`, as nothing in the dumps writes them: `ChickenParameters`,
   `GrimReaperParameters`, `HauntedPictureMovement`, `HunchbackParameters`, `ImpFlyingParameters`, `ImpNinjaParameters`, `JessieClydeParameters`,
-  `MedusaParameters`, `MummyCursedParameters`. Retail reaches them through the strategy's +0x38, so the dumps name no `DAT_` for their words.
+  `MedusaParameters`, `MummyCursedParameters`, `ImpFireParameters`, `ZombieParameters`, `HauntedChairParameters`. Four embed `StrategyMoveSettings`. Retail reaches them through the strategy's +0x38, so the dumps name no `DAT_` for their words.
   The `parameters` span an initializer takes is a different thing, the creation parameters. Unread words are `unk_`; the chicken only reads +0.
+- **Shared retail records** read through `retail_view` or `retail_row`: `HudCounterPreset` (six presets), `BodyDamageCurve` (the 0x48-row key table,
+  of which the health, friction and chain limit blocks are rows), `HealthBandRow` (DAT_00313A40), `DoorShapeRow` (DAT_00424994) and `EventStepType`.
+  The step table's rows start at DAT_00428908 with the request key; the old base of DAT_0042890C was its second word.
 - **The boot shader tables** (`graphics/boot_shader_tables.h`) are .data rows whose handles 0x00065EE0 and 0x00063FB0 write at boot, so code
   reads them through the image by name: `kBillboardVertexShader.handle`, `.constants`, `kDiffusePixelShader`. Names come from the shader
   source's own comment or the pass that binds the row. Vertex rows 3..6, 11, 17..19, 21, 23 and pixel rows 1, 3..7, 18 have no binder in the dumps.

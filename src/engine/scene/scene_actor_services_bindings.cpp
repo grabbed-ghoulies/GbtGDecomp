@@ -183,13 +183,13 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
 
     std::memcpy(&health_style, data(0x00433BE8, 4).data(), 4);
     brew = std::make_unique<RuntimeBrewMeter>(RuntimeBrewMeter{brew_state, brew_intensity, brew_counter,
-        brew_textures, brew_half_widths, brew_widget, widget_context, data(0x00312A1C, 0x14), resources.registry,
+        brew_textures, brew_half_widths, brew_widget, widget_context, data(0x00312A1C, sizeof(HudCounterPreset)), resources.registry,
         resources.error, address_zero});
     brew->rows = data(0x00312A30, 0x310).data(); // "challengeMenu_restart": butlersBrew_No, butlersBrew_Yes
     health_display = std::make_unique<RuntimePlayerHealthDisplay>(RuntimePlayerHealthDisplay{health_active,
         health_style, health_intensity, health_counter, health_mode, health_textures, health_widths,
         powerup_rows[0xA].active, // DAT_00512230, the Invulnerability powerup row.
-        story_byte, data(0x00313A40, 5 * 0x18), data(0x00313A18, 0x14), data(0x00313A2C, 0x14), resources.registry,
+        story_byte, data(0x00313A40, 5 * sizeof(HealthBandRow)), data(0x00313A18, sizeof(HudCounterPreset)), data(0x00313A2C, sizeof(HudCounterPreset)), resources.registry,
         resources.error});
     scoreboard_hud = std::make_unique<RuntimeScoreboardHud>(RuntimeScoreboardHud{scoreboard_globals, *brew,
         *health_display, overlay_digits, powerup_board, hud_enabled, g_flags_ea9c, score_refresh, score_points,
@@ -213,11 +213,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }});
     {
         scoreboard_resources = std::make_unique<RuntimeScoreboardResources>(RuntimeScoreboardResources{
-            resources.registry, resources.error, data(0x00314170, 0x10)});
+            resources.registry, resources.error, data(0x00314170, sizeof(HudCounterPreset))});
         scoreboard_update = std::make_unique<RuntimeScoreboardUpdate>(RuntimeScoreboardUpdate{*scoreboard_hud,
             *scoreboard_resources, audio.voices, g_scene_paused, *reinterpret_cast<const float*>(g_scene_times), g_scene_hold_time,
-            g_scene_flags->bytes[0], challenge_mode, challenge_count, data(0x00314170, 0x10),
-            data(0x00312A1C, 0x10), data(0x00312F8C, 0x10), 2.f, 0.6f, 0.8f, 1.5f, 0.1f, // DAT_0032B110, DAT_0032B248, DAT_0032B244, DAT_0032B210, DAT_0032B254.
+            g_scene_flags->bytes[0], challenge_mode, challenge_count, data(0x00314170, sizeof(HudCounterPreset)),
+            data(0x00312A1C, sizeof(HudCounterPreset)), data(0x00312F8C, sizeof(HudCounterPreset)), 2.f, 0.6f, 0.8f, 1.5f, 0.1f, // DAT_0032B110, DAT_0032B248, DAT_0032B244, DAT_0032B210, DAT_0032B254.
             [this](std::span<u32> message)
             {
                 // 0x00122D10: DAT_00511B40 holds the players' actor +0x93C nodes (links[1]).
@@ -253,7 +253,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 }
                 return nullptr;
             },
-            *reinterpret_cast<const i32*>(g_scene_record + 0x104), intro_notices, data(0x00433B54, 0x24)});
+            *reinterpret_cast<const i32*>(g_scene_record + 0x104), intro_notices, data(0x00433B54, 0x18 + sizeof(HudCounterPreset))});
     }
     // Boot registers the callout hook (0x0004F610) with the other resource hooks.
     callout_resources = std::make_unique<RuntimeCalloutResources>(RuntimeCalloutResources{resources.registry,
@@ -1042,7 +1042,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             return scene.keep_object(std::move(object));
         },
-        display_view, occupancy_initial, default_euler, scoreboard_globals, data(0x00312F8C, 0x10),
+        display_view, occupancy_initial, default_euler, scoreboard_globals, data(0x00312F8C, sizeof(HudCounterPreset)),
         [this](u32 holder)
         {
             auto& player = players->player_at(holder);
@@ -2053,7 +2053,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     door_variants = strings(0x00424970, 8);
     door_shapes = strings(0x00425118, 12);
     door_names = std::make_unique<RuntimeDoorNames>(RuntimeDoorNames{room.data(), door_aliases, door_variants,
-        door_shapes, data(0x00424994, 13 * 0x94)}); // Rows 0..12 (12: a room door 0x0005B540 adds); names follow.
+        door_shapes, data(kDoorShapes, 13 * sizeof(DoorShapeRow))}); // Rows 0..12 (12: a room door 0x0005B540 adds); names follow.
     // Actor +0x204 (model reference and its instance) and +0x310 (secondary instance) of a door track actor.
     door_models = [this](Actor* actor) -> RuntimeDoorActorModels
     {
@@ -2149,11 +2149,11 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     };
     g_runtime_doors = doors.get();
     event_board_resources = std::make_unique<RuntimeScoreboardResources>(RuntimeScoreboardResources{
-        resources.registry, resources.error, data(0x00314170, 0x10)});
+        resources.registry, resources.error, data(0x00314170, sizeof(HudCounterPreset))});
     {
         event_sequence = std::make_unique<ScriptEventSequenceContext>(ScriptEventSequenceContext{*doors,
             scoreboard_globals.score_board, *event_board_resources, audio.voices, prompt_owner,
-            g_script_30d0c, data(0x0042890C, 0x14 * 0x13), 1.2f, 2.f, 1.5f, // DAT_0032B24C, DAT_0032B110, DAT_0032B210.
+            g_script_30d0c, data(kEventStepTypes, 0x13 * sizeof(EventStepType)), 1.2f, 2.f, 1.5f, // DAT_0032B24C, DAT_0032B110, DAT_0032B210.
             [this]()
             {
                 // DAT_00511B40: the first case-list node (player actor +0x93C, links[1]); its +0x20 is the body.
@@ -2551,8 +2551,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         brew_accepted});
     scoreboard_draw->immediate = dialogue_draw.get();
     scoreboard_hud->draw = scoreboard_draw.get();
-    scoreboard_hud->counter_presets = {data(0x00314170, 0x14), data(0x00314184, 0x14)};
-    scoreboard_hud->damage_preset = data(0x00312F8C, 0x14);
+    scoreboard_hud->counter_presets = {data(0x00314170, sizeof(HudCounterPreset)), data(0x00314184, sizeof(HudCounterPreset))};
+    scoreboard_hud->damage_preset = data(0x00312F8C, sizeof(HudCounterPreset));
     dialogue_outer = std::make_unique<RuntimeDialogueOuterDrawContext>(RuntimeDialogueOuterDrawContext{*dialogue_draw,
         render_targets, d3d_device.outer(), *sprites, &resources.special_textures, *display_setup, text_draw_count,
         entity_detail::g_aspect_preset, entity_detail::g_video_widescreen, g_flags_ea9c, display_address,
@@ -2888,7 +2888,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     chapter5_countdown_services = std::make_unique<Chapter5CountdownServices>(Chapter5CountdownServices{
         g_scene_flags->bytes[0], g_chapter5_mode, g_script_6c60, g_chapter5_fail_wait, g_chapter5_message,
         g_chapter5_gold, story_bits, g_flags_ea9c, g_script_e794, clock, *scoreboard_hud, *scoreboard_resources,
-        data(0x00314170, 0x10), *dialogue, audio.streams,
+        data(0x00314170, sizeof(HudCounterPreset)), *dialogue, audio.streams,
         [](u8 mask, i32 release)
         {
             g_actor_pause(mask, release); // 0x00117400

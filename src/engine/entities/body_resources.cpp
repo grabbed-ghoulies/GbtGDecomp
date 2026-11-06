@@ -1,4 +1,5 @@
 #include "body_resources.h"
+#include "body_damage_curve.h"
 #include <cstddef>
 #include "body_fields.h"
 #include "entity_heap.h"
@@ -100,18 +101,19 @@ void acquire_runtime_body_resource_hashes(std::span<const u8> parameters,
 
 // Xbox 0x0001FA50
 void initialize_runtime_body_friction(std::span<u8> body, std::span<const u8> parameters,
-    std::span<u8> actor, std::span<const u8> curve, std::span<const u8> tags)
+    std::span<u8> actor, std::span<const u8> curve_bytes, std::span<const u8> tags)
 {
+    const BodyDamageCurve& curve = retail_view<BodyDamageCurve>(curve_bytes);
     body_record(body).push_mode = 1;
     body_record(body).shape_mode = parameters[0x1AA];
     const u16 tag = player_record(actor).damage_class;
-    const float maximum = read_f32(curve, 8);
+    const float maximum = curve.value_last;
     float value = maximum;
-    if (tag != 0 && curve[1] != curve[0])
+    if (tag != 0 && curve.key_last != curve.key_first)
     {
-        const float minimum = read_f32(curve, 4);
-        value = ((float(tags[size_t(tag) * 0x87 - 0x37]) - float(curve[0]))
-            / (float(curve[1]) - float(curve[0]))) * (maximum - minimum) + minimum;
+        const float minimum = curve.value_first;
+        value = ((float(tags[size_t(tag) * 0x87 - 0x37]) - float(curve.key_first))
+            / (float(curve.key_last) - float(curve.key_first))) * (maximum - minimum) + minimum;
         if (maximum > minimum)
         {
             if (value > maximum)

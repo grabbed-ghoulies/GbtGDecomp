@@ -192,11 +192,9 @@ void draw_picture(std::span<const u8> texture, const float* position, const floa
 }
 
 // The counter preset with its own scale and alpha.
-std::array<u8, 0x14> counter_preset(GameSelectControlServices& s)
+HudCounterPreset counter_preset(GameSelectControlServices& s)
 {
-    std::array<u8, 0x14> preset{};
-    std::memcpy(preset.data(), s.image.memory(kCounterPreset, 0x14).data(), 0x14);
-    return preset;
+    return retail_view<HudCounterPreset>(s.image.memory(kCounterPreset, sizeof(HudCounterPreset)));
 }
 
 RuntimeScoreboardHud& scoreboard(GameSelectControlServices& s)
@@ -364,7 +362,7 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
         {
             digit_scale = 0.4f; // DAT_0032B11C.
         }
-        std::memcpy(preset.data(), &digit_scale, 4);
+        preset.scale = digit_scale;
         if (w.intro != 0 && w.fade < one)
         {
             const float full = 255.f; // DAT_0032B158.
@@ -377,10 +375,10 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
             {
                 alpha = 0.f;
             }
-            preset[0x13] = truncate_byte(alpha);
+            preset.colour = (preset.colour & 0x00FFFFFFu) | u32(truncate_byte(alpha)) << 24;
         }
         float at[2]{left + border, top + border};
-        draw_runtime_hud_counter(challenge.number, at, preset, 1, scoreboard(s), *scoreboard(s).draw); // 0x0012F000
+        draw_runtime_hud_counter(challenge.number, at, retail_bytes(preset), 1, scoreboard(s), *scoreboard(s).draw); // 0x0012F000
     }
 }
 
@@ -844,15 +842,14 @@ void draw_runtime_game_challenges(GameSelectWidget& widget, GameSelectControlSer
             {
                 alpha = 0.f;
             }
-            preset[0x13] = truncate_byte(alpha);
+            preset.colour = (preset.colour & 0x00FFFFFFu) | u32(truncate_byte(alpha)) << 24;
         }
-        u32 color;
-        std::memcpy(&color, preset.data() + 0x10, 4);
+        const u32 color = preset.colour;
         const float* position = reinterpret_cast<const float*>(s.image.memory(0x00305CC0, 8).data());
         const float* scale = reinterpret_cast<const float*>(s.image.memory(0x00305CC8, 8).data());
         draw_picture(w.books_icon, position, scale, color, s);
         float at[2]{w.books_icon_half_width + 490.f, 395.f}; // DAT_0032B590, DAT_0032B58C.
-        draw_runtime_hud_counter(w.books, at, preset, 1, scoreboard(s), *scoreboard(s).draw); // 0x0012F000
+        draw_runtime_hud_counter(w.books, at, retail_bytes(preset), 1, scoreboard(s), *scoreboard(s).draw); // 0x0012F000
     }
     for (i32 slot = 0; slot < 5; ++slot)
     {

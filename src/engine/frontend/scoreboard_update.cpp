@@ -40,11 +40,6 @@ float& as_float(u32& word)
     return *reinterpret_cast<float*>(&word);
 }
 
-float preset_float(std::span<const u8> preset, size_t offset)
-{
-    return read_f32(preset, offset);
-}
-
 // 0x0012B2A0 with ECX = EAX = the timer: an ungated countdown.
 void tick_timer(float& timer)
 {
@@ -286,16 +281,17 @@ void swell_runtime_hud_counter(RuntimeHudCounter& counter, std::span<const u8> p
 {
     float& swell = as_float(counter.word_2c); // +0x2C
     float& time = as_float(counter.timer); // +0x30
-    const float base = preset_float(preset, 0);
+    const HudCounterPreset& look = retail_view<HudCounterPreset>(preset);
+    const float base = look.scale;
     if (time == 0.f) // DAT_0032B100
     {
         swell = base;
         return;
     }
-    const float angle = float(static_cast<long double>(time) / preset_float(preset, 8)
+    const float angle = float(static_cast<long double>(time) / look.swell_time
         * std::bit_cast<float>(0x40490FDBu) - std::bit_cast<float>(0x3FC90FDBu)); // DAT_0032B148, DAT_0032B140
     const long double sine = retail_sin(angle); // 0x00153320
-    swell = float(static_cast<long double>(preset_float(preset, 4)) * base * (sine + 1.0L) * 0.5L + base);
+    swell = float(static_cast<long double>(look.swell_amplitude) * base * (sine + 1.0L) * 0.5L + base);
     const float step = frame_step();
     if (0.f < time)
     {
@@ -453,12 +449,12 @@ void update_runtime_health_display(RuntimeScoreboardUpdate& context)
         globals.health_drawn = 0;
         return;
     }
-    std::span<const u8> row;
+    const HealthBandRow* row = nullptr;
     runtime_health_display_band(row, context); // 0x00130A50, EDX the row
     auto& pulse = globals.health_bf4; // DAT_00433BF4..DAT_00433C0C
-    pulse[1] = read_f32(row, 8); // DAT_00433BF8
+    pulse[1] = row->pulse_1; // DAT_00433BF8
     pulse[4] = context.band_length; // DAT_00433C04 = DAT_0032B254
-    pulse[6] = read_f32(row, 4); // DAT_00433C0C
+    pulse[6] = row->pulse_6; // DAT_00433C0C
     if (0 < health.counter.value) // DAT_00433C38
     {
         animate_runtime_hud_pulse({pulse[0], pulse[1], pulse[2], pulse[3], pulse[4], pulse[5], pulse[6]},
@@ -513,21 +509,22 @@ void play_runtime_health_second_voice(const char* name, RuntimeScoreboardUpdate&
 }
 
 // Xbox 0x00130A50
-i32 runtime_health_display_band(std::span<const u8>& row, RuntimeScoreboardUpdate& context)
+i32 runtime_health_display_band(const HealthBandRow*& row, RuntimeScoreboardUpdate& context)
 {
     auto& health = context.hud.health;
     if (health.override_health == 0 && context.hud.health_style != 1) // DAT_00512230, DAT_00433BE8
     {
         for (i32 band = 0; band < 5; ++band)
         {
-            if (health.counter.value <= std::bit_cast<i32>(read_u32(health.thresholds, size_t(band) * 0x18)))
+            const HealthBandRow& candidate = retail_row<HealthBandRow>(health.thresholds, size_t(band));
+            if (health.counter.value <= candidate.limit)
             {
-                row = health.thresholds.subspan(size_t(band) * 0x18, 0x18);
+                row = &candidate;
                 return band;
             }
         }
     }
-    row = health.thresholds.subspan(4 * 0x18, 0x18); // DAT_00313AA0
+    row = &retail_row<HealthBandRow>(health.thresholds, 4); // DAT_00313AA0
     return 4;
 }
 
@@ -559,7 +556,7 @@ void beat_runtime_health_display(float& amplitude, RuntimeScoreboardUpdate& cont
     {
         if (health.mode != 0)
         {
-            health.counter.timer = read_u32(preset, 8); // DAT_00433C68
+            health.counter.timer = std::bit_cast<u32>(retail_view<HudCounterPreset>(preset).swell_time); // DAT_00433C68
         }
     }
     else
@@ -568,7 +565,7 @@ void beat_runtime_health_display(float& amplitude, RuntimeScoreboardUpdate& cont
         update_runtime_hud_counter_digits(health.counter, preset); // 0x0012F990, ECX DAT_00433C38, ESI preset
         changed = true;
     }
-    std::span<const u8> row;
+    const HealthBandRow* row = nullptr;
     const i32 band = runtime_health_display_band(row, context); // 0x00130A50
     if ((changed || band == 0) && hud.globals.health_drawn != 0) // DAT_00433C6C
     {
@@ -582,7 +579,7 @@ void beat_runtime_health_display(float& amplitude, RuntimeScoreboardUpdate& cont
         message[0] = 0x90;
         context.message_players(message);
     }
-    amplitude = read_f32(row, changed ? 0x10 : 0xC);
+    amplitude = changed ? row->changed_amplitude : row->amplitude;
 }
 
 // Xbox 0x001323E0
@@ -823,7 +820,7 @@ void update_runtime_meter_view(RuntimeScoreboardUpdate& context)
         globals.baddie_counter.target = seconds; // DAT_00545A34
         globals.baddie_counter.value = seconds; // DAT_00545A30
         update_runtime_hud_counter_digits(globals.baddie_counter,
-            context.baddie_tunables.subspan(0x18, 12)); // 0x0012F990, ECX DAT_00545A30, ESI DAT_00433B6C
+            context.baddie_tunables.subspan(0x18, sizeof(HudCounterPreset))); // 0x0012F990, ECX DAT_00545A30, ESI DAT_00433B6C
         // The view's forward (DAT_005077A8 +0x1C) crossed with up, normalised and scaled by DAT_00433B58.
         const auto& view = *entity_detail::g_display_view;
         const float zero = 0.f;

@@ -1,4 +1,5 @@
 #include "body_damage_tables.h"
+#include "body_damage_curve.h"
 #include <cstddef>
 #include "gbtg/anim.h"
 #include "player_mind_events.h"
@@ -196,11 +197,11 @@ bool runtime_body_contact_damage_blocked(const EntityBitBlock& flags,
 // Xbox 0x001339C0
 float interpolate_runtime_damage_value(u8 key, u8 value, const RuntimeBodyDamageTables& tables)
 {
-    const size_t offset = size_t(key) * 0xC;
-    const float first = float(tables.values[offset]);
-    const float last = float(tables.values[offset + 1]);
-    const float upper = read_f32(tables.values, offset + 8);
-    const float lower = read_f32(tables.values, offset + 4);
+    const BodyDamageCurve& curve = retail_row<BodyDamageCurve>(tables.values, key);
+    const float first = float(curve.key_first);
+    const float last = float(curve.key_last);
+    const float upper = curve.value_last;
+    const float lower = curve.value_first;
     if (last == first)
     {
         return upper;
@@ -236,7 +237,7 @@ float runtime_class_damage_value(u8 key, u16 actor_class, const RuntimeBodyDamag
 {
     if (actor_class == 0)
     {
-        return read_f32(tables.values, size_t(key) * 0xC + 8);
+        return retail_row<BodyDamageCurve>(tables.values, key).value_last;
     }
     const u32 index = u32(actor_class) * 0x87 + u32(key) - 0x48;
     return interpolate_runtime_damage_value(key, tables.classes[index], tables);
@@ -247,7 +248,7 @@ i32 runtime_actor_damage_value(u8 key, u16 actor_class, const RuntimeBodyDamageT
 {
     if (actor_class == 0)
     {
-        return truncate_damage_value(read_f32(tables.values, size_t(key) * 0xC + 8));
+        return truncate_damage_value(retail_row<BodyDamageCurve>(tables.values, key).value_last);
     }
     const u32 index = u32(actor_class) * 0x87 + u32(key) - 0x48;
     return truncate_damage_value(interpolate_runtime_damage_value(key, tables.classes[index], tables));

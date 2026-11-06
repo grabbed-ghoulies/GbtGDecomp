@@ -761,7 +761,7 @@ void SceneActorServices::State::bind_gameselect_services()
             NativePlayerInstance* player = case_player(); // 0x001292D0
             return player != nullptr && !player->body.empty() && body_record(player->body).energy == 0;
         },
-        *scoreboard_hud, *scoreboard_resources, data(0x00314170, 0x10), *dialogue, audio.streams,
+        *scoreboard_hud, *scoreboard_resources, data(0x00314170, sizeof(HudCounterPreset)), *dialogue, audio.streams,
         [](u8 mask, i32 release)
         {
             g_actor_pause(mask, release); // 0x00117400

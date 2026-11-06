@@ -37,6 +37,18 @@ struct ScriptEventSequence
 extern i32 g_event_sequence_state; // DAT_005064D8.
 extern ScriptEventSequence g_event_sequence;
 
+// One kind of event step, DAT_00428908, 0x13 rows. Each name is the address of its string.
+inline constexpr u32 kEventStepTypes = 0x00428908;
+struct EventStepType
+{
+    u32 request_key; // +0x0, "eventReqId_KillAll".
+    u32 size; // +0x4, the step record's bytes.
+    u32 unk_08; // +0x8
+    u32 intro_key; // +0xC, "eventintros_KillAll".
+    u32 reminder_key; // +0x10, "eventreminders_KillAll".
+};
+static_assert(sizeof(EventStepType) == 0x14);
+
 // The scene services the sequence reaches; the scene binds it while it runs (null between scenes).
 struct ScriptEventSequenceContext
 {
@@ -46,7 +58,7 @@ struct ScriptEventSequenceContext
     AudioEventVoices& voices;
     const u32& prompt_owner; // DAT_004EE1EC.
     const i32& restart_requested; // DAT_00430D0C.
-    std::span<const u8> step_sizes; // DAT_0042890C, stride 0x14 by step type.
+    std::span<const u8> step_types; // DAT_00428908, EventStepType by step type.
     float icon_delay; // DAT_0032B24C.
     float icon_pulse; // DAT_0032B110.
     float icon_fade; // DAT_0032B210.

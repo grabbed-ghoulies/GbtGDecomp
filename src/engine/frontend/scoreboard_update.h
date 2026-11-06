@@ -83,7 +83,7 @@ void loop_runtime_health_second_voice(const char* name, RuntimeScoreboardUpdate&
 // The second health voice stops and `name` plays on it.
 void play_runtime_health_second_voice(const char* name, RuntimeScoreboardUpdate& context); // Xbox 0x00130950
 // EDX output: the threshold row (DAT_00313A40, stride 0x18) the health counter falls in, and its index.
-i32 runtime_health_display_band(std::span<const u8>& row, RuntimeScoreboardUpdate& context); // Xbox 0x00130A50
+i32 runtime_health_display_band(const HealthBandRow*& row, RuntimeScoreboardUpdate& context); // Xbox 0x00130A50
 void play_runtime_health_voice(const char* name, RuntimeScoreboardUpdate& context); // Xbox 0x00130830
 // The health pulse's step callback: the counter catches up, the heartbeat plays, players get 0x90.
 void beat_runtime_health_display(float& amplitude, RuntimeScoreboardUpdate& context); // Xbox 0x00130AC0

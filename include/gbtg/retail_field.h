@@ -146,6 +146,15 @@ const T& retail_view(std::span<const u8> bytes)
     return *reinterpret_cast<const T*>(bytes.data());
 }
 
+// Row `index` of a read-only table of the executable image.
+template <typename T>
+const T& retail_row(std::span<const u8> bytes, size_t index)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    detail::check_retail_range(bytes.size(), index * sizeof(T), sizeof(T));
+    return *reinterpret_cast<const T*>(bytes.data() + index * sizeof(T));
+}
+
 // The bytes of a record kept as a struct, for the functions that still take a retail byte span. A span is already
 // the bytes: passing one would give the span object's own pointer and length.
 template <typename T>

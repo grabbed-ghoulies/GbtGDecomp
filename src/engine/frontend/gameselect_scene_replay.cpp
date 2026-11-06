@@ -396,7 +396,7 @@ void add_bonus_book_scenes(GameSelectControlServices& s)
         {
             // 0x001433C0: the item with its icon, placed after the text (0x00060710 at DAT_00429AC0).
             const float width = runtime_text_line_width(s.metrics, 0, label.c_str(), exe_real(s, 0x00429AC0));
-            const std::array<float, 2> offset{width * exe_real(s, 0x0032B1C4) + exe_real(s, 0x00429AD0),
+            const std::array<float, 2> offset{width * -0.5f + exe_real(s, 0x00429AD0), // DAT_0032B1C4.
                 exe_real(s, 0x00429AD4)};
             const std::array<float, 2> full{exe_real(s, 0x00429AD8), exe_real(s, 0x00429ADC)};
             item->icon = std::make_unique<ButtonBatMenuSprite>(); // 0x000F72D0(0x2C)
@@ -673,7 +673,7 @@ void set_runtime_game_scene_replay_state(GameSceneReplayWidget& w, i32 state, Ga
         const std::array<float, 2> anchor{s.hud.inner_left + layout_real(p, 0x18, s),
             s.hud.inner_bottom - layout_real(p, 0x1C, s)}; // DAT_00509740, DAT_0050974C
         const std::array<float, 2> row_step{icon * 0.f, 0.f - icon * spacing};
-        const float half = spacing * exe_real(s, 0x0032B0F4) * icon;
+        const float half = spacing * 0.5f * icon; // DAT_0032B0F4.
         const std::array<float, 2> origin{half + layout_real(p, 0x24, s), 0.f - half};
         std::array<char16_t, 0x200> scratch{};
         const float width = measure_dialogue_widget_width(resource, s.image.memory(p.prompts, 0x310).data(), icon,
@@ -693,7 +693,7 @@ void set_runtime_game_scene_replay_state(GameSceneReplayWidget& w, i32 state, Ga
         create_dialogue_widget(w.prompts, 1, s.image.memory(p.prompts, 0x310).data(), anchor, row_step, origin,
             &column, icon, text, "gameselect", s.text, 0x400C0, s.widget_allocation); // 0x00141E20, EAX +0x498
         auto& prompts = *w.prompts;
-        const float fade = exe_real(s, 0x0032B1AC);
+        const float fade = 0.2f; // DAT_0032B1AC.
         prompts.duration = fade;
         if (prompts.progress > fade)
         {

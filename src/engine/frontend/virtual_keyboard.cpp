@@ -315,16 +315,16 @@ bool key_skipped(VirtualKeyboard& k)
 // Xbox 0x00015010, ECX the keyboard, ESI the output: the caret's position after the cursor.
 void caret_position(const VirtualKeyboard& k, float* output, GameSelectControlServices& s)
 {
-    float x = exe_real(s, 0x0032B53C);
+    float x = 130.f; // DAT_0032B53C.
     if (k.cursor != 0)
     {
         Text prefix{};
         std::copy(k.name.begin(), k.name.begin() + k.cursor, prefix.begin()); // lstrcpynW(.., cursor + 1)
         prefix[size_t(k.cursor)] = 0;
-        x = text_width(prefix.data(), exe_real(s, 0x0032B538), s) + exe_real(s, 0x0032B53C);
+        x = text_width(prefix.data(), 1.45f, s) + 130.f; // DAT_0032B538, DAT_0032B53C.
     }
     output[0] = x;
-    output[1] = cell_height(s) * exe_real(s, 0x0032B538) * exe_real(s, 0x0032B0F4) + exe_real(s, 0x0032B4C0);
+    output[1] = cell_height(s) * 1.45f * 0.5f + 54.f; // DAT_0032B538, DAT_0032B0F4, DAT_0032B4C0.
 }
 
 // Xbox 0x00016900, EDI the keyboard: the caret bat flies to the caret.
@@ -414,7 +414,7 @@ void walk_keys(VirtualKeyboard& k, GameSelectControlServices& s, Visit visit)
     {
         return;
     }
-    float y = exe_real(s, 0x0032B570);
+    float y = 135.f; // DAT_0032B570.
     for (u32 row = 0; row < k.rows; ++row)
     {
         auto& keys = current_board(k).at(row);
@@ -426,7 +426,7 @@ void walk_keys(VirtualKeyboard& k, GameSelectControlServices& s, Visit visit)
             x = key_width(key) + x;
             if (column == 0)
             {
-                x = x + exe_real(s, 0x0032B1B0);
+                x = x + 4.f; // DAT_0032B1B0.
             }
             ++column;
         }
@@ -590,7 +590,7 @@ void move_key_bat(VirtualKeyboard& k, GameSelectControlServices& s)
     {
         return;
     }
-    float y = exe_real(s, 0x0032B570);
+    float y = 135.f; // DAT_0032B570.
     for (u32 row = 0; row < k.rows; ++row)
     {
         auto& keys = current_board(k).at(row);
@@ -600,11 +600,11 @@ void move_key_bat(VirtualKeyboard& k, GameSelectControlServices& s)
         {
             if (row == u32(k.row) && column == k.column)
             {
-                const float left = x + exe_real(s, 0x0032B450);
+                const float left = x + 64.f; // DAT_0032B450.
                 Text label{};
                 key_label(key, k, label.data(), s); // 0x00016360
-                k.key_target.x = text_width(label.data(), exe_real(s, 0x0032B1EC), s) * exe_real(s, 0x0032B0F4) + left;
-                k.key_target.y = y + exe_real(s, 0x0032B67C);
+                k.key_target.x = text_width(label.data(), 0.65f, s) * 0.5f + left; // DAT_0032B1EC, DAT_0032B0F4.
+                k.key_target.y = y + 18.f; // DAT_0032B67C.
                 if (k.key_bat == nullptr)
                 {
                     return;
@@ -614,7 +614,7 @@ void move_key_bat(VirtualKeyboard& k, GameSelectControlServices& s)
             x = float(double(key_width(key)) + double(x));
             if (column == 0)
             {
-                x = x + exe_real(s, 0x0032B1B0);
+                x = x + 4.f; // DAT_0032B1B0.
             }
             ++column;
         }
@@ -980,10 +980,10 @@ void make_prompts(VirtualKeyboard& k, GameSelectControlServices& s)
 {
     char resource[0x80]{};
     std::memcpy(resource, "aid_loctext_ghoulies_gameselect_gameselecttext", 47); // 0x0020A574
-    const std::array<float, 2> anchor{s.hud.inner_left + exe_real(s, 0x0032B12C),
-        s.hud.inner_bottom - exe_real(s, 0x0032B1F4)};
-    const std::array<float, 2> row_step{0.f, exe_real(s, 0x0032B620)};
-    const std::array<float, 2> origin{exe_real(s, 0x0032B61C), exe_real(s, 0x0032B618)};
+    const std::array<float, 2> anchor{s.hud.inner_left + 100.f, // DAT_0032B12C.
+        s.hud.inner_bottom - 16.f}; // DAT_0032B1F4.
+    const std::array<float, 2> row_step{0.f, -28.8f}; // DAT_0032B620.
+    const std::array<float, 2> origin{16.4f, -10.4f}; // DAT_0032B61C, DAT_0032B618.
     if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
     {
         return;
@@ -995,14 +995,14 @@ void make_prompts(VirtualKeyboard& k, GameSelectControlServices& s)
     const std::array<float, 2> column{width, 0.f};
     create_dialogue_widget(k.prompts, 1, rows, anchor, row_step, origin, &column, 0.65f, 0.7f, "gameselect", s.text,
         0x400C0, s.widget_allocation); // 0x00141E20, EAX +0x10C
-    k.prompts->pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    k.prompts->pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     k.prompts->sound_enabled = 0;
 }
 
 // Xbox 0x00011870, ECX the name: the name trimmed to the box, the textures and the boards.
 void lay_out_keyboard(const char16_t* name, VirtualKeyboard& k, GameSelectControlServices& s)
 {
-    k.row_spacing = exe_real(s, 0x0032B574);
+    k.row_spacing = 42.f; // DAT_0032B574.
     k.row = 0;
     k.column = 0;
     k.kept_column = 1;
@@ -1011,14 +1011,14 @@ void lay_out_keyboard(const char16_t* name, VirtualKeyboard& k, GameSelectContro
     k.shift = 0;
     k.fresh = 1;
     k.rows = 5;
-    k.width_limit = float(i32(s.screen[0])) - exe_real(s, 0x0032B654);
+    k.width_limit = float(i32(s.screen[0])) - 260.f; // DAT_0032B654.
     k.name[0] = 0;
     if (wide_length(name) >= k.name.size())
     {
         throw Error("the default game name runs past the keyboard's 0x40-character buffer");
     }
     copy_wide(k.name.data(), name);
-    const float scale = exe_real(s, 0x0032B538);
+    const float scale = 1.45f; // DAT_0032B538.
     while (text_width(k.name.data(), scale, s) > k.width_limit)
     {
         k.name[wide_length(k.name.data()) - 1] = 0;
@@ -1086,8 +1086,8 @@ u32 read_keyboard_input(VirtualKeyboard& k, GameSelectControlServices& s)
             action = request;
         }
     }
-    const float high = exe_real(s, 0x0032B104);
-    const float low = exe_real(s, 0x0032B3F0);
+    const float high = 0.25f; // DAT_0032B104.
+    const float low = -0.25f; // DAT_0032B3F0.
     const auto quiet = [&]()
     {
         if (axes(s)[1] > high || low > axes(s)[1] || low > axes(s)[0])
@@ -1127,7 +1127,7 @@ u32 read_keyboard_input(VirtualKeyboard& k, GameSelectControlServices& s)
     if (k.repeat == 0.f)
     {
         direction();
-        k.repeat = exe_real(s, 0x0032B3E8);
+        k.repeat = 0.333f; // DAT_0032B3E8.
         return action;
     }
     const float step = frame_step(s);
@@ -1308,7 +1308,7 @@ void press_key(VirtualKeyboard& k, u32 code, GameSelectControlServices& s)
                 std::copy(joined.begin(), joined.end(), edited.begin());
                 edited[joined.size()] = 0;
             }
-            if (text_width(edited.data(), exe_real(s, 0x0032B538), s) < k.width_limit)
+            if (text_width(edited.data(), 1.45f, s) < k.width_limit) // DAT_0032B538.
             {
                 copy_wide(k.name.data(), edited.data());
                 ++k.cursor;
@@ -1568,11 +1568,11 @@ void draw_key_panel(VirtualKeyboard& k, float x, float y, const VirtualKeyboardK
     }
     Text label{};
     key_label(key, k, label.data(), s); // 0x00016360
-    const float scale = exe_real(s, 0x0032B1EC);
-    const float pad = exe_real(s, 0x0032B10C);
+    const float scale = 0.65f; // DAT_0032B1EC.
+    const float pad = 10.f; // DAT_0032B10C.
     const float width = text_width(label.data(), scale, s) + pad;
     const float height = cell_height(s) * scale + pad;
-    const float inset = exe_real(s, 0x0032B184);
+    const float inset = 5.f; // DAT_0032B184.
     draw_runtime_dialogue_panel(x - inset, y - inset, width, height, 0.25f, color, s.outer); // 0x00061360
 }
 
@@ -1582,10 +1582,10 @@ void draw_arrow(VirtualKeyboard& k, const VirtualKeyboardKey& key, std::span<con
 {
     Text label{};
     key_label(key, k, label.data(), s); // 0x00016360
-    const float scale = exe_real(s, 0x0032B1EC);
-    const float half = exe_real(s, 0x0032B0F4);
+    const float scale = 0.65f; // DAT_0032B1EC.
+    const float half = 0.5f; // DAT_0032B0F4.
     const float position[2]{text_width(label.data(), scale, s) * half + x, cell_height(s) * scale * half + y};
-    const float one = exe_real(s, 0x0032B0F8);
+    const float one = 1.f; // DAT_0032B0F8.
     const float scales[2]{one, one};
     if (arrow.data() != nullptr)
     {
@@ -1596,8 +1596,8 @@ void draw_arrow(VirtualKeyboard& k, const VirtualKeyboardKey& key, std::span<con
 // Xbox 0x000170A0, ECX the keyboard: the panel behind a name not yet edited.
 void draw_name_highlight(VirtualKeyboard& k, GameSelectControlServices& s)
 {
-    const float scale = exe_real(s, 0x0032B538);
-    const float pad = exe_real(s, 0x0032B26C);
+    const float scale = 1.45f; // DAT_0032B538.
+    const float pad = 8.f; // DAT_0032B26C.
     const i32 width = i32(float(i32(text_width(k.name.data(), scale, s))) + pad);
     const i32 height = i32(cell_height(s) * scale + pad);
     draw_runtime_dialogue_panel(126.f, 50.f, float(width), float(height), 0.25f, exe_word(s, 0x0020AE74), s.outer);
@@ -1610,7 +1610,7 @@ void draw_bat(Actor* bat, GameSelectControlServices& s)
     {
         return;
     }
-    const float scale = exe_real(s, 0x0032B114);
+    const float scale = 1.25f; // DAT_0032B114.
     if (bat->scale_200 != scale)
     {
         bat->scale_200 = scale;
@@ -1622,7 +1622,7 @@ void draw_bat(Actor* bat, GameSelectControlServices& s)
 // Xbox 0x000174D0, EDI the keyboard: the caret, then the caret bat.
 void draw_caret(VirtualKeyboard& k, GameSelectControlServices& s)
 {
-    const float scale = exe_real(s, 0x0032B538);
+    const float scale = 1.45f; // DAT_0032B538.
     const float scales[2]{scale, scale};
     float position[2];
     caret_position(k, position, s); // 0x00015010
@@ -1636,8 +1636,8 @@ void draw_caret(VirtualKeyboard& k, GameSelectControlServices& s)
 // Xbox 0x00017210, EAX the keyboard: the name box, the caret and every key's panel.
 void draw_keys(VirtualKeyboard& k, GameSelectControlServices& s)
 {
-    const float pad = exe_real(s, 0x0032B1F4);
-    const i32 height = i32(cell_height(s) * exe_real(s, 0x0032B538) + pad);
+    const float pad = 16.f; // DAT_0032B1F4.
+    const i32 height = i32(cell_height(s) * 1.45f + pad); // DAT_0032B538.
     const i32 width = i32(k.width_limit + pad);
     draw_runtime_dialogue_panel(122.f, 46.f, float(width), float(height), 0.25f, exe_word(s, 0x0020AE70),
         s.outer); // 0x00061360
@@ -1696,7 +1696,7 @@ void draw_keys(VirtualKeyboard& k, GameSelectControlServices& s)
         {
             color = lit;
         }
-        const float left = float(double(x) + double(exe_real(s, 0x0032B450)));
+        const float left = float(double(x) + double(64.f)); // DAT_0032B450.
         draw_key_panel(k, left, y, key, color, s); // 0x00016FC0
         if (key.code == 0x22B2)
         {
@@ -1717,7 +1717,7 @@ VirtualKeyboard* create_virtual_keyboard(const char16_t* name, GameSelectControl
     auto* k = new VirtualKeyboard; // 0x000F72D0(300)
     // 0x00011270: the keyboard's own input device (0x00107EF0, ESI +0x110), pushed as "virtualkeyboard".
     k->layout = 0x00434118;
-    k->row_spacing = exe_real(s, 0x0032B574);
+    k->row_spacing = 42.f; // DAT_0032B574.
     k->rows = 5;
     k->fresh = 1;
     k->input = create_runtime_keyboard_input(s.input_release);
@@ -1730,7 +1730,7 @@ VirtualKeyboard* create_virtual_keyboard(const char16_t* name, GameSelectControl
     allocate_dialogue_text_pool(k->pools[0], 0, 1, 0x400C0, s.text_pools);
     allocate_dialogue_text_pool(k->pools[1], 0, 1, 0x400C0, s.text_pools);
     allocate_dialogue_text_pool(k->pools[2], 0, 1, 0x400C0, s.text_pools);
-    k->pools[0]->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    k->pools[0]->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     switch (s.language)
     {
     case 0:

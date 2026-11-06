@@ -185,8 +185,8 @@ u32 line_record(RuntimeDialogueTextPool& pool, GameSelectTextLine& line, float s
 // Xbox 0x00101730: each byte of `rest` toward `selected` by the fraction, clamped to 0..255 and truncated.
 u32 blend_color(u32 selected, u32 rest, float fraction, GameSelectControlServices& s)
 {
-    const float full = exe_real(s, 0x0032B158);
-    const float remainder = exe_real(s, 0x0032B0F8) - fraction;
+    const float full = 255.f; // DAT_0032B158.
+    const float remainder = 1.f - fraction; // DAT_0032B0F8.
     u32 output = 0;
     for (u32 shift = 0; shift < 32; shift += 8)
     {
@@ -405,13 +405,13 @@ void tick_chapter_fade(GameContentsWidget& w, GameSelectControlServices& s)
 {
     count_down(w.background_fade_timer, frame_step(s));
     const float flight = s.bat_screen(*w.bat).flight_duration; // +0x93C
-    float fraction = exe_real(s, 0x0032B0F8);
+    float fraction = 1.f; // DAT_0032B0F8.
     if (flight != 0.f)
     {
         fraction = (w.background_fade_timer - flight) / (0.f - flight);
-        if (exe_real(s, 0x0032B0F8) < fraction)
+        if (1.f < fraction) // DAT_0032B0F8.
         {
-            w.background_fade = exe_real(s, 0x0032B0F8);
+            w.background_fade = 1.f; // DAT_0032B0F8.
             return;
         }
         if (fraction < 0.f)
@@ -434,7 +434,7 @@ void tick_chapter_select(GameContentsWidget& w, GameSelectControlServices& s)
     tick_chapter_fade(w, s); // 0x000DA300
     if (w.old_background.texture.data() != w.background.texture.data())
     {
-        const u8 alpha = truncate_byte(w.background_fade * exe_real(s, 0x0032B158)); // 0x001673D8
+        const u8 alpha = truncate_byte(w.background_fade * 255.f); // 0x001673D8, DAT_0032B158.
         set_color_alpha(w.background.color, alpha);
         set_color_alpha(w.old_background.color, u8(0xFF - alpha));
     }
@@ -447,14 +447,14 @@ void tick_chapter_select(GameContentsWidget& w, GameSelectControlServices& s)
     const float height = texture_height(w.chapters[index].sprite.texture);
     const float rest_y = (screen_height(s) * exe_real(s, layout + 0xC)) / height; // DAT_003069A8
     panel_sprite.scale[1] = ((screen_height(s) * exe_real(s, layout + 4)) / height - rest_y) * fraction + rest_y;
-    const float scale_x = exe_real(s, 0x0032B6B0);
-    const float base = exe_real(s, 0x0032B470);
-    const float grow = exe_real(s, 0x0032B234);
+    const float scale_x = 640.f; // DAT_0032B6B0.
+    const float base = 12.f; // DAT_0032B470.
+    const float grow = 20.f; // DAT_0032B234.
     const float from_x = exe_real(s, layout + 8) * scale_x + base;
     panel.box_width = ((exe_real(s, layout) * scale_x + grow) - from_x) * fraction + from_x;
-    const float from_y = exe_real(s, layout + 0xC) * exe_real(s, 0x0032B6AC) + base;
-    panel.box_height = ((exe_real(s, layout + 4) * exe_real(s, 0x0032B6AC) + grow) - from_y) * fraction + from_y;
-    if (exe_real(s, 0x0032B0F8) <= fraction)
+    const float from_y = exe_real(s, layout + 0xC) * 480.f + base; // DAT_0032B6AC.
+    panel.box_height = ((exe_real(s, layout + 4) * 480.f + grow) - from_y) * fraction + from_y; // DAT_0032B6AC.
+    if (1.f <= fraction) // DAT_0032B0F8.
     {
         if (index == 0)
         {
@@ -477,18 +477,18 @@ void tick_contents_fade_in(GameContentsWidget& w, GameSelectControlServices& s)
     const u32 white = exe_word(s, 0x00314F48);
     const u32 rest = exe_word(s, 0x003069EC);
     count_down(w.panel_fade_timer, frame_step(s));
-    const float scaled = (w.panel_fade_timer - exe_real(s, 0x0032B110)) * exe_real(s, 0x0032B1C4);
+    const float scaled = (w.panel_fade_timer - 2.f) * -0.5f; // DAT_0032B110, DAT_0032B1C4.
     float fraction;
-    if (scaled <= exe_real(s, 0x0032B0F8))
+    if (scaled <= 1.f) // DAT_0032B0F8.
     {
         fraction = 0.f <= scaled ? scaled : 0.f;
     }
     else
     {
-        fraction = exe_real(s, 0x0032B0F8);
+        fraction = 1.f; // DAT_0032B0F8.
     }
-    const u32 faded_white = with_alpha(white, truncate_byte(fraction * exe_real(s, 0x0032B158))); // 0x001673D8
-    const u32 faded_rest = with_alpha(rest, truncate_byte(fraction * exe_real(s, 0x0032B158)));
+    const u32 faded_white = with_alpha(white, truncate_byte(fraction * 255.f)); // 0x001673D8, DAT_0032B158.
+    const u32 faded_rest = with_alpha(rest, truncate_byte(fraction * 255.f)); // DAT_0032B158.
     for (size_t index = 0; index < 3; ++index)
     {
         chapter_sprite(w, index).color = faded_white;
@@ -496,8 +496,8 @@ void tick_contents_fade_in(GameContentsWidget& w, GameSelectControlServices& s)
     }
     const u32 lit = exe_word(s, 0x003069E8);
     chapter_panel(w, chapter(w)).box_color = lit;
-    set_color_alpha(chapter_panel(w, chapter(w)).box_color, truncate_byte(fraction * exe_real(s, 0x0032B158)));
-    if (exe_real(s, 0x0032B370) <= fraction)
+    set_color_alpha(chapter_panel(w, chapter(w)).box_color, truncate_byte(fraction * 255.f)); // DAT_0032B158.
+    if (0.f <= fraction) // DAT_0032B370.
     {
         w.panels_fading = 0;
         for (size_t index = 0; index < 3; ++index)
@@ -526,24 +526,24 @@ void show_completed_splat(GameSelectControlServices& s)
     set_color_alpha(splat.color, 0x9B);
     splat.position[0] = s.hud.center_x;
     splat.position[1] = s.hud.center_y;
-    const float height = float(s.metrics.fonts[0]->drop) * exe_real(s, 0x0032B3D0); // DAT_00504444 +0x10
+    const float height = float(s.metrics.fonts[0]->drop) * 1.4f; // DAT_00504444 +0x10, DAT_0032B3D0.
     const float width = runtime_text_line_width(s.metrics, 0,
-        w.completed.text.data(), exe_real(s, 0x0032B3D0)); // 0x00060710
-    splat.position[1] = width * exe_real(s, 0x0032B0F4) + splat.position[1] + exe_real(s, 0x0032B548);
+        w.completed.text.data(), 1.4f); // 0x00060710, DAT_0032B3D0.
+    splat.position[1] = width * 0.5f + splat.position[1] + 58.f; // DAT_0032B0F4, DAT_0032B548.
     w.splat_full_scale[0] = height / texture_width(w.splat.texture);
     w.splat_full_scale[1] = width / texture_height(w.splat.texture);
-    w.splat_full_scale[0] = w.splat_full_scale[0] * exe_real(s, 0x0032B544);
-    w.splat_full_scale[1] = w.splat_full_scale[1] * exe_real(s, 0x0032B540);
+    w.splat_full_scale[0] = w.splat_full_scale[0] * 1.369863f; // DAT_0032B544.
+    w.splat_full_scale[1] = w.splat_full_scale[1] * 2.2222223f; // DAT_0032B540.
     float time;
     if (w.splat_phase == 3)
     {
-        time = exe_real(s, 0x0032B1AC) - w.splat_timer;
+        time = 0.2f - w.splat_timer; // DAT_0032B1AC.
     }
     else
     {
         splat.scale[0] = 0.f;
         splat.scale[1] = 0.f;
-        time = exe_real(s, 0x0032B1AC);
+        time = 0.2f; // DAT_0032B1AC.
     }
     w.splat_timer = time;
     w.splat_phase = 1;
@@ -553,10 +553,10 @@ void show_completed_splat(GameSelectControlServices& s)
 void hide_completed_splat(GameSelectControlServices& s)
 {
     auto& w = *s.frontend.contents_widget;
-    float time = exe_real(s, 0x0032B1AC);
+    float time = 0.2f; // DAT_0032B1AC.
     if (w.splat_phase == 1)
     {
-        time = exe_real(s, 0x0032B1AC) - w.splat_timer;
+        time = 0.2f - w.splat_timer; // DAT_0032B1AC.
     }
     w.splat_timer = time;
     w.splat_phase = 3;
@@ -580,8 +580,8 @@ void tick_completed_splat(GameSelectControlServices& s)
         return;
     }
     const float step = frame_step(s);
-    const float rate = exe_real(s, 0x0032B37C);
-    const float total = exe_real(s, 0x0032B1AC);
+    const float rate = -5.f; // DAT_0032B37C.
+    const float total = 0.2f; // DAT_0032B1AC.
     if (phase == 3)
     {
         if (0.f < w.splat_timer)
@@ -907,17 +907,17 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
         create_contents_bat(w, s); // 0x000D9F10
         char resource[0x80]{};
         std::memcpy(resource, "aid_loctext_ghoulies_gameselect_gameselecttext", 47); // 0x0020A574
-        const float edge = exe_real(s, 0x0032B1F4);
+        const float edge = 16.f; // DAT_0032B1F4.
         const std::array<float, 2> anchor{s.hud.left + edge, s.hud.bottom - edge};
-        const std::array<float, 2> row_step{0.f, exe_real(s, 0x0032B6A8)};
-        const std::array<float, 2> origin{exe_real(s, 0x0032B6A4), exe_real(s, 0x0032B6A0)};
+        const std::array<float, 2> row_step{0.f, -27.2f}; // DAT_0032B6A8.
+        const std::array<float, 2> origin{17.6f, -13.6f}; // DAT_0032B6A4, DAT_0032B6A0.
         std::array<char16_t, 0x200> scratch{};
         float widest = 0.f;
         for (const u32 rows : {0x003069F0u, 0x00306D00u, 0x00307320u, 0x00307010u})
         {
             const float width = measure_dialogue_widget_width(resource, s.image.memory(rows, 0x310).data(), 0.85f,
                 0.76f, "gameselect", scratch.data(), s.widgets); // 0x001428F0, ECX the rows
-            if (rows == 0x003069F0u ? width > exe_real(s, 0x0032B100) : width > widest)
+            if (rows == 0x003069F0u ? width > 0.f : width > widest) // DAT_0032B100.
             {
                 widest = width;
             }
@@ -926,14 +926,14 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
         create_resource_dialogue_widget(w.prompts, 1, nullptr, anchor, row_step, origin, &column, 0.85f, 0.76f,
             "gameselect", resource, 0x400C0, s.widget_allocation); // 0x00141DA0, ESI +0xF2C
         auto& prompts = *w.prompts;
-        const float fade = exe_real(s, 0x0032B1AC);
+        const float fade = 0.2f; // DAT_0032B1AC.
         prompts.duration = fade;
         if (prompts.progress > fade)
         {
             prompts.progress = fade;
         }
         prompts.pool->end_time = fade;
-        prompts.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+        prompts.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
         break;
     }
     case 2:
@@ -971,7 +971,7 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
         return;
     case 6:
     {
-        const float scale = exe_real(s, 0x0032B69C);
+        const float scale = 0.16f; // DAT_0032B69C.
         // Every panel back to its rest size and color.
         for (size_t index = 0; index < 3; ++index)
         {
@@ -980,8 +980,8 @@ void set_contents_state(GameContentsWidget& w, i32 state, GameSelectControlServi
             const auto& texture = w.chapters[index].sprite.texture;
             other_sprite.scale[0] = (screen_width(s) * scale) / texture_width(texture);
             other_sprite.scale[1] = (screen_height(s) * scale) / texture_height(texture);
-            other.box_width = exe_real(s, 0x0032B694);
-            other.box_height = exe_real(s, 0x0032B698);
+            other.box_width = 114.399994f; // DAT_0032B694.
+            other.box_height = 88.799995f; // DAT_0032B698.
             other.box_color = exe_word(s, 0x003069EC);
         }
         select_chapter_movie(w, s); // 0x000D9F60, EDI the widget
@@ -1086,7 +1086,7 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
         build_button_sequence(w); // 0x000DB1A0
     }
     allocate_dialogue_text_pool(w.title_pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0xA74
-    w.title_pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    w.title_pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     auto& title = w.title;
     auto& progress = w.progress;
     auto& completed = w.completed;
@@ -1094,7 +1094,7 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
     std::copy(std::begin(blank), std::end(blank), title.text.data());
     title.record = 0;
     title.x = s.hud.center_x;
-    title.y = s.hud.center_y - exe_real(s, 0x0032B6BC);
+    title.y = s.hud.center_y - 185.f; // DAT_0032B6BC.
     allocate_dialogue_text_pool(w.progress_pool, 0, 1, 0xC0, s.text_pools); // +0xC84
     const char* unset = "Progress not set"; // 0x00324CB4
     char16_t* progress_text = progress.text.data();
@@ -1104,7 +1104,7 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
     }
     progress_text[0x10] = 0;
     progress.x = s.hud.center_x;
-    progress.y = s.hud.center_y + exe_real(s, 0x0032B1E8);
+    progress.y = s.hud.center_y + 90.f; // DAT_0032B1E8.
     progress.record = 0;
     allocate_dialogue_text_pool(w.name_pool, 0, 1, 0xC0, s.text_pools); // +0x850
     allocate_dialogue_text_pool(w.completed_pool, 0, 1, 0x400C0, s.text_pools); // +0xEF4
@@ -1114,7 +1114,7 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
             completed.text.data(), s.localtext); // 0x000FF120, EDI 0x00324C98
     }
     completed.x = s.hud.center_x;
-    completed.y = s.hud.center_y + exe_real(s, 0x0032B548);
+    completed.y = s.hud.center_y + 58.f; // DAT_0032B548.
     for (size_t index = 0; index < 3; ++index)
     {
         auto& panel = chapter_panel(w, index);
@@ -1124,7 +1124,7 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
         const char16_t error[] = u"error";
         std::copy(std::begin(error), std::end(error), name.text.data());
         name.x = s.hud.center_x;
-        name.y = s.hud.center_y + exe_real(s, 0x0032B6B8);
+        name.y = s.hud.center_y + 38.f; // DAT_0032B6B8.
         name.record = 0;
         panel_sprite.position[0] = exe_real(s, layout - 0x10);
         panel_sprite.position[1] = exe_real(s, layout - 0xC);
@@ -1139,8 +1139,8 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
         char* movie = panel.movie_name.data();
         std::strcpy(movie, s.image.string(row + 0x80));
         panel.box_color = exe_word(s, 0x003069EC);
-        panel.box_width = exe_real(s, layout) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x0032B470);
-        panel.box_height = exe_real(s, layout + 4) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x0032B470);
+        panel.box_width = exe_real(s, layout) * 640.f + 12.f; // DAT_0032B6B0, DAT_0032B470.
+        panel.box_height = exe_real(s, layout + 4) * 480.f + 12.f; // DAT_0032B6AC, DAT_0032B470.
         panel.movie_held = 0;
         w.chapters[index].movie = allocate_runtime_movie(movie, 0x14, s.movies); // 0x001071A0
         panel.movie_frames = 0;
@@ -1181,7 +1181,7 @@ void open_runtime_game_contents(std::span<u8> owner, GameSelectControlState& con
     old_background.color = white;
     w.background_fade_timer = 0.f;
     w.background_fade = 0.f;
-    w.panel_fade_timer = exe_real(s, 0x0032B110);
+    w.panel_fade_timer = 2.f; // DAT_0032B110.
     w.panels_fading = 1;
     w.prompts = nullptr;
     w.saved_plate_flag_0 = s.plate_flags[0];
@@ -1328,13 +1328,13 @@ void tick_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
         auto& features = chapter_sprite(w, 2);
         auto& challenge = w.challenge;
         const float scale_x = features.scale[0];
-        const float offset = scale_x * exe_real(s, 0x0032B6B4) * exe_real(s, 0x0032B184);
+        const float offset = scale_x * 6.25f * 5.f; // DAT_0032B6B4, DAT_0032B184.
         challenge.position[0] = features.position[0];
         challenge.position[1] = features.position[1];
         const auto& texture = w.chapters[2].sprite.texture; // +0x79C
         challenge.position[0] =
-            texture_width(texture) * scale_x * exe_real(s, 0x0032B0F4) + offset + challenge.position[0];
-        const float height = texture_height(texture) * features.scale[1] * exe_real(s, 0x0032B2AC);
+            texture_width(texture) * scale_x * 0.5f + offset + challenge.position[0]; // DAT_0032B0F4.
+        const float height = texture_height(texture) * features.scale[1] * 0.75f; // DAT_0032B2AC.
         challenge.scale[0] = height / texture_width(w.challenge.texture);
         challenge.scale[1] = height / texture_height(w.challenge.texture);
         challenge.color = features.color;
@@ -1437,11 +1437,11 @@ void draw_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
     {
         if (selected_panel.movie_frame_ready != 0)
         {
-            const float top[2]{exe_real(s, 0x0032B1F4), exe_real(s, 0x0032B1B0)};
-            const float bottom[2]{exe_real(s, 0x0032B588), exe_real(s, 0x0032B584)};
-            const float full = exe_real(s, 0x0032B158);
-            float alpha = (float(selected_panel.movie_frames) - exe_real(s, 0x0032B284))
-                * exe_real(s, 0x0032B250) * full;
+            const float top[2]{16.f, 4.f}; // DAT_0032B1F4, DAT_0032B1B0.
+            const float bottom[2]{159.f, 119.f}; // DAT_0032B588, DAT_0032B584.
+            const float full = 255.f; // DAT_0032B158.
+            float alpha = (float(selected_panel.movie_frames) - 7.f) // DAT_0032B284.
+                * 0.05f * full; // DAT_0032B250.
             if (alpha > full)
             {
                 alpha = full;
@@ -1470,7 +1470,7 @@ void draw_runtime_game_contents(GameSelectWidget& widget, GameSelectControlServi
     }
     if (s.dialogue_page_hold() == 0 && w.panels_fading == 0 && w.bat != nullptr)
     {
-        const float scale = exe_real(s, 0x0032B110);
+        const float scale = 2.f; // DAT_0032B110.
         if (w.bat->scale_200 != scale)
         {
             w.bat->scale_200 = scale;

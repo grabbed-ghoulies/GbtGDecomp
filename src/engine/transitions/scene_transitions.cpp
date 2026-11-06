@@ -271,7 +271,7 @@ i32 tick_fade(RuntimeSceneTransition& t)
 // Xbox 0x0012BCE0
 void begin_fade(RuntimeSceneTransition& t)
 {
-    const float duration = image_real(0x0032B150);
+    const float duration = 0.016666668f; // DAT_0032B150.
     leave_phase(t.phase);
     t.phase = 1;
     t.duration = duration;
@@ -281,7 +281,7 @@ void begin_fade(RuntimeSceneTransition& t)
 // Xbox 0x0012BD50
 void exit_fade(RuntimeSceneTransition& t)
 {
-    const float duration = image_real(0x0032B0F4);
+    const float duration = 0.5f; // DAT_0032B0F4.
     leave_phase(t.phase);
     t.phase = 3;
     t.duration = duration;
@@ -614,7 +614,7 @@ i32 tick_slime(RuntimeSceneTransition& t)
             set_transition_phase(t, 0); // 0x0012C830
             return t.phase;
         }
-        const float off = t.duration * image_real(0x0032B244);
+        const float off = t.duration * 0.8f; // DAT_0032B244.
         if (off < previous && t.time <= off)
         {
             request_spatial_audio_event_voice(services().image.string(0x00431370), 1, 0.f, s.voices); // 0x00039510
@@ -658,8 +658,8 @@ void draw_slime(RuntimeSceneTransition& t)
     const float view_height = float(view.fitted_height); // +0x64
     const float view_width = float(view.fitted_width); // +0x60
     const float screen_width = float(i32(s.screen[0]));
-    const float half = image_real(0x0032B0F4);
-    const float one = image_real(0x0032B0F8);
+    const float half = 0.5f; // DAT_0032B0F4.
+    const float one = 1.f; // DAT_0032B0F8.
     std::array<float, 2> position{screen_width * half - one, view_height * half - one};
     std::array<float, 2> scale{};
     u8 frame = 0;
@@ -714,7 +714,7 @@ void draw_slime(RuntimeSceneTransition& t)
             value = slime_frame(t.time / t.duration * count, count);
         }
         frame = u8(truncate_runtime_float(value));
-        scale = {0.f - view_width / width(), image_real(0x0032B120) / height() * view_height};
+        scale = {0.f - view_width / width(), -1.f / height() * view_height}; // DAT_0032B120.
     }
     else
     {
@@ -762,7 +762,7 @@ void begin_slime(RuntimeSceneTransition& t)
     if (voice != -1)
     {
         s.voices.voices[size_t(voice)].stop = 1; // DAT_004E0CEC
-        position_audio_event_voice_ahead(voice, image_real(0x0032B184), s.voices); // 0x00039B30
+        position_audio_event_voice_ahead(voice, 5.f, s.voices); // 0x00039B30, DAT_0032B184.
         prepare_audio_event_voice(voice, s.image.string(0x004313F8), s.voices); // 0x00039A20
     }
 }
@@ -872,7 +872,7 @@ void tick_scene_transition()
         if (allocation->limit <= allocation->cursor)
         {
             create_dialogue_text_record(*t.loading_pool, t.loading_text.data(),
-                float(i32(s.screen[0])) * image_real(0x0032B0F4), float(i32(s.screen[1])) * image_real(0x0032B244),
+                float(i32(s.screen[0])) * 0.5f, float(i32(s.screen[1])) * 0.8f, // DAT_0032B0F4, DAT_0032B244.
                 1.5f, 1.5f, 1.5f, 1, 0, 0, s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F580
             create_dialogue_text_record(*t.loading_pool, u"spam", -100.f, -100.f, 0.1f, 0.1f, 0.5f, 0, 0, 0,
                 s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F550

@@ -480,7 +480,7 @@ void set_runtime_game_features_state(GameFeaturesWidget& w, i32 state, GameSelec
         const std::array<float, 2> anchor{s.hud.inner_left + exe_real(s, 0x00428C40),
             s.hud.inner_bottom - exe_real(s, 0x00428C44)}; // DAT_00509740, DAT_0050974C
         const std::array<float, 2> row_step{icon * 0.f, 0.f - icon * spacing};
-        const float half = spacing * exe_real(s, 0x0032B0F4) * icon;
+        const float half = spacing * 0.5f * icon; // DAT_0032B0F4.
         const std::array<float, 2> origin{half + exe_real(s, 0x00428C4C), 0.f - half};
         std::array<char16_t, 0x200> scratch{};
         const float width = measure_dialogue_widget_width(resource, s.image.memory(kFeaturesRows, 0x310).data(), icon,
@@ -500,7 +500,7 @@ void set_runtime_game_features_state(GameFeaturesWidget& w, i32 state, GameSelec
         create_dialogue_widget(w.prompts, 1, s.image.memory(kFeaturesRows, 0x310).data(), anchor, row_step, origin,
             &column, icon, text, "gameselect", s.text, 0x400C0, s.widget_allocation); // 0x00141E20, EAX +0x494
         auto& prompts = *w.prompts;
-        const float fade = exe_real(s, 0x0032B1AC);
+        const float fade = 0.2f; // DAT_0032B1AC.
         prompts.duration = fade;
         if (prompts.progress > fade)
         {

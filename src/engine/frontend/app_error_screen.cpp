@@ -96,7 +96,7 @@ void open_screen(GameSelectControlServices& s)
         s.cutscenes); // 0x0004D680, 0x002180E0
     camera_bind_named_view(0, "AppMainErrorDialog"); // 0x00048CF0, EBX 0x0031C2D0
     const float scale = exe_real(s, 0x00339F88); // 0.8
-    const float half = exe_real(s, 0x00339F80) * exe_real(s, 0x0032B0F4) * scale;
+    const float half = exe_real(s, 0x00339F80) * 0.5f * scale; // DAT_0032B0F4.
     const std::array<float, 2> anchor{s.hud.inner_left + exe_real(s, 0x00339F78),
         s.hud.inner_bottom - exe_real(s, 0x00339F7C)}; // DAT_00509740, DAT_0050974C
     const std::array<float, 2> row_step{scale * 0.f, 0.f - scale * exe_real(s, 0x00339F80)};
@@ -104,7 +104,7 @@ void open_screen(GameSelectControlServices& s)
     create_resource_dialogue_widget(e.widget, 0, e.rows, anchor, row_step, origin, nullptr, scale,
         exe_real(s, 0x00339F8C), "apperror", resource, 0x80, s.widget_allocation); // 0x00141DA0, ESI DAT_004DE9A0
     auto& widget = *e.widget;
-    const float fade = exe_real(s, 0x0032B1AC);
+    const float fade = 0.2f; // DAT_0032B1AC.
     widget.duration = fade; // +0x10
     if (fade < widget.progress) // +8
     {

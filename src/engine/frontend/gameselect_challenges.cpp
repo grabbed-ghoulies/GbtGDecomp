@@ -219,8 +219,8 @@ void fly_bat(GameChallengesWidget& w, GameSelectControlServices& s)
 // Xbox 0x000D6F40, EAX the widget: the bat to the middle of the carousel.
 bool aim_challenges_bat(GameChallengesWidget& w, GameSelectControlServices& s)
 {
-    w.bat_target[0] = exe_real(s, 0x0032B564);
-    w.bat_target[1] = exe_real(s, 0x0032B138);
+    w.bat_target[0] = 320.f; // DAT_0032B564.
+    w.bat_target[1] = 140.f; // DAT_0032B138.
     if (w.bat != nullptr)
     {
         fly_bat(w, s);
@@ -277,7 +277,7 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
     };
     std::array<float, 2> position{slot_real(slot, 0), slot_real(slot, 4)};
     std::array<float, 2> scale{slot_real(slot, 8), slot_real(slot, 0xC)};
-    const float one = exe_real(s, 0x0032B0F8);
+    const float one = 1.f; // DAT_0032B0F8.
     if (w.fade < one)
     {
         // Each slot slides in from its neighbour: the one to its right after a move right, to its left after a move
@@ -296,13 +296,13 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
     if (4 < w.state && slot == 2)
     {
         // Leaving with the chosen challenge: it grows into the middle.
-        position[0] = w.leave * exe_real(s, 0x0032B100) + exe_real(s, 0x0032B564);
-        position[1] = w.leave * exe_real(s, 0x0032B2F0) + exe_real(s, 0x0032B2FC);
-        scale[0] = w.leave * exe_real(s, 0x0032B210) + exe_real(s, 0x0032B0F4);
+        position[0] = w.leave * 0.f + 320.f; // DAT_0032B100, DAT_0032B564.
+        position[1] = w.leave * 80.f + 160.f; // DAT_0032B2F0, DAT_0032B2FC.
+        scale[0] = w.leave * 1.5f + 0.5f; // DAT_0032B210, DAT_0032B0F4.
         scale[1] = scale[0];
     }
-    const float half = exe_real(s, 0x0032B0F4);
-    const float border = scale[0] * half * exe_real(s, 0x0032B2F0);
+    const float half = 0.5f; // DAT_0032B0F4.
+    const float border = scale[0] * half * 80.f; // DAT_0032B2F0.
     const float width = float(i32(s.screen[0])) * scale[0] * half + border; // DAT_005096E8
     const float height = float(i32(s.screen[1])) * scale[1] * half + border; // DAT_005096EA
     const float left = position[0] - width * half;
@@ -336,7 +336,7 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
         }
         if (trophy.data() != nullptr)
         {
-            const float size = scale[0] * exe_real(s, 0x0032B260);
+            const float size = scale[0] * 3.f; // DAT_0032B260.
             const float at[2]{left + width, w.trophy_drop * size + top};
             const float trophy_scale[2]{size, size};
             draw_runtime_dialogue_sprite(trophy.data(), at, trophy_scale, 0.f, exe_word(s, 0x00314F48), -1,
@@ -346,15 +346,15 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
     if ((s.flags & 0x40u) == 0) // DAT_0050EA9C
     {
         auto preset = counter_preset(s);
-        float digit_scale = scale[0] * exe_real(s, 0x0032B4B0);
-        if (exe_real(s, 0x0032B11C) < digit_scale)
+        float digit_scale = scale[0] * 1.6f; // DAT_0032B4B0.
+        if (0.4f < digit_scale) // DAT_0032B11C.
         {
-            digit_scale = exe_real(s, 0x0032B11C);
+            digit_scale = 0.4f; // DAT_0032B11C.
         }
         std::memcpy(preset.data(), &digit_scale, 4);
         if (w.intro != 0 && w.fade < one)
         {
-            const float full = exe_real(s, 0x0032B158);
+            const float full = 255.f; // DAT_0032B158.
             float alpha = w.fade * full;
             if (full < alpha)
             {
@@ -375,8 +375,8 @@ void draw_carousel_slot(GameChallengesWidget& w, i32 slot, GameSelectControlServ
 void fade_in_entries(GameChallengesWidget& w, GameSelectControlServices& s)
 {
     s.timer_expired(&w.intro_timer); // 0x0012B2A0, EAX +0x190
-    const float one = exe_real(s, 0x0032B0F8);
-    float fraction = (w.intro_timer - one) * exe_real(s, 0x0032B120);
+    const float one = 1.f; // DAT_0032B0F8.
+    float fraction = (w.intro_timer - one) * -1.f; // DAT_0032B120.
     if (one < fraction)
     {
         fraction = one;
@@ -386,9 +386,9 @@ void fade_in_entries(GameChallengesWidget& w, GameSelectControlServices& s)
         fraction = 0.f;
     }
     u32 color = exe_word(s, 0x00314F48);
-    set_color_alpha(color, truncate_byte(fraction * exe_real(s, 0x0032B158)));
+    set_color_alpha(color, truncate_byte(fraction * 255.f)); // DAT_0032B158.
     u32 box = exe_word(s, 0x00305FEC);
-    set_color_alpha(box, truncate_byte(fraction * exe_real(s, 0x0032B368)));
+    set_color_alpha(box, truncate_byte(fraction * 128.f)); // DAT_0032B368.
     for (i32 index = 0; index < w.count; ++index)
     {
         entry(w, index).color = color;
@@ -396,7 +396,7 @@ void fade_in_entries(GameChallengesWidget& w, GameSelectControlServices& s)
     }
     auto& selected = entry(w, g_challenge_selection.selected);
     selected.box_color = exe_word(s, 0x00305FE8);
-    set_color_alpha(selected.box_color, truncate_byte(fraction * exe_real(s, 0x0032B378)));
+    set_color_alpha(selected.box_color, truncate_byte(fraction * 196.f)); // DAT_0032B378.
 }
 
 // Challenge 21's script: its scene order stepped DAT_004E1740 times from the first (the inlined walk at
@@ -544,7 +544,7 @@ void open_runtime_game_challenges_menu(std::span<u8> owner, GameSelectControlSta
     s.frontend.challenges_widget = &w; // DAT_00506574
     w.bat = nullptr;
     allocate_dialogue_text_pool(w.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0x148
-    w.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    w.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     auto scenenames = acquire_required("aid_loctext_ghoulies_script_scenenames", s); // 0x00305FF0
     const auto order = acquire_required("aid_aidlist_ghoulies_challenges_challengeorder", s); // 0x00306370
     w.entries = std::make_unique<std::array<GameChallengeEntry, 21>>(); // 0x000F72D0(0x5CDC)
@@ -634,11 +634,11 @@ void open_runtime_game_challenges_menu(std::span<u8> owner, GameSelectControlSta
     w.books.target = w.books.value;
     update_runtime_hud_counter_digits(w.books, s.image.memory(0x00428C10, 0x14)); // 0x0012F990
     w.books_icon = acquire_required("aid_texture_ghoulies_scoreboard_pauseicons_bonusbooks", s); // 0x003063F0
-    w.books_icon_half_width = texture_width(w.books_icon) * exe_real(s, 0x0032B0F4);
+    w.books_icon_half_width = texture_width(w.books_icon) * 0.5f; // DAT_0032B0F4.
     w.picture.texture = acquire_named(entry(w, selection.selected).texture_name.data(), s);
     const u32 white = exe_word(s, 0x00314F48);
-    const float middle_x = exe_real(s, 0x0032B564);
-    const float middle_y = exe_real(s, 0x0032B680);
+    const float middle_x = 320.f; // DAT_0032B564.
+    const float middle_y = 240.f; // DAT_0032B680.
     w.picture.color = white;
     w.picture.position = {middle_x, middle_y};
     w.picture.scale[1] = float(i32(s.screen[1])) / texture_height(w.picture.texture);
@@ -647,7 +647,7 @@ void open_runtime_game_challenges_menu(std::span<u8> owner, GameSelectControlSta
     w.old_picture.color = white;
     w.old_picture.position = {middle_x, middle_y};
     w.old_picture.scale = w.picture.scale;
-    const float one = exe_real(s, 0x0032B0F8);
+    const float one = 1.f; // DAT_0032B0F8.
     w.fade_timer = 0.f;
     w.fade = one;
     w.leave_timer = 0.f;
@@ -663,7 +663,7 @@ void open_runtime_game_challenges_menu(std::span<u8> owner, GameSelectControlSta
     w.trophies[2] = acquire_required("aid_texture_ghoulies_scoreboard_challenge_silvertrophy", s); // 0x00306170
     w.trophies[3] = acquire_required("aid_texture_ghoulies_scoreboard_challenge_goldtrophy", s); // 0x003061F0
     w.trophies[4] = acquire_required("aid_texture_ghoulies_scoreboard_challenge_platinumtrophy", s); // 0x00306270
-    w.trophy_drop = texture_height(w.trophies[1]) * exe_real(s, 0x0032B0F4);
+    w.trophy_drop = texture_height(w.trophies[1]) * 0.5f; // DAT_0032B0F4.
     w.prompts = nullptr;
     select_runtime_challenge(w, selection.selected, 0, s); // 0x000D7640(0), ECX the widget
     set_runtime_game_challenges_state(w, 1, s); // 0x000D70E0(1)
@@ -731,7 +731,7 @@ void tick_runtime_game_challenges(GameSelectWidget& widget, GameSelectControlSer
         {
             fade_in_entries(w, s);
         }
-        if (w.intro_timer < exe_real(s, 0x0032B1A4) && !runtime_gameselect_book_busy(*w.owner, s)) // 0x00083C40
+        if (w.intro_timer < 0.001f && !runtime_gameselect_book_busy(*w.owner, s)) // 0x00083C40, DAT_0032B1A4.
         {
             set_runtime_game_challenges_state(w, 2, s);
         }
@@ -741,7 +741,7 @@ void tick_runtime_game_challenges(GameSelectWidget& widget, GameSelectControlSer
         auto& selected = entry(w, g_challenge_selection.selected);
         count_down(w.fade_timer, frame_step(s));
         const float flight = s.bat_screen(*w.bat).flight_duration; // Bat +0x93C
-        const float one = exe_real(s, 0x0032B0F8);
+        const float one = 1.f; // DAT_0032B0F8.
         float fraction = one;
         if (flight != 0.f)
         {
@@ -758,7 +758,7 @@ void tick_runtime_game_challenges(GameSelectWidget& widget, GameSelectControlSer
         w.fade = fraction;
         if (w.old_picture.texture.data() != w.picture.texture.data())
         {
-            const u8 alpha = truncate_byte(fraction * exe_real(s, 0x0032B158));
+            const u8 alpha = truncate_byte(fraction * 255.f); // DAT_0032B158.
             set_color_alpha(w.picture.color, alpha);
             set_color_alpha(w.old_picture.color, u8(0xFF - alpha));
         }
@@ -778,8 +778,8 @@ void tick_runtime_game_challenges(GameSelectWidget& widget, GameSelectControlSer
     case 5:
     {
         count_down(w.leave_timer, frame_step(s));
-        const float one = exe_real(s, 0x0032B0F8);
-        float leave = (w.leave_timer - exe_real(s, 0x0032B2AC)) * exe_real(s, 0x0032B6D0);
+        const float one = 1.f; // DAT_0032B0F8.
+        float leave = (w.leave_timer - 0.75f) * -1.3333334f; // DAT_0032B2AC, DAT_0032B6D0.
         if (one < leave)
         {
             leave = one;
@@ -818,10 +818,10 @@ void draw_runtime_game_challenges(GameSelectWidget& widget, GameSelectControlSer
     if (w.books_icon.data() != nullptr)
     {
         auto preset = counter_preset(s);
-        const float one = exe_real(s, 0x0032B0F8);
+        const float one = 1.f; // DAT_0032B0F8.
         if (w.intro != 0 && w.fade < one)
         {
-            const float full = exe_real(s, 0x0032B158);
+            const float full = 255.f; // DAT_0032B158.
             float alpha = w.fade * full;
             if (full < alpha)
             {
@@ -838,7 +838,7 @@ void draw_runtime_game_challenges(GameSelectWidget& widget, GameSelectControlSer
         const float* position = reinterpret_cast<const float*>(s.image.memory(0x00305CC0, 8).data());
         const float* scale = reinterpret_cast<const float*>(s.image.memory(0x00305CC8, 8).data());
         draw_picture(w.books_icon, position, scale, color, s);
-        float at[2]{w.books_icon_half_width + exe_real(s, 0x0032B590), exe_real(s, 0x0032B58C)};
+        float at[2]{w.books_icon_half_width + 490.f, 395.f}; // DAT_0032B590, DAT_0032B58C.
         draw_runtime_hud_counter(w.books, at, preset, 1, scoreboard(s), *scoreboard(s).draw); // 0x0012F000
     }
     for (i32 slot = 0; slot < 5; ++slot)
@@ -851,7 +851,7 @@ void draw_runtime_game_challenges(GameSelectWidget& widget, GameSelectControlSer
     draw_carousel_slot(w, 2, s); // The selected one last, on top.
     if (s.dialogue_page_hold() == 0 && w.intro == 0 && w.bat != nullptr)
     {
-        const float scale = exe_real(s, 0x0032B110);
+        const float scale = 2.f; // DAT_0032B110.
         if (w.bat->scale_200 != scale)
         {
             w.bat->scale_200 = scale;
@@ -887,10 +887,10 @@ void set_runtime_game_challenges_state(GameChallengesWidget& w, i32 state, GameS
             w.intro = 0;
             create_challenges_bat(w, s); // 0x000D6EF0
         }
-        const float inset = exe_real(s, 0x0032B1F4);
+        const float inset = 16.f; // DAT_0032B1F4.
         const std::array<float, 2> anchor{s.hud.inner_left + inset, s.hud.inner_bottom - inset}; // DAT_00509740
-        const std::array<float, 2> row_step{0.f, exe_real(s, 0x0032B600)};
-        const std::array<float, 2> origin{exe_real(s, 0x0032B234), exe_real(s, 0x0032B5FC)};
+        const std::array<float, 2> row_step{0.f, -32.f}; // DAT_0032B600.
+        const std::array<float, 2> origin{20.f, -16.f}; // DAT_0032B234, DAT_0032B5FC.
         const char* resource = s.image.string(0x00306470); // aid_loctext_ghoulies_gameselect_gameselecttext
         const u8* rows = s.image.memory(kChallengeRows, 0x310).data();
         std::array<char16_t, 0x200> scratch{};
@@ -899,10 +899,10 @@ void set_runtime_game_challenges_state(GameChallengesWidget& w, i32 state, GameS
         const std::array<float, 2> column{width, 0.f};
         create_resource_dialogue_widget(w.prompts, 1, rows, anchor, row_step, origin, &column, 1.f, 0.75f,
             "gameselect", resource, 0x400C0, s.widget_allocation); // 0x00141DA0, ESI +0x1A0
-        w.prompts->pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+        w.prompts->pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
         auto& selected = entry(w, selection.selected);
         selected.name.record = record(selected.name);
-        text_record(w.name.data(), float(i32(s.screen[0])) * exe_real(s, 0x0032B0F4), 35.f); // +8, its id dropped
+        text_record(w.name.data(), float(i32(s.screen[0])) * 0.5f, 35.f); // +8, its id dropped, DAT_0032B0F4.
         aim_challenges_bat(w, s); // 0x000D6F40
     }
     else if (w.state == 3)
@@ -922,8 +922,8 @@ void set_runtime_game_challenges_state(GameChallengesWidget& w, i32 state, GameS
         {
             entry(w, index).box_color = exe_word(s, 0x00305FEC);
         }
-        w.bat_target[0] = exe_real(s, 0x0032B564);
-        w.bat_target[1] = exe_real(s, 0x0032B138);
+        w.bat_target[0] = 320.f; // DAT_0032B564.
+        w.bat_target[1] = 140.f; // DAT_0032B138.
         if (w.bat != nullptr)
         {
             fly_bat(w, s);
@@ -949,27 +949,27 @@ void set_runtime_game_challenges_state(GameChallengesWidget& w, i32 state, GameS
     }
     case 5:
     {
-        w.leave_timer = exe_real(s, 0x0032B2AC);
+        w.leave_timer = 0.75f; // DAT_0032B2AC.
         w.leave = 0.f;
         end_all_dialogue_text_records(*w.pool, s.fonts, s.fallback_texture, s.random); // 0x0005F970
         w.prompts->requested_set = nullptr; // +0x950
         set_dialogue_widget_mode(*w.prompts, 3, s.widgets); // 0x00142C20, EAX 3
         // The bat leaves by the nearer edges.
-        if (exe_real(s, 0x0032B564) < exe_real(s, 0x0032B6B0) - w.bat_target[0])
+        if (320.f < 640.f - w.bat_target[0]) // DAT_0032B564, DAT_0032B6B0.
         {
-            w.bat_target[0] = exe_real(s, 0x0032B6D8);
+            w.bat_target[0] = 690.f; // DAT_0032B6D8.
         }
         else
         {
-            w.bat_target[0] = exe_real(s, 0x0032B304);
+            w.bat_target[0] = -50.f; // DAT_0032B304.
         }
-        if (exe_real(s, 0x0032B680) < exe_real(s, 0x0032B6AC) - w.bat_target[1])
+        if (240.f < 480.f - w.bat_target[1]) // DAT_0032B680, DAT_0032B6AC.
         {
-            w.bat_target[1] = exe_real(s, 0x0032B6D4);
+            w.bat_target[1] = 530.f; // DAT_0032B6D4.
         }
         else
         {
-            w.bat_target[1] = exe_real(s, 0x0032B304);
+            w.bat_target[1] = -50.f; // DAT_0032B304.
         }
         if (w.bat != nullptr)
         {

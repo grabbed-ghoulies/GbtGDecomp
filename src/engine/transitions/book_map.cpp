@@ -145,11 +145,11 @@ bool project_map_point(const std::array<float, 3>& p, std::array<float, 2>& outp
     const auto& view = *entity_detail::g_display_view;
     const auto& t = view.transform; // +0x68
     float z = t[8] * p[0] + t[9] * p[1] + t[10] * p[2] + t[11];
-    if (z > real(s, 0x0032B23C))
+    if (z > -0.00001f) // DAT_0032B23C.
     {
         return false;
     }
-    const float half = real(s, 0x0032B0F4);
+    const float half = 0.5f; // DAT_0032B0F4.
     z = view.focal_pixels / z; // +0x44
     output[0] = (float(view.fitted_width) * half
         - view.pixel_aspect * (t[0] * p[0] + t[1] * p[1] + t[2] * p[2] + t[3]) * z) + float(view.fitted_x);
@@ -167,9 +167,9 @@ void map_route_point(const RuntimeTransitionBook& book, i32 route, float along, 
     {
         along = 0.f;
     }
-    else if (real(s, 0x0032B0F8) < along)
+    else if (1.f < along) // DAT_0032B0F8.
     {
-        along = real(s, 0x0032B0F8);
+        along = 1.f; // DAT_0032B0F8.
     }
     const auto cpu = model_cpu(book);
     const u32 record = map_route_record(book, route);
@@ -246,7 +246,7 @@ bool story_bit(const TransitionBookServices& s, u32 bit)
 u8 texture_frame(std::span<const u8> texture, const TransitionBookServices& s)
 {
     const float rate = float(texture[0x10]);
-    if (rate == real(s, 0x0032B100))
+    if (rate == 0.f) // DAT_0032B100.
     {
         return 0;
     }
@@ -266,8 +266,8 @@ bool same_name(const char* name, const char* other)
 // Xbox 0x00046760, EDI the book: a label at each spot the route starts or ends at.
 void place_book_map_labels(RuntimeTransitionBook& book, TransitionBookServices& s)
 {
-    const float half = real(s, 0x0032B0F4);
-    const float lift = float(s.metrics.fonts[0]->cell) * real(s, 0x0032B248) * half; // DAT_00504444 +0x10
+    const float half = 0.5f; // DAT_0032B0F4.
+    const float lift = float(s.metrics.fonts[0]->cell) * 0.6f * half; // DAT_00504444 +0x10, DAT_0032B248.
     const auto cpu = model_cpu(book);
     for (i32 index = 0; index < i32(map_word(book, 8)); ++index)
     {
@@ -291,10 +291,10 @@ void place_book_map_labels(RuntimeTransitionBook& book, TransitionBookServices& 
         }
         request_namespaced_localtext("aid_loctext_ghoulies_mapnames", "mapname", name, label.text.data(),
             s.localtext); // 0x000FF0A0
-        const float width = runtime_text_line_width(s.metrics, 0, label.text.data(), real(s, 0x0032B248)); // 0x00060710
+        const float width = runtime_text_line_width(s.metrics, 0, label.text.data(), 0.6f); // 0x00060710, DAT_0032B248.
         const float spot_height = texture_height(book.map_spot);
         float x = 0.f;
-        if (label.position[0] + width <= float(s.screen[0]) * real(s, 0x0032B17C))
+        if (label.position[0] + width <= float(s.screen[0]) * 0.85f) // DAT_0032B17C.
         {
             x = spot_height + label.position[0];
         }
@@ -368,13 +368,13 @@ void begin_book_map(RuntimeTransitionBook& book, i32 route, TransitionBookServic
     }
     book.map_block = block;
     book.map_state = 1;
-    book.map_timer_ec = real(s, 0x0032B268);
+    book.map_timer_ec = 0.3f; // DAT_0032B268.
     book.map_spot = acquire_map_texture("aid_texture_ghoulies_misc_mapspot", s);
     book.map_labelled = 0;
     book.map_points = 0;
     book.map_ready = 0;
     book.map_countdown = 5;
-    book.map_footstep = real(s, 0x0032B268);
+    book.map_footstep = 0.3f; // DAT_0032B268.
     if (route == 0)
     {
         book.map_timer_d4 = 0.f;
@@ -387,7 +387,7 @@ void begin_book_map(RuntimeTransitionBook& book, i32 route, TransitionBookServic
     }
     else
     {
-        const float time = read_f32(cpu, map_route_record(book, index) + 0x48) * real(s, 0x0032B650);
+        const float time = read_f32(cpu, map_route_record(book, index) + 0x48) * 0.14285715f; // DAT_0032B650.
         book.map_route = index;
         book.map_timer_d4 = time;
         book.map_timer_d8 = time;
@@ -399,7 +399,7 @@ void begin_book_map(RuntimeTransitionBook& book, i32 route, TransitionBookServic
         std::array<float, 3> point{};
         project_map_route_point(book, book.map_route, 0.f, book.map_runner_position, point, s); // 0x00046E10
         book.map_runner_position[1] = book.map_runner_position[1]
-            - texture_height(book.map_runner) * real(s, 0x00421EDC) * real(s, 0x0032B0F4);
+            - texture_height(book.map_runner) * real(s, 0x00421EDC) * 0.5f; // DAT_0032B0F4.
         const u32 record = map_route_record(book, index);
         const char* start = map_string(book, record + 8);
         const char* end = map_string(book, record + 0x28);
@@ -577,7 +577,7 @@ u32 tick_book_map(RuntimeTransitionBook& book, TransitionBookServices& services)
             book.map_footstep = book.map_footstep - step;
             if (book.map_footstep <= 0.f)
             {
-                book.map_footstep = real(s, 0x0032B268);
+                book.map_footstep = 0.3f; // DAT_0032B268.
                 request_spatial_audio_event_voice(s.image.string(0x00421EE0), 1, 0.f, s.voices); // 0x00039510
             }
         }
@@ -652,9 +652,9 @@ void draw_book_map(RuntimeTransitionBook& book, TransitionBookServices& services
         place_book_map_markers(book, s); // 0x00046500
         book.map_labelled = 1;
     }
-    const float one = real(s, 0x0032B0F8);
+    const float one = 1.f; // DAT_0032B0F8.
     const u8 alpha = u8(truncate_runtime_float(
-        (one - (real(s, 0x0032B268) - book.map_timer_ec) * real(s, 0x0032B3B4)) * real(s, 0x0032B158))); // 0x001673D8
+        (one - (0.3f - book.map_timer_ec) * 3.3333333f) * 255.f)); // 0x001673D8, DAT_0032B268, DAT_0032B3B4, DAT_0032B158.
     const u32 color = (u32(alpha) << 24) | (read_u32(s.image.memory(0x00314F48, 4), 0) & 0x00FFFFFFu);
     const std::array<float, 2> spot_scale{real(s, 0x00422060), real(s, 0x00422064)};
     begin_dialogue_sprite_draw(s.draw); // 0x0005CDC0
@@ -673,8 +673,8 @@ void draw_book_map(RuntimeTransitionBook& book, TransitionBookServices& services
             continue;
         }
         const long double remainder = animation_remainder(s.time, 0.5f); // 0x00152BE0
-        const float wave = float(retail_sin(float((remainder + remainder) * real(s, 0x0032B298)))); // 0x00153320
-        const float size = wave * real(s, 0x0032B250) + real(s, 0x0032B0F4);
+        const float wave = float(retail_sin(float((remainder + remainder) * 6.2831855f))); // 0x00153320, DAT_0032B298.
+        const float size = wave * 0.05f + 0.5f; // DAT_0032B250, DAT_0032B0F4.
         const std::array<float, 2> scale{size, size};
         const u8 frame = texture_frame(marker.texture, s);
         draw_dialogue_texture(frame, nullptr, const_cast<u8*>(marker.texture.data()), scale.data(), nullptr, 0.f,
@@ -699,7 +699,7 @@ void draw_book_map(RuntimeTransitionBook& book, TransitionBookServices& services
         }
         runner = book.map_runner;
         position = {book.map_labels[0].position[0],
-            book.map_labels[0].position[1] - texture_height(runner) * real(s, 0x0032B5B8)};
+            book.map_labels[0].position[1] - texture_height(runner) * 0.125f}; // DAT_0032B5B8.
     }
     else
     {
@@ -728,7 +728,7 @@ void draw_book_map(RuntimeTransitionBook& book, TransitionBookServices& services
         std::array<float, 2> far_screen{};
         float slot_1c = 0.f;
         float slot_20 = 0.f;
-        const float two_32 = real(s, 0x0032B144);
+        const float two_32 = 4294967300.f; // DAT_0032B144.
         const auto unsigned_real = [two_32](i32 value)
         {
             float result = float(value);
@@ -765,7 +765,7 @@ void draw_book_map(RuntimeTransitionBook& book, TransitionBookServices& services
             {
                 const float count = unsigned_real(segments);
                 along = float(index) / count;
-                slot_1c = one / (count * real(s, 0x0032B110)) + along;
+                slot_1c = one / (count * 2.f) + along; // DAT_0032B110.
             }
             map_route_point(book, book.map_route, along, near_point, s); // 0x00046BA0
             project_map_point(near_point, near_screen, s);
@@ -797,11 +797,11 @@ void draw_book_map(RuntimeTransitionBook& book, TransitionBookServices& services
         std::array<float, 2> screen{slot_1c, slot_20};
         project_map_point(far_point, screen, s);
         slot_1c = screen[0];
-        slot_20 = screen[1] - texture_height(book.map_runner) * real(s, 0x00421EDC) * real(s, 0x0032B0F4);
+        slot_20 = screen[1] - texture_height(book.map_runner) * real(s, 0x00421EDC) * 0.5f; // DAT_0032B0F4.
         ratio = (book.map_timer_d8 - book.map_timer_d4) / book.map_timer_d8;
         if ((ratio <= one && (ratio < 0.f || ratio < one)) || book.map_runner_shown.data() == nullptr)
         {
-            runner_scale(s)[0] = book.map_runner_position[0] > slot_1c ? real(s, 0x0032B2EC) : real(s, 0x0032B264);
+            runner_scale(s)[0] = book.map_runner_position[0] > slot_1c ? -0.7f : 0.7f; // DAT_0032B2EC, DAT_0032B264.
             book.map_runner_shown = book.map_runner_position[1] > slot_20 ? book.map_runner_back : book.map_runner;
         }
         book.map_runner_position = {slot_1c, slot_20};

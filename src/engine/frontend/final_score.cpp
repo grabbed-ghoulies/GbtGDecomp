@@ -650,7 +650,7 @@ void lay_out_runtime_final_score_row(i32 index, FinalScoreServices& services)
     const auto& tally = tally_of(services).rows[size_t(index)];
     const float cx = s.hud.center_x; // DAT_00509730
     const float cy = s.hud.center_y; // DAT_00509734
-    const float half = exe_real(s, 0x0032B0F4);
+    const float half = 0.5f; // DAT_0032B0F4.
     lookup_borrowed_localtext(state_of(services).text, "finalscore", tally.name.data(), row.label.text.data(),
         s.localtext); // 0x000FF120, ESI the score text, EDI the tally row's name, EBX +4
     std::char_traits<char16_t>::copy(row.value.text.data(), tally.value.data(),
@@ -710,14 +710,14 @@ void lay_out_runtime_final_score_rows(FinalScoreServices& services)
         lay_out_runtime_final_score_row(index, services); // 0x000D24B0
     }
     auto& rows = page.rows;
-    const float half = exe_real(s, 0x0032B0F4);
+    const float half = 0.5f; // DAT_0032B0F4.
     const float gap = exe_real(s, 0x00428A94);
     const float widths = icon_width(rows[0]) * rows[0].icon_scale[0] + icon_width(rows[1]) * rows[1].icon_scale[0]
         + icon_width(rows[2]) * rows[2].icon_scale[0] + icon_width(rows[3]) * rows[3].icon_scale[0];
-    const float left = cx - (gap * exe_real(s, 0x0032B260) + widths) * half;
+    const float left = cx - (gap * 3.f + widths) * half; // DAT_0032B260.
     // Each icon's own width (its +0x224 scale) sets its step: steps 0, 1, 2 (DAT_0032B110) and 3 (DAT_0032B260)
     // of the gap and width, then half the width.
-    const float steps[4]{exe_real(s, 0x0032B100), 1.f, exe_real(s, 0x0032B110), exe_real(s, 0x0032B260)};
+    const float steps[4]{0.f, 1.f, 2.f, 3.f}; // DAT_0032B100, DAT_0032B110, DAT_0032B260.
     for (size_t index = 0; index < 4; ++index)
     {
         auto& row = rows[index];
@@ -734,7 +734,7 @@ void fly_runtime_final_score_bat(FinalScoreServices& services)
     auto& page = scores_of(services);
     const auto& row = page.rows[size_t(page.row)];
     ButtonBatPoint point{row.icon_position[0],
-        row.icon_position[1] - icon_height(row) * row.icon_scale[1] * exe_real(s, 0x0032B0F4)};
+        row.icon_position[1] - icon_height(row) * row.icon_scale[1] * 0.5f}; // DAT_0032B0F4.
     if (page.bat == nullptr)
     {
         throw Error("0x000D2730 flies final score page 2's bat (+0x2134) before it exists");
@@ -769,8 +769,8 @@ void stop_runtime_final_score_loop(i16 voice, FinalScoreServices& services)
 const char* runtime_final_score_rank_line(u16 rank, u16 low, u16 high, FinalScoreServices& services)
 {
     const auto& s = services.frontend;
-    const float one = exe_real(s, 0x0032B0F8);
-    const float last = exe_real(s, 0x0032B1B0); // 4
+    const float one = 1.f; // DAT_0032B0F8.
+    const float last = 4.f; // 4, DAT_0032B1B0.
     if (one == float(i32(rank) - i32(low)) / float(i32(high) - i32(low)))
     {
         return s.image.string(0x00304F28u + 3u * 0x80u); // XACT_SOUNDBANK_GBOY_21TO25
@@ -901,11 +901,11 @@ void start_runtime_final_score_scores(FinalScoreServices& services)
     page.slash.y = page.slash.y + exe_real(s, 0x00428AD4);
     std::char_traits<char16_t>::copy(page.slash.text.data(), u"/", 2); // lstrcpyW(+0x2370, 0x00324920)
     allocate_dialogue_text_pool(page.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0x234C
-    page.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    page.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     lay_out_runtime_final_score_rows(services); // 0x000D1DC0
     auto& rows = page.rows;
     page.panel_size[0] = (rows[3].icon_position[0] - rows[0].icon_position[0]) + icon_width(rows[0])
-        + exe_real(s, 0x00428AA8) * exe_real(s, 0x0032B110); // +0x2360
+        + exe_real(s, 0x00428AA8) * 2.f; // +0x2360, DAT_0032B110.
     page.panel_size[1] = exe_real(s, 0x00428AB8); // +0x2364
     page.panel_color = read_u32(s.image.memory(0x00428ABC, 4), 0); // +0x2368
     page.panel_position = {s.hud.center_x, s.hud.center_y}; // +0x2358
@@ -1018,7 +1018,7 @@ void draw_runtime_final_score_scores(FinalScoreServices& services)
 {
     auto& s = services.frontend;
     auto& page = scores_of(services);
-    const float half = exe_real(s, 0x0032B0F4);
+    const float half = 0.5f; // DAT_0032B0F4.
     draw_runtime_dialogue_panel(float(i32(page.panel_position[0]) - i32(page.panel_size[0] * half)),
         float(i32(page.panel_position[1]) - i32(page.panel_size[1] * half)), float(i32(page.panel_size[0])),
         float(i32(page.panel_size[1])), exe_real(s, 0x00428AAC), page.panel_color, s.outer); // 0x00061360
@@ -1118,7 +1118,7 @@ void start_runtime_final_score_end(FinalScoreServices& services)
     page.banner.y = s.hud.center_y;
     page.banner.y = exe_real(s, 0x00428B14);
     allocate_dialogue_text_pool(page.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0x210
-    page.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    page.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     set_runtime_final_score_cutscene(0, 0, services); // 0x000D4280
     page.color = read_u32(s.image.memory(0x00314F48, 4), 0);
     page.position = {s.hud.center_x, s.hud.center_y};
@@ -1267,7 +1267,7 @@ void layout_runtime_final_score_summary(FinalScoreServices& services)
 {
     auto& s = services.frontend;
     auto& page = summary_of(services);
-    const float margin = exe_real(s, 0x0032B110);
+    const float margin = 2.f; // DAT_0032B110.
     float width = 0.f;
     const ButtonBatMenuSprite* first = page.entries[0].icon.get();
     if (first != nullptr && first->texture.data() != nullptr && 0.f < icon_extent(*first, 8, first->full_scale[0]))
@@ -1316,7 +1316,7 @@ void start_runtime_final_score_summary(FinalScoreServices& services)
     page.title.y = s.hud.center_y;
     page.title.y = exe_real(s, 0x00428BA0);
     allocate_dialogue_text_pool(page.pool, 1, 0x400C0, 0, s.text_pools); // 0x0005F390, ESI +0x10C4
-    page.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    page.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     for (i32 row = 0; row < 4; ++row)
     {
         build_runtime_final_score_summary_entry(row, services); // 0x000D3C30, EAX row
@@ -1387,7 +1387,7 @@ void draw_runtime_final_score_summary(FinalScoreServices& services)
 {
     auto& s = services.frontend;
     auto& page = summary_of(services);
-    const float half = exe_real(s, 0x0032B0F4);
+    const float half = 0.5f; // DAT_0032B0F4.
     const float x = float(i32(page.panel_position[0]) - i32(page.panel_size[0] * half));
     const float y = float(i32(page.panel_position[1]) - i32(page.panel_size[1] * half));
     draw_runtime_dialogue_panel(x, y, float(i32(page.panel_size[0])), float(i32(page.panel_size[1])),
@@ -1446,7 +1446,7 @@ void set_runtime_final_score_super_scary_state(i32 next, FinalScoreServices& ser
     {
         // The challenge ditties from 0x00305438 up (winnowt, bronze, silver, gold, platinum): the total times
         // DAT_0032B5CC (about -1/20), truncated, steps back by 0x80.
-        const i32 step = i32(float(u16(tally.total)) * exe_real(s, 0x0032B5CC));
+        const i32 step = i32(float(u16(tally.total)) * -0.049504947f); // DAT_0032B5CC.
         request_audio_event_voice(s.image.string(u32(0x00305438 - step * 0x80)), 1, s.voices); // 0x000395E0
         page.timer = exe_real(s, 0x00428BC0);
         return;
@@ -1517,10 +1517,10 @@ void start_runtime_final_score_super_scary(FinalScoreServices& services)
     append(u" / "); // 0x003249B8
     append(hundred);
     allocate_dialogue_text_pool(page.pool, 0, 1, 0xC0, s.text_pools); // 0x0005F390, ESI +0x41C
-    page.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    page.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     const float icon_scale = exe_real(s, 0x00428BDC);
     const float spacing = exe_real(s, 0x00428BD4);
-    const float lift = spacing * exe_real(s, 0x0032B0F4) * icon_scale;
+    const float lift = spacing * 0.5f * icon_scale; // DAT_0032B0F4.
     const std::array<float, 2> anchor{s.hud.center_x + exe_real(s, 0x00428BCC),
         s.hud.inner_bottom - exe_real(s, 0x00428BD0)}; // DAT_0050974C
     const std::array<float, 2> row_step{icon_scale * 0.f, 0.f - icon_scale * spacing};
@@ -1529,14 +1529,14 @@ void start_runtime_final_score_super_scary(FinalScoreServices& services)
         exe_real(s, 0x00428BE0), "finalscore", state_of(services).text, 0x400C0,
         s.widget_allocation); // 0x00141E20, EAX +0x634
     auto& prompts = *page.prompts;
-    const float fade = exe_real(s, 0x0032B1AC);
+    const float fade = 0.2f; // DAT_0032B1AC.
     prompts.duration = fade;
     if (prompts.progress > fade)
     {
         prompts.progress = fade;
     }
     prompts.pool->end_time = fade;
-    prompts.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    prompts.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     const std::array<float, 2> position{exe_real(s, 0x00428BF8) + s.hud.center_x,
         exe_real(s, 0x00428BFC) + s.hud.center_y};
     const std::array<float, 2> full_scale{exe_real(s, 0x00428BF0), exe_real(s, 0x00428BF4)};

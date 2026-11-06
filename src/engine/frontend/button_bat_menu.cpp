@@ -20,11 +20,6 @@ namespace
 {
 constexpr u32 kAid = 0x5F646961u; // "aid_"
 
-float exe_real(const GameSelectControlServices& s, u32 address)
-{
-    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
-}
-
 u32 exe_word(const GameSelectControlServices& s, u32 address)
 {
     return read_u32(s.image.memory(address, 4), 0);
@@ -479,10 +474,10 @@ void fly_runtime_bat_off_screen(Actor* bat, const float* point, GameSelectContro
     auto& s = services;
     const float width = float(i32(s.screen[0])); // DAT_005096E8
     const float height = float(i32(s.screen[1])); // DAT_005096EA
-    const float half = exe_real(s, 0x0032B0F4);
+    const float half = 0.5f; // DAT_0032B0F4.
     ButtonBatPoint target{};
-    target.x = width - point[0] > width * half ? width + exe_real(s, 0x0032B1E0) : exe_real(s, 0x0032B304);
-    target.y = height - point[1] > height * half ? height + exe_real(s, 0x0032B1E0) : exe_real(s, 0x0032B304);
+    target.x = width - point[0] > width * half ? width + 50.f : -50.f; // DAT_0032B1E0, DAT_0032B304.
+    target.y = height - point[1] > height * half ? height + 50.f : -50.f; // DAT_0032B1E0, DAT_0032B304.
     if (bat != nullptr)
     {
         s.fly_bat(*bat, target, 1.f); // 0x0006DA00
@@ -509,7 +504,7 @@ void create_runtime_button_bat_menu(const std::array<float, 2>& anchor, i32 visi
     menu.up_arrow = nullptr;
     menu.down_arrow = nullptr;
     menu.bat_target = {0.f, 0.f};
-    menu.bat_scale = text_scale * exe_real(s, 0x0032B110);
+    menu.bat_scale = text_scale * 2.f; // DAT_0032B110.
     menu.bat = s.create_bat(menu.bat_target, 0.f, 0.2f); // 0x0013B580, EAX +0x40
     if (menu.bat->scale_200 != menu.bat_scale)
     {
@@ -522,7 +517,7 @@ void create_runtime_button_bat_menu(const std::array<float, 2>& anchor, i32 visi
     menu.items.clear();
     allocate_dialogue_text_pool(menu.pool, menu.font, 1, 0x400C0, s.text_pools); // 0x0005F390
     menu.pool->origin = menu.pool_origin;
-    menu.pool->end_time = exe_real(s, 0x0032B0F4);
+    menu.pool->end_time = 0.5f; // DAT_0032B0F4.
     menu.state = 0;
 }
 

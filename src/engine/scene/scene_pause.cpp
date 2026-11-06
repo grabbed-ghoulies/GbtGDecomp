@@ -58,11 +58,6 @@ const SceneExecutableResources& image(ScenePauseServices& s)
     return s.books.image;
 }
 
-float real(ScenePauseServices& s, u32 address)
-{
-    return std::bit_cast<float>(read_u32(image(s).memory(address, 4), 0));
-}
-
 u32 word(ScenePauseServices& s, u32 address)
 {
     return read_u32(image(s).memory(address, 4), 0);
@@ -149,7 +144,7 @@ i16 play_random_ghoul_laugh(ScenePauseServices& s)
     const i16 voice = allocate_audio_event_voice(0, voices); // 0x00039830, EBX 0
     if (voice != -1)
     {
-        const i32 index = i32((unit - 1.f) * real(s, 0x0032B240)); // DAT_0032B0F8
+        const i32 index = i32((unit - 1.f) * -11.f); // DAT_0032B0F8, DAT_0032B240.
         voices.voices[size_t(voice)].stop = 1; // DAT_004E0CEC
         prepare_audio_event_voice(voice, image(s).string(0x00314768u - u32(index) * 0x80u), voices); // 0x00039A20
     }
@@ -366,21 +361,21 @@ void set_scene_pause_phase(i32 phase, ScenePauseServices& s)
             b.random = b.random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C
             p.seed = b.random;
             allocate_dialogue_text_pool(p.text, 0, 1, 0x802C0, b.text_pools); // 0x0005F390, ESI DAT_00510CF8
-            p.text->origin = {real(s, 0x0032B20C), real(s, 0x0032B11C), std::bit_cast<float>(p.seed)};
+            p.text->origin = {2.5f, 0.4f, std::bit_cast<float>(p.seed)}; // DAT_0032B20C, DAT_0032B11C.
         }
         if (p.widget == nullptr)
         {
             std::array<char, 0x80> resource{};
             std::strncpy(resource.data(), image(s).string(0x003225E8), resource.size() - 1); // menutext
-            const float margin = real(s, 0x0032B1F4);
+            const float margin = 16.f; // DAT_0032B1F4.
             create_resource_dialogue_widget(p.widget, 0, nullptr, {s.hud.inner_left + margin,
-                s.hud.inner_bottom - margin}, {0.f, real(s, 0x0032B600)}, {real(s, 0x0032B234), real(s, 0x0032B5FC)},
+                s.hud.inner_bottom - margin}, {0.f, -32.f}, {20.f, -16.f}, // DAT_0032B600, DAT_0032B234, DAT_0032B5FC.
                 nullptr, 1.f, 0.75f, image(s).string(0x003225D0), resource.data(), 0xC00C0,
                 *b.widget_allocation); // 0x00141DA0, ESI DAT_00510E30, "menutext"
-            p.widget->pool->origin = {real(s, 0x0032B20C), real(s, 0x0032B11C), std::bit_cast<float>(p.seed)};
+            p.widget->pool->origin = {2.5f, 0.4f, std::bit_cast<float>(p.seed)}; // DAT_0032B20C, DAT_0032B11C.
         }
         read_background_volume(p.volume_low, p.volume_high); // 0x00118CB0, ECX DAT_00510E0C, EAX DAT_00510E18
-        const Vec3 low{p.volume_low.x, p.volume_low.y - real(s, 0x0032B64C), p.volume_low.z};
+        const Vec3 low{p.volume_low.x, p.volume_low.y - 500.f, p.volume_low.z}; // DAT_0032B64C.
         initialize_background_volume(low, p.volume_high); // 0x00118AE0, ECX low, EAX DAT_00510E18
         b.flags |= 0x20u;
         g_scene_paused = 1;
@@ -412,9 +407,9 @@ void set_scene_pause_phase(i32 phase, ScenePauseServices& s)
         p.book = create_transition_book(scene_directory_book_clip(), 0, nullptr, b); // 0x001162B0, 0x00048260
         request_namespaced_localtext(image(s).string(word(s, 0x00430C1C)), image(s).string(0x0032A538),
             image(s).string(0x0032A504), p.paused.data(), b.localtext); // 0x000FF0A0, "Paused" into DAT_00510AE8
-        p.paused_text = create_dialogue_text_record(*p.text, p.paused.data(), x, y - real(s, 0x0032B170), 1.5f,
+        p.paused_text = create_dialogue_text_record(*p.text, p.paused.data(), x, y - 25.f, 1.5f, // DAT_0032B170.
             1.5f, 3.f, 1, 1, 1, b.metrics, b.viewport_width, b.next_text_id, b.random); // 0x0005F5C0, EAX 1
-        p.line_text = create_dialogue_text_record(*p.text, line.data(), x, y - real(s, 0x0032B6C4), 0.75f, 0.75f,
+        p.line_text = create_dialogue_text_record(*p.text, line.data(), x, y - 125.f, 0.75f, 0.75f, // DAT_0032B6C4.
             3.f, 1, 1, 1, b.metrics, b.viewport_width, b.next_text_id, b.random);
         choose_scene_pause_prompt(s); // 0x0011DD90
         const i32 index = scene_bonus_book_index(s); // 0x0011ECF0, EAX DAT_00510E58
@@ -430,8 +425,8 @@ void set_scene_pause_phase(i32 phase, ScenePauseServices& s)
         std::array<char, 0x80> icon{};
         std::strncpy(icon.data(), image(s).string(0x0032A4CC), icon.size() - 1); // ..._pauseicons_bonusbooks
         p.icon = acquire_named_animation_resource(b.resources, icon.data(), b.error); // 0x00035B60
-        p.icon_position = {x, y + real(s, 0x0032B334)};
-        p.icon_scale = {real(s, 0x0032B2AC), real(s, 0x0032B2AC)};
+        p.icon_position = {x, y + 210.f}; // DAT_0032B334.
+        p.icon_scale = {0.75f, 0.75f}; // DAT_0032B2AC.
         return;
     }
     case 3:
@@ -587,7 +582,7 @@ void leave_scene_pause(ScenePauseServices& s)
         detach_tracked_audio_bank(bank, s.banks); // 0x00038260
         bank.id = 0;
     }
-    s.audio_level(real(s, 0x0032B0F8)); // 0x00038110
+    s.audio_level(1.f); // 0x00038110, DAT_0032B0F8.
 }
 
 // Xbox 0x0011CFB0
@@ -775,17 +770,17 @@ void draw_scene_pause(ScenePauseServices& s)
     }
     if (p.icon.data() != nullptr)
     {
-        const float full = real(s, 0x0032B2AC);
+        const float full = 0.75f; // DAT_0032B2AC.
         std::array<float, 2> scale{};
         const float* scaling = nullptr;
         switch (p.phase)
         {
         case 2:
         {
-            float level = real(s, 0x0032B0F8);
+            float level = 1.f; // DAT_0032B0F8.
             if (p.book != nullptr)
             {
-                const float grown = book_position(*p.book) * real(s, 0x0032B62C) * full;
+                const float grown = book_position(*p.book) * 8.130081f * full; // DAT_0032B62C.
                 level = full;
                 if (grown <= full)
                 {
@@ -803,10 +798,10 @@ void draw_scene_pause(ScenePauseServices& s)
             break;
         case 6:
         {
-            float level = real(s, 0x0032B0F8);
+            float level = 1.f; // DAT_0032B0F8.
             if (p.book != nullptr)
             {
-                level = full - (book_position(*p.book) - real(s, 0x0032B634)) * real(s, 0x0032B630) * full;
+                level = full - (book_position(*p.book) - 0.815f) * 5.4054055f * full; // DAT_0032B634, DAT_0032B630.
                 if (level < 0.f)
                 {
                     level = 0.f;
@@ -888,7 +883,7 @@ void show_pause_confirm(const char* key, i32 prompt, u32 row, ScenePauseServices
     request_namespaced_localtext(image(s).string(word(s, 0x00430C1C)), image(s).string(0x0032A538), key,
         text.data(), b.localtext); // 0x000FF0A0, "pausetext"
     p.third_text = create_dialogue_text_record(*p.text, text.data(), s.hud.center_x,
-        s.hud.center_y + real(s, 0x0032B1E0), 0.75f, 0.75f, 3.f, 1, 0, 1, b.metrics, b.viewport_width,
+        s.hud.center_y + 50.f, 0.75f, 0.75f, 3.f, 1, 0, 1, b.metrics, b.viewport_width, // DAT_0032B1E0.
         b.next_text_id, b.random); // 0x0005F5C0, EAX 1
     p.prompt = prompt;
     set_prompt_row(widget("the pause's confirmation"), row, s);

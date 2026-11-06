@@ -270,12 +270,12 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
     float fraction;
     if (duration == 0.f)
     {
-        fraction = exe_real(s, 0x0032B0F8);
+        fraction = 1.f; // DAT_0032B0F8.
     }
     else
     {
         fraction = (w.plate_fade_timer - duration) / (0.f - duration);
-        const float one = exe_real(s, 0x0032B0F8);
+        const float one = 1.f; // DAT_0032B0F8.
         if (fraction > one)
         {
             fraction = one;
@@ -285,8 +285,8 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
             fraction = 0.f;
         }
     }
-    const u32 plate = with_alpha(white, truncate_byte(static_cast<long double>(fraction) * exe_real(s, 0x0032B158)));
-    const u32 box = with_alpha(rest, truncate_byte(static_cast<long double>(fraction) * exe_real(s, 0x0032B368)));
+    const u32 plate = with_alpha(white, truncate_byte(static_cast<long double>(fraction) * 255.f)); // DAT_0032B158.
+    const u32 box = with_alpha(rest, truncate_byte(static_cast<long double>(fraction) * 128.f)); // DAT_0032B368.
     for (size_t index = 0; index < 3; ++index)
     {
         w.plates[index].plate_sprite.color = plate;
@@ -295,7 +295,7 @@ void fade_in_plates(SlotSelectWidget& w, GameSelectControlServices& s)
     const u32 selected = exe_word(s, 0x00308B18);
     auto& chosen = chosen_plate(w);
     chosen.box_color = selected;
-    set_color_alpha(chosen.box_color, truncate_byte(static_cast<long double>(fraction) * exe_real(s, 0x0032B378)));
+    set_color_alpha(chosen.box_color, truncate_byte(static_cast<long double>(fraction) * 196.f)); // DAT_0032B378.
     double limit;
     std::memcpy(&limit, s.image.memory(0x0032B370, 8).data(), 8);
     if (!(double(fraction) < limit))
@@ -390,7 +390,7 @@ void advance_background_fade(SlotSelectWidget& w, GameSelectControlServices& s)
 {
     count_down(w.background_fade_timer, frame_step(s));
     const float flight = s.bat_screen(*w.bat).flight_duration; // Bat +0x93C
-    const float one = exe_real(s, 0x0032B0F8);
+    const float one = 1.f; // DAT_0032B0F8.
     if (flight != 0.f)
     {
         const float fraction = (w.background_fade_timer - flight) / (0.f - flight);
@@ -413,8 +413,8 @@ void advance_background_fade(SlotSelectWidget& w, GameSelectControlServices& s)
 // Xbox 0x00101730: each byte of `rest` toward `selected` by the fraction, clamped to 0..255 and truncated.
 u32 blend_runtime_color(u32 selected, u32 rest, float fraction, GameSelectControlServices& s)
 {
-    const float full = exe_real(s, 0x0032B158);
-    const float remainder = exe_real(s, 0x0032B0F8) - fraction;
+    const float full = 255.f; // DAT_0032B158.
+    const float remainder = 1.f - fraction; // DAT_0032B0F8.
     u32 output = 0;
     for (u32 shift = 0; shift < 32; shift += 8)
     {
@@ -441,7 +441,7 @@ void raise_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
     advance_background_fade(w, s); // 0x000DF330, ECX the widget
     if (w.old_background.texture.data() != w.background.texture.data())
     {
-        const u8 alpha = truncate_byte(static_cast<long double>(w.background_fade) * exe_real(s, 0x0032B158));
+        const u8 alpha = truncate_byte(static_cast<long double>(w.background_fade) * 255.f); // DAT_0032B158.
         set_color_alpha(w.background.color, alpha);
         set_color_alpha(w.old_background.color, u8(0xFF - alpha));
     }
@@ -457,7 +457,7 @@ void raise_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
     const float plate_height = texture_height(w.plates[slot].plate_sprite.texture);
     const float raised_y = (height * exe_real(s, row + 0xC)) / plate_height;
     const float rest_y = (height * exe_real(s, row + 0x14)) / plate_height;
-    const float one = exe_real(s, 0x0032B0F8);
+    const float one = 1.f; // DAT_0032B0F8.
     plate_sprite.scale[1] = (raised_y - rest_y) * fraction + rest_y;
     const float grow_x = (exe_real(s, row + 8) / exe_real(s, row + 0x10) - one) * fraction + one;
     const float grow_y = (exe_real(s, row + 0xC) / exe_real(s, row + 0x14) - one) * fraction + one;
@@ -473,10 +473,10 @@ void raise_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
         broken.scale[0] = exe_real(s, 0x00428FD8) * grow_x;
         broken.scale[1] = exe_real(s, 0x00428FDC) * grow_y;
     }
-    const float scale_x = exe_real(s, 0x0032B6B0);
+    const float scale_x = 640.f; // DAT_0032B6B0.
     const float box_x = exe_real(s, row + 0x10) * scale_x + exe_real(s, 0x00428FBC);
     p.box_width = ((exe_real(s, row + 8) * scale_x + exe_real(s, 0x00428FC0)) - box_x) * fraction + box_x;
-    const float scale_y = exe_real(s, 0x0032B6AC);
+    const float scale_y = 480.f; // DAT_0032B6AC.
     const float box_y = exe_real(s, row + 0x14) * scale_y + exe_real(s, 0x00428FBC);
     p.box_height = ((exe_real(s, row + 0xC) * scale_y + exe_real(s, 0x00428FC0)) - box_y) * fraction + box_y;
     if (!(w.background_fade < one))
@@ -492,10 +492,10 @@ void zoom_selected_plate(SlotSelectWidget& w, GameSelectControlServices& s)
     auto& p = w.plates[slot];
     auto& plate_sprite = p.plate_sprite;
     const u32 row = 0x0042902C + slot * 0x124;
-    const float rest_box_x = exe_real(s, row + 8) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC);
-    const float rest_box_y = exe_real(s, row + 0xC) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC);
+    const float rest_box_x = exe_real(s, row + 8) * 640.f + exe_real(s, 0x00428FBC); // DAT_0032B6B0.
+    const float rest_box_y = exe_real(s, row + 0xC) * 480.f + exe_real(s, 0x00428FBC); // DAT_0032B6AC.
     count_down(w.zoom_timer, frame_step(s));
-    const float one = exe_real(s, 0x0032B0F8);
+    const float one = 1.f; // DAT_0032B0F8.
     const float duration = exe_real(s, 0x00429008);
     float fraction = one;
     if (duration != 0.f)
@@ -1029,8 +1029,8 @@ void open_runtime_slot_select(std::span<u8> owner, GameSelectControlState& contr
         copy_movie_name(w, index, exe_string(s, movie));
         p.movie_uv = {exe_real(s, movie + 0x80), exe_real(s, movie + 0x84)};
         p.box_color = exe_word(s, 0x00308B1C);
-        p.box_width = exe_real(s, row + 0x10) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC);
-        p.box_height = exe_real(s, row + 0x14) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC);
+        p.box_width = exe_real(s, row + 0x10) * 640.f + exe_real(s, 0x00428FBC); // DAT_0032B6B0.
+        p.box_height = exe_real(s, row + 0x14) * 480.f + exe_real(s, 0x00428FBC); // DAT_0032B6AC.
     }
     w.saved_plate_flag_0 = s.plate_flags[0];
     w.saved_plate_flag_1 = s.plate_flags[1];
@@ -1137,7 +1137,7 @@ void tick_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
             }
             else
             {
-                const float full = exe_real(s, 0x0032B158);
+                const float full = 255.f; // DAT_0032B158.
                 const float value = full - ((w.fade_out_timer - duration) / (0.f - duration)) * full;
                 if (0.f > value)
                 {
@@ -1268,11 +1268,11 @@ void draw_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
             float alpha;
             if (end == start)
             {
-                alpha = exe_real(s, 0x0032B158);
+                alpha = 255.f; // DAT_0032B158.
             }
             else
             {
-                const float full = exe_real(s, 0x0032B158);
+                const float full = 255.f; // DAT_0032B158.
                 alpha = ((float(shown) - start) / (end - start)) * full;
                 if (alpha > full)
                 {
@@ -1284,7 +1284,7 @@ void draw_runtime_slot_select(GameSelectWidget& widget, GameSelectControlService
                 }
             }
             const u32 color = with_alpha(exe_word(s, 0x00314F48), truncate_byte(alpha));
-            const float uv_top[2]{exe_real(s, 0x0032B1F4), exe_real(s, 0x0032B1B0)};
+            const float uv_top[2]{16.f, 4.f}; // DAT_0032B1F4, DAT_0032B1B0.
             // The movie frame over the plate the frame was chosen for (`chosen`, read on entry), scaled by the
             // selected plate's (+0xB2C now).
             auto& q = w.plates[size_t(chosen)];
@@ -1341,19 +1341,19 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         create_slot_bat(w, s);
         char resource[0x80]{};
         std::memcpy(resource, "aid_loctext_ghoulies_gameselect_gameselecttext", 47); // 0x0020A574
-        const float edge = exe_real(s, 0x0032B1F4);
+        const float edge = 16.f; // DAT_0032B1F4.
         const std::array<float, 2> anchor{s.hud.inner_left + edge, s.hud.inner_bottom - edge};
         const float icon = exe_real(s, 0x00429020);
         const float text = exe_real(s, 0x00429024);
         const float spacing = exe_real(s, 0x00429018);
         const std::array<float, 2> row_step{icon * 0.f, 0.f - icon * spacing};
-        const float half = spacing * exe_real(s, 0x0032B0F4) * icon;
+        const float half = spacing * 0.5f * icon; // DAT_0032B0F4.
         const std::array<float, 2> origin{half + exe_real(s, 0x0042901C), 0.f - half};
         std::array<char16_t, 0x200> scratch{};
         float widest = 0.f;
         const float width = measure_dialogue_widget_width(resource, s.image.memory(0x00308068, 0x310).data(), icon,
             text, "gameselect", scratch.data(), s.widgets); // 0x001428F0, ECX the prompt rows
-        if (width > exe_real(s, 0x0032B100))
+        if (width > 0.f) // DAT_0032B100.
         {
             widest = width;
         }
@@ -1370,7 +1370,7 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
         create_resource_dialogue_widget(w.prompts, 1, nullptr, anchor, row_step, origin, &column, icon, text,
             "gameselect", resource, 0x400C0, s.widget_allocation); // 0x00141DA0, ESI +0xEA8
         auto& prompts = *w.prompts;
-        const float fade = exe_real(s, 0x0032B1AC);
+        const float fade = 0.2f; // DAT_0032B1AC.
         prompts.duration = fade;
         if (prompts.progress > fade)
         {
@@ -1481,8 +1481,8 @@ void set_runtime_slot_select_state(SlotSelectWidget& w, i32 state, GameSelectCon
             const auto plate = w.plates[index].plate_sprite.texture;
             plate_sprite.scale[0] = (screen_width(s) * exe_real(s, row + 0x10)) / texture_width(plate);
             plate_sprite.scale[1] = (screen_height(s) * exe_real(s, row + 0x14)) / texture_height(plate);
-            p.box_width = exe_real(s, row + 0x10) * exe_real(s, 0x0032B6B0) + exe_real(s, 0x00428FBC);
-            p.box_height = exe_real(s, row + 0x14) * exe_real(s, 0x0032B6AC) + exe_real(s, 0x00428FBC);
+            p.box_width = exe_real(s, row + 0x10) * 640.f + exe_real(s, 0x00428FBC); // DAT_0032B6B0.
+            p.box_height = exe_real(s, row + 0x14) * 480.f + exe_real(s, 0x00428FBC); // DAT_0032B6AC.
             p.box_color = exe_word(s, 0x00308B1C);
             if (w.plates[index].nowrite_sprite.texture.data() != nullptr)
             {
@@ -1589,8 +1589,8 @@ void move_runtime_slot_cursor(GameSelectControlServices& services)
     }
     // 0x001080B0, ESI the direction: an axis inside (DAT_0032B274, DAT_0032B1AC) is dropped; the larger axis
     // gives up (1), down (2), left (4) or right (8).
-    const float dead = exe_real(s, 0x0032B1AC);
-    const float low = exe_real(s, 0x0032B274);
+    const float dead = 0.2f; // DAT_0032B1AC.
+    const float low = -0.2f; // DAT_0032B274.
     if (dead > direction[0] && direction[0] > low)
     {
         direction[0] = 0.f;
@@ -1606,11 +1606,11 @@ void move_runtime_slot_cursor(GameSelectControlServices& services)
         const float horizontal = std::fabs(direction[0]);
         if (horizontal < vertical)
         {
-            code = direction[1] > exe_real(s, 0x0032B100) ? 1 : 2;
+            code = direction[1] > 0.f ? 1 : 2; // DAT_0032B100.
         }
         else
         {
-            code = direction[0] > exe_real(s, 0x0032B100) ? 8 : 4;
+            code = direction[0] > 0.f ? 8 : 4; // DAT_0032B100.
         }
     }
     if (code == 4)
@@ -1647,12 +1647,12 @@ void select_runtime_slot(GameSelectControlServices& services)
         // The bat flies off toward the screen edge farther from it.
         const float width = screen_width(s);
         const float height = screen_height(s);
-        const float half = exe_real(s, 0x0032B0F4);
+        const float half = 0.5f; // DAT_0032B0F4.
         ButtonBatPoint target{};
-        target.x = width - w.bat_target[0] > width * half ? width + exe_real(s, 0x0032B1E0)
-                                                                            : exe_real(s, 0x0032B304);
-        target.y = height - w.bat_target[1] > height * half ? height + exe_real(s, 0x0032B1E0)
-                                                                              : exe_real(s, 0x0032B304);
+        target.x = width - w.bat_target[0] > width * half ? width + 50.f // DAT_0032B1E0.
+                                                                            : -50.f; // DAT_0032B304.
+        target.y = height - w.bat_target[1] > height * half ? height + 50.f // DAT_0032B1E0.
+                                                                              : -50.f; // DAT_0032B304.
         if (w.bat != nullptr)
         {
             s.fly_bat(*w.bat, target, 1.f); // 0x0006DA00, EBX the target

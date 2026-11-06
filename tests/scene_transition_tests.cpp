@@ -10,6 +10,9 @@
 #include "../src/engine/scene/scene_controls.h"
 #include "../src/engine/frontend/gameselect_slots.h"
 #include "../src/engine/frontend/app_error_screen.h"
+#include "../src/engine/frontend/gameselect_delete.h"
+#include "../src/engine/frontend/gameselect_naming.h"
+#include "../src/engine/frontend/gameselect_options.h"
 #include "../src/engine/audio/native_audio.h"
 #include "../src/engine/video/file_copy.h"
 #include "../src/engine/frontend/gameselect_stream_wait.h"
@@ -198,6 +201,106 @@ void check_scene_render();
 namespace
 {
 // The game-select control's widget while it is slot select (mode-table row 1), or null.
+// Whether the game select screen on top takes input now: the states that hand its prompts the front-end device
+// (0x00142460), with the prompts up. Between two screens game select isn't listening. Nothing holds outside its
+// scene: a challenge's run keeps the challenges widget open underneath it.
+bool gameselect_listening(const gbtg::Game& game)
+{
+    if (game.scene_script.name.find("gameselect") == std::string::npos)
+    {
+        return true;
+    }
+    if (gbtg::find_runtime_scene_control(0x9F) != nullptr) // The Gallery reads its own device.
+    {
+        return true;
+    }
+    if (game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0) // A closes a page.
+    {
+        return true;
+    }
+    const auto& frontend = gbtg::g_frontend;
+    const auto prompts_up = [](const auto* widget)
+    {
+        return widget->prompts != nullptr && widget->prompts->mode == 2 && 0 < widget->prompts->count;
+    };
+    const auto idle = [&prompts_up](const auto* widget)
+    {
+        return widget->state == 2 && prompts_up(widget);
+    };
+    if (frontend.naming_widget != nullptr)
+    {
+        return frontend.naming_widget->state == 2 && frontend.naming_widget->keyboard != nullptr;
+    }
+    if (frontend.bat_menu != nullptr && frontend.bat_menu->state != 2)
+    {
+        return false;
+    }
+    if (frontend.deletion_widget != nullptr)
+    {
+        return idle(frontend.deletion_widget);
+    }
+    if (frontend.scene_replay_widget != nullptr)
+    {
+        return idle(frontend.scene_replay_widget);
+    }
+    if (frontend.chapter_replay_widget != nullptr)
+    {
+        return idle(frontend.chapter_replay_widget);
+    }
+    if (frontend.bonus_book_replay_widget != nullptr)
+    {
+        return idle(frontend.bonus_book_replay_widget);
+    }
+    if (frontend.story_book_widget != nullptr)
+    {
+        return idle(frontend.story_book_widget);
+    }
+    if (frontend.options_widget != nullptr)
+    {
+        return idle(frontend.options_widget);
+    }
+    if (frontend.challenges_widget != nullptr)
+    {
+        return idle(frontend.challenges_widget);
+    }
+    if (frontend.features_widget != nullptr)
+    {
+        return idle(frontend.features_widget);
+    }
+    if (frontend.contents_widget != nullptr)
+    {
+        const auto* contents = frontend.contents_widget;
+        return 2 <= contents->state && contents->state <= 5 && prompts_up(contents);
+    }
+    if (frontend.slot_widget != nullptr)
+    {
+        return frontend.slot_widget->state == 5 && prompts_up(frontend.slot_widget);
+    }
+    return false;
+}
+
+// A scheduled press waits for the screen: the frame numbers below count from when game select opened, and a press
+// that lands while the screen isn't listening is lost, which leaves the rest of the sequence one press behind. While
+// it waits, `ready` moves up so the schedule holds at this press.
+void hold_gameselect_press(const gbtg::Game& game, gbtg::InputState& input, int& ready)
+{
+    bool pressed = input.up || input.down || input.left || input.right || input.accept || input.back || input.page;
+    for (const auto& pad : input.pads)
+    {
+        pressed = pressed || pad.buttons != 0;
+    }
+    if (ready < 0 || !pressed || gameselect_listening(game))
+    {
+        return;
+    }
+    input.up = input.down = input.left = input.right = input.accept = input.back = input.page = false;
+    for (auto& pad : input.pads)
+    {
+        pad.buttons = 0;
+    }
+    ++ready;
+}
+
 gbtg::SlotSelectWidget* native_slot_select()
 {
     gbtg::SceneControlInstance* control = gbtg::find_runtime_scene_control(0x9A);
@@ -11180,6 +11283,7 @@ void start_saved_game(gbtg::Game& game, const std::string& label)
         }
         const int at = ready < 0 ? -1 : frame - ready;
         input.accept = at == 180 || at == 900;
+        hold_gameselect_press(game, input, ready);
         gbtg::gfx_begin_frame();
         game.tick(1.f / 59.f, input); // Game select's tests step the wall-clock path.
         gbtg::gfx_end_frame();
@@ -11737,7 +11841,7 @@ int main(int argc, char** argv)
                 }
             }
         }
-        if (loading_test)
+        if (loading_test && std::filesystem::is_directory(gbtg::utility_root()))
         {
             for (const auto& entry : std::filesystem::recursive_directory_iterator(gbtg::utility_root()))
             {
@@ -14478,6 +14582,7 @@ int main(int argc, char** argv)
                         break;
                     }
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -14645,6 +14750,7 @@ int main(int argc, char** argv)
                         gbtg::gfx_shutdown();
                         return 0;
                     }
+                    hold_gameselect_press(game, input, ready);
                     gbtg::gfx_begin_frame();
                     game.tick(1.f / 59.f, input);
                     gbtg::gfx_end_frame();
@@ -14765,6 +14871,7 @@ int main(int argc, char** argv)
                         back_at = frame;
                     }
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -15060,6 +15167,7 @@ int main(int argc, char** argv)
                         }
                     }
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -15217,6 +15325,7 @@ int main(int argc, char** argv)
                 {
                     done_at = frame;
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -15408,6 +15517,7 @@ int main(int argc, char** argv)
                         std::cout << "after page " << pages.size() << ": " << pages.back() << "\n";
                     }
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -15518,6 +15628,7 @@ int main(int argc, char** argv)
                     input.accept = at == 180;
                     input.back = at == 360;
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -15875,7 +15986,10 @@ int main(int argc, char** argv)
                             gbtg::gfx_end_frame();
                         }
                     };
-                    tick(gbtg::InputState{}, 90);
+                    for (int wait = 0; wait < 600 && !gameselect_listening(game); ++wait)
+                    {
+                        tick(gbtg::InputState{}, 1);
+                    }
                     slots = native_slot_select();
                     if (slots == nullptr)
                     {

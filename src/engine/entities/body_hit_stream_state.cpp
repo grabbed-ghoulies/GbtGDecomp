@@ -163,9 +163,9 @@ void tick_runtime_hit_stream_state(HitStreamState& state, RuntimeHitStreamStateC
     Actor& actor = context.actor;
     const u32 attacker = body_record(body).attacker;
     state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
-    if (body_record(body).unk_A6 != 0)
+    if (body_record(body).overlay_enabled != 0)
     {
-       body_record(body).unk_B4 = 2.f; // DAT_0032B110.
+       body_record(body).overlay_hold_time = 2.f; // DAT_0032B110.
     }
     if (actor.animation_pause > 0.f && state.hit == 0)
     {

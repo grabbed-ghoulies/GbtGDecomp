@@ -429,6 +429,11 @@ code didn't prove a length before: messages 0xF and 0x18 use `memcpy` through a 
 use `offsetof`, since the source can be an actor shorter than a weapon. The body animation dispatcher reads its kinds by name too.
 `ActorBase::movement` (+0x3C) and `actor_capsule_field` are inferred from a few uses.
 
+`body_wash.cpp` read its fields by offset from the body's energy (+0x94). Measured from the record's start, they were the player
+overlay's: its state, alpha, switches, flashes, timers and a pulsing size (`BodyOscillator`, +0xBC), which named a run of `BodyRecord`'s
+`unk_` fields. Function names still say wash. The camera's stand action names its focus, rate and tunables; the two tunables passed to
+the aim stay `unk_`. The bound word 0x0001E770 reads at +0xB8 stays literal, as nothing says what that record is.
+
 `ActorBytes` became `ActorBase` once it had named fields. Parameter rows, presets and other read-only script and XBE data stay
 on descriptors, as elsewhere: `walk_alert_row_field`, `strategy_move_settings_field`, `input_tracking_preset_field`,
 `cutscene_event_field` and `animation_event_field`. So do messages and mind requests, whose layout depends on an id or kind.

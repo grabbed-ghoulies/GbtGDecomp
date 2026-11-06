@@ -979,7 +979,7 @@ void set_runtime_attachment_effect_reach(std::span<const u8> events, float dista
             if (effect != nullptr)
             {
                 const float reach = distance == kMinusOne ? kMinusOne : distance * distance; // UCOMISS, DAT_0032B120
-                std::memcpy(effect->bytes.data() + 0xBC, &reach, 4);
+                effect_header(effect->bytes).reach = reach;
             }
             break;
         }

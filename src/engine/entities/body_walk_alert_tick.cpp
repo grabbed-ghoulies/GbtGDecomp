@@ -71,7 +71,7 @@ bool runtime_body_stride_duration(float speed, const Actor& actor, const ActorAn
         return false;
     }
     // Player +8 is the root track 0x00031A30 sets when mina +0x1A is nonzero.
-    if (player->mina.empty() || read_u16(player->mina, 0x1A) == 0)
+    if (player->mina.empty() || mina_root_motion(player->mina) == 0)
     {
         return false;
     }

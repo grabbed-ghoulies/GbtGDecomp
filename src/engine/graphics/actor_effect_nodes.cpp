@@ -87,7 +87,7 @@ ActorEffectNode* create_actor_effect_node(const char* name, u16 count,
     effect_header(effect->bytes).scale = 1.f;
     effect_header(effect->bytes).particle_size = 1.f;
     effect_header(effect->bytes).volume = u32{0};
-    effect_header(effect->bytes).unk_BC = -1.f;
+    effect_header(effect->bytes).reach = -1.f;
     initialize_actor_effect_free_chain(*effect);
     effect_header(effect->bytes).position = position;
     effect_header(effect->bytes).euler = euler;

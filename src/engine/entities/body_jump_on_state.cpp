@@ -1,4 +1,5 @@
 #include "body_jump_on_state.h"
+#include "weapon_fields.h"
 #include <cstddef>
 #include "mind_fields.h"
 #include "actor_bind_tree.h"
@@ -128,7 +129,7 @@ RuntimeJumpOnPeer target_peer(RuntimeJumpOnStateContext& context, const char* ca
     {
         throw Error(std::string(caller) + " reads the target actor of a mind with no target");
     }
-    return context.peer_at(read_u32(context.target_at(target), 0x10));
+    return context.peer_at(mind_target_record(context.target_at(target)).actor);
 }
 
 // 0x0003B8B0 and the host's views.
@@ -319,7 +320,7 @@ void destroy_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext
     if (target != 0 && body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const std::span<const u8> record_bytes = context.target_at(target);
-        const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
+        const Vec3 point = mind_target_record(record_bytes).shape.position;
         face_runtime_body_point(body, context.actor, point); // 0x00134510
     }
     release_runtime_jump_on_claim(state, context); // The inlined 0x0009B300.
@@ -359,7 +360,7 @@ void tick_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext& c
             end_runtime_jump_on_state(context);
             return;
         }
-        state.target = read_u32(context.target_at(target), 0x10);
+        state.target = mind_target_record(context.target_at(target)).actor;
         const RuntimeJumpOnPeer peer = context.peer_at(state.target);
         if (!claim_runtime_rider(&peer, context.actor_address)) // 0x00138140
         {
@@ -491,7 +492,7 @@ void message_runtime_jump_on_state(JumpOnState& state, std::span<const u32> mess
         {
             throw Error("0x0009AE60 reads the target actor of a mind with no target");
         }
-        if (message[1] == read_u32(context.target_at(target), 0x10) && message[4] != 0)
+        if (message[1] == mind_target_record(context.target_at(target)).actor && message[4] != 0)
         {
             end_runtime_jump_on_state(context); // 0x0009B290
         }
@@ -517,7 +518,7 @@ bool runtime_jump_on_window_open(float time, RuntimeJumpOnStateContext& context)
 // Xbox 0x0009A1E0, EAX target
 bool runtime_jump_on_target_open(u32 target, RuntimeJumpOnStateContext& context)
 {
-    const u32 actor = read_u32(context.target_at(target), 0x10);
+    const u32 actor = mind_target_record(context.target_at(target)).actor;
     if (actor == 0)
     {
         return false;
@@ -543,7 +544,7 @@ bool runtime_jump_on_blocked(const JumpOnState& state, RuntimeJumpOnStateContext
         return true;
     }
     const std::span<const u8> record_bytes = context.target_at(target);
-    const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
+    const Vec3 point = mind_target_record(record_bytes).shape.position;
     // 0x0012C970: from the actor's point (0x000412A0) along the floor, region mode 1, the actor's class.
     i32 last_cell = 0;
     const Vec3 from = actor_world_position(context.actor);
@@ -559,7 +560,7 @@ bool runtime_jump_on_target_pose(Vec3& position, Vec3& euler, RuntimeJumpOnState
     {
         return false;
     }
-    const u32 actor = read_u32(context.target_at(target), 0x10);
+    const u32 actor = mind_target_record(context.target_at(target)).actor;
     if (actor == 0 || !runtime_jump_on_target_open(target, context))
     {
         return false;
@@ -664,7 +665,7 @@ bool step_runtime_jump_off_leap(JumpOnState& state, RuntimeJumpOnStateContext& c
     if (target != 0 && body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const std::span<const u8> record_bytes = context.target_at(target);
-        const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
+        const Vec3 point = mind_target_record(record_bytes).shape.position;
         face_runtime_body_point(body, context.actor, point); // 0x00134510
     }
     return done;
@@ -1241,7 +1242,7 @@ bool find_runtime_jump_landing(const RuntimeJumpOnPeer& from, float extra, Vec3&
     if (held != 0)
     {
         const RuntimeJumpOnPeer weapon = context.peer_at(held);
-        if (weapon.bytes[0x93D] == 1 && weapon.actor->model != nullptr && weapon.actor->model->cpu.data() != nullptr)
+        if (weapon.bytes[offsetof(WeaponBase, unk_93D)] == 1 && weapon.actor->model != nullptr && weapon.actor->model->cpu.data() != nullptr)
         {
             sword = float(actor_model_sweep_radius(*weapon.actor)); // 0x0003D9A0, EDI the weapon
         }

@@ -1,4 +1,5 @@
 #pragma once
+#include "gbtg/retail_field.h"
 #include "actor_clock.h"
 #include "gbtg/anim.h"
 #include <functional>
@@ -42,6 +43,38 @@ void ease_runtime_vector_toward(Vec3& value, const Vec3& target, float gain, con
 
 // State action type 0x5D, entityStateAnim2Stand (vtable 0x005054D0): the camera body's stand state.
 // Action +0xC elapsed, +0x10 reset, +0x14 focus, +0x20 focus rate. Action +8 is the body; body +8 the actor.
+// The motion integrator's context (0x00140700, 0x00140770).
+namespace motion_target
+{
+constexpr RetailField<Vec3, 0x0> target{};
+constexpr RetailField<float, 0xC> gain{};
+} // namespace motion_target
+// A body move action's header (0x00080200, 0x00080340, 0x0007FD70, 0x0007FEC0).
+namespace move_action_field
+{
+constexpr RetailField<float, 0xC> elapsed{};
+} // namespace move_action_field
+// The camera's stand action (0x0007FEC0).
+namespace stand_action_field
+{
+constexpr RetailField<u32, 0x10> placed{}; // messages 3 and 0x22 set it: next tick snaps to the goal point
+constexpr RetailField<Vec3, 0x14> focus{};
+constexpr RetailField<Vec3, 0x20> focus_rate{};
+} // namespace stand_action_field
+// Message 0x22 (0x0007FE70): move to a point.
+namespace stand_action_message
+{
+constexpr RetailField<Vec3, 0x4> position{};
+} // namespace stand_action_message
+// The stand action's tunables (DAT_004275BC..DAT_004275CF).
+namespace stand_action_tunables
+{
+constexpr RetailField<float, 0x0> unk_0{}; // passed to the aim
+constexpr RetailField<float, 0x4> unk_4{}; // passed to the aim
+constexpr RetailField<u32, 0x8> follows_target_speed{}; // set: the aim gets the target's planar speed
+constexpr RetailField<u32, 0xC> snaps_focus{}; // set: the focus rate takes the aim as it is, not eased
+constexpr RetailField<u32, 0x10> keeps_planar{}; // set: the focus keeps the look point's x and z
+} // namespace stand_action_tunables
 struct RuntimeStandActionContext
 {
     std::span<u8> body;

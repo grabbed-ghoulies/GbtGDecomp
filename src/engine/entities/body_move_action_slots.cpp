@@ -63,10 +63,11 @@ void integrate_runtime_motion(const Vec3& state, const Vec3& rate, Vec3& state_o
 // Xbox 0x00140700
 void runtime_motion_toward_target(std::span<const u8> context, const Vec3& state, const Vec3&, Vec3& output)
 {
-    const float gain = read_f32(context, 0xC);
-    output.x = read_f32(context, 0) - state.x;
-    output.y = read_f32(context, 4) - state.y;
-    output.z = read_f32(context, 8) - state.z;
+    const float gain = get(context, motion_target::gain);
+    const Vec3 target = get(context, motion_target::target);
+    output.x = target.x - state.x;
+    output.y = target.y - state.y;
+    output.z = target.z - state.z;
     output.x = gain * output.x;
     output.y = gain * output.y;
     output.z = gain * output.z;
@@ -75,9 +76,10 @@ void runtime_motion_toward_target(std::span<const u8> context, const Vec3& state
 // Xbox 0x00140770
 void runtime_motion_settle_target(std::span<const u8> context, const Vec3& state, Vec3& output)
 {
-    output.x = settle_component(read_f32(context, 0), state.x, output.x);
-    output.y = settle_component(read_f32(context, 4), state.y, output.y);
-    output.z = settle_component(read_f32(context, 8), state.z, output.z);
+    const Vec3 target = get(context, motion_target::target);
+    output.x = settle_component(target.x, state.x, output.x);
+    output.y = settle_component(target.y, state.y, output.y);
+    output.z = settle_component(target.z, state.z, output.z);
 }
 
 // Xbox 0x000803B0
@@ -102,8 +104,8 @@ void ease_runtime_body_velocity(std::span<const u8> body, Actor& actor, const i3
 void tick_runtime_xz_gravity_action(std::span<u8> action, std::span<u8> body, Actor& actor,
     const RuntimeActorClock& clock)
 {
-    const float elapsed = runtime_actor_rate(actor) * runtime_frame_step(clock) + read_f32(action, 0xC);
-    std::memcpy(action.data() + 0xC, &elapsed, 4);
+    const float elapsed = runtime_actor_rate(actor) * runtime_frame_step(clock) + get(action, move_action_field::elapsed);
+    set(action, move_action_field::elapsed, elapsed);
     const float step = runtime_frame_step(clock);
     const float rate = runtime_actor_rate(actor);
     const Vec3 velocity = actor.anchor; // Actor +0x3C.
@@ -118,8 +120,8 @@ void tick_runtime_xz_gravity_action(std::span<u8> action, std::span<u8> body, Ac
 void tick_runtime_velocity_action(std::span<u8> action, std::span<const u8> body, Actor& actor,
     const RuntimeActorClock& clock, const i32& steps)
 {
-    const float elapsed = runtime_actor_rate(actor) * runtime_frame_step(clock) + read_f32(action, 0xC);
-    std::memcpy(action.data() + 0xC, &elapsed, 4);
+    const float elapsed = runtime_actor_rate(actor) * runtime_frame_step(clock) + get(action, move_action_field::elapsed);
+    set(action, move_action_field::elapsed, elapsed);
     ease_runtime_body_velocity(body, actor, steps);
 }
 
@@ -158,8 +160,8 @@ void update_runtime_gravity_velocity(std::span<const u8> body, Actor& actor,
 void tick_runtime_gravity_action(std::span<u8> action, std::span<const u8> body, Actor& actor,
     const RuntimeActorClock& clock, const i32& steps)
 {
-    const float elapsed = runtime_actor_rate(actor) * runtime_frame_step(clock) + read_f32(action, 0xC);
-    std::memcpy(action.data() + 0xC, &elapsed, 4);
+    const float elapsed = runtime_actor_rate(actor) * runtime_frame_step(clock) + get(action, move_action_field::elapsed);
+    set(action, move_action_field::elapsed, elapsed);
     update_runtime_gravity_velocity(body, actor, clock, steps);
 }
 
@@ -179,7 +181,7 @@ void step_runtime_body_motion(std::span<u8> body, Actor& actor, const ActorAnima
             throw Error("body motion reads animation controller +0x58 with no slot array");
         }
         const MinaPlayer* player = controller->slots[0].player.get();
-        rooted = player != nullptr && player->mina.data() != nullptr && read_u16(player->mina, 0x1A) != 0;
+        rooted = player != nullptr && player->mina.data() != nullptr && mina_root_motion(player->mina) != 0;
     }
     if (rooted)
     {
@@ -231,13 +233,12 @@ void message_runtime_stand_action(std::span<u8> action, std::span<const u8> mess
         {
             return;
         }
-        const Vec3 position{read_f32(message, 4), read_f32(message, 8), read_f32(message, 0xC)};
+        const Vec3 position = get(message, stand_action_message::position);
         actor_set_world_position(context.actor, position); // 0x00041730
         const Vec3 world = actor_world_position(context.actor); // 0x000412A0 into body +0x18.
         std::memcpy(context.body.data() + offsetof(BodyRecord, position.x), &world, 12);
     }
-    const u32 one = 1;
-    std::memcpy(action.data() + 0x10, &one, 4);
+    set(action, stand_action_field::placed, 1u);
 }
 
 // Xbox 0x000800A0
@@ -251,7 +252,7 @@ void follow_runtime_stand_focus(std::span<u8> action, RuntimeStandActionContext&
         body_record(context.body).look_point.z};
     const u32 target = mind_record(context.mind).target;
     float speed;
-    if (read_u32(context.tunables, 8) == 0) // DAT_004275C4.
+    if (get(context.tunables, stand_action_tunables::follows_target_speed) == 0) // DAT_004275C4.
     {
         speed = 0.f;
     }
@@ -265,34 +266,34 @@ void follow_runtime_stand_focus(std::span<u8> action, RuntimeStandActionContext&
         const Vec3& velocity = target_actor->euler_out->actor->anchor; // Body actor +0x3C.
         speed = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z); // 0x00152B30
     }
-    const Vec3 from{read_f32(action, 0x14), read_f32(action, 0x18), read_f32(action, 0x1C)};
+    const Vec3 from = get(action, stand_action_field::focus);
     Vec3 offset;
-    context.aim(offset, from, focus, target, read_f32(context.tunables, 0), speed,
-        read_f32(context.tunables, 4)); // DAT_004275BC, DAT_004275C0.
-    Vec3 rate{read_f32(action, 0x20), read_f32(action, 0x24), read_f32(action, 0x28)};
+    context.aim(offset, from, focus, target, get(context.tunables, stand_action_tunables::unk_0), speed,
+        get(context.tunables, stand_action_tunables::unk_4)); // DAT_004275BC, DAT_004275C0.
+    Vec3 rate = get(action, stand_action_field::focus_rate);
     ease_runtime_vector_toward(rate, offset, body_record(context.body).ease_rate, context.steps);
-    std::memcpy(action.data() + 0x20, &rate, 12);
-    if (read_u32(context.tunables, 0xC) != 0) // DAT_004275C8.
+    set(action, stand_action_field::focus_rate, rate);
+    if (get(context.tunables, stand_action_tunables::snaps_focus) != 0) // DAT_004275C8.
     {
-        std::memcpy(action.data() + 0x20, &offset, 12);
+        set(action, stand_action_field::focus_rate, offset);
     }
 }
 
 // Xbox 0x0007FEC0
 void tick_runtime_stand_action(std::span<u8> action, RuntimeStandActionContext& context)
 {
-    const float elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + read_f32(action, 0xC);
-    std::memcpy(action.data() + 0xC, &elapsed, 4);
-    if (read_u32(action, 0x10) != 0)
+    const float elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + get(action, move_action_field::elapsed);
+    set(action, move_action_field::elapsed, elapsed);
+    if (get(action, stand_action_field::placed) != 0)
     {
         std::memcpy(context.body.data() + offsetof(BodyRecord, position.x), context.mind.data()
             + offsetof(MindRecord, goal_point), 12);
         context.actor.anchor = {0.f, 0.f, 0.f}; // Actor +0x3C.
         if (body_record(context.body).look_point_set != 0)
         {
-            std::memcpy(action.data() + 0x14, context.body.data() + offsetof(BodyRecord, look_point.x), 12);
+            set(action, stand_action_field::focus, body_record(context.body).look_point);
         }
-        std::memset(action.data() + 0x20, 0, 12);
+        set(action, stand_action_field::focus_rate, Vec3{0.f, 0.f, 0.f});
         return;
     }
     ease_runtime_body_velocity(context.body, context.actor, context.steps); // 0x000803B0
@@ -306,20 +307,20 @@ void step_runtime_stand_action(std::span<u8> action, RuntimeStandActionContext& 
     step_runtime_body_motion(context.body, context.actor, animation, context.clock); // 0x0002AD30
     const float step = runtime_frame_step(context.clock);
     const float scaled = runtime_actor_rate(context.actor) * step;
-    const bool keep_planar = read_u32(context.tunables, 0x10) != 0; // DAT_004275CC.
-    for (size_t axis = 0; axis < 3; ++axis)
-    {
-        const float value = read_f32(action, 0x20 + axis * 4) * scaled + read_f32(action, 0x14 + axis * 4);
-        std::memcpy(action.data() + 0x14 + axis * 4, &value, 4);
-    }
+    const bool keep_planar = get(context.tunables, stand_action_tunables::keeps_planar) != 0; // DAT_004275CC.
+    const Vec3 rate = get(action, stand_action_field::focus_rate);
+    const Vec3 focus = get(action, stand_action_field::focus);
+    set(action, stand_action_field::focus, Vec3{rate.x * scaled + focus.x, rate.y * scaled + focus.y, rate.z * scaled + focus.z});
     if (keep_planar && body_record(context.body).look_point_set != 0)
     {
-        std::memcpy(action.data() + 0x14, context.body.data() + offsetof(BodyRecord, look_point.x), 4);
-        std::memcpy(action.data() + 0x1C, context.body.data() + offsetof(BodyRecord, look_point.z), 4);
+        const Vec3 look = body_record(context.body).look_point;
+        Vec3 kept = get(action, stand_action_field::focus);
+        kept.x = look.x;
+        kept.z = look.z;
+        set(action, stand_action_field::focus, kept);
     }
-    std::memcpy(context.body.data() + offsetof(BodyRecord, look_point.x), action.data() + 0x14, 12);
+    body_record(context.body).look_point = get(action, stand_action_field::focus);
     body_record(context.body).look_point_set = 1;
-    const u32 zero = 0;
-    std::memcpy(action.data() + 0x10, &zero, 4);
+    set(action, stand_action_field::placed, 0u);
 }
 }

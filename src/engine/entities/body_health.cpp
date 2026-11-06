@@ -51,8 +51,8 @@ void initialize_runtime_body_health(std::span<u8> body, std::span<const u8> para
     const u16 integer = u16(truncate_runtime_float(health));
     body_record(body).energy = integer;
     body_record(body).max_energy = integer;
-    body_record(body).unk_A4 = 0;
-    body_record(body).unk_A6 = parameters[0x1A8];
+    body_record(body).overlay_state = 0;
+    body_record(body).overlay_enabled = parameters[0x1A8];
     const char* names[]
     {
         "aid_texture_ghoulies_scoreboard_energy_baddielowenergy",

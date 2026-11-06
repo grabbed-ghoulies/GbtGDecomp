@@ -415,9 +415,9 @@ bool initialize_runtime_knockdown_state(KnockdownState& state, std::span<const u
     body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     context.bits.bytes[4] |= 0x10;
     body_record(body).unk_69 = u8(body_record(body).unk_69 + 1);
-    if (body_record(body).unk_A6 != 0)
+    if (body_record(body).overlay_enabled != 0)
     {
-       body_record(body).unk_B4 = 2.f; // DAT_0032B110.
+       body_record(body).overlay_hold_time = 2.f; // DAT_0032B110.
     }
     release_runtime_player_attachment(0, 0, context.attachment);
     auto& records = knockdown_records[body_state_key(state)];

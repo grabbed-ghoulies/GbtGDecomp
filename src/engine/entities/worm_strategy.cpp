@@ -104,9 +104,9 @@ void set_body_timer(std::span<u8> body, float value)
     const u32 one = 1;
     body_record(body).unk_E0 = one;
    body_record(body).unk_DC = value;
-    body_record(body).unk_A4 = 0;
-    body_record(body).unk_A6 = 0;
-    body_record(body).unk_A5 = 0;
+    body_record(body).overlay_state = 0;
+    body_record(body).overlay_enabled = 0;
+    body_record(body).overlay_alpha = 0;
 }
 
 // The old mode's object goes (0x0003DE30) and its mark is undone: mode 1's bit, mode 2's latches.

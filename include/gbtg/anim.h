@@ -8,6 +8,12 @@
 
 namespace gbtg
 {
+// A mina's +0x1A: nonzero, its first slot's root drives the body's motion (0x0002AD30).
+inline u16 mina_root_motion(std::span<const u8> mina)
+{
+    return read_u16(mina, 0x1A);
+}
+
 float animation_absolute(float value); // Xbox 0x00152BB0
 
 struct ResourceErrorState;

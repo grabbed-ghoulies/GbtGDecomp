@@ -250,7 +250,7 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
     }
     else
     {
-        if (body_record(body).unk_A4 == 0 || body_record(body).unk_A8 == 0)
+        if (body_record(body).overlay_state == 0 || body_record(body).overlay_flash == 0)
         {
             return;
         }
@@ -259,7 +259,7 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
         {
             sprite = context.health_sprite;
         }
-        else if (body_record(body).unk_A9 != 0)
+        else if (body_record(body).overlay_second_flash != 0)
         {
             sprite = context.active_sprite;
         }
@@ -267,11 +267,11 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
         {
             sprite = context.alternate_sprite;
         }
-        color = (runtime_body_health_color(body) & 0x00FFFFFFu) | (u32(body_record(body).unk_A5) << 24);
+        color = (runtime_body_health_color(body) & 0x00FFFFFFu) | (u32(body_record(body).overlay_alpha) << 24);
         lateral = 0.0f;
         digit_rise = 2.0f; // DAT_0032B110.
         value = i32(body_record(body).energy);
-        size = body_record(body).unk_BC;
+        size = body_record(body).overlay_pulse.value;
     }
     float sprite_size[2]{size, size};
     Vec3 position;

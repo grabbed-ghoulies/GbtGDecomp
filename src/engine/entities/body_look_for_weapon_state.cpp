@@ -120,14 +120,14 @@ bool initialize_runtime_look_for_weapon_state(LookForWeaponState& state, std::sp
     state.glow = views.glow.data() != nullptr ? 1u : 0u;
     body_record(body).unk_38 = 1;
     body_record(body).unk_39 = 1;
-    body_record(body).unk_A7 = 1;
+    body_record(body).overlay_held_off = 1;
     return true;
 }
 
 // Xbox 0x0009DAE0
 void destroy_runtime_look_for_weapon_state(LookForWeaponState& state, RuntimeLookForWeaponStateContext& context)
 {
-    body_record(context.body).unk_A7 = 0;
+    body_record(context.body).overlay_held_off = 0;
     auto& views = look_for_weapon_views[body_state_key(state)];
     release_sprite(views.puzzled, state.puzzled, context);
     release_sprite(views.bulb, state.bulb, context);

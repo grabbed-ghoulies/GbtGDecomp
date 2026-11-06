@@ -149,13 +149,13 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         body_record(body).unk_88 = 0;
         mind_record(mind).action_record = 0;
     }
-    body_record(body).unk_AA = 0;
+    body_record(body).overlay_second_flashes = 0;
     if (target_address != 0 && (player_record(messages.actor_bytes).countdown_56 > 0.f
         || messages.actor_bytes[0x969] != 0)
         && !runtime_mind_target_is_eligible(mind, messages.actor_bytes, base.actor,
             messages.actor_address, messages.target_at(target_address), true))
     {
-        body_record(body).unk_AA = 1;
+        body_record(body).overlay_second_flashes = 1;
     }
     update_runtime_player_boost_timer(messages.boost, context.control, nullptr, 1.f);
     const i32 notices = cinema_mind_record(mind).notices;

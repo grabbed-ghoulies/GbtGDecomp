@@ -8,6 +8,20 @@ namespace gbtg
 {
 // The body record (actor +0x95C, built by 0x00024C50, the base's 0x894 bytes, 0x0001DA30) at its retail
 // offsets. See docs/RETAIL_LAYOUTS.md. +8 is the body's actor.
+// A value pulsing about its base on a sine (0x00104DF0): the base plus up to amplitude of itself, for `duration` seconds at a time,
+// `rate` times a second.
+struct BodyOscillator
+{
+    float value = 0.f; // +0
+    float base = 0.f; // +4
+    float amplitude = 0.f; // +8
+    float time_left = 0.f; // +0xC
+    float duration = 0.f; // +0x10
+    float restart_timer = 0.f; // +0x14
+    float rate = 0.f; // +0x18, per second
+};
+static_assert(sizeof(BodyOscillator) == 0x1C);
+
 struct BodyRecord
 {
     u32 vtable = 0; // +0x0, the type's vtable address
@@ -61,18 +75,20 @@ struct BodyRecord
     u16 energy = 0; // +0x94
     u16 max_energy = 0; // +0x96, restored into energy on revival (0x000253B0)
     std::array<u8, 0xC> unk_98{}; // +0x98
-    u8 unk_A4 = 0; // +0xA4, the player overlay's switch
-    u8 unk_A5 = 0; // +0xA5, the overlay's alpha
-    u8 unk_A6 = 0; // +0xA6, parameters +0x1A8
-    u8 unk_A7 = 0; // +0xA7
-    u8 unk_A8 = 0; // +0xA8
-    u8 unk_A9 = 0; // +0xA9
-    u8 unk_AA = 0; // +0xAA
-    std::array<u8, 9> unk_AB{}; // +0xAB
-    float unk_B4 = 0.f; // +0xB4, 2 after a furnace hit while +0xA6 is set (0x00096710)
-    std::array<u8, 4> unk_B8{}; // +0xB8
-    float unk_BC = 0.f; // +0xBC, the overlay's size
-    std::array<u8, 0x1C> unk_C0{}; // +0xC0
+    u8 overlay_state = 0; // +0xA4, the player overlay (0x0001DD00): 0 off, 1 fading in, 2 on, 3 fading out
+    u8 overlay_alpha = 0; // +0xA5
+    u8 overlay_enabled = 0; // +0xA6, parameters +0x1A8
+    u8 overlay_held_off = 0; // +0xA7, raised while looking for a weapon: low energy doesn't call for it
+    u8 overlay_flash = 0; // +0xA8, toggled every 0.1 s
+    u8 overlay_second_flash = 0; // +0xA9, toggled every 0.75 s while overlay_second_flashes is set
+    u8 overlay_second_flashes = 0; // +0xAA
+    u8 unk_AB = 0; // +0xAB
+    float overlay_flash_timer = 0.f; // +0xAC
+    float overlay_second_flash_timer = 0.f; // +0xB0
+    float overlay_hold_time = 0.f; // +0xB4, 2 after a furnace hit; it stays on while this runs (0x00096710)
+    float overlay_fade_time = 0.f; // +0xB8, 0.4 s in, 0.5 s out
+    BodyOscillator overlay_pulse{}; // +0xBC, the overlay's size
+    std::array<u8, 4> unk_D8{}; // +0xD8
     float unk_DC = 0.f; // +0xDC
     u32 unk_E0 = 0; // +0xE0
     float aux_time_0 = 0.f; // +0xE4, the first of two rows, 12 bytes each

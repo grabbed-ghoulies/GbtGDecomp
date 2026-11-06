@@ -82,14 +82,14 @@ u32 simulate_actor_effect_particle(EffectParticle& particle, ActorEffectNode& ow
     {
         particle.unk_108 = particle.unk_108 - step;
     }
-    if (effect_header(owner.bytes).unk_BC != -1.f)
+    if (effect_header(owner.bytes).reach != -1.f)
     {
         const Vec3 origin = effect_header(owner.bytes).position;
         const float x = particle.position.x - origin.x;
         const float y = particle.position.y - origin.y;
         const float z = particle.position.z - origin.z;
         const float squared = (x * x + y * y) + z * z;
-        if (squared > effect_header(owner.bytes).unk_BC)
+        if (squared > effect_header(owner.bytes).reach)
         {
             const u32 fallback = find_actor_effect_fallback_command(particle, owner, context.resolve);
             if (fallback != 0)

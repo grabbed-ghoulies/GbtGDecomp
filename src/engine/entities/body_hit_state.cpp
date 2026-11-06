@@ -542,7 +542,7 @@ void move_runtime_hit_body(const HitState& state, RuntimeHitStateTick& context)
     {
         // 0x0003B260 with ECX 0: slot 0's player has a root track (player +8, set when mina +0x1A is nonzero).
         const MinaPlayer* player = slot_player(context.animation);
-        if (player == nullptr || player->mina.empty() || read_u16(player->mina, 0x1A) == 0)
+        if (player == nullptr || player->mina.empty() || mina_root_motion(player->mina) == 0)
         {
             return;
         }
@@ -723,9 +723,9 @@ bool initialize_runtime_hit_furnace_state(HitFurnaceState& state, std::span<cons
     {
         bits.bytes[7] |= 1;
     }
-    if (body_record(body).unk_A6 != 0)
+    if (body_record(body).overlay_enabled != 0)
     {
-        body_record(body).unk_B4 = 2.f; // DAT_0032B110.
+        body_record(body).overlay_hold_time = 2.f; // DAT_0032B110.
     }
     // EAX still holds the 1 stored to body +0x38.
     return true;

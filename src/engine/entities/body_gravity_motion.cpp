@@ -80,7 +80,7 @@ void step_runtime_gravity_motion(std::span<u8> body, std::span<const u8> actor_b
     const auto* controller = animation.controller.get();
     const MinaPlayer* player = controller == nullptr ? nullptr : controller->slots.at(0).player.get();
     Vec3 motion;
-    if (player != nullptr && !player->mina.empty() && read_u16(player->mina, 0x1A) != 0)
+    if (player != nullptr && !player->mina.empty() && mina_root_motion(player->mina) != 0)
     {
         if (controller->selected_root == nullptr)
         {

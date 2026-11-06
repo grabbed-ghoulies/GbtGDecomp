@@ -41,7 +41,7 @@ struct ActorEffectHeader
     Vec3 volume_euler{}; // +0xA0
     Vec3 volume_spin_rate{}; // +0xAC
     float scale = 0.f; // +0xB8
-    float unk_BC = 0.f; // +0xBC, -1 when created
+    float reach = 0.f; // +0xBC, squared; a particle farther from the position takes a fallback command. -1 for no limit
     std::array<u8, 4> binding_actor_word{}; // +0xC0, the host keeps ActorEffectNode::binding_actor
     u32 binding_mode = 0; // +0xC4
     i32 binding_index = 0; // +0xC8, -1 for none

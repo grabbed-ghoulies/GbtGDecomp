@@ -6,6 +6,22 @@
 
 namespace gbtg
 {
+// DAT_00428734, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct HauntedChairParameters
+{
+    float wake_reach; // +0x0
+    StrategyMoveSettings move; // +0x4
+    float slide_width; // +0x1C
+    float slide_range; // +0x20
+    float hold_low; // +0x24
+    float hold_high; // +0x28
+    float unk_2C; // +0x2C
+    float unk_30; // +0x30
+    i32 slide_limit; // +0x34, slides at one target.
+    float unk_38; // +0x38
+};
+static_assert(sizeof(HauntedChairParameters) == 0x3C);
+
 // entityStrategyHauntedChair (factory type 0x40, getter 0x000AE720, vtable 0x00505DFC) over the base strategy (type 8):
 // scene 8's haunted chairs. A chair holds still for a random time (state 0x401, phase 1), slides somewhere near
 // ("slide", phase 2), and when a target is in reach either slides at it ("slideattarget", up to the block's +0x34
@@ -26,9 +42,7 @@ struct RuntimeHauntedChairStrategy
     RuntimeStrategyTargetChecks& checks;
     RuntimeStrategyTargetQueue& queue;
     RuntimeStrategyActorViews& views;
-    // DAT_00428734: +0 the reach that wakes a sleeping chair, +4 the roam settings 0x0013A0A0 reads, +0x1C / +0x20
-    // the slide's width and range (0x00138310), +0x24..+0x28 the hold time's range, +0x34 the slides at a target.
-    std::span<const u8> parameters;
+    std::span<const u8> parameters; // HauntedChairParameters.
     const std::span<const u8>& attributes; // Actor +0x964, the attribute resource; +8 its aggression.
     const char* goal_swing_kick; // "swingkick", 0x0031D494.
     const char* goal_wakeup; // "wakeup", 0x0031D47C.

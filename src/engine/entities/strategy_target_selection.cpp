@@ -734,7 +734,7 @@ u32 retreat_runtime_strategy_from_reached_target(RuntimeStrategyTargetChecks& co
 }
 
 // Xbox 0x00139FA0
-RuntimePlayerMindRequest* request_runtime_strategy_position(const Vec3& position, std::span<const u8> settings,
+RuntimePlayerMindRequest* request_runtime_strategy_position(const Vec3& position, const StrategyMoveSettings& settings,
     RuntimePlayerStrategyGoals& context)
 {
     RuntimeMindGoalContext& goals = context.entry.goals;
@@ -744,15 +744,15 @@ RuntimePlayerMindRequest* request_runtime_strategy_position(const Vec3& position
     set(bytes, navigation_request::speed_high, 1.f);
     set(bytes, navigation_request::approach, 30.f); // DAT_0032B108.
     set(bytes, navigation_request::point, position);
-    set(bytes, navigation_request::radius, get(settings, strategy_move_settings_field::radius));
-    set(bytes, navigation_request::approach, get(settings, strategy_move_settings_field::approach));
-    set(bytes, navigation_request::speed_low, get(settings, strategy_move_settings_field::speed_low));
-    set(bytes, navigation_request::speed_high, get(settings, strategy_move_settings_field::speed_high));
+    set(bytes, navigation_request::radius, settings.radius);
+    set(bytes, navigation_request::approach, settings.approach);
+    set(bytes, navigation_request::speed_low, settings.speed_low);
+    set(bytes, navigation_request::speed_high, settings.speed_high);
     return request;
 }
 
 // Xbox 0x0013A000, EAX actor, EDI position, ESI settings
-RuntimePlayerMindRequest* request_runtime_strategy_sway(const Vec3& position, std::span<const u8> settings, float sway,
+RuntimePlayerMindRequest* request_runtime_strategy_sway(const Vec3& position, const StrategyMoveSettings& settings, float sway,
     float amplitude, RuntimePlayerStrategyGoals& context)
 {
     RuntimeMindGoalContext& goals = context.entry.goals;
@@ -766,10 +766,10 @@ RuntimePlayerMindRequest* request_runtime_strategy_sway(const Vec3& position, st
     set(bytes, vertical_point_request::vertical_speed, .25f); // DAT_0032B104.
     set(bytes, vertical_point_request::point, position);
     set(bytes, vertical_point_request::approach, 30.f);
-    set(bytes, vertical_point_request::radius, get(settings, strategy_move_settings_field::radius));
-    set(bytes, vertical_point_request::approach, get(settings, strategy_move_settings_field::approach));
-    set(bytes, vertical_point_request::speed_low, get(settings, strategy_move_settings_field::speed_low));
-    set(bytes, vertical_point_request::speed_high, get(settings, strategy_move_settings_field::speed_high));
+    set(bytes, vertical_point_request::radius, settings.radius);
+    set(bytes, vertical_point_request::approach, settings.approach);
+    set(bytes, vertical_point_request::speed_low, settings.speed_low);
+    set(bytes, vertical_point_request::speed_high, settings.speed_high);
     set(bytes, vertical_point_request::height, sway);
     set(bytes, vertical_point_request::tolerance, amplitude);
     set(bytes, vertical_point_request::vertical_speed, .25f);
@@ -791,12 +791,12 @@ bool select_runtime_strategy_roam_position(Vec3& output, float heading, float ra
 }
 
 // Xbox 0x0013A0A0
-RuntimePlayerMindRequest* request_runtime_strategy_roam(std::span<const u8> settings,
+RuntimePlayerMindRequest* request_runtime_strategy_roam(const StrategyMoveSettings& settings,
     RuntimeStrategyTargetChecks& context)
 {
     Vec3 position;
     if (!select_runtime_strategy_roam_position(position, read_f32(context.goals.entry.actor_bytes, 0x18),
-        read_f32(settings, 4), read_f32(settings, 0), context))
+        settings.range, settings.width, context))
     {
         return nullptr;
     }

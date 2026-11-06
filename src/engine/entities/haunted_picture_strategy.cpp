@@ -216,7 +216,7 @@ void circle_runtime_haunted_picture_target(const RuntimeMindTarget& target, floa
     const HauntedPictureMovement& movement = retail_view<HauntedPictureMovement>(context.movement);
     const float heading = select_runtime_haunted_picture_heading(target.bytes, context); // 0x000B09C0
     const Vec3 origin = actor_world_position(actor_of(context)); // 0x000412A0
-    const float ring = movement.ring_radius;
+    const float ring = movement.move.range;
     Vec3 point{};
     RuntimeNavigationHeadingSearch search{origin, i32(mind_target_record(target.bytes).floor), ring - .5f, ring
         + .5f, nullptr,
@@ -232,7 +232,7 @@ void circle_runtime_haunted_picture_target(const RuntimeMindTarget& target, floa
     const float amplitude = movement.sway_amplitude;
     const float sway = float(retail_sin(angle) * static_cast<long double>(amplitude)); // 0x00153320
     clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
-    request_runtime_strategy_sway(point, context.movement.subspan(4), sway, amplitude, goals); // 0x0013A000, ESI table +4
+    request_runtime_strategy_sway(point, movement.move, sway, amplitude, goals); // 0x0013A000, ESI table +4
 }
 
 // Xbox 0x000B0680, EAX strategy

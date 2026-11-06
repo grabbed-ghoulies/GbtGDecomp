@@ -6,6 +6,23 @@
 
 namespace gbtg
 {
+// DAT_004288B0, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct ZombieParameters
+{
+    StrategyMoveSettings move; // +0x0
+    float aimless_swipe_chance; // +0x18
+    float unk_1C; // +0x1C
+    float unk_20; // +0x20
+    float sidestep_reach; // +0x24, a target this close sends it off to one side.
+    float unk_28; // +0x28
+    float unk_2C; // +0x2C
+    float unk_30; // +0x30
+    float unk_34; // +0x34
+    float unk_38; // +0x38
+    float unk_3C; // +0x3C
+};
+static_assert(sizeof(ZombieParameters) == 0x40);
+
 // entityStrategyZombie (factory type 0x58, getter 0x000C57A0, vtable 0x0050609C) over the base strategy (type 8).
 // It keeps the director's sizes (0x000AAE40, 0x44 bytes) and the empty destructor 0x001628B0.
 // Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link, +0x38 the parameter block

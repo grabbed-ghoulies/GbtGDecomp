@@ -1,4 +1,5 @@
 #include "zombie_strategy.h"
+#include "gbtg/retail_field.h"
 #include "weapon_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
@@ -19,6 +20,11 @@ namespace gbtg
 {
 namespace
 {
+const ZombieParameters& parameters_of(RuntimeZombieStrategy& context)
+{
+    return retail_view<ZombieParameters>(context.parameters);
+}
+
 ZombieStrategyState& fields_of(std::span<u8> strategy)
 {
     return strategy_view<ZombieStrategyState>(strategy);
@@ -98,12 +104,12 @@ bool target_attackable(RuntimeZombieStrategy& context)
 RuntimePlayerMindRequest* request_position(float heading, RuntimeZombieStrategy& context)
 {
     Vec3 position;
-    if (!select_runtime_strategy_roam_position(position, heading, read_f32(context.parameters, 4),
-        read_f32(context.parameters, 0), context.checks))
+    if (!select_runtime_strategy_roam_position(position, heading, parameters_of(context).move.range,
+        parameters_of(context).move.width, context.checks))
     {
         return nullptr;
     }
-    return request_runtime_strategy_position(position, context.parameters, goals_of(context));
+    return request_runtime_strategy_position(position, parameters_of(context).move, goals_of(context));
 }
 }
 
@@ -183,7 +189,7 @@ void approach_runtime_zombie_target(RuntimeZombieStrategy& context)
     const u32 approach = fields_of(strategy).approach;
     if (approach == 1)
     {
-        if (actor_event_chance(goals.random, read_f32(context.parameters, 0x18))
+        if (actor_event_chance(goals.random, parameters_of(context).aimless_swipe_chance)
             && mind_record(mind_of(context)).target_record == 0)
         {
             fields_of(strategy).approach = 2u;
@@ -216,7 +222,7 @@ RuntimePlayerMindRequest* request_runtime_zombie_flank(const RuntimeMindTarget& 
     const float dx = again.x - mind_target_record(target.bytes).shape.position.x;
     const float dy = again.y - mind_target_record(target.bytes).shape.position.y;
     const float dz = again.z - mind_target_record(target.bytes).shape.position.z;
-    const float near = read_f32(context.parameters, 0x24);
+    const float near = parameters_of(context).sidestep_reach;
     if (near * near > dz * dz + dy * dy + dx * dx)
     {
         goals.random = goals.random * 0x19660Du + 0x3C6EF35Fu;

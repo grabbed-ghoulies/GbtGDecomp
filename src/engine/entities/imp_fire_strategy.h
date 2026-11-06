@@ -6,6 +6,20 @@
 
 namespace gbtg
 {
+// DAT_004287BC, read through the strategy's +0x4C. Nothing in the dumps writes it.
+struct ImpFireParameters
+{
+    StrategyMoveSettings move; // +0x0
+    float nearest; // +0x18, the heading spread's distances.
+    float farthest; // +0x1C
+    float heading_spread; // +0x20, in degrees.
+    float unk_24; // +0x24
+    float attack_delay; // +0x28
+    float body_timer_low; // +0x2C, the range of the body's unk_70 (0x000B4AF0).
+    float body_timer_high; // +0x30
+};
+static_assert(sizeof(ImpFireParameters) == 0x34);
+
 // entityStrategyImpFire (type 0x46, vtable 0x00505EA4) over the base strategy (type 8).
 struct ImpFireStrategyState
 {

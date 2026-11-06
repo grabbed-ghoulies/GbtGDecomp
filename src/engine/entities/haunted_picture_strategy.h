@@ -22,12 +22,7 @@ constexpr u32 kSize = 0x18;
 struct HauntedPictureMovement
 {
     float unk_00; // +0x0
-    float unk_04; // +0x4, The move settings start here: 0x0013A000 takes this block +4.
-    float ring_radius; // +0x8
-    float move_radius; // +0xC, strategy_move_settings_field::radius.
-    float move_approach; // +0x10
-    float move_speed_low; // +0x14
-    float move_speed_high; // +0x18
+    StrategyMoveSettings move; // +0x4, the range is the ring it circles on.
     float nearest; // +0x1C, The heading spread's distances.
     float farthest; // +0x20
     float heading_spread; // +0x24, In degrees.

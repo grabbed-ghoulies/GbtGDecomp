@@ -1,4 +1,5 @@
 #include "imp_fire_strategy.h"
+#include "gbtg/retail_field.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
@@ -18,6 +19,11 @@ namespace gbtg
 {
 namespace
 {
+const ImpFireParameters& parameters_of(RuntimeImpFireStrategy& context)
+{
+    return retail_view<ImpFireParameters>(context.parameters);
+}
+
 ImpFireStrategyState& fields_of(std::span<u8> strategy)
 {
     return strategy_view<ImpFireStrategyState>(strategy);
@@ -180,8 +186,8 @@ float runtime_imp_fire_range_fraction(std::span<const u8> target, RuntimeImpFire
     const float dx = position.x - mind_target_record(target).shape.position.x;
     const float dy = position.y - mind_target_record(target).shape.position.y;
     const float dz = position.z - mind_target_record(target).shape.position.z;
-    const float nearest = read_f32(context.parameters, 0x18);
-    const float farthest = read_f32(context.parameters, 0x1C);
+    const float nearest = parameters_of(context).nearest;
+    const float farthest = parameters_of(context).farthest;
     if (farthest == nearest)
     {
         return 1.f; // DAT_0032B0F8.
@@ -245,7 +251,7 @@ float select_runtime_imp_fire_heading(const RuntimeMindTarget& target, RuntimeIm
     {
         scale = fraction * 2.f;
     }
-    const float width = read_f32(context.parameters, 0x20) * scale * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
+    const float width = parameters_of(context).heading_spread * scale * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
     return randomize_runtime_navigation_heading(chosen, width, goals_of(context).random);
 }
 
@@ -254,7 +260,7 @@ bool select_runtime_imp_fire_position(const RuntimeMindTarget& target, const Vec
     RuntimeImpFireStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const float range = read_f32(context.parameters, 4);
+    const float range = parameters_of(context).move.range;
     RuntimeNavigationHeadingSearch search{origin, i32(mind_target_record(target.bytes).floor), range - 0.5f, range
         + 0.5f, nullptr,
         goals.entry.allowed, &output, 1, 0xD, i16(read_u16(goals.entry.actor_bytes, 6)), goals.random,
@@ -270,7 +276,7 @@ void approach_runtime_imp_fire_target(const RuntimeMindTarget& target, RuntimeIm
     Vec3 selected;
     if (select_runtime_imp_fire_position(target, position, heading, selected, context))
     {
-        request_runtime_strategy_position(selected, context.parameters, goals_of(context));
+        request_runtime_strategy_position(selected, parameters_of(context).move, goals_of(context));
     }
 }
 
@@ -390,8 +396,8 @@ void update_runtime_imp_fire_attack(RuntimeImpFireStrategy& context)
     {
         return;
     }
-    const float minimum = read_f32(context.parameters, 0x2C);
-    const float maximum = read_f32(context.parameters, 0x30);
+    const float minimum = parameters_of(context).body_timer_low;
+    const float maximum = parameters_of(context).body_timer_high;
     goals.random = goals.random * 0x19660Du + 0x3C6EF35Fu;
     const float fraction = std::bit_cast<float>((goals.random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
    body_record(body_of_actor(context)).unk_70 = (maximum - minimum) * fraction + minimum;
@@ -418,7 +424,7 @@ void update_runtime_imp_fire_retreat(RuntimeImpFireStrategy& context)
     }
     if (!requests_pending(context))
     {
-        request_runtime_strategy_roam(context.parameters, context.checks);
+        request_runtime_strategy_roam(parameters_of(context).move, context.checks);
     }
 }
 
@@ -650,7 +656,7 @@ void enter_runtime_imp_fire_state(u16 state, u16 previous, RuntimeImpFireStrateg
     case 0x3EE:
         body_record(body).move_class = 4;
         load_runtime_mind_goal(context.goal_attack, goals.entry.goals);
-        fields_of(strategy).attack_delay = read_f32(context.parameters, 0x28);
+        fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
         return;
     case 0x3EF:
         body_record(body).move_class = 6;

@@ -1,4 +1,5 @@
 #include "haunted_chair_strategy.h"
+#include "gbtg/retail_field.h"
 #include "actor_fields.h"
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
@@ -145,19 +146,19 @@ void set_phase(u32 phase, RuntimeHauntedChairStrategy& context)
     const u32 previous = fields_of(strategy).phase;
     fields_of(strategy).phase = phase;
     Actor& actor = goals_of(context).entry.actor;
-    const std::span<const u8> parameters = context.parameters;
+    const HauntedChairParameters& parameters = retail_view<HauntedChairParameters>(context.parameters);
     if (phase == 1)
     {
         if (previous != 1)
         {
-            const float low = read_f32(parameters, 0x24);
-            const float high = read_f32(parameters, 0x28);
+            const float low = parameters.hold_low;
+            const float high = parameters.hold_high;
             u32& random = goals_of(context).random;
             random = random * 0x19660Du + 0x3C6EF35Fu;
             const float roll = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
             fields_of(strategy).hold = (high - low) * roll + low;
         }
-        request_runtime_strategy_roam(parameters.subspan(4), context.checks); // 0x0013A0A0, EAX block +4, EBX actor
+        request_runtime_strategy_roam(parameters.move, context.checks); // 0x0013A0A0, EAX block +4, EBX actor
         return;
     }
     if (phase != 2)
@@ -165,8 +166,8 @@ void set_phase(u32 phase, RuntimeHauntedChairStrategy& context)
         return;
     }
     Vec3 point;
-    if (!select_runtime_strategy_roam_position(point, actor.euler.y, read_f32(parameters, 0x20),
-            read_f32(parameters, 0x1C), context.checks)) // 0x00138310, EAX actor, XMM0 block +0x1C
+    if (!select_runtime_strategy_roam_position(point, actor.euler.y, parameters.slide_range,
+            parameters.slide_width, context.checks)) // 0x00138310, EAX actor, XMM0 block +0x1C
     {
         runtime_point_ahead_of_actor(actor, kAhead, point); // 0x00137EF0
     }
@@ -221,7 +222,7 @@ void update_slide(RuntimeHauntedChairStrategy& context)
         return;
     }
     if (mind_target(context) != nullptr
-        && fields_of(strategy_of(context)).slides < std::bit_cast<i32>(read_u32(context.parameters, 0x34)))
+        && fields_of(strategy_of(context)).slides < retail_view<HauntedChairParameters>(context.parameters).slide_limit)
     {
         slide_at_target(context); // 0x000AE520
         return;
@@ -259,7 +260,7 @@ void update_holding(RuntimeHauntedChairStrategy& context)
 // Xbox 0x000AE660, EAX strategy, ECX actor: the mind's target lies within the block's reach (+0).
 bool target_within_reach(RuntimeHauntedChairStrategy& context)
 {
-    const float reach = read_f32(context.parameters, 0);
+    const float reach = retail_view<HauntedChairParameters>(context.parameters).wake_reach;
     RuntimeMindTarget* target = mind_target(context);
     if (target == nullptr)
     {

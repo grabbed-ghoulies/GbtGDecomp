@@ -415,6 +415,13 @@ normals (`segment_contact_normal`). The markers go through `actor_marker_id` and
 than a whole `ActorBase`, as short test blocks reach them. The camera's `record`s are `MindTargetShape`s, and an actor bound (0x000426F0) is one too. The camera's
 request kinds 1 (0x2A4 bytes, up to 20 shapes) and 3 (0x18 bytes, a target) have names.
 
+The body's `command` is an animation event, so `animation_event_field` covers its header, and `body_animation_events.h` names the
+kinds 0x0001A8F0 runs (contact shapes, the two pushes, detach, proximity, teleport). `body_animation_dispatch.cpp` itself still reads
+some of them by offset. An attachment event record is a chain of varying size, so `attachment_event_field` reads by field, not by a
+whole-record view. The camera director's entry is `CameraDirectorEntry`, whose +0xC is a `MindTargetShape`, and it fills request kind 1,
+so `camera_target_request` moved to `mind_request_fields.h`. A shape's first three bytes are still written singly (4, 0x20, 1) where
+`MindTargetShape::kind` declares one word; which layout is right wasn't settled.
+
 `ActorBytes` became `ActorBase` once it had named fields. Parameter rows, presets and other read-only script and XBE data stay
 on descriptors, as elsewhere: `walk_alert_row_field`, `strategy_move_settings_field`, `input_tracking_preset_field`,
 `cutscene_event_field` and `animation_event_field`. So do messages and mind requests, whose layout depends on an id or kind.

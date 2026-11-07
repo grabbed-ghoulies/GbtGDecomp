@@ -1986,12 +1986,16 @@ void bink_do_frame(MovieClip* clip)
 // Xbox 0x001A8350.
 void bink_next_frame(MovieClip* clip)
 {
+    // BinkNextFrame past the last frame goes back to frame 1; a movie that should stop is one its caller stops
+    // stepping (0x00107420 steps a non-looping movie only while its frame is short of the count).
     if (clip->frame_num + 1 >= clip->frames)
     {
-        if (clip->loop)
+        clip_seek_start(clip);
+        clip->frame_num = 0;
+        if (!clip->loop)
         {
-            clip_seek_start(clip);
-            clip->frame_num = 0;
+            // The soundtrack starts again with the first frame (the host plays a clip's audio as one cue).
+            clip->audio_done = false;
         }
         return;
     }

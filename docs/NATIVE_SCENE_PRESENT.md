@@ -208,6 +208,22 @@ The new references are the `cache/view_present/scene_N.png` captures.
   The harness reaches the display fit outside the State constructor. Not
   investigated.
 
+## Fade to grey (issue #41, open)
+
+The Grim Reaper's fade-to-grey actor turns its surroundings white instead of grey (seen in `--scene3c9`'s captures:
+a soft-edged white region round him, characters drawn normally over it).
+
+- Its draw callbacks bracket the actor's own model: `0x000770F0` (`begin_runtime_fade_to_grey`) sets the glow page
+  surface as the render target with the glow depth surface and clears it (0xF3, colour 0); `0x000771F0` composites
+  the page texture back over the view with boot pixel shader 3, "Black and White Constant Alpha":
+  grey = 0.33 * (r + g + b) of t0 (xdd / xmma / dp3), then `lerp(t0, grey, c0)`, c0 the fade level.
+- t0 is `glow_targets.page_texture`, which the port backs with book page 0 (`scene_actor_services_bindings.cpp`).
+  Between the two callbacks only the fade actor's model draws into it, so t0 holds that model on a cleared page
+  rather than the scene, and the lerp shows white.
+- Not settled: what retail's glow page and depth surface alias (boot `0x000620C0`, DAT_005047E0 / DAT_005047E4 /
+  DAT_005047FC), and so where the scene image the shader greys comes from. Next: export `0x000620C0` and the fade
+  actor's draw, and check in xemu.
+
 ## Work
 
 1. **HUD and effect bodies.** Translate the scene-start writers (`0x00132040`,

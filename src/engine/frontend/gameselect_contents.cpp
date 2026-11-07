@@ -551,11 +551,13 @@ void show_completed_splat(GameSelectControlServices& s)
     splat.position[0] = s.hud.center_x;
     splat.position[1] = s.hud.center_y;
     const float height = float(s.metrics.fonts[0]->drop) * 1.4f; // DAT_00504444 +0x10, DAT_0032B3D0.
+    // 0x00060710 returns the line's width in XMM0 and leaves the caller's height slot ([ESP+4]) as it was, so
+    // after the call XMM0 is the width and XMM1 the height.
     const float width = runtime_text_line_width(s.metrics, 0,
         w.completed.text.data(), 1.4f); // 0x00060710, DAT_0032B3D0.
-    splat.position[1] = width * 0.5f + splat.position[1] + 58.f; // DAT_0032B0F4, DAT_0032B548.
-    w.splat_full_scale[0] = height / texture_width(w.splat.texture);
-    w.splat_full_scale[1] = width / texture_height(w.splat.texture);
+    splat.position[1] = height * 0.5f + splat.position[1] + 58.f; // DAT_0032B0F4, DAT_0032B548.
+    w.splat_full_scale[0] = width / texture_width(w.splat.texture);
+    w.splat_full_scale[1] = height / texture_height(w.splat.texture);
     w.splat_full_scale[0] = w.splat_full_scale[0] * 1.369863f; // DAT_0032B544.
     w.splat_full_scale[1] = w.splat_full_scale[1] * 2.2222223f; // DAT_0032B540.
     float time;

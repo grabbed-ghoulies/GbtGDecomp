@@ -4,6 +4,18 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-07: a ghoul intro is shown once per save (issue #10)
+
+- Issue #10: the Haunted Television's and the Grim Reaper's introductions played every time. Their strategies queue
+  the intro through `0x0013A430` / `0x000F4870` with an id (Grim Reaper 10, Haunted Television 0xE, Jessie Clyde 0x14,
+  Warlock 0x1D), which `0x000F4870` skips once its bit is set and `0x000F4B90` sets when the intro ends.
+- Retail keeps those bits in the profile's story block, `*(DAT_00506C6C + 8)`. The port gave
+  `RuntimeTutorialNotices::seen` an 8-byte host array that the actor start cleared, so no intro was ever remembered.
+  It is now `g_runtime_profile.progress.bytes`, which progress.xsv saves.
+- The same bit drives the Television (issue #39): its state 0x417 picks 0x416 after waking when story bit 0xE is set,
+  else 0x40F. With the bit never kept, it always took 0x40F. `--scene3a2`: the intro ends with id 14 and profile
+  byte 1 is 0x40.
+
 ### 2026-11-07: a script retire read a freed map node (issue #38)
 
 - Issue #38 ("Chapter 2 Scene 9", chapter2a_scene9_1playcam): after the glow worms the screen went black, and the

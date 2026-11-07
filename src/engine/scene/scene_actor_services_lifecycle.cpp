@@ -82,7 +82,6 @@ void SceneActorServices::State::reset_scene_data()
     intro_name = {};
     // The queue and class limits are 0x00116DA0's, which 0x00116E00 runs before the script loads; clearing them
     // here, at the actor start, would undo the limits the script's head (handler 2) has just written.
-    notice_seen = {};
     notice_pending = 0;
     notice_first = nullptr;
     notice_id = 0;

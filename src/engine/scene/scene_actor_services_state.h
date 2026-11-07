@@ -669,15 +669,15 @@ struct SceneActorServices::State
     std::unordered_map<u32, Actor*> spawn_players; // Actor address to actor, for DAT_00511B40.
     u32 spawn_player_address = 0; // DAT_00511B40.
     const RuntimeActiveActorLink* active_actors = nullptr; // DAT_00511B48.
-    std::array<u8, 8> notice_seen{};
     u32 notice_pending = 0; // DAT_00506E28.
     const Actor* notice_first = nullptr; // DAT_00506DFC.
     u32 notice_id = 0; // DAT_00506E00.
     std::array<RuntimeTutorialNotice, 4> notice_queue{}; // DAT_00506E04.
     i32 notice_count = 0; // DAT_00506E24.
     const Actor* notice_player = nullptr;
-    RuntimeTutorialNotices notices{notice_seen, notice_pending, notice_first, notice_id, notice_queue,
-        notice_count, notice_player};
+    // The shown bits are the profile's story bits (*(DAT_00506C6C + 8)), so an intro is shown once per save.
+    RuntimeTutorialNotices notices{g_runtime_profile.progress.bytes, notice_pending, notice_first, notice_id,
+        notice_queue, notice_count, notice_player};
     float occupancy_initial = 0.f;
     RuntimeGhoulIntro ghoul_intro;
     std::span<const u8> ghoul_intro_names; // DAT_00506E40, loaded once like 0x0011C3F0 does.

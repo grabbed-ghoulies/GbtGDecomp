@@ -54,7 +54,7 @@ struct RuntimeStruggleTick
 {
     std::span<u8> body;
     Actor& actor; // Body +8.
-    std::span<const u8> actor_bytes; // +0x18 facing.
+    std::span<const u8> actor_bytes; // Retail actor bytes (the facing at +0x18 is read from `actor`).
     const EntityBitBlock& flags; // Body +0x15C.
     RuntimeBodyActionSelection& actions;
     const RuntimeActorClock& clock;

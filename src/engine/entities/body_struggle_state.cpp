@@ -118,7 +118,7 @@ void turn_runtime_struggle_body(bool targeted, StruggleState& state, RuntimeStru
     const auto body = context.body;
     if (targeted)
     {
-        const float facing = read_f32(context.actor_bytes, 0x18);
+        const float facing = context.actor.euler.y; // Actor +0x18, kept on the native actor.
         const float heading = runtime_body_point_heading(body, context.actor) + state.heading_offset;
         const float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
         const float turn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
@@ -146,7 +146,7 @@ void turn_runtime_struggle_body(bool targeted, StruggleState& state, RuntimeStru
 // Xbox 0x000A3070
 void update_runtime_struggle_animation(StruggleState& state, RuntimeStruggleTick& context)
 {
-    const float facing = read_f32(context.actor_bytes, 0x18);
+    const float facing = context.actor.euler.y; // Actor +0x18, kept on the native actor.
     const float heading = body_record(context.body).euler.y;
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.actor);

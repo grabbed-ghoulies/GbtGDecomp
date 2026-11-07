@@ -232,7 +232,7 @@ bool target_in_view(RuntimeJessieClydeStrategy& context)
     {
         return false;
     }
-    const float facing = read_f32(goals.entry.actor_bytes, 0x18);
+    const float facing = goals.entry.actor.euler.y; // Actor +0x18, kept on the native actor.
     const Vec3 from = actor_world_position(actor_of(context)); // 0x000412A0
     const Vec3 direction{point.x - from.x, point.y - from.y, point.z - from.z};
     float angle = 0.f;
@@ -407,7 +407,7 @@ void step_shout(u32 step, RuntimeJessieClydeStrategy& context)
             actor_transform_joint_point(actor, u16(joint), actor_transform_origin, point); // 0x0003AEB0, DAT_0050DD80
         }
     }
-    const float facing = read_f32(goals_of(context).entry.actor_bytes, 0x18);
+    const float facing = goals_of(context).entry.actor.euler.y; // Actor +0x18, kept on the native actor.
     const float forward = parameters_of(context).scare_forward;
     point.x = float(retail_sin(facing) * forward + point.x); // 0x00153320
     const long double cosine = retail_cos(facing); // 0x00153230

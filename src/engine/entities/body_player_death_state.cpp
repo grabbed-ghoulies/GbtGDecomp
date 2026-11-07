@@ -293,7 +293,7 @@ void tick_runtime_player_death_state(PlayerDeathState& state, RuntimePlayerDeath
     const MinaPlayer* slot = controller == nullptr ? nullptr : controller->slots[0].player.get();
     if (slot != nullptr && slot->position > 0.5f) // DAT_0032B0F4
     {
-        const float facing = read_f32(knockdown.actor_bytes, 0x18);
+        const float facing = knockdown.actor.euler.y; // Actor +0x18, kept on the native actor.
         // 0x00136150
         body_record(body).euler = Vec3{runtime_floor_pitch(knockdown.actor, knockdown.actor_bytes), facing, 0.f};
     }

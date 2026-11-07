@@ -246,7 +246,7 @@ RuntimePlayerMindRequest* request_runtime_zombie_flank(const RuntimeMindTarget& 
 RuntimePlayerMindRequest* request_runtime_zombie_roam(RuntimeZombieStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    return request_position(read_f32(goals.entry.actor_bytes, 0x18), context);
+    return request_position(goals.entry.actor.euler.y, context);
 }
 
 // Xbox 0x000C51E0

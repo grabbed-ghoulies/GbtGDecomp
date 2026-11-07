@@ -240,7 +240,7 @@ float select_runtime_imp_fire_heading(const RuntimeMindTarget& target, RuntimeIm
     runtime_direction_angle(direction, angle);
     const float heading = blend_runtime_imp_fire_heading(fraction, angle);
     const float reflected = reflect_runtime_angle(angle, heading);
-    const float facing = read_f32(goals_of(context).entry.actor_bytes, 0x18);
+    const float facing = goals_of(context).entry.actor.euler.y; // Actor +0x18, kept on the native actor.
     const float chosen = nearest_runtime_angle(facing, heading, reflected);
     float scale;
     if (fraction > 0.5f) // DAT_0032B0F4.

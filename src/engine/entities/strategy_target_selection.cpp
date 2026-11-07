@@ -795,7 +795,7 @@ RuntimePlayerMindRequest* request_runtime_strategy_roam(const StrategyMoveSettin
     RuntimeStrategyTargetChecks& context)
 {
     Vec3 position;
-    if (!select_runtime_strategy_roam_position(position, read_f32(context.goals.entry.actor_bytes, 0x18),
+    if (!select_runtime_strategy_roam_position(position, context.goals.entry.actor.euler.y,
         settings.range, settings.width, context))
     {
         return nullptr;

@@ -4,6 +4,19 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-07: the actor's facing comes from the native actor (issue #35)
+
+- Issue #35: actors shuffled their feet while standing still. In chapter 2a scene 1 (the kitchen) a class 8
+  character in entityStateStruggle played `turnstep_nervous` for hundreds of updates after its yaw had settled.
+- `0x000A3070` compares the actor's facing (+0x18) with the body's heading (+0x730): more than 5 degrees apart starts
+  the out-of-band record (the turn step), back inside for 0.4 s the in-band one. The port read the facing from the
+  retail actor bytes, which the native actor never writes, so it was always 0 and the actor was out of band whenever
+  its heading was more than 5 degrees from 0.
+- The same stale read was in the struggle turn (`0x000A2F90`), the player death state, the fire imp, Jessie Clyde (twice),
+  the roam position and the zombie. All now read `actor.euler.y`.
+- `--scene2a1`: the character starts `stand_nervous` four times and never `turnstep_nervous`; before, two turn steps
+  each held for hundreds of updates. `--scene2a10` (zombies) still passes.
+
 ### 2026-11-07: a ghoul intro is shown once per save (issue #10)
 
 - Issue #10: the Haunted Television's and the Grim Reaper's introductions played every time. Their strategies queue

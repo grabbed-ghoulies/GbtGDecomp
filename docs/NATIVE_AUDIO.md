@@ -284,6 +284,24 @@ curve at full level within 40 units, so both faded out a little way from their s
 - Checked in `--scene2a4` and `--scene6-1` with a temporary log: the disco at 657 units -1118 mB (0.28; the old
   curve gave about 0.06); the muffled disco silent past 320 and 0.89 at 70 units; footsteps full level at 5 units.
 
+#### Cue variations (2026-11-07, issue #37)
+
+Book cutscene voice lines (and every other varied cue) always picked the same variation: the host chose by
+`frame % 10000` against the weights, and a cue at the same point of a cutscene lands on the same frame.
+
+- XACT chooses with `0x001C2A3B` from the variation table's header word: count (bits 0..12), type (13..16), last
+  choice (17..29), a pending choice (bit 30), each entry's weight range (+4 / +6) and the shuffle's played bits
+  after the entries, all kept in the bank's memory. Types 0 (random, never the last choice), 2 (shuffle until
+  each has played) and 4 (random) draw over 10001; 1 plays in order; 5 in order from a random start; 3 follows a
+  runtime parameter (read as 0 here).
+- A cue with several sounds picks its sound from its own table first (`0x001C2DFC`), then the sound picks its
+  wave.
+- The draw is `0x001BD3A2`: `RtlRandom` (`0x0016FCC1`) over the 128-word vector at 0x00338750, seeded once with
+  `GetTickCount()` (`0x001BAC09`). Test runs (`pcm_use_virtual_audio_clock`) seed 1, so they repeat.
+- Host: `pcm_out.cpp` keeps each table's state (`VariationTable`) and tags each listed wave with its tables and
+  entries. Checked with a temporary log: `--scene3a1`'s stone footsteps spread over all four entries without an
+  immediate repeat, and the cook's and Mr Ribs' lines vary.
+
 ### Scene music nodes and fight music (2026-10-14)
 
 - Translated in `scene/scene_controls.cpp`:

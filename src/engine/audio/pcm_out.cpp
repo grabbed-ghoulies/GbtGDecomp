@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -84,9 +85,191 @@ struct Sound3D
     std::vector<float> curve;
 };
 
+// A sound bank variation table as XACT keeps it: the header word (count in bits 0..12, the type in bits 13..16, the
+// last choice in bits 17..29, bit 30 a pending choice), each entry's weight range (entry +4 / +6) and the shuffle's
+// played bits after the entries. XACT updates them in the bank's memory, so they persist from one play to the next.
+struct VariationTable
+{
+    u32 header = 0;
+    std::vector<std::pair<u16, u16>> ranges;
+    std::vector<u32> played;
+};
+std::vector<VariationTable> g_variation_tables;
+std::map<const u8*, i32> g_variation_table_index; // By the table's address in its loaded bank.
+
+// XACT's random source (0x001BD3A2): RtlRandom (0x0016FCC1) on DAT_001C54F8, seeded with GetTickCount() when XACT
+// starts (0x001BAC09), over the 128-word vector at 0x00338750.
+u32 g_xact_random_seed = 0;
+std::array<u32, 128> g_xact_random_vector{};
+
+u32 xact_rtl_random()
+{
+    const u32 first = (g_xact_random_seed * 0x7FFFFFEDu + 0x7FFFFFC3u) % 0x7FFFFFFFu;
+    const u32 second = (first * 0x7FFFFFEDu + 0x7FFFFFC3u) % 0x7FFFFFFFu;
+    g_xact_random_seed = second;
+    const u32 value = g_xact_random_vector[second & 0x7F];
+    g_xact_random_vector[second & 0x7F] = first;
+    return value;
+}
+
+// Xbox 0x001BD3A2
+u32 xact_random_below(u32 range)
+{
+    if (range < 2)
+    {
+        return 0;
+    }
+    return xact_rtl_random() % range;
+}
+
+// Xbox 0x001C2A3B: the entry a variation table plays next. Types 0 (random, not the last), 2 (shuffle), 4 (random)
+// draw over the 10000-wide weights; 1 plays in order; 5 plays in order from a random start. Type 3 follows a
+// runtime parameter that nothing here sets, so it reads 0. A returned count or more is no entry.
+u32 choose_variation(VariationTable& table)
+{
+    const u32 header = table.header;
+    const u32 count = header & 0x1FFF;
+    const u32 last = (header >> 17) & 0x1FFF;
+    const auto played = [&table](u32 index)
+    {
+        return index / 32 < table.played.size() && (table.played[index / 32] & (1u << (index & 31))) != 0;
+    };
+    const auto span = [&table](u32 index)
+    {
+        return i32(table.ranges[index].second) - i32(table.ranges[index].first);
+    };
+    u32 chosen = 0xFFFFFFFFu;
+    if ((header & 0x40000000u) == 0 || count <= last)
+    {
+        const u32 type = (header >> 13) & 0xF;
+        if (type == 4 || type == 0 || type == 2)
+        {
+            i32 range = 0x2711;
+            if (type == 0)
+            {
+                if (last < count)
+                {
+                    range = 10000 - span(last);
+                }
+            }
+            else if (type == 2 && count != 0)
+            {
+                for (u32 index = 0; index < count; ++index)
+                {
+                    if (played(index))
+                    {
+                        range += -1 - span(index);
+                    }
+                }
+                if (range == 0)
+                {
+                    std::fill(table.played.begin(), table.played.end(), 0u);
+                    range = 0x2711;
+                }
+            }
+            u32 draw = xact_random_below(u32(range));
+            chosen = 0;
+            while (chosen < count)
+            {
+                if ((type == 0 && chosen == last) || (type == 2 && played(chosen)))
+                {
+                    draw = draw + 1 + u32(span(chosen));
+                }
+                if (table.ranges[chosen].first <= draw && draw <= table.ranges[chosen].second)
+                {
+                    break;
+                }
+                ++chosen;
+            }
+            if ((table.header & 0x1E000) == 0x4000 && chosen < count)
+            {
+                if (table.played.size() <= chosen / 32)
+                {
+                    table.played.resize(chosen / 32 + 1);
+                }
+                table.played[chosen / 32] |= 1u << (chosen & 31);
+            }
+        }
+        else if (type == 3)
+        {
+            u32 matches = 0;
+            for (u32 index = 0; index < count; ++index)
+            {
+                if (table.ranges[index].first == 0)
+                {
+                    ++matches;
+                    chosen = index;
+                }
+            }
+            if (matches > 1)
+            {
+                u32 pick = xact_random_below(matches);
+                for (u32 index = 0; index < count; ++index)
+                {
+                    if (table.ranges[index].first == 0 && pick-- == 0)
+                    {
+                        chosen = index;
+                        break;
+                    }
+                }
+            }
+        }
+        else if (type == 5 && count <= last)
+        {
+            chosen = xact_random_below(count);
+        }
+        else if (type == 1 || type == 5)
+        {
+            chosen = last + 1;
+            if (count <= chosen)
+            {
+                chosen = 0;
+            }
+        }
+    }
+    else
+    {
+        table.header &= ~0x40000000u;
+        chosen = last;
+    }
+    table.header = table.header ^ (((chosen << 17) ^ table.header) & 0x3FFE0000u);
+    return chosen;
+}
+
+i32 variation_table_at(std::span<const u8> blob, size_t at)
+{
+    const u8* key = blob.data() + at;
+    if (const auto found = g_variation_table_index.find(key); found != g_variation_table_index.end())
+    {
+        return found->second;
+    }
+    VariationTable table;
+    table.header = ru32(blob, at);
+    const u32 count = table.header & 0x1FFF;
+    for (u32 index = 0; index < count && at + 4 + size_t(index) * 8 + 8 <= blob.size(); ++index)
+    {
+        table.ranges.emplace_back(ru16(blob, at + 8 + size_t(index) * 8), ru16(blob, at + 10 + size_t(index) * 8));
+    }
+    const size_t bits = at + 4 + size_t(count) * 8;
+    for (u32 word = 0; word < (count + 31) / 32 && bits + size_t(word) * 4 + 4 <= blob.size(); ++word)
+    {
+        table.played.push_back(ru32(blob, bits + size_t(word) * 4));
+    }
+    g_variation_tables.push_back(std::move(table));
+    const i32 index = i32(g_variation_tables.size()) - 1;
+    g_variation_table_index[key] = index;
+    return index;
+}
+
 struct WaveChoice
 {
     std::optional<Sound3D> sound_3d;
+    // The variation tables this wave was listed from: the cue's table of sounds and the sound's table of waves,
+    // with this wave's entry in each (-1 when there is no table).
+    i32 cue_table = -1;
+    u32 cue_slot = 0;
+    i32 sound_table = -1;
+    u32 sound_slot = 0;
     u8 category = 0;
     std::string bank; // WBND internal name, e.g. Gharddrive1
     u16 index = 0;
@@ -324,18 +507,25 @@ void push_wave(std::vector<WaveChoice>& out, std::span<const u8> blob, size_t o,
 void push_variation_table(std::vector<WaveChoice>& out, std::span<const u8> blob, size_t jump,
                           const std::vector<std::string>& devs, u16 loop_count = 0)
 {
-    if (jump >= blob.size())
+    if (jump + 4 > blob.size())
     {
         return;
     }
-    const u8 count = blob[jump];
-    if (count == 0 || count > 32)
+    const u32 count = ru32(blob, jump) & 0x1FFF;
+    if (count == 0 || count > 64)
     {
         return;
     }
-    for (u8 i = 0; i < count; ++i)
+    const i32 table = variation_table_at(blob, jump);
+    for (u32 i = 0; i < count; ++i)
     {
+        const size_t before = out.size();
         push_wave(out, blob, jump + 4 + size_t(i) * 8, devs, loop_count);
+        if (out.size() != before)
+        {
+            out.back().sound_table = table;
+            out.back().sound_slot = i;
+        }
     }
 }
 
@@ -476,8 +666,10 @@ std::vector<WaveChoice> cue_waves(std::span<const u8> blob, u16 cue_index, const
         {
             return {};
         }
-        const u8 count = blob[jump];
-        for (u8 i = 0; i < count && i < 32; ++i)
+        // The cue's own variation table of sounds (0x001C2DFC picks one with 0x001C2A3B).
+        const u32 count = ru32(blob, jump) & 0x1FFF;
+        const i32 table = variation_table_at(blob, jump);
+        for (u32 i = 0; i < count && i < 64; ++i)
         {
             const size_t o = jump + 4 + size_t(i) * 8;
             if (o + 2 > blob.size())
@@ -487,7 +679,13 @@ std::vector<WaveChoice> cue_waves(std::span<const u8> blob, u16 cue_index, const
             const i16 alt = rs16(blob, o);
             if (alt >= 0 && size_t(alt) < entry_count)
             {
+                const size_t first = out.size();
                 waves_from_entry(out, blob, alt, simple_count, devs);
+                for (size_t index = first; index < out.size(); ++index)
+                {
+                    out[index].cue_table = table;
+                    out[index].cue_slot = i;
+                }
             }
         }
         return out;
@@ -1133,21 +1331,47 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
     return handle;
 }
 
-const WaveChoice* pick_choice(const std::vector<WaveChoice>& waves, u32 frame)
+// The wave a cue plays: XACT picks the cue's sound from the cue's variation table (0x001C2DFC), then that sound's
+// wave from its own table (0x001C2A3B each time). Without a table the first listed wave plays.
+const WaveChoice* pick_choice(const std::vector<WaveChoice>& waves)
 {
     if (waves.empty())
     {
         return nullptr;
     }
-    const u16 needle = static_cast<u16>(frame % 10000);
-    for (const auto& w : waves)
+    size_t first = 0;
+    size_t end = waves.size();
+    if (const i32 cue_table = waves[0].cue_table; cue_table >= 0)
     {
-        if (needle >= w.weight_lo && needle <= w.weight_hi)
+        const u32 slot = choose_variation(g_variation_tables[size_t(cue_table)]);
+        const auto chosen = std::find_if(waves.begin(), waves.end(), [slot](const WaveChoice& wave)
         {
-            return &w;
+            return wave.cue_slot == slot;
+        });
+        if (chosen == waves.end())
+        {
+            return nullptr;
+        }
+        first = size_t(chosen - waves.begin());
+        end = first;
+        while (end < waves.size() && waves[end].cue_slot == slot)
+        {
+            ++end;
         }
     }
-    return &waves[0];
+    if (const i32 sound_table = waves[first].sound_table; sound_table >= 0)
+    {
+        const u32 slot = choose_variation(g_variation_tables[size_t(sound_table)]);
+        for (size_t index = first; index < end; ++index)
+        {
+            if (waves[index].sound_table == sound_table && waves[index].sound_slot == slot)
+            {
+                return &waves[index];
+            }
+        }
+        return nullptr;
+    }
+    return &waves[first];
 }
 
 #endif
@@ -1167,7 +1391,7 @@ i32 pcm_prepare_owned_cue(const Game& g, const char* cue, u64& handle, void*& vo
     {
         return static_cast<i32>(HRESULT_FROM_WIN32(ERROR_NOT_FOUND));
     }
-    const WaveChoice* choice = pick_choice(found->second, g.frame);
+    const WaveChoice* choice = pick_choice(found->second);
     if (choice == nullptr)
     {
         return static_cast<i32>(HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
@@ -1745,6 +1969,8 @@ void shutdown_pcm_audio()
     g_catalog_ready = false;
     g_wavefiles.clear();
     g_cues.clear();
+    g_variation_tables.clear();
+    g_variation_table_index.clear();
 #endif
 }
 
@@ -1877,6 +2103,21 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
     runtime.voices.reverb_curves = std::span<const std::array<u32, 2>>(
         reinterpret_cast<const std::array<u32, 2>*>(image.memory(0x00421A38, 9 * 8).data()), 9);
     std::memcpy(&runtime.default_cone, image.memory(0x0042A840, 0xC).data(), 0xC);
+    // XACT's random source (0x001BAC09): the vector at 0x00338750, seeded once with GetTickCount(). Test runs keep a
+    // fixed seed so their variations repeat.
+    std::memcpy(g_xact_random_vector.data(), image.memory(0x00338750, sizeof(g_xact_random_vector)).data(),
+        sizeof(g_xact_random_vector));
+    if (g_xact_random_seed == 0)
+    {
+#if GBTG_HAS_XAUDIO2
+        const bool fixed_seed = g_virtual_audio_clock;
+#else
+        const bool fixed_seed = false;
+#endif
+        g_xact_random_seed = fixed_seed ? 1u
+            : u32(std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
     std::memcpy(&runtime.listener_velocity, image.memory(0x00421C70, 0xC).data(), 0xC);
     runtime.voices.listener = runtime.listener_words.data();
     for (size_t row = 0; row < runtime.wavebank_streams.ids.size(); ++row)

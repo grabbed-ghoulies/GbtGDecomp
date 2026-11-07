@@ -390,6 +390,7 @@ void SceneActorServices::update_scene_actors()
     state.motion_steps = g_motion_steps;
     state.pal = state.game.clock.pal ? 1 : 0;
     state.refresh_mind_targets();
+    state.refresh_active_actor_links();
     state.refresh_pause_groups();
     state.refresh_emitter_players();
     // DAT_00511B40 minus 0x93C: the player 0x000F4E10 measures notices from.

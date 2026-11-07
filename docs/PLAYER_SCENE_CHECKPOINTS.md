@@ -4,6 +4,22 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-07: attack-limited ghoulies count the live players (issue #46)
+
+- Issue #46 ("Chapter 2 Scene 34", chapter2c_scene7_1playcam, the music room): the ninja imps never chanted and grew.
+  In `--scene2c7` they only meditated (0x412) and idled (0x401); the attack choice (`0x000B7600`), whose inner force
+  (0x3EF, `0x000B71D0`) makes the imp 1.7 times larger, was never reached.
+- `0x000B74A0` gave up on every target in `0x00138410`: the imp's +0x96E flag holds it back while
+  `0x00129280`'s count of live players on DAT_00511B48 is below its attack limit (attributes +0x18). The scene's
+  `active_actors` (DAT_00511B48) was never set, so the count was always 0.
+- DAT_00511B48 is the DAT_00511B44 list's first link: each player's actor +0x944 link, whose +0x18 is the body
+  (+0x95C) and +0x3C the goal ring (+0x980). `refresh_active_actor_links` now builds those links from
+  `g_world.alt` each scene update, before the strategies tick, so every ghouly with +0x96E (and the other readers of
+  DAT_00511B48) sees the players.
+- `--scene2c7`: 119 kicks (0x3EE) and 105 inner forces (0x3EF), where there were none, and Cooper takes hits
+  (35 to 23 by frame 4500). The mode still fails late, at a FREE PLAY, as it did earlier in the day.
+  `--scene2a10`, `--scene2a5` (ninja imps) and `--scene2a1` pass.
+
 ### 2026-11-07: the actor's facing comes from the native actor (issue #35)
 
 - Issue #35: actors shuffled their feet while standing still. In chapter 2a scene 1 (the kitchen) a class 8

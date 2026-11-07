@@ -99,6 +99,41 @@ RuntimeMindTarget* SceneActorServices::State::mind_target_at(u32 address)
     unbound("mind target record " + std::to_string(address) + " is neither live nor retired");
 }
 
+// DAT_00511B48 (the DAT_00511B44 list's first link) as the strategies walk it, e.g. 0x00129280's count of live
+// players that 0x00138410 holds an attack-limited ghouly back with.
+void SceneActorServices::State::refresh_active_actor_links()
+{
+    active_actor_links.clear();
+    for (auto* node = static_cast<entity_detail::ListHead*>(entity_detail::g_world.alt.next); node != nullptr;
+         node = static_cast<entity_detail::ListHead*>(node->next))
+    {
+        NativePlayerInstance* owner = nullptr;
+        for (auto* player : players->instances())
+        {
+            if (static_cast<void*>(&player->links[2]) == static_cast<void*>(node))
+            {
+                owner = player;
+                break;
+            }
+        }
+        if (owner == nullptr)
+        {
+            unbound("DAT_00511B44 node with no native player");
+        }
+        const auto query = target_queries.find(&owner->actor);
+        if (query == target_queries.end())
+        {
+            unbound("DAT_00511B44 player with no body view");
+        }
+        active_actor_links.push_back(RuntimeActiveActorLink{nullptr, query->second, &owner->actor.goal_ring});
+    }
+    for (size_t index = 0; index + 1 < active_actor_links.size(); ++index)
+    {
+        active_actor_links[index].next = &active_actor_links[index + 1];
+    }
+    active_actors = active_actor_links.empty() ? nullptr : &active_actor_links[0];
+}
+
 void SceneActorServices::State::refresh_mind_targets()
 {
     std::unordered_set<const ActorLiveAttachment*> live;

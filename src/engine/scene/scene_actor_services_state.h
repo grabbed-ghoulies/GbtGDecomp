@@ -669,6 +669,9 @@ struct SceneActorServices::State
     std::unordered_map<u32, Actor*> spawn_players; // Actor address to actor, for DAT_00511B40.
     u32 spawn_player_address = 0; // DAT_00511B40.
     const RuntimeActiveActorLink* active_actors = nullptr; // DAT_00511B48.
+    // The links DAT_00511B48 walks: one per node on the DAT_00511B44 list (a player's actor +0x944 link), with that
+    // player's body view (+0x18, actor +0x95C) and goal ring (+0x3C, actor +0x980). refresh_active_actor_links.
+    std::vector<RuntimeActiveActorLink> active_actor_links;
     u32 notice_pending = 0; // DAT_00506E28.
     const Actor* notice_first = nullptr; // DAT_00506DFC.
     u32 notice_id = 0; // DAT_00506E00.
@@ -1084,6 +1087,7 @@ struct SceneActorServices::State
     // A DAT_00545988 record by address: a live one, or a freed one's last state (retail reads the freed block).
     RuntimeMindTarget* mind_target_at(u32 address);
     void refresh_mind_targets();
+    void refresh_active_actor_links();
     // The base strategy messages' view of the actor at a retail address: its +0x1FC / +0x1FE words, its +0x8F8 target
     // record and, for a player, the actor its body +0x274 names. Rebuilt on each call; kept per address.
     RuntimeStrategyMessageActor* strategy_message_actor(u32 address);

@@ -267,6 +267,8 @@ bool write_default(const std::filesystem::path& path)
            "[Video]\n"
            "Width=960\n"
            "Height=540\n"
+           "; 1 covers the monitor in a borderless window; Width and Height stay the render size.\n"
+           "Fullscreen=0\n"
            "VSync=1\n"
            "; 1 plays in 16:9, as the Xbox's widescreen video setting does.\n"
            "Widescreen=0\n"

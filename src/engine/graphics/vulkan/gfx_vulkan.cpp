@@ -11,6 +11,7 @@
 #include "vk_swapchain.h"
 
 #include "../gfx_backend.h"
+#include "../win32_window.h"
 #include "../gfx_present_logic.h"
 #include "../gfx_shader_sources.h"
 #include "../render_profile.h"
@@ -1804,10 +1805,9 @@ bool initialize(const GfxConfig& cfg)
         wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(IDI_GBTG_APP));
         wc.hIconSm = wc.hIcon;
         RegisterClassExW(&wc);
-        RECT rect{0, 0, width, height};
-        AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
-        g.window = CreateWindowW(wc.lpszClassName, L"Grabbed by the Ghoulies", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                               rect.right - rect.left, rect.bottom - rect.top, nullptr, nullptr, wc.hInstance, nullptr);
+        const Win32WindowPlacement placement = win32_window_placement(cfg.fullscreen, width, height);
+        g.window = CreateWindowW(wc.lpszClassName, L"Grabbed by the Ghoulies", placement.style, placement.x, placement.y,
+                               placement.width, placement.height, nullptr, nullptr, wc.hInstance, nullptr);
         if (!g.window)
         {
             log::error("vulkan: CreateWindow failed");

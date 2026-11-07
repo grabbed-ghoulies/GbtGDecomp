@@ -149,6 +149,8 @@ For a bounded run and a capture through the D3D11 backend:
 - `--screenshot file.bmp` saves the final presented frame and hides the window.
   Supply `--frames N` to capture beyond the default single tick.
 - `--width W`, `--height H` and `--vsync N` override video settings.
+- `--fullscreen` and `--windowed` override `[Video] Fullscreen` in `gbtg.ini`. Fullscreen covers the monitor the
+  cursor is on (a borderless window on Windows); `Width` and `Height` stay the render size.
 - `--gfx d3d11|vulkan|null` picks a compiled-in graphics backend.
 
 A successful headless run is a crash check, not proof that rendering, audio or

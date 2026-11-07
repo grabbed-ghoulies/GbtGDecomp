@@ -4,6 +4,19 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-07: a released mind target no longer throws (issue #42)
+
+- Issue #42 ("Chapter 2 Scene 19", chapter2b_scene2_1playcam, 2826 s into a session) threw `std::out_of_range`
+  ("invalid unordered_map<K, T> key"). Relinking the reported build (commit `4a5e4904`, same 7501312-byte exe) with
+  `/MAP` resolved the stack: `SceneMindMessages::prepare_tick` resolves the player mind's +0x10 record
+  (`target_record`) through the `target_at` binding, which read `target_records.at(address)`.
+- A mind can name a DAT_00545988 record that was released this frame: retail reads the freed block. The port keeps
+  such a record's last bytes in `retired_targets` (the release hook and `refresh_mind_targets`), and
+  `mind_target_at` falls back to it, but the two `target_at` bindings did not. Both now go through
+  `mind_target_at`, which still raises `unbound` for an address that is neither live nor retired.
+- Not reproduced: five direct boots of the scene and a 2b1-into-2b2 play-through ran clean, so the fix is checked
+  against the resolved stack only.
+
 ### 2026-11-07: chapter 3b scene 2: the picket gates open at scene start (issue #49)
 
 - The Cottage Gate held the player (GitHub issue #49, "Chapter 3 Scene 14"). A probe on the player's mesh sweep

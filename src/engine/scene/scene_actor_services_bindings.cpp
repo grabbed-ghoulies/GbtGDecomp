@@ -2700,8 +2700,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         query,
         [this](u32 address) -> RuntimeMindTarget&
         {
-            refresh_mind_targets();
-            return *target_records.at(address);
+            // A mind can still name a record released this frame (retail reads its freed block); the retired
+            // copy keeps those bytes.
+            return *mind_target_at(address);
         },
         [this](u32 address, std::span<const u32> message)
         {
@@ -4176,8 +4177,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 address) -> RuntimeMindTarget&
         {
-            refresh_mind_targets();
-            return *target_records.at(address);
+            // A mind can still name a record released this frame (retail reads its freed block); the retired
+            // copy keeps those bytes.
+            return *mind_target_at(address);
         },
         [this]() -> u32
         {

@@ -4,6 +4,24 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-07: chapter 3b scene 2: the picket gates open at scene start (issue #49)
+
+- The Cottage Gate held the player (GitHub issue #49, "Chapter 3 Scene 14"). A probe on the player's mesh sweep
+  (`0x00053AA0`, mask 4, excluded 0xC0000) showed the blocking triangles are the gate's own: flags 0x44004, category
+  0xFB. The 2026-10-28 note below blamed a category-0 wall; that was the driver's route, not the gate.
+- The script's head (before its first section) has type 0x67 node +0x138: category 0xFB, word 0 (open). With no
+  live 0x7D, `0x00126E10` queues it at DAT_00512420 (count DAT_00512440). Region 1's node +0x4BC shuts 0xFB again
+  after the player is through ("picket gates and exit door closes").
+- Nothing replayed that queue. Scene start (`0x0011CBD0`) runs `0x00125B80`, then `0x00127250`, then `0x00125070`;
+  the port ran only the first. Now translated in `scripts/script_actions.cpp` and called from
+  `SceneActorServices::start_scene` in that order:
+  - `0x00127250` (`script_apply_queued_shape_events`): each queued category opens (word 0, `0x0012C950`) or shuts
+    (`0x0012C930`) through `0x0012C8A0` with mask 4, with no message 0x4A, then the count is cleared.
+  - `0x00125070` (`script_apply_queued_model_node_states`): each queued type 0x98 pair sets its model node state on
+    every DAT_00511B20 node's objects (`0x000F96F0` inlined), then DAT_00512370 is cleared.
+- `--scene3b2`: no 0xFB triangle stops Cooper. He enters region 1 at frame 17400 and the script moves to the
+  gate section (17552) and the timed event (17838). The mode still fails on that event (see the test table).
+
 ### 2026-11-01: native fields read as raw words (audit)
 
 Fields the port holds natively but some code still read as raw words, which always read 0.

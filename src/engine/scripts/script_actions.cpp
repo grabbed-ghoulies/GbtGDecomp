@@ -1068,6 +1068,34 @@ void script_apply_scene_door_states(ScriptDoorStartContext& context)
     context.notify_body_list(0x66);
 }
 
+// Xbox 0x00127250. Scene start (0x0011CBD0, after 0x00125B80): each type 0x67 the script's head queued opens (a zero
+// word, 0x0012C950) or shuts (0x0012C930) its collision category through 0x0012C8A0 with mask 4, then the queue
+// empties. Unlike the live type 0x67, no message 0x4A follows a shut.
+// Xbox 0x00127250
+void script_apply_queued_shape_events(const std::function<void(u8 category, bool set)>& change_shape_events)
+{
+    for (i32 index = 0; index < g_gate_2440; ++index)
+    {
+        const GateRec2420& record = g_gate_2420.at(size_t(index));
+        change_shape_events(record.at_8, record.at_c != 0);
+    }
+    g_gate_2440 = 0;
+}
+
+// Xbox 0x00125070. Scene start (0x0011CBD0, after 0x00127250): each type 0x98 pair the script's head queued sets its
+// model node state on every DAT_00511B20 node's objects (0x000F96F0 inlined: the slot is the record's first byte,
+// the value its byte at +4), then the queue empties.
+// Xbox 0x00125070
+void script_apply_queued_model_node_states(const std::function<void(u8 slot, u8 value)>& set_model_nodes)
+{
+    for (i32 index = 0; index < g_pair_slot_count; ++index)
+    {
+        const PairSlot& record = g_pair_slots.at(size_t(index));
+        set_model_nodes(u8(record.at_8), u8(record.at_c));
+    }
+    g_pair_slot_count = 0;
+}
+
 
 // Xbox 0x000532E0. ECX is the node: true when it is the script's last action, followed by the end node or by a
 // type 0xF gate and then the end node.

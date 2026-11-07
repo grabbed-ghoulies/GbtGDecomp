@@ -177,6 +177,14 @@ void SceneActorServices::start_scene(const std::function<void()>& script_event)
         state.notify_body_list(id);
     }};
     script_apply_scene_door_states(door_start); // 0x00125B80
+    script_apply_queued_shape_events([this](u8 category, bool set)
+    {
+        change_script_shape_events(category, set);
+    }); // 0x00127250
+    script_apply_queued_model_node_states([this](u8 slot, u8 value)
+    {
+        set_body_list_model_nodes(slot, value);
+    }); // 0x00125070
     state.create_scene_objects(); // 0x0011C980
     load_runtime_ghoul_intro_rows(*state.ghoul_intro_context); // 0x000F4440
     start_markers();

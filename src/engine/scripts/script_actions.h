@@ -91,6 +91,12 @@ struct ScriptDoorStartContext
     std::function<void(u32 id)> notify_body_list; // Actor vtable +0xC with {id} to each DAT_00511B20 node's actor.
 };
 void script_apply_scene_door_states(ScriptDoorStartContext& context); // Xbox 0x00125B80
+// Scene start: the type 0x67 categories the script's head queued open or shut (0x0012C8A0 with mask 4).
+void script_apply_queued_shape_events(
+    const std::function<void(u8 category, bool set)>& change_shape_events); // Xbox 0x00127250
+// Scene start: the type 0x98 model node states the script's head queued (0x000F96F0 on each body list node).
+void script_apply_queued_model_node_states(
+    const std::function<void(u8 slot, u8 value)>& set_model_nodes); // Xbox 0x00125070
 
 // Its cases are described above its definition in script_actions.cpp.
 int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, int ending); // Xbox 0x00126140

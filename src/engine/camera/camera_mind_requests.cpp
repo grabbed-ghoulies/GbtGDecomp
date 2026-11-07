@@ -1,4 +1,7 @@
 #include "camera_mind_requests.h"
+#include "../entities/player_fields.h"
+#include "../entities/body_fields.h"
+#include "../entities/mind_fields.h"
 #include "../scripts/script_table_lookup.h"
 #include "../entities/actor_shape_push.h"
 #include "entity_camera.h"
@@ -26,11 +29,6 @@ float mind_real(std::span<const u8> mind, size_t offset)
     return read_f32(mind, offset);
 }
 
-void put_mind_real(std::span<u8> mind, size_t offset, float value)
-{
-    std::memcpy(mind.data() + offset, &value, 4);
-}
-
 // The frame step: 0 while DAT_004312DC is above 0, else DAT_005096C0 * DAT_004312C4.
 float frame_step(const RuntimeActorClock& clock)
 {
@@ -42,7 +40,7 @@ float frame_step(const RuntimeActorClock& clock)
 u32 track_camera_follow_point(std::span<u8> mind, std::span<const u8> request, const Actor& camera, Vec3& point,
     float& near_distance, float& far_distance, const RuntimeCameraRigContext& context)
 {
-    const u32 target = read_u32(request, 0x10);
+    const u32 target = get(request, camera_follow_request::target);
     if (target == 0)
     {
         point = {0.f, 10.f, 0.f}; // DAT_0032B10C
@@ -55,7 +53,7 @@ u32 track_camera_follow_point(std::span<u8> mind, std::span<const u8> request, c
     }
     Vec3 found{};
     float y;
-    switch (context.tunables.word(0x00427540))
+    switch (context.tunables.rig.follow_point_mode)
     {
     case 0:
         found = actor_world_position(*actor); // 0x000412A0, ESI the actor
@@ -66,46 +64,44 @@ u32 track_camera_follow_point(std::span<u8> mind, std::span<const u8> request, c
         float height = 0.f;
         float radius = 0.f;
         runtime_actor_cylinder_metrics(*actor, found, height, radius); // 0x0003DD50, ECX the actor
-        y = context.tunables.real(0x00427544) * height + found.y;
+        y = context.tunables.rig.follow_height_share * height + found.y;
         break;
     }
     default:
         throw Error("0x00079E80 reads its point from an uninitialised stack slot (DAT_00427540 above 1)");
     }
-    near_distance = context.tunables.real(0x00427550);
-    far_distance = context.tunables.real(0x00427554);
-    if (read_u32(mind, 0x7C) != 0)
+    near_distance = context.tunables.rig.follow_near;
+    far_distance = context.tunables.rig.follow_far;
+    if (camera_mind_record(mind).focus_actor != 0)
     {
-        put_mind_real(mind, 0x80, mind_real(mind, 0x90));
-        put_mind_real(mind, 0x84, mind_real(mind, 0x94));
-        put_mind_real(mind, 0x88, mind_real(mind, 0x98));
-        put_mind_real(mind, 0x8C, 1.f); // DAT_0032B0F8
+        camera_mind_record(mind).blend_from = camera_mind_record(mind).follow_point;
+        camera_mind_record(mind).blend = 1.f; // DAT_0032B0F8
     }
     point = {found.x, y, found.z};
     const float step = frame_step(context.clock);
     const float rate = camera.animation_pause > 0.f ? 0.f : camera.animation_rate; // +0x930, +0x92C
-    if (mind_real(mind, 0x8C) > 0.f)
+    if (camera_mind_record(mind).blend > 0.f)
     {
-        const float left = mind_real(mind, 0x8C) - rate * step;
-        put_mind_real(mind, 0x8C, left);
+        const float left = camera_mind_record(mind).blend - rate * step;
+        camera_mind_record(mind).blend = left;
         if (!(0.f < left))
         {
-            put_mind_real(mind, 0x8C, 0.f);
+            camera_mind_record(mind).blend = 0.f;
         }
     }
-    if (mind_real(mind, 0x8C) > 0.f)
+    if (camera_mind_record(mind).blend > 0.f)
     {
         // (sin(t * pi - pi/2) + 1) * 0.5 (DAT_0032B148, DAT_0032B140, DAT_0032B0F8, DAT_0032B0F4), on the x87 stack.
-        const float angle = float(static_cast<long double>(mind_real(mind, 0x8C)) * std::bit_cast<float>(0x40490FDBu)
+        const float angle = float(static_cast<long double>(camera_mind_record(mind).blend)
+            * std::bit_cast<float>(0x40490FDBu)
             - std::bit_cast<float>(0x3FC90FDBu));
         const long double share = (retail_sin(angle) + 1.0L) * 0.5L; // 0x00153320
-        point.x = float((static_cast<long double>(mind_real(mind, 0x80)) - point.x) * share + point.x);
-        point.y = float((static_cast<long double>(mind_real(mind, 0x84)) - point.y) * share + point.y);
-        point.z = float((static_cast<long double>(mind_real(mind, 0x88)) - point.z) * share + point.z);
+        const Vec3 from = camera_mind_record(mind).blend_from;
+        point.x = float((static_cast<long double>(from.x) - point.x) * share + point.x);
+        point.y = float((static_cast<long double>(from.y) - point.y) * share + point.y);
+        point.z = float((static_cast<long double>(from.z) - point.z) * share + point.z);
     }
-    put_mind_real(mind, 0x90, point.x);
-    put_mind_real(mind, 0x94, point.y);
-    put_mind_real(mind, 0x98, point.z);
+    camera_mind_record(mind).follow_point = point;
     return 0;
 }
 
@@ -195,15 +191,15 @@ i32 update_camera_follow_request(RuntimeCameraMindView& view, std::span<const u8
     float far_distance = 0.f;
     const u32 curve = track_camera_follow_point(view.mind, request, view.camera, point, near_distance,
         far_distance, context); // 0x00079E80
-    place_camera_follow_eye(point, eye, view.camera, near_distance, far_distance, context.tunables.real(0x00427558),
-        context.tunables.real(0x0042755C), 0.f, std::bit_cast<float>(0x40C90FDBu), curve, context); // 0x00079C40
-    put_mind_real(view.body, 0x18, eye.x);
-    put_mind_real(view.body, 0x1C, eye.y);
-    put_mind_real(view.body, 0x20, eye.z);
-    put_mind_real(view.body, 0x2FC, point.x);
-    put_mind_real(view.body, 0x300, point.y);
-    put_mind_real(view.body, 0x304, point.z);
-    view.body[0x308] = 1;
+    place_camera_follow_eye(point, eye, view.camera, near_distance, far_distance, context.tunables.rig.follow_low_pitch,
+        context.tunables.rig.follow_high_pitch, 0.f, std::bit_cast<float>(0x40C90FDBu), curve, context); // 0x00079C40
+   body_record(view.body).position.x = eye.x;
+   body_record(view.body).position.y = eye.y;
+   body_record(view.body).position.z = eye.z;
+   body_record(view.body).look_point.x = point.x;
+   body_record(view.body).look_point.y = point.y;
+   body_record(view.body).look_point.z = point.z;
+    body_record(view.body).look_point_set = 1;
     return 0;
 }
 
@@ -215,18 +211,19 @@ void camera_actor_point(const RuntimeDirectorActor& actor, Vec3& point, float* h
     {
         throw Error("0x0007A160 frames an address that is not a scene actor");
     }
-    switch (context.tunables.word(0x00427560))
+    switch (context.tunables.rig.pair_point_mode)
     {
     case 0:
         point = actor_world_position(*actor.actor); // 0x000412A0, ESI the actor, EDI the point
-        point.y = actor.actor->radius_y * read_f32(actor.body, 0x884) * context.tunables.real(0x00427564) + point.y;
+        point.y = actor.actor->radius_y * body_record(actor.body).height_scale * context.tunables.rig.pair_height_share
+            + point.y;
         break;
     case 1:
     {
         float height = 0.f;
         float radius = 0.f;
         runtime_actor_cylinder_metrics(*actor.actor, point, height, radius); // 0x0003DD50, ECX the actor
-        point.y = context.tunables.real(0x00427564) * height + point.y;
+        point.y = context.tunables.rig.pair_height_share * height + point.y;
         break;
     }
     default:
@@ -242,7 +239,7 @@ void camera_actor_point(const RuntimeDirectorActor& actor, Vec3& point, float* h
 u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point, float& near_distance,
     float& far_distance, float& heading, const RuntimeCameraRigContext& context)
 {
-    const u32 target_address = read_u32(mind, 0xC);
+    const u32 target_address = mind_record(mind).target;
     if (target_address == 0)
     {
         point = {0.f, 0.f, 0.f};
@@ -258,21 +255,19 @@ u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point
     Vec3 first{};
     camera_actor_point(target, first, &heading, context); // 0x0007A160, ECX the target
     // The target's mind (+0x958) +0xC, kept while its +0x20 is set.
-    u32 second_address = target.mind.empty() ? 0u : read_u32(target.mind, 0xC);
-    if (second_address != 0 && target.mind[0x20] == 0)
+    u32 second_address = target.mind.empty() ? 0u : mind_record(target.mind).target;
+    if (second_address != 0 && mind_record(target.mind).target_mode == 0)
     {
         second_address = 0;
     }
-    near_distance = context.tunables.real(0x00427570);
-    far_distance = context.tunables.real(0x00427574);
+    near_distance = context.tunables.rig.pair_near;
+    far_distance = context.tunables.rig.pair_far;
     if (second_address == 0)
     {
-        if (read_u32(mind, 0x7C) != 0)
+        if (camera_mind_record(mind).focus_actor != 0)
         {
-            put_mind_real(mind, 0x80, mind_real(mind, 0x90));
-            put_mind_real(mind, 0x84, mind_real(mind, 0x94));
-            put_mind_real(mind, 0x88, mind_real(mind, 0x98));
-            put_mind_real(mind, 0x8C, 1.f); // DAT_0032B0F8
+            camera_mind_record(mind).blend_from = camera_mind_record(mind).follow_point;
+            camera_mind_record(mind).blend = 1.f; // DAT_0032B0F8
         }
         point = first;
     }
@@ -281,14 +276,14 @@ u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point
         const RuntimeDirectorActor second = context.actor_at(second_address);
         Vec3 other{};
         camera_actor_point(second, other, nullptr, context); // 0x0007A160, ECX the second
-        if (context.tunables.word(0x00427568) != 0)
+        if (context.tunables.rig.pair_levels_points != 0)
         {
             other.y = first.y;
         }
         point.y = (first.y - other.y) * 0.5f + other.y; // DAT_0032B0F4
         point.x = (first.x - other.x) * 0.5f + other.x;
         point.z = (first.z - other.z) * 0.5f + other.z;
-        if (context.tunables.word(0x0042756C) != 0)
+        if (context.tunables.rig.pair_fits_view != 0)
         {
             if (second.actor == nullptr || target.actor == nullptr)
             {
@@ -298,10 +293,11 @@ u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point
             const long double dy = static_cast<long double>(other.y) - first.y;
             const long double dz = static_cast<long double>(other.z) - first.z;
             const long double gap = std::sqrt(dz * dz + dy * dy + dx * dx); // FSQRT
-            const float reach = float(gap + static_cast<long double>(second.actor->radius_xz) * read_f32(second.body, 0x888)
-                + static_cast<long double>(target.actor->radius_xz) * read_f32(target.body, 0x888));
-            float fit = second.actor->radius_y * read_f32(second.body, 0x884)
-                + target.actor->radius_y * read_f32(target.body, 0x884);
+            const float reach = float(gap + static_cast<long double>(second.actor->radius_xz)
+                * body_record(second.body).radius_scale
+                + static_cast<long double>(target.actor->radius_xz) * body_record(target.body).radius_scale);
+            float fit = second.actor->radius_y * body_record(second.body).height_scale
+                + target.actor->radius_y * body_record(target.body).height_scale;
             if (!(reach < fit))
             {
                 fit = reach;
@@ -309,39 +305,37 @@ u32 track_camera_pair_point(std::span<u8> mind, const Actor& camera, Vec3& point
             near_distance = fit;
             far_distance = fit * std::bit_cast<float>(0x3DCCCCCDu) + fit; // DAT_0032B254
         }
-        if (read_u32(mind, 0x7C) == 0 || read_u32(mind, 0x7C) != second_address)
+        if (camera_mind_record(mind).focus_actor == 0 || camera_mind_record(mind).focus_actor != second_address)
         {
-            put_mind_real(mind, 0x80, mind_real(mind, 0x90));
-            put_mind_real(mind, 0x84, mind_real(mind, 0x94));
-            put_mind_real(mind, 0x88, mind_real(mind, 0x98));
-            put_mind_real(mind, 0x8C, 1.f); // DAT_0032B0F8
+            camera_mind_record(mind).blend_from = camera_mind_record(mind).follow_point;
+            camera_mind_record(mind).blend = 1.f; // DAT_0032B0F8
         }
     }
-    std::memcpy(mind.data() + 0x7C, &second_address, 4);
+    camera_mind_record(mind).focus_actor = second_address;
     const float step = frame_step(context.clock);
     const float rate = camera.animation_pause > 0.f ? 0.f : camera.animation_rate; // +0x930, +0x92C
-    if (mind_real(mind, 0x8C) > 0.f)
+    if (camera_mind_record(mind).blend > 0.f)
     {
-        const float left = mind_real(mind, 0x8C) - rate * step;
-        put_mind_real(mind, 0x8C, left);
+        const float left = camera_mind_record(mind).blend - rate * step;
+        camera_mind_record(mind).blend = left;
         if (!(0.f < left))
         {
-            put_mind_real(mind, 0x8C, 0.f);
+            camera_mind_record(mind).blend = 0.f;
         }
     }
-    if (mind_real(mind, 0x8C) > 0.f)
+    if (camera_mind_record(mind).blend > 0.f)
     {
-        const float angle = float(static_cast<long double>(mind_real(mind, 0x8C)) * std::bit_cast<float>(0x40490FDBu)
+        const float angle = float(static_cast<long double>(camera_mind_record(mind).blend)
+            * std::bit_cast<float>(0x40490FDBu)
             - std::bit_cast<float>(0x3FC90FDBu)); // DAT_0032B148, DAT_0032B140
         const long double share = (retail_sin(angle) + 1.0L) * 0.5L; // 0x00153320
-        point.x = float((static_cast<long double>(mind_real(mind, 0x80)) - point.x) * share + point.x);
-        point.y = float((static_cast<long double>(mind_real(mind, 0x84)) - point.y) * share + point.y);
-        point.z = float((static_cast<long double>(mind_real(mind, 0x88)) - point.z) * share + point.z);
+        const Vec3 from = camera_mind_record(mind).blend_from;
+        point.x = float((static_cast<long double>(from.x) - point.x) * share + point.x);
+        point.y = float((static_cast<long double>(from.y) - point.y) * share + point.y);
+        point.z = float((static_cast<long double>(from.z) - point.z) * share + point.z);
     }
-    put_mind_real(mind, 0x90, point.x);
-    put_mind_real(mind, 0x94, point.y);
-    put_mind_real(mind, 0x98, point.z);
-    return read_u32(target.bytes, 0x960);
+    camera_mind_record(mind).follow_point = point;
+    return player_record(target.bytes).input_device;
 }
 
 // Xbox 0x0007A420
@@ -466,16 +460,16 @@ i32 update_camera_pair_request(RuntimeCameraMindView& view, const RuntimeCameraR
         context); // 0x0007A550
     if (device != 0)
     {
-        place_camera_pair_eye(point, eye, view.camera, near_distance, far_distance, context.tunables.real(0x00427578),
-            context.tunables.real(0x0042757C), 0.f, std::bit_cast<float>(0x43B40000u), heading, device,
+        place_camera_pair_eye(point, eye, view.camera, near_distance, far_distance, context.tunables.rig.pair_low_pitch,
+            context.tunables.rig.pair_high_pitch, 0.f, std::bit_cast<float>(0x43B40000u), heading, device,
             context); // 0x0007A1F0
-        put_mind_real(view.body, 0x18, eye.x);
-        put_mind_real(view.body, 0x1C, eye.y);
-        put_mind_real(view.body, 0x20, eye.z);
-        put_mind_real(view.body, 0x2FC, point.x);
-        put_mind_real(view.body, 0x300, point.y);
-        put_mind_real(view.body, 0x304, point.z);
-        view.body[0x308] = 1;
+       body_record(view.body).position.x = eye.x;
+       body_record(view.body).position.y = eye.y;
+       body_record(view.body).position.z = eye.z;
+       body_record(view.body).look_point.x = point.x;
+       body_record(view.body).look_point.y = point.y;
+       body_record(view.body).look_point.z = point.z;
+        body_record(view.body).look_point_set = 1;
     }
     return 0;
 }
@@ -492,30 +486,28 @@ u32 camera_path_target_point(std::span<u8> mind, const RuntimeDirectorActor& tar
     {
         throw Error("0x0007AA20 frames a target with no native actor or body");
     }
-    const float half = target.actor->radius_y * read_f32(target.body, 0x884) * 0.5f; // DAT_0032B0F4
+    const float half = target.actor->radius_y * body_record(target.body).height_scale * 0.5f; // DAT_0032B0F4
     point = actor_world_position(*target.actor); // 0x000412A0, ESI the target, EDI the point
     point.y = point.y + half;
     rise = half;
-    if (context.tunables.word(0x0042759C) == 0)
+    if (context.tunables.rig.path_holds_target_point == 0)
     {
         return 1;
     }
     if ((target.body_bits->bytes[6] & 1) == 0) // Body +0x15C bit 0x30.
     {
         const u32 none = 0;
-        std::memcpy(mind.data() + 0x9C, &none, 4);
+        camera_mind_record(mind).target_point_held = none;
         return 1;
     }
-    if (read_u32(mind, 0x9C) == 0)
+    if (camera_mind_record(mind).target_point_held == 0)
     {
-        put_mind_real(mind, 0xA0, point.x);
-        put_mind_real(mind, 0xA4, point.y);
-        put_mind_real(mind, 0xA8, point.z);
+        camera_mind_record(mind).held_target_point = point;
         const u32 held = 1;
-        std::memcpy(mind.data() + 0x9C, &held, 4);
+        camera_mind_record(mind).target_point_held = held;
         return 1;
     }
-    point = {mind_real(mind, 0xA0), mind_real(mind, 0xA4), mind_real(mind, 0xA8)};
+    point = camera_mind_record(mind).held_target_point;
     return 1;
 }
 
@@ -534,8 +526,8 @@ void camera_path_eye(const Vec3& point, const Vec3& eye, Vec3& wanted, const Run
     direction_to_yaw_pitch(eye.x - point.x, eye.y - point.y, eye.z - point.z, yaw, pitch); // 0x00105E20
     const float pitch_degrees = pitch * kDegrees;
     const float yaw_degrees = yaw * kDegrees;
-    const float low_distance = context.tunables.real(0x00427588);
-    float high_distance = context.tunables.real(0x0042758C);
+    const float low_distance = context.tunables.rig.path_low_distance;
+    float high_distance = context.tunables.rig.path_high_distance;
     if (low_distance > high_distance)
     {
         high_distance = low_distance;
@@ -549,8 +541,8 @@ void camera_path_eye(const Vec3& point, const Vec3& eye, Vec3& wanted, const Run
     {
         distance = high_distance;
     }
-    const float spread = context.tunables.real(0x00427584);
-    const float centre = context.tunables.real(0x00427580);
+    const float spread = context.tunables.rig.path_pitch_spread;
+    const float centre = context.tunables.rig.path_pitch_centre;
     const float low_pitch = 0.f - (spread + centre);
     float high_pitch = 0.f - (centre - spread);
     if (low_pitch > high_pitch)
@@ -604,14 +596,14 @@ u32 route_camera_path_eye(const Actor& camera, const RuntimeDirectorActor& targe
     {
         return 0;
     }
-    const i32 floor = i32(read_u32(target.bytes, 0xCEC));
+    const i32 floor = i32(player_record(target.bytes).floor);
     const i32 start = entity_detail::navigation_cell_index(floor, eye); // 0x00110EF0, EBX the eye
     const i32 finish = entity_detail::navigation_cell_index(floor, point); // 0x00110EF0, EBX the point
     if (start == -1 || finish == -1)
     {
         return 0;
     }
-    const bool retarget = context.tunables.word(0x00427598) == 0
+    const bool retarget = context.tunables.rig.path_keeps_route == 0
         || entity_detail::retarget_navigation_search_route(*search, start, finish) == 0; // 0x00037980
     GhoulySpawnPool* route = static_cast<GhoulySpawnPool*>(search->scratch); // Search +0x14.
     if (route != nullptr && !retarget && entity_detail::navigation_path_search_route_is_open(*search) != 0) // 0x00036E90
@@ -670,14 +662,14 @@ void place_camera_path_eye(const Actor& camera, const RuntimeDirectorActor& targ
     {
         route_camera_path_eye(camera, target, eye, point, wanted, search, context); // 0x0007ACB0
     }
-    camera_floor_height(target, wanted, point, context.tunables.real(0x004275A0)); // 0x0013D110, ECX wanted
+    camera_floor_height(target, wanted, point, context.tunables.rig.path_floor_margin); // 0x0013D110, ECX wanted
 }
 
 // Xbox 0x0007A910
 i32 update_camera_path_request(RuntimeCameraMindView& view, entity_detail::NavigationPathSearch* search,
     const RuntimeCameraRigContext& context)
 {
-    const u32 target_address = read_u32(view.mind, 0xC);
+    const u32 target_address = mind_record(view.mind).target;
     Vec3 eye = actor_world_position(view.camera); // 0x000412A0, EDI the eye
     const RuntimeDirectorActor target = target_address == 0 ? RuntimeDirectorActor{} : context.actor_at(target_address);
     Vec3 point{};
@@ -688,19 +680,17 @@ i32 update_camera_path_request(RuntimeCameraMindView& view, entity_detail::Navig
     }
     Vec3 wanted{};
     place_camera_path_eye(view.camera, target, point, eye, wanted, search, context); // 0x0007AE70
-    put_mind_real(view.mind, 0x70, wanted.x);
-    put_mind_real(view.mind, 0x74, wanted.y);
-    put_mind_real(view.mind, 0x78, wanted.z);
+    mind_record(view.mind).goal_point = wanted;
     Vec3 aim{};
-    aim_camera_offset(aim, eye, wanted, target_address, context.tunables.real(0x00427590), 0.f,
-        context.tunables.real(0x00427594), context); // 0x0013CE80, ECX the eye, EAX wanted, EDX the target
-    put_mind_real(view.body, 0x318, aim.x);
-    put_mind_real(view.body, 0x31C, aim.y);
-    put_mind_real(view.body, 0x320, aim.z);
-    put_mind_real(view.body, 0x2FC, point.x);
-    put_mind_real(view.body, 0x300, point.y);
-    put_mind_real(view.body, 0x304, point.z);
-    view.body[0x308] = 1;
+    aim_camera_offset(aim, eye, wanted, target_address, context.tunables.rig.path_aim_range, 0.f,
+        context.tunables.rig.path_aim_far, context); // 0x0013CE80, ECX the eye, EAX wanted, EDX the target
+   body_record(view.body).velocity.x = aim.x;
+   body_record(view.body).velocity.y = aim.y;
+   body_record(view.body).velocity.z = aim.z;
+   body_record(view.body).look_point.x = point.x;
+   body_record(view.body).look_point.y = point.y;
+   body_record(view.body).look_point.z = point.z;
+    body_record(view.body).look_point_set = 1;
     return 0;
 }
 
@@ -741,7 +731,7 @@ i32 initialize_camera_mind_request(RuntimePlayerMindRequest& request, RuntimeCam
     if (kind == 1 || kind == 0x12)
     {
         key = 0x19;
-        if (read_u16(context.view.body, 0x748) == key)
+        if (body_record(context.view.body).action_key == key)
         {
             return 1;
         }

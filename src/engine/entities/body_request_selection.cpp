@@ -1,4 +1,9 @@
 #include "body_request_selection.h"
+#include <cstddef>
+#include "weapon_fields.h"
+#include "player_mind_control.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
 #include "shape_copy.h"
@@ -6,6 +11,8 @@
 #include "player_mind_target_control.h"
 #include "player_strategy_goals.h"
 #include "../audio/listener_settings.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -36,39 +43,40 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
     auto body = context.body.body;
     std::array<float, 2> axes;
     runtime_input_secondary_axes(context.input, axes, context.input_state);
-    const bool active = read_u16(body, 0x94) != 0 && !(read_f32(mind, 0x15C) > 0.f);
+    const bool active = body_record(body).energy != 0 && !(player_mind_record(mind).control_lock > 0.f);
     auto* attached = context.body.actions.attached;
-    update_runtime_player_input_direction(mind.subspan(0x94), axes,
-        runtime_frame_step(control.clock), attached != nullptr && attached->bytes[0x93D] == 4);
+    update_runtime_player_input_direction(retail_bytes(player_mind_record(mind).stick), axes,
+        runtime_frame_step(control.clock), attached != nullptr && weapon_base(attached->bytes).unk_93D == 4);
     if (active)
     {
-        u32 enabled = ((read_f32(mind, 0x9C) > 0.f || read_u32(mind, 0x94) != 0)
-            && read_f32(mind, 0xA0) == 0.f) ? 1 : 0;
+        const auto stick = retail_bytes(player_mind_record(mind).stick);
+        u32 enabled = ((stick_record(stick).press_timer > 0.f || stick_record(stick).pressed != 0)
+            && stick_record(stick).unk_0C == 0.f) ? 1 : 0;
         attached = context.body.actions.attached;
-        if (attached != nullptr && attached->bytes[0x93D] == 4)
+        if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 4)
         {
-            const i32 mode = std::bit_cast<i32>(read_u32(mind, 0xB0));
+            const i32 mode = std::bit_cast<i32>(stick_record(stick).gesture);
             enabled = mode >= 2 && mode <= 3 ? 1 : 0;
         }
-        update_runtime_player_target_control(control, enabled, read_f32(mind, 0xA4));
+        update_runtime_player_target_control(control, enabled, stick_record(stick).direction);
         u32 target = 0;
         auto& events = control.proposal.events;
         for (LiveScript* event = events.anchor.next; event != nullptr; event = event->next)
         {
             if (u16(event->type) == 3)
             {
-                target = read_u32(static_cast<RuntimeMindEvent*>(event)->bytes, 0x20);
+                target = mind_subject_event(static_cast<RuntimeMindEvent*>(event)->bytes).subject;
                 break;
             }
         }
         const Actor* focus = control.focus.target;
         if (target == 0 || enabled == 0)
         {
-            write_u32(mind, 0xB4, 0);
+            player_mind_record(mind).attachment_noticed = 0;
         }
         else
         {
-            if (body[0x6A] != 0)
+            if (body_record(body).unk_6A != 0)
             {
                 set_runtime_mind_alert_event(events, target);
                 if ((context.flags.bytes[5] & 0x80) != 0)
@@ -77,7 +85,7 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
                 }
             }
             attached = context.body.actions.attached;
-            const i32 mode = attached == nullptr ? 0 : attached->bytes[0x93D];
+            const i32 mode = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
             auto& binding = context.binding(target);
             update_runtime_player_target_action(binding.requests, mode, focus,
                 binding.target_body, context.attachment_notice);
@@ -85,25 +93,25 @@ void update_runtime_player_mind_action_control(RuntimePlayerMindActionControl& c
     }
     else
     {
-        write_u32(mind, 0xB4, 0);
+        player_mind_record(mind).attachment_noticed = 0;
     }
     const float step = runtime_frame_step(control.clock);
-    const float timer = read_f32(mind, 0x8C);
+    const float timer = player_mind_record(mind).target_timer;
     if (timer > 0.f)
     {
         const float remaining = timer - step;
-        write_u32(mind, 0x8C, std::bit_cast<u32>(remaining));
+        player_mind_record(mind).target_timer = remaining;
         if (0.f >= remaining)
         {
-            write_u32(mind, 0x8C, 0);
-            write_u32(mind, 0x8C, 0);
-            mind[0x90] = 0;
+            player_mind_record(mind).target_timer = 0.f;
+            player_mind_record(mind).target_timer = 0.f;
+            player_mind_record(mind).target_count = 0;
         }
     }
-    if (body[0x6A] == 0)
+    if (body_record(body).unk_6A == 0)
     {
-        write_u32(mind, 0x14, 0);
-        write_u32(mind, 0x10, 0);
+        mind_record(mind).action_record = 0;
+        mind_record(mind).target_record = 0;
     }
 }
 
@@ -122,17 +130,17 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
             selection.actor, selection.target, target_body, focus);
     }
     const u32 target = selection.target.address;
-    const bool changed = target != read_u32(mind, 0x88);
+    const bool changed = target != player_mind_record(mind).target;
     u32 previous;
     if (changed)
     {
-        previous = read_u32(body, 0x88);
-        write_u32(body, 0x88, 0);
+        previous = body_record(body).unk_88;
+        body_record(body).unk_88 = 0;
     }
     if (target != 0)
     {
         auto* event = allocate_runtime_mind_event(events, 3, .5f);
-        write_u32(event->bytes, 0x20, target);
+        mind_subject_event(event->bytes).subject = target;
     }
     else
     {
@@ -147,28 +155,28 @@ void update_runtime_player_target_action(RuntimeMindChainRequestSelection& conte
     }
     const auto* attached = selection.requests.actions.attached;
     u32 flags = 0x1E;
-    if (attached != nullptr && attached->bytes[0x93D] == 4)
+    if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 4)
     {
-        flags = read_u32(mind, 0xB0) == 3 ? 0x36 : 0x1E;
+        flags = player_mind_record(mind).stick.gesture == 3 ? 0x36 : 0x1E;
     }
     if (dispatch_runtime_mind_target_request(context, direction, flags) == 2)
     {
-        write_u32(mind, 0x9C, 0);
-        write_u32(mind, 0x88, target);
-        ++mind[0x90];
+        player_mind_record(mind).stick.press_timer = 0.f;
+        player_mind_record(mind).target = target;
+        ++player_mind_record(mind).target_count;
         return;
     }
     if (changed)
     {
-        write_u32(body, 0x88, previous);
+        body_record(body).unk_88 = previous;
     }
     attached = selection.requests.actions.attached;
-    if (attached != nullptr && attached->bytes[0x93D] == 4
-        && i32(read_u32(mind, 0xB0)) >= 2 && read_u32(mind, 0xB0) == 3
-        && attached->bytes[0x93C] == 0 && read_u32(mind, 0xB4) == 0)
+    if (attached != nullptr && weapon_base(attached->bytes).unk_93D == 4
+        && i32(player_mind_record(mind).stick.gesture) >= 2 && player_mind_record(mind).stick.gesture == 3
+        && weapon_base(attached->bytes).mask == 0 && player_mind_record(mind).attachment_noticed == 0)
     {
         attachment_notice = 1;
-        write_u32(mind, 0xB4, 1);
+        player_mind_record(mind).attachment_noticed = 1;
     }
 }
 
@@ -178,7 +186,7 @@ u8 dispatch_runtime_mind_target_request(RuntimeMindChainRequestSelection& contex
 {
     auto& mind = context.mind;
     const auto* attached = mind.selection.requests.actions.attached;
-    const u8 kind = attached == nullptr ? 0 : attached->bytes[0x93D];
+    const u8 kind = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
     u8 result = 0;
     switch (kind)
     {
@@ -232,7 +240,7 @@ u8 request_runtime_mind_chain_target(RuntimeMindChainRequestSelection& context,
     auto& mind = context.mind;
     auto& selection = mind.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, mind.flags,
-        read_u16(mind.owner, 0xCDE)))
+        player_record(mind.owner).owner_class))
     {
         return 1;
     }
@@ -242,7 +250,7 @@ u8 request_runtime_mind_chain_target(RuntimeMindChainRequestSelection& context,
     if (row != nullptr)
     {
         set_runtime_mind_target(mind.events, selection.target.address);
-        write_u32(mind.events.mind, 0x14, selection.target.address);
+        mind_record(mind.events.mind).action_record = selection.target.address;
         accept_runtime_attachment_request(selection.requests, row, sequence);
     }
     return row != nullptr ? 2 : 0;
@@ -267,7 +275,7 @@ const u8* select_runtime_body_chain_target_request(RuntimeMindChainRequestSelect
     const u8 height_mask = u8(1u << (runtime_body_target_height(selection.requests.body,
         selection.body.body_actor, selection.target.bytes, shape.data()) & 31));
     u32 length;
-    if (selection.target.bytes[0x14] == 0)
+    if (mind_target_record(selection.target.bytes).kind == 0)
     {
         if ((selection.target.body.bits->bytes[3] & 2) == 0)
         {
@@ -280,11 +288,11 @@ const u8* select_runtime_body_chain_target_request(RuntimeMindChainRequestSelect
     }
     else
     {
-        length = selection.target.bytes[0x14] == 3 ? 3 : 0;
+        length = mind_target_record(selection.target.bytes).kind == 3 ? 3 : 0;
     }
     const u8* selected = nullptr;
     u32 address = 0;
-    const u32 previous = read_u32(selection.requests.body, 0x88);
+    const u32 previous = body_record(selection.requests.body).unk_88;
     if (previous != 0)
     {
         address = resume_runtime_attachment_chain(context.chains, previous, shape.data(),
@@ -458,7 +466,7 @@ i32 runtime_body_target_chain_length(const RuntimeBodyChainLength& context)
         return 0;
     }
     float value = context.upper;
-    const u16 classification = read_u16(context.owner, 0xCF4);
+    const u16 classification = player_record(context.owner).damage_class;
     if (classification != 0 && context.maximum != context.minimum)
     {
         value = ((float(context.class_table[u32(classification) * 0x87 - 0x38])
@@ -492,7 +500,7 @@ i32 runtime_body_target_chain_length(const RuntimeBodyChainLength& context)
     {
         return 1;
     }
-    const float scale = read_f32(context.body, 0x16C);
+    const float scale = body_record(context.body).stagger;
     if (context.model_state[0x1A4] != 0 && scale == 0.f
         && (context.flags.bytes[3] & 2) == 0)
     {
@@ -528,7 +536,7 @@ u8 request_runtime_mind_second_target(RuntimeMindTargetRequestSelection& context
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        read_u16(context.owner, 0xCDE)))
+        player_record(context.owner).owner_class))
     {
         return 1;
     }
@@ -536,7 +544,7 @@ u8 request_runtime_mind_second_target(RuntimeMindTargetRequestSelection& context
     if (row != nullptr)
     {
         set_runtime_mind_target(context.events, selection.target.address);
-        write_u32(context.events.mind, 0x14, selection.target.address);
+        mind_record(context.events.mind).action_record = selection.target.address;
         accept_runtime_attachment_request(selection.requests, row, 0);
     }
     return row != nullptr ? 2 : 0;
@@ -547,7 +555,7 @@ u8 request_runtime_mind_pair_target(RuntimeMindTargetRequestSelection& context, 
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        read_u16(context.owner, 0xCDE)))
+        player_record(context.owner).owner_class))
     {
         return 1;
     }
@@ -555,7 +563,7 @@ u8 request_runtime_mind_pair_target(RuntimeMindTargetRequestSelection& context, 
     if (row != nullptr)
     {
         set_runtime_mind_target(context.events, selection.target.address);
-        write_u32(context.events.mind, 0x14, selection.target.address);
+        mind_record(context.events.mind).action_record = selection.target.address;
         accept_runtime_attachment_request(selection.requests, row, 0);
     }
     return row != nullptr ? 2 : 0;
@@ -566,7 +574,7 @@ u8 request_runtime_mind_category_target(RuntimeMindTargetRequestSelection& conte
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        read_u16(context.owner, 0xCDE)))
+        player_record(context.owner).owner_class))
     {
         return 1;
     }
@@ -574,7 +582,7 @@ u8 request_runtime_mind_category_target(RuntimeMindTargetRequestSelection& conte
     if (row != nullptr)
     {
         set_runtime_mind_target(context.events, selection.target.address);
-        write_u32(context.events.mind, 0x14, selection.target.address);
+        mind_record(context.events.mind).action_record = selection.target.address;
         accept_runtime_attachment_request(selection.requests, row, 0);
     }
     return row != nullptr ? 2 : 0;
@@ -585,7 +593,7 @@ u8 request_runtime_mind_special_target(RuntimeMindTargetRequestSelection& contex
 {
     auto& selection = context.selection;
     if (!runtime_body_accepts_target_request(selection.requests.body, context.flags,
-        read_u16(context.owner, 0xCDE)))
+        player_record(context.owner).owner_class))
     {
         return 1;
     }
@@ -593,7 +601,7 @@ u8 request_runtime_mind_special_target(RuntimeMindTargetRequestSelection& contex
     if (row != nullptr)
     {
         set_runtime_mind_target(context.events, selection.target.address);
-        write_u32(context.events.mind, 0x14, selection.target.address);
+        mind_record(context.events.mind).action_record = selection.target.address;
         accept_runtime_attachment_request(selection.requests, row, 0);
     }
     return row != nullptr ? 2 : 0;
@@ -773,11 +781,11 @@ const u8* select_runtime_attachment_second_target_row(RuntimeAttachmentTargetSel
             if (runtime_attachment_target_row_matches(context.requests.body, context.body.body_actor,
                 row, context.target.bytes, shape, direction, height_mask))
             {
-                if ((read_u32(row, 0x20) & 4) != 0)
+                if ((get(row, target_request_row::flags) & 4) != 0)
                 {
                     ++close;
                 }
-                if ((read_u32(row, 0x20) & 0x10) != 0)
+                if ((get(row, target_request_row::flags) & 0x10) != 0)
                 {
                     ++optional;
                 }
@@ -829,14 +837,14 @@ const u8* select_runtime_attachment_pair_target_row(RuntimeAttachmentTargetSelec
     const auto* attached = context.requests.actions.attached;
     const u32 classification = attached == nullptr ? 0
         : classify_runtime_attached_actor(attached->bytes, context.requests.owner_class);
-    const u16 category = attached == nullptr ? 0 : attached->bytes[0x93D];
+    const u16 category = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
     std::memset(context.bits.bytes.data(), 0, context.bits.bytes.size());
     const auto& rows = tables->pair;
     u32 optional = 0, accepted = 0;
     for (u32 index = 0; index < rows.count; ++index)
     {
         const std::span<const u8> row{rows.rows + index * 0x28, 0x28};
-        if (read_u16(row, 0x24) == classification && read_u16(row, 0x26) == category
+        if (get(row, pair_target_row::classification) == classification && get(row, pair_target_row::category) == category
             && runtime_attachment_target_row_matches(context.requests.body, context.body.body_actor,
                 row, context.target.bytes, shape, direction, height_mask))
         {
@@ -883,7 +891,7 @@ const u8* select_runtime_attachment_category_target_row(RuntimeAttachmentTargetS
         u32 classification = 0;
         if (attached != nullptr)
         {
-            const i16 count = i16(read_u16(attached->bytes, 0x944));
+            const i16 count = i16(weapon_base(attached->bytes).accepted_class_count);
             i32 entry = 0;
             for (; entry < count; ++entry)
             {
@@ -896,13 +904,13 @@ const u8* select_runtime_attachment_category_target_row(RuntimeAttachmentTargetS
             }
             if (entry >= count && count != 0)
             {
-                classification = read_u16(attached->bytes, 0x94C);
+                classification = read_u16(attached->bytes, offsetof(WeaponBase, accepted_classes) + 4);
             }
         }
-        const u32 category = attached == nullptr ? 0 : attached->bytes[0x93D];
+        const u32 category = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
         const std::span<const u8> row{rows.rows + index * 0x2C, 0x2C};
-        if ((read_u32(row, 0x24) == 0 || read_u32(row, 0x24) == classification)
-            && read_u32(row, 0x28) == category
+        if ((get(row, category_target_row::classification) == 0 || get(row, category_target_row::classification) == classification)
+            && get(row, category_target_row::category) == category
             && runtime_attachment_target_row_matches(context.requests.body, context.body.body_actor,
                 row, context.target.bytes, shape, direction, height_mask))
         {
@@ -920,7 +928,7 @@ const u8* select_runtime_attachment_category_target_row(RuntimeAttachmentTargetS
 const u8* select_runtime_attachment_special_target_row(RuntimeAttachmentTargetSelection& context,
     u32 direction, u8 height_mask)
 {
-    if (context.requests.actions.attached->bytes[0x93C] != 0)
+    if (weapon_base(context.requests.actions.attached->bytes).mask != 0)
     {
         std::memset(context.bits.bytes.data(), 0, context.bits.bytes.size());
         const auto& rows = context.requests.tables->special;
@@ -955,7 +963,8 @@ bool runtime_attachment_target_row_matches(std::span<const u8> body, const Actor
     {
         return false;
     }
-    if (row[8] != 0 && body[0x2D0] != 0 && body[0x2D0] == row[8] && body[0x2D2] != 0)
+    if (row[8] != 0 && body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == row[8]
+        && body_record(body).unk_2D2 != 0)
     {
         return false;
     }
@@ -963,29 +972,29 @@ bool runtime_attachment_target_row_matches(std::span<const u8> body, const Actor
     {
         return false;
     }
-    if (read_f32(row, 0xC) != 0.f)
+    if (get(row, target_request_row::reach) != 0.f)
     {
         const Vec3 position = actor_world_position(actor);
-        const float radius = actor.radius_xz * read_f32(row, 0xC) + read_f32(target, 0x38);
-        const float dz = read_f32(target, 0x28) - position.z;
-        const float dx = read_f32(target, 0x20) - position.x;
+        const float radius = actor.radius_xz * get(row, target_request_row::reach) + mind_target_record(target).shape.radius;
+        const float dz = mind_target_record(target).shape.position.z - position.z;
+        const float dx = mind_target_record(target).shape.position.x - position.x;
         if (dz * dz + dx * dx > radius * radius)
         {
             return false;
         }
     }
-    if (shape != nullptr && (read_u16(row, 0x10) != 0 || read_u16(row, 0x12) != 0))
+    if (shape != nullptr && (get(row, target_request_row::low) != 0 || get(row, target_request_row::high) != 0))
     {
         const Vec3 position = actor_world_position(actor);
-        const std::span<const u8> shape_bytes{shape, 0x20};
-        const float top = float(i16(read_u16(row, 0x12))) * actor.radius_xz + position.y;
-        const float shape_bottom = read_f32(shape_bytes, 8);
+        const MindTargetShape& shape_record = mind_target_shape(std::span<const u8>(shape, 0x20));
+        const float top = float(get(row, target_request_row::high)) * actor.radius_xz + position.y;
+        const float shape_bottom = shape_record.position.y;
         if (shape_bottom > top)
         {
             return false;
         }
-        const float shape_top = read_f32(shape_bytes, 0x14) + shape_bottom;
-        const float bottom = float(i16(read_u16(row, 0x10))) * actor.radius_xz + position.y;
+        const float shape_top = shape_record.height + shape_bottom;
+        const float bottom = float(get(row, target_request_row::low)) * actor.radius_xz + position.y;
         if (bottom > shape_top)
         {
             return false;
@@ -1029,14 +1038,14 @@ u8 runtime_body_model_target_flag(const u8* state)
 // Xbox 0x001415D0
 bool runtime_mind_target_uses_point_shape(const RuntimeMindTarget& target, const u8* model_state)
 {
-    if (target.bytes[0x14] == 0)
+    if (mind_target_record(target.bytes).kind == 0)
     {
         const auto* flags = target.body.bits->bytes;
         if ((flags[4] & 0x10) != 0)
         {
             return true;
         }
-        if (read_u16(target.actor_bytes, 0xCDE) == 0 && (flags[2] & 2) != 0)
+        if (player_record(target.actor_bytes).owner_class == 0 && (flags[2] & 2) != 0)
         {
             if ((flags[5] & 2) == 0)
             {
@@ -1045,7 +1054,7 @@ bool runtime_mind_target_uses_point_shape(const RuntimeMindTarget& target, const
             if (runtime_body_model_target_flag(model_state) != 0)
             {
                 const Vec3 position = actor_world_position(target.actor);
-                if (read_f32(target.bytes, 0x24) > read_f32(target.bytes, 0x30) * .25f + position.y)
+                if (mind_target_record(target.bytes).shape.position.y > mind_target_record(target.bytes).shape.height * .25f + position.y)
                 {
                     return true;
                 }
@@ -1060,12 +1069,12 @@ float runtime_body_target_surface_distance(const Actor& actor,
     const RuntimePlayerAttachmentEligibility& body, std::span<const u8> target)
 {
     const Vec3 position = actor_world_position(actor);
-    const long double dx = static_cast<long double>(position.x) - read_f32(target, 0x20);
-    const long double dy = static_cast<long double>(position.y) - read_f32(target, 0x24);
-    const long double dz = static_cast<long double>(position.z) - read_f32(target, 0x28);
+    const long double dx = static_cast<long double>(position.x) - mind_target_record(target).shape.position.x;
+    const long double dy = static_cast<long double>(position.y) - mind_target_record(target).shape.position.y;
+    const long double dz = static_cast<long double>(position.z) - mind_target_record(target).shape.position.z;
     const long double distance = std::sqrt((dz * dz + dx * dx) + dy * dy);
     const long double reach = static_cast<long double>(body.body_actor.radius_xz)
-        * read_f32(body.body, 0x888) + read_f32(target, 0x38);
+        * body_record(body.body).radius_scale + mind_target_record(target).shape.radius;
     const long double gap = distance - reach;
     if (0.L >= gap)
     {

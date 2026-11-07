@@ -64,9 +64,9 @@ FactoryObject* create_runtime_marker_actor(const char* name, const Vec3& positio
     RuntimeMarkerObjects& context); // Xbox 0x001349E0, ECX fifth, EDX fourth
 void create_runtime_marker_spawn_actor(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FF4F0, kind 4
 void create_runtime_marker_template(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x001001A0, kind 6
-void build_runtime_marker_named_parameters(std::span<u8, 0x3B4> parameters, const Vec3& position,
+void build_runtime_marker_bg_break_key_parameters(std::span<u8, 0x3B4> parameters, const Vec3& position,
     const Vec3& euler, u16 id, u16 next, const char* name, const char* default_name); // Xbox 0x0006D410
-void create_runtime_marker_named(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FF830, kind 0xE
+void create_runtime_marker_bg_break_key(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FF830, kind 0xE
 void create_runtime_marker_companion(const char* name, const Vec3& position, const Vec3& euler,
     float scale, RuntimeMarkerObjects& context); // Xbox 0x00100770
 void set_runtime_marker_template_names(std::span<u8> parameters, const char* first, const char* second,
@@ -103,26 +103,27 @@ void register_runtime_marker_name(const Vec3& position, const char* name,
 void register_runtime_marker_chain_name(const u8* record, RuntimeMarkerObjects& objects,
     RuntimeMarkerAdditionalBindings& context); // Xbox 0x00100500, kind 7
 void create_runtime_marker_camera(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FF8F0, kind 0xA
-void create_runtime_marker_effect(u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFC00, kind 0xD
-void create_runtime_marker_switch(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFCD0, kind 0xF
-void create_runtime_marker_named_trigger(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFD30, kind 0x11
-void create_runtime_marker_multi_name(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x00100570, kind 0x15
+void create_runtime_marker_bg_break_setup(u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFC00, kind 0xD
+void create_runtime_marker_cutscene_setup(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFCD0, kind 0xF
+void create_runtime_marker_swap_setup(const u8* record, RuntimeMarkerObjects& context); // Xbox 0x000FFD30, kind 0x11
+void create_runtime_marker_super_scary_shock(const u8* record,
+                                             RuntimeMarkerObjects& context); // Xbox 0x00100570, kind 0x15
 void create_runtime_marker_scare(const u8* record, RuntimeMarkerObjects& objects,
     RuntimeMarkerAdditionalBindings& context); // Xbox 0x00100380, kind 0x16
 void create_runtime_marker_dropper(const u8* record, RuntimeMarkerObjects& objects,
     RuntimeMarkerAdditionalBindings& context); // Xbox 0x00100600, kind 0x17
 void attach_runtime_marker_player_shape(const u8* record,
     RuntimeMarkerPlayerShapeBindings& context); // Xbox 0x000FFA30, kind 0x19
-void build_runtime_marker_effect_parameters(std::span<u8, 0x460> parameters, const Vec3& position,
+void build_runtime_marker_bg_break_parameters(std::span<u8, 0x460> parameters, const Vec3& position,
     const Vec3& euler, u16 id, u16 next, u32 value, const char* first, const char* second, u16 key,
     std::span<const u32, 9> values, const char* default_name); // Xbox 0x0006AF70
-void build_runtime_marker_switch_parameters(std::span<u8, 0x3C4> parameters, const Vec3& position,
+void build_runtime_marker_cutscene_setup_parameters(std::span<u8, 0x3C4> parameters, const Vec3& position,
     const Vec3& euler, u16 id, u16 next, u32 value, u16 key, const char* name,
     u32 first, u32 second, const char* default_name); // Xbox 0x0006BA70
-void build_runtime_marker_named_trigger_parameters(std::span<u8, 0x4C8> parameters, const Vec3& position,
+void build_runtime_marker_swap_setup_parameters(std::span<u8, 0x4C8> parameters, const Vec3& position,
     const Vec3& euler, u16 id, u16 next, u32 value, const char* first, const char* second,
     std::span<const u32, 4> values, const char* default_name); // Xbox 0x0006C170
-void build_runtime_marker_multi_name_parameters(std::span<u8, 0x754> parameters, const Vec3& position,
+void build_runtime_marker_super_scary_shock_parameters(std::span<u8, 0x754> parameters, const Vec3& position,
     const Vec3& euler, std::span<const u32, 5> values, std::span<const char* const, 8> names,
     const char* default_name); // Xbox 0x000725E0
 struct RuntimeSceneMarkerBindings

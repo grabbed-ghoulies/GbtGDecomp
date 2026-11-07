@@ -1,4 +1,7 @@
 #include "cinema_mind_control.h"
+#include "player_fields.h"
+#include "mind_fields.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -16,7 +19,7 @@ void value(std::span<u8> bytes, size_t offset, float number)
 void refresh_runtime_cinema_mind_action_permission(std::span<u8> mind,
     std::span<const u8> actor, i32 allowed_count, std::span<const u8> allowed_rows)
 {
-    if (read_u32(actor, 0xCA0) == 0)
+    if (player_record(actor).unk_CA0 == 0)
     {
         i32 index = 0;
         if (allowed_count > 0)
@@ -31,7 +34,7 @@ void refresh_runtime_cinema_mind_action_permission(std::span<u8> mind,
             }
             while (index < allowed_count);
         }
-        value(mind, 0x6C, 0.f);
+        mind_record(mind).target_range = 0.f;
     }
 }
 
@@ -40,22 +43,22 @@ void update_runtime_cinema_mind_sound(std::span<u8> mind,
     std::span<const u8> body, std::span<const u8> resource, Actor& actor,
     const RuntimeActorClock& clock, u32& random, RuntimeActorSoundQueues& sounds)
 {
-    const i32 count = i32(read_u32(mind, 0x88));
+    const i32 count = i32(cinema_mind_record(mind).sound_count);
     if (count != 0)
     {
-        if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+        if (body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
         {
             const float step = runtime_frame_step(clock);
             const float rate = runtime_actor_rate(actor);
-            const float timer = read_f32(mind, 0x8C);
+            const float timer = cinema_mind_record(mind).sound_timer;
             if (timer > 0.f)
             {
                 const float remaining = timer - rate * step;
-                value(mind, 0x8C, remaining);
+                cinema_mind_record(mind).sound_timer = remaining;
                 // COMISS zero,remaining / JC: unordered also exits.
                 if (remaining <= 0.f)
                 {
-                    value(mind, 0x8C, 0.f);
+                    cinema_mind_record(mind).sound_timer = 0.f;
                     random = random * 0x19660Du + 0x3C6EF35Fu;
                     const float fraction = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
                     const i32 selected = i32(fraction * float(count));
@@ -65,7 +68,7 @@ void update_runtime_cinema_mind_sound(std::span<u8> mind,
                     const float maximum = read_f32(resource, 0xC);
                     random = random * 0x19660Du + 0x3C6EF35Fu;
                     const float delay = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
-                    value(mind, 0x8C, (maximum - minimum) * delay + minimum);
+                    cinema_mind_record(mind).sound_timer = (maximum - minimum) * delay + minimum;
                 }
             }
         }

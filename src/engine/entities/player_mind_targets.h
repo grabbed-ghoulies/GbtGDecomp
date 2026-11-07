@@ -1,9 +1,11 @@
 #pragma once
+#include "mind_fields.h"
 #include "player_mind_events.h"
 #include "../scripts/script_actor_query.h"
 #include "../navigation/navigation.h"
 #include "player_attachment_helpers.h"
 #include "actor_live_attachments.h"
+#include "gbtg/retail_field.h"
 
 namespace gbtg
 {
@@ -25,6 +27,8 @@ struct RuntimePlayerMindFocus
     float& retained_cone_distance; // Original 0x0007E600 caller-stack word.
 };
 Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context); // Xbox 0x0007E6B0
+// The retail target record behind RuntimeMindTarget::bytes: one actor's live attachment record (0x0012AFE0, the
+// native ActorLiveAttachment) in the target pool DAT_00545988, which minds name through +0x10 and +0x14.
 struct RuntimeMindTarget
 {
     RuntimeMindTarget* next; // Link at +8, next at +0xC; DAT_00545988 points to link.

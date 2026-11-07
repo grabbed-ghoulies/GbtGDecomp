@@ -1,4 +1,5 @@
 #include "background_update.h"
+#include "../graphics/effect_particles.h"
 #include "../graphics/point_graph_solver.h"
 #include "../graphics/d3dx_matrix.h"
 #include "../entities/euler_wrapping.h"
@@ -60,24 +61,23 @@ void update_background_animation(RuntimeBackgroundConstruction& background,
                     do
                     {
                         const i32 signed_index = i16(particle_index);
-                        const auto particle = background.lifetime.effect->bytes.subspan(
-                            size_t(0x390 + signed_index * 0x150), 0x150);
+                        const EffectParticle& particle =
+                            actor_effect_particle(*background.lifetime.effect, size_t(signed_index));
                         const u8 node = header[table + item];
-                        std::span<u8> matrix{background.matrices.allocation + size_t(node) * 0x48, 0x48};
-                        std::memcpy(matrix.data() + 4, particle.data(), 12);
+                        ActorMatrixRecord& matrix = actor_matrix_records(background.matrices)[node];
+                        matrix.translation = particle.position;
                         background.matrices.progress = 0.f;
                         background.matrices.flags = 0;
                         store_word(background.fields, 0x29C, 0);
                         store_word(background.fields, 0x2A0, 0);
-                        store_word(matrix, 0x44, 1);
-                        std::memcpy(matrix.data() + 0x10, particle.data() + 0xC, 12);
-                        Vec3 euler;
-                        std::memcpy(&euler, matrix.data() + 0x10, 12);
+                        matrix.active = 1;
+                        matrix.euler = particle.euler;
+                        Vec3 euler = matrix.euler;
                         wrap_runtime_euler_angles(euler);
-                        std::memcpy(matrix.data() + 0x10, &euler, 12);
+                        matrix.euler = euler;
                         ++item;
                         ++particle_index;
-                        store_word(matrix, 0x44, 1);
+                        matrix.active = 1;
                     }
                     while (item < header[descriptor + 0x16]);
                 }
@@ -103,28 +103,28 @@ void update_background_animation(RuntimeBackgroundConstruction& background,
         for (u32 index = 0; index < count; ++index)
         {
             auto& graph = animation.rows[index];
-            if (graph.fields[0x1D5] != 0)
+            if (graph.record().active != 0)
             {
                 const auto grid = context.resolve(read_u32(block, 0x14), 0x48);
                 step_runtime_point_graph_collision(graph, step, grid, context.resolve);
                 recover_runtime_point_graph_transform(graph);
                 const float age = runtime_actor_rate(first.actor) * runtime_frame_step(context.clock)
-                    + read_f32(graph.fields, 0x1D0);
-                store_real(graph.fields, 0x1D0, age);
+                    + graph.record().age;
+                graph.record().age = age;
                 float motion = 0.f;
-                const u32 points = read_u32(graph.fields, 0);
+                const u32 points = graph.header().points;
                 for (u32 point = 0; point < points; ++point)
                 {
-                    const auto row = graph.points.subspan(size_t(point) * 0x30, 0x30);
-                    const float z = read_f32(row, 8) - read_f32(row, 0x14);
-                    const float x = read_f32(row, 0) - read_f32(row, 0xC);
-                    const float y = read_f32(row, 4) - read_f32(row, 0x10);
+                    const PointGraphPoint& row = graph.point(point);
+                    const float z = row.position.z - row.previous.z;
+                    const float x = row.position.x - row.previous.x;
+                    const float y = row.position.y - row.previous.y;
                     motion = ((z * z + x * x) + y * y) + motion;
                 }
                 if (((points == 0 || std::bit_cast<float>(0x399D4952u) > motion) && age > 1.f)
                     || age > 4.f)
                 {
-                    graph.fields[0x1D5] = 0;
+                    graph.record().active = 0;
                 }
             }
         }
@@ -146,11 +146,11 @@ void update_background_animation(RuntimeBackgroundConstruction& background,
                     do
                     {
                         auto& graph = animation.rows[graph_index];
-                        if (graph.fields[0x1D5] != 0)
+                        if (graph.record().active != 0)
                         {
                             const float age = runtime_actor_rate(first.actor) * runtime_frame_step(context.clock)
-                                + read_f32(graph.fields, 0x1D0);
-                            store_real(graph.fields, 0x1D0, age);
+                                + graph.record().age;
+                            graph.record().age = age;
                             const auto range = context.resolve(read_u32(groups, 4) + item * 4, 4);
                             const i32 frame = _mm_cvttss_si32(_mm_set_ss(read_f32(recorded, 4) * age));
                             if (frame < i32(read_u16(range, 0)))
@@ -166,16 +166,16 @@ void update_background_animation(RuntimeBackgroundConstruction& background,
                                 RuntimeShaderMatrix matrix;
                                 compose_runtime_graphics_matrix(matrix.data(), {read_f32(recorded, 0x10),
                                     read_f32(recorded, 0x14), read_f32(recorded, 0x18)}, rotation, position);
-                                RuntimeShaderMatrix rest, result;
-                                std::memcpy(rest.data(), graph.fields.data() + 0x30, 64);
+                                const RuntimeShaderMatrix rest = graph.record().bind_matrix;
+                                RuntimeShaderMatrix result;
                                 multiply_runtime_graphics_matrices(result.data(), rest.data(), matrix.data());
-                                std::memcpy(graph.fields.data() + 0xB0, result.data(), 64);
+                                graph.record().placed_matrix = result;
                                 write_runtime_model_matrix(first.matrices.matrices.node, first.matrices.matrices.instance,
                                     i32(graph_index), result);
                             }
                             else
                             {
-                                graph.fields[0x1D5] = 0;
+                                graph.record().active = 0;
                             }
                         }
                         ++graph_index;

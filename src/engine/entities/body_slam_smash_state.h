@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "actor_factory_owner.h"
@@ -32,25 +33,26 @@ constexpr RetailField<std::array<char, 0x80>, 0x20> effect{}; // run on landing 
 constexpr u32 kSize = 0xA0;
 static_assert(retail_fits(kSize, effect));
 } // namespace slam_smash_state_parameter
-namespace slam_smash_state_field
+struct SlamSmashState
 {
-constexpr RetailField<u32, 0x18> phase{}; // 1 take-off, 2 crouch, 3 leap, 4 drop, 5 landed
-constexpr RetailField<float, 0x1C> timer{}; // the phase's time left
-// Three animation records (0x0003AAA0); set when the record was found.
-constexpr RetailField<u32, 0x20> take_off_animation{};
-constexpr RetailField<u32, 0x24> crouch_animation{};
-constexpr RetailField<u32, 0x28> drop_animation{};
-constexpr RetailField<u16, 0x2C> shape_tag{};
-constexpr RetailField<float, 0x30> shape_scale{};
-constexpr RetailField<u32, 0x34> shapes_active{}; // set while the drop's contact shapes are live
-constexpr RetailField<u32, 0x38> paused{}; // set while slot 0's animation is held (player +0x125)
-constexpr RetailField<u32, 0x3C> shape_mode{}; // 0x0001FEB0's previous mode, restored by the destructor
-constexpr RetailField<Vec3, 0x40> start{}; // the actor's world position at entry
-constexpr RetailField<Vec3, 0x4C> landing{}; // the target's position, or 40 ahead, on its floor's cell bottom
-constexpr RetailField<std::array<char, 0x80>, 0x58> effect{};
-constexpr u32 kSize = 0xD8;
-static_assert(retail_fits(kSize, effect));
-} // namespace slam_smash_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 1 take-off, 2 crouch, 3 leap, 4 drop, 5 landed
+    float timer = 0.f; // +0x1C, the phase's time left
+    // +0x20: Three animation records (0x0003AAA0); set when the record was found.
+    u32 take_off_animation = 0;
+    u32 crouch_animation = 0; // +0x24
+    u32 drop_animation = 0; // +0x28
+    u16 shape_tag = 0; // +0x2C
+    std::array<u8, 2> unk_2E{}; // +0x2E, padding
+    float shape_scale = 0.f; // +0x30
+    u32 shapes_active = 0; // +0x34, set while the drop's contact shapes are live
+    u32 paused = 0; // +0x38, set while slot 0's animation is held (player +0x125)
+    u32 shape_mode = 0; // +0x3C, 0x0001FEB0's previous mode, restored by the destructor
+    Vec3 start{}; // +0x40, the actor's world position at entry
+    Vec3 landing{}; // +0x4C, the target's position, or 40 ahead, on its floor's cell bottom
+    std::array<char, 0x80> effect{}; // +0x58
+};
+static_assert(sizeof(SlamSmashState) == 0xD8);
 struct RuntimeSlamSmashStateContext
 {
     std::span<u8> body;
@@ -73,10 +75,10 @@ struct RuntimeSlamSmashStateContext
     std::function<void(std::span<const u32>)> body_message; // The body's own vtable +0xC.
 };
 void slam_smash_state_object_sizes(ObjectSizes& output); // Xbox 0x000A03B0
-bool initialize_runtime_slam_smash_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_slam_smash_state(SlamSmashState& state, std::span<const u8> parameters,
     RuntimeSlamSmashStateContext& context); // Xbox 0x000A0430
-void destroy_runtime_slam_smash_state(std::span<u8> state, RuntimeSlamSmashStateContext& context); // Xbox 0x000A05A0
-void tick_runtime_slam_smash_state(std::span<u8> state, RuntimeSlamSmashStateContext& context); // Xbox 0x000A0630
+void destroy_runtime_slam_smash_state(SlamSmashState& state, RuntimeSlamSmashStateContext& context); // Xbox 0x000A05A0
+void tick_runtime_slam_smash_state(SlamSmashState& state, RuntimeSlamSmashStateContext& context); // Xbox 0x000A0630
 // Type 0x82 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_slam_smash_state_class(std::span<ObjectFactoryType> types,
     std::function<RuntimeSlamSmashStateContext&(u32 body_address)> context_of);

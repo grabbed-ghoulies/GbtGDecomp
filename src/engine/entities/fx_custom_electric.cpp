@@ -18,10 +18,66 @@
 
 namespace gbtg
 {
+namespace base_parameter = fx_custom_parameter;
+namespace electric_parameter = fx_electric_parameter;
+namespace solid_parameter = fx_solid_fade_in_parameter;
+namespace fade_parameter = fx_fade_parameter;
+namespace outline_parameter = fx_outline_parameter;
+
 namespace
 {
+FxCustomBase& base_of(std::span<u8> bytes)
+{
+    return fx_custom_view<FxCustomBase>(bytes);
+}
+
+const FxCustomBase& base_of(std::span<const u8> bytes)
+{
+    return fx_custom_view<FxCustomBase>(bytes);
+}
+
+FxElectricState& electric_of(std::span<u8> bytes)
+{
+    return fx_custom_view<FxElectricState>(bytes);
+}
+
+const FxElectricState& electric_of(std::span<const u8> bytes)
+{
+    return fx_custom_view<FxElectricState>(bytes);
+}
+
+FxSolidFadeInState& solid_of(std::span<u8> bytes)
+{
+    return fx_custom_view<FxSolidFadeInState>(bytes);
+}
+
+const FxSolidFadeInState& solid_of(std::span<const u8> bytes)
+{
+    return fx_custom_view<FxSolidFadeInState>(bytes);
+}
+
+FxFadeState& fade_of(std::span<u8> bytes)
+{
+    return fx_custom_view<FxFadeState>(bytes);
+}
+
+const FxFadeState& fade_of(std::span<const u8> bytes)
+{
+    return fx_custom_view<FxFadeState>(bytes);
+}
+
+FxOutlineState& outline_of(std::span<u8> bytes)
+{
+    return fx_custom_view<FxOutlineState>(bytes);
+}
+
+const FxOutlineState& outline_of(std::span<const u8> bytes)
+{
+    return fx_custom_view<FxOutlineState>(bytes);
+}
+
 // The host halves of an effect: its node on the actor's frame list, and for the electric effect the texture, the
-// {shape, frame} rows (+0xA0) and the light record (+0xA4's slot).
+// {shape, frame} rows and the light record (in its light slot).
 struct FxCustomInstance
 {
     ActorFrameAttachment node{};
@@ -62,11 +118,6 @@ void put_word(u8* bytes, size_t offset, u32 value)
     std::memcpy(bytes + offset, &value, 4);
 }
 
-void put_float(u8* bytes, size_t offset, float value)
-{
-    std::memcpy(bytes + offset, &value, 4);
-}
-
 float frame_step(const RuntimeFxCustomContext& context)
 {
     if (context.pause > 0.f)
@@ -99,37 +150,36 @@ Vec3 light_position(const Actor& actor)
 void initialize_runtime_light(u8* record)
 {
     std::memset(record, 0, 0x64);
-    record[0x64] = 0;
-    std::memset(record + 0x66, 0, 2);
-    record[0x68] = 0xFF;
-    put_word(record, 0x6C, 0);
-    put_word(record, 0x70, 0);
-    put_word(record, 0x74, 0);
-    put_word(record, 0x78, 0xFFFFFFFFu); // DAT_00314F48.
-    put_word(record, 0x7C, 0xFF000000u); // DAT_00314F4C.
-    put_word(record, 0x80, 0xFFFFFFFFu);
-    put_word(record, 0x84, 0xFFFFFFFFu);
-    std::memset(record + 0x88, 0, 0x10);
+    light_record(record).kind = 0;
+    light_record(record).set_flag_bits(0);
+    light_record(record).joint = 0xFF;
+    light_record(record).inner_range = 0.f;
+    light_record(record).range = 0.f;
+    light_record(record).unk_74 = 0;
+    light_record(record).colour = 0xFFFFFFFFu; // DAT_00314F48.
+    light_record(record).unk_7C = 0xFF000000u; // DAT_00314F4C.
+    light_record(record).colour_low = 0xFFFFFFFFu;
+    light_record(record).colour_high = 0xFFFFFFFFu;
+    light_record(record).colour_period = 0.f;
+    light_record(record).range_low = 0.f;
+    light_record(record).range_high = 0.f;
+    light_record(record).range_period = 0.f;
 }
 
 // Xbox 0x000EC710: the base update counts the effect's seconds.
 void update_fx_custom(FxCustomInstance& instance)
 {
-    u8* bytes = instance.bytes;
-    float time;
-    std::memcpy(&time, bytes + 0x10, 4);
-    put_float(bytes, 0x10, time + frame_step(*fx_context));
+    const std::span<u8> effect{instance.bytes, sizeof(FxCustomBase)};
+    base_of(effect).elapsed = base_of(effect).elapsed + frame_step(*fx_context);
 }
 
 // Xbox 0x00076720: the light follows the actor and each spark may jump to another frame.
 void update_fx_custom_electric(FxCustomInstance& instance)
 {
     RuntimeFxCustomContext& context = *fx_context;
-    u8* bytes = instance.bytes;
-    float time;
-    std::memcpy(&time, bytes + 0x10, 4);
-    put_float(bytes, 0x10, time + frame_step(context));
-    const std::int8_t slot = std::int8_t(bytes[0xA4]);
+    const std::span<u8> effect{instance.bytes, sizeof(FxElectricState)};
+    base_of(effect).elapsed = base_of(effect).elapsed + frame_step(context);
+    const std::int8_t slot = electric_of(effect).light_slot;
     if (slot != -1)
     {
         move_runtime_light(slot, light_position(*instance.actor), context.lights); // 0x000FE0F0
@@ -195,22 +245,23 @@ void draw_fx_custom_electric(FxCustomInstance& instance, Actor& actor, i32 kind)
 // Xbox 0x00078110, EAX effect: the fade starts again from its first phase with a time.
 void restart_fx_solid_fade_in(u8* bytes)
 {
-    put_float(bytes, 0x20, 0.f);
-    if (0.f < read_f32({bytes, 0x54}, 0x24))
+    const std::span<u8> effect{bytes, sizeof(FxSolidFadeInState)};
+    solid_of(effect).level = 0.f;
+    if (0.f < solid_of(effect).fade_in_time)
     {
-        put_word(bytes, 0x18, 0);
-        put_word(bytes, 0x1C, read_u32({bytes, 0x54}, 0x24));
+        solid_of(effect).phase = 0;
+        solid_of(effect).time_left = solid_of(effect).fade_in_time;
         return;
     }
-    put_float(bytes, 0x20, 1.f); // DAT_0032B0F8.
-    if (0.f < read_f32({bytes, 0x54}, 0x28))
+    solid_of(effect).level = 1.f; // DAT_0032B0F8.
+    if (0.f < solid_of(effect).hold_time)
     {
-        put_word(bytes, 0x18, 1);
-        put_word(bytes, 0x1C, read_u32({bytes, 0x54}, 0x28));
+        solid_of(effect).phase = 1;
+        solid_of(effect).time_left = solid_of(effect).hold_time;
         return;
     }
-    put_word(bytes, 0x18, 2);
-    put_word(bytes, 0x1C, read_u32({bytes, 0x54}, 0x2C));
+    solid_of(effect).phase = 2;
+    solid_of(effect).time_left = solid_of(effect).fade_out_time;
 }
 
 // Xbox 0x00077ED0: the phase's time runs down by the actor's step; the level sets the actor's tint.
@@ -218,66 +269,66 @@ void update_fx_solid_fade_in(FxCustomInstance& instance, Actor& actor)
 {
     RuntimeFxCustomContext& context = *fx_context;
     u8* bytes = instance.bytes;
-    const std::span<const u8> view{bytes, 0x54};
-    put_float(bytes, 0x10, read_f32(view, 0x10) + frame_step(context));
+    const std::span<u8> effect{bytes, sizeof(FxSolidFadeInState)};
+    base_of(effect).elapsed = base_of(effect).elapsed + frame_step(context);
     bool ended = false;
-    if (0.f < read_f32(view, 0x1C))
+    if (0.f < solid_of(effect).time_left)
     {
         const float rate = actor.animation_pause > 0.f ? 0.f : actor.animation_rate; // Actor +0x930, +0x92C.
-        if (0.f < read_f32(view, 0x1C))
+        if (0.f < solid_of(effect).time_left)
         {
-            const float left = read_f32(view, 0x1C) - rate * frame_step(context);
-            put_float(bytes, 0x1C, left);
+            const float left = solid_of(effect).time_left - rate * frame_step(context);
+            solid_of(effect).time_left = left;
             if (!(0.f < left)) // COMISS; JC keeps a positive time.
             {
-                put_float(bytes, 0x1C, 0.f);
+                solid_of(effect).time_left = 0.f;
                 ended = true;
             }
         }
     }
     bool release = false;
-    switch (read_u32(view, 0x18))
+    switch (solid_of(effect).phase)
     {
     case 0:
-        put_float(bytes, 0x20, 1.f - read_f32(view, 0x1C) / read_f32(view, 0x24)); // DAT_0032B0F8.
+        solid_of(effect).level = 1.f - solid_of(effect).time_left / solid_of(effect).fade_in_time; // DAT_0032B0F8.
         if (ended)
         {
-            if (read_f32(view, 0x28) == 0.f)
+            if (solid_of(effect).hold_time == 0.f)
             {
-                put_word(bytes, 0x18, 2);
-                put_word(bytes, 0x1C, read_u32(view, 0x2C));
+                solid_of(effect).phase = 2;
+                solid_of(effect).time_left = solid_of(effect).fade_out_time;
             }
             else
             {
-                put_word(bytes, 0x18, 1);
-                put_word(bytes, 0x1C, read_u32(view, 0x28));
+                solid_of(effect).phase = 1;
+                solid_of(effect).time_left = solid_of(effect).hold_time;
             }
         }
         break;
     case 1:
-        if (ended || read_u32(view, 0x50) != 0)
+        if (ended || solid_of(effect).hold_ended != 0)
         {
-            put_word(bytes, 0x18, 2);
-            put_word(bytes, 0x1C, read_u32(view, 0x2C));
+            solid_of(effect).phase = 2;
+            solid_of(effect).time_left = solid_of(effect).fade_out_time;
         }
         break;
     case 2:
         if (ended)
         {
-            if (read_f32(view, 0x30) <= 0.f)
+            if (solid_of(effect).wait_time <= 0.f)
             {
                 release = true;
-                put_float(bytes, 0x20, 0.f);
+                solid_of(effect).level = 0.f;
             }
             else
             {
-                put_word(bytes, 0x18, 3);
-                put_word(bytes, 0x1C, read_u32(view, 0x30));
+                solid_of(effect).phase = 3;
+                solid_of(effect).time_left = solid_of(effect).wait_time;
             }
         }
         else
         {
-            put_float(bytes, 0x20, read_f32(view, 0x1C) / read_f32(view, 0x2C));
+            solid_of(effect).level = solid_of(effect).time_left / solid_of(effect).fade_out_time;
         }
         break;
     case 3:
@@ -291,7 +342,8 @@ void update_fx_solid_fade_in(FxCustomInstance& instance, Actor& actor)
     }
     RuntimeActorStartupState& state = context.startup_of(actor);
     u32 color = 0xFFFFFFFFu; // DAT_00314F48.
-    const i32 level = _mm_cvttss_si32(_mm_set_ss(read_f32(view, 0x38) * read_f32(view, 0x20) * 255.f)); // DAT_0032B158.
+    const i32 level =
+        _mm_cvttss_si32(_mm_set_ss(solid_of(effect).strength * solid_of(effect).level * 255.f)); // DAT_0032B158.
     if (level == 0)
     {
         state.flags[0] = 0; // Actor +0x19C..+0x19E.
@@ -303,7 +355,7 @@ void update_fx_solid_fade_in(FxCustomInstance& instance, Actor& actor)
         state.flags[0] = u8(level);
         state.flags[1] = u8(level);
         state.flags[2] = u8(level);
-        color = read_u32(view, 0x34);
+        color = solid_of(effect).colour;
     }
     state.color = color; // Actor +0x198.
     if (release)
@@ -330,7 +382,7 @@ float actor_step(const Actor& actor)
     return rate * frame_step(*fx_context);
 }
 
-// The outline's level (+0xBC) as a phase runs: from 0.01 up to 1 over the fade-in, 1 down to 0.01 over the fade-out.
+// The outline's level as a phase runs: from 0.01 up to 1 over the fade-in, 1 down to 0.01 over the fade-out.
 float outline_level(float time, float length, bool rising)
 {
     if (length == 0.f) // UCOMISS DAT_0032B100.
@@ -360,41 +412,41 @@ void update_fx_custom_outline(FxCustomInstance& instance, Actor& actor)
 {
     RuntimeFxCustomContext& context = *fx_context;
     u8* bytes = instance.bytes;
-    const std::span<const u8> view{bytes, 0xD0};
-    put_float(bytes, 0x10, read_f32(view, 0x10) + frame_step(context));
-    const std::int8_t slot = std::int8_t(bytes[0xCC]);
+    const std::span<u8> effect{bytes, sizeof(FxOutlineState)};
+    base_of(effect).elapsed = base_of(effect).elapsed + frame_step(context);
+    const std::int8_t slot = outline_of(effect).light_slot;
     if (slot != -1)
     {
-        const float reach = runtime_actor_view_radius(actor, context.actor_bytes(actor)) * read_f32(view, 0xBC)
+        const float reach = runtime_actor_view_radius(actor, context.actor_bytes(actor)) * outline_of(effect).level
             * 2.f; // 0x0003D860, DAT_0032B110
         move_runtime_light(slot, light_position(actor), context.lights); // 0x000FE0F0
         u8* record = context.lights.records.at(size_t(slot));
-        put_float(record, 0x6C, reach);
-        record[0x66] |= 1;
-        put_float(record, 0x70, reach * 2.f);
-        record[0x66] |= 1;
+        light_record(record).inner_range = reach;
+        light_record(record).flags |= 1;
+        light_record(record).range = reach * 2.f;
+        light_record(record).flags |= 1;
     }
     const float step = actor_step(actor);
-    const float time = read_f32(view, 0x10);
+    const float time = base_of(effect).elapsed;
     for (auto& row : instance.sparks)
     {
         row.time += step;
         row.frame = sprite_frame(instance.texture, static_cast<long double>(row.time) + time);
     }
-    const float left = read_f32(view, 0x20);
-    switch (read_u32(view, 0x18))
+    const float left = outline_of(effect).time_left;
+    switch (outline_of(effect).phase)
     {
     case 1:
-        put_float(bytes, 0xBC, outline_level(left, read_f32(view, 0x28), true));
+        outline_of(effect).level = outline_level(left, outline_of(effect).fade_in_time, true);
         if (0.f < left)
         {
             const float next = left - actor_step(actor);
-            put_float(bytes, 0x20, next);
+            outline_of(effect).time_left = next;
             if (!(0.f < next)) // COMISS; JC keeps a positive time.
             {
-                put_float(bytes, 0x20, 0.f);
-                put_word(bytes, 0x18, 2);
-                put_word(bytes, 0x20, read_u32(view, 0x24));
+                outline_of(effect).time_left = 0.f;
+                outline_of(effect).phase = 2;
+                outline_of(effect).time_left = outline_of(effect).hold_time;
             }
         }
         return;
@@ -404,35 +456,35 @@ void update_fx_custom_outline(FxCustomInstance& instance, Actor& actor)
         if (0.f < left)
         {
             const float next = left - actor_step(actor);
-            put_float(bytes, 0x20, next);
+            outline_of(effect).time_left = next;
             if (!(0.f < next))
             {
-                put_float(bytes, 0x20, 0.f);
+                outline_of(effect).time_left = 0.f;
                 ended = true;
             }
         }
-        if (!ended && read_u32(view, 0x1C) == 0)
+        if (!ended && outline_of(effect).hold_ended == 0)
         {
             return;
         }
-        if (0.f < read_f32(view, 0x2C))
+        if (0.f < outline_of(effect).fade_out_time)
         {
-            put_word(bytes, 0x18, 3);
-            put_word(bytes, 0x20, read_u32(view, 0x2C));
+            outline_of(effect).phase = 3;
+            outline_of(effect).time_left = outline_of(effect).fade_out_time;
             return;
         }
         context.release_frame_object(actor, context.address_of(bytes)); // 0x0003DE30, ESI effect
         return;
     }
     case 3:
-        put_float(bytes, 0xBC, outline_level(left, read_f32(view, 0x2C), false));
+        outline_of(effect).level = outline_level(left, outline_of(effect).fade_out_time, false);
         if (0.f < left)
         {
             const float next = left - actor_step(actor);
-            put_float(bytes, 0x20, next);
+            outline_of(effect).time_left = next;
             if (!(0.f < next))
             {
-                put_float(bytes, 0x20, 0.f);
+                outline_of(effect).time_left = 0.f;
                 context.release_frame_object(actor, context.address_of(bytes)); // 0x0003DE30, ESI effect
             }
         }
@@ -442,16 +494,16 @@ void update_fx_custom_outline(FxCustomInstance& instance, Actor& actor)
     }
 }
 
-// Xbox 0x00077920: each row a billboard on its shape's sphere, the radius by the level and the scale (+0xB4), in
-// the effect's colour (+0xB8), in the opaque pass.
+// Xbox 0x00077920: each row a billboard on its shape's sphere, the radius by the level and the scale, in the
+// effect's colour, in the opaque pass.
 void draw_fx_custom_outline(FxCustomInstance& instance, Actor& actor, i32 kind)
 {
     if (kind != 0 || actor.model == nullptr) // Actor +0x204.
     {
         return;
     }
-    const std::span<const u8> view{instance.bytes, 0xD0};
-    const float factor = read_f32(view, 0xBC) * read_f32(view, 0xB4);
+    const std::span<const u8> effect{instance.bytes, sizeof(FxOutlineState)};
+    const float factor = outline_of(effect).level * outline_of(effect).scale;
     BillboardFlushContext pass = fx_context->billboards();
     begin_billboard_draw(pass); // 0x0005C410
     pass.draw.d3d.simple_state(0x40354, 0x203);
@@ -474,7 +526,7 @@ void draw_fx_custom_outline(FxCustomInstance& instance, Actor& actor, i32 kind)
         set_billboard_transform(center, 0.f, pass); // 0x0005C580
         float width;
         float height;
-        bind_billboard_sprite(instance.texture.data(), row.frame, read_u32(view, 0xB8), width, height,
+        bind_billboard_sprite(instance.texture.data(), row.frame, outline_of(effect).colour, width, height,
             pass); // 0x0005C7F0
         push_billboard_quad(size.data(), width, height, pass); // 0x0005C8C0
     }
@@ -488,15 +540,15 @@ void draw_fx_custom_outline(FxCustomInstance& instance, Actor& actor, i32 kind)
 void update_fx_fade_to_grey(FxCustomInstance& instance, Actor& actor)
 {
     RuntimeFxCustomContext& context = *fx_context;
-    u8* bytes = instance.bytes;
+    const std::span<u8> effect{instance.bytes, sizeof(FxFadeState)};
     const float step = context.pause > 0.f ? 0.f : context.frame_delta * context.time_scale;
     const float rate = actor.animation_pause > 0.f ? 0.f : actor.animation_rate; // +0x930, +0x92C
     const float actor_step = rate * step;
-    put_float(bytes, 0x10, read_f32({bytes, 0x28}, 0x10) + step);
-    const float target = read_f32({bytes, 0x28}, 0x1C);
-    const float difference = target - read_f32({bytes, 0x28}, 0x18);
+    base_of(effect).elapsed = base_of(effect).elapsed + step;
+    const float target = fade_of(effect).target;
+    const float difference = target - fade_of(effect).level;
     const float distance = float(engine_absolute(difference)); // 0x00152BB0
-    const float speed = read_f32({bytes, 0x28}, 0x20);
+    const float speed = fade_of(effect).speed;
     const float delta = speed * actor_step;
     if (speed == 0.f)
     {
@@ -504,52 +556,52 @@ void update_fx_fade_to_grey(FxCustomInstance& instance, Actor& actor)
     }
     if (delta > distance)
     {
-        put_float(bytes, 0x20, 0.f);
-        put_float(bytes, 0x18, target);
+        fade_of(effect).speed = 0.f;
+        fade_of(effect).level = target;
         return;
     }
-    const float level = read_f32({bytes, 0x28}, 0x18);
-    put_float(bytes, 0x18, 0.f > difference ? level - delta : level + delta);
+    const float level = fade_of(effect).level;
+    fade_of(effect).level = 0.f > difference ? level - delta : level + delta;
 }
 
 // Xbox 0x00076CB0: the level moves toward its target as the fade-to-grey's does, the actor's alpha (+0x19B) is what
 // is left of it, and at full level the effect releases itself (0x0003DE30), first activating the actor's bind tree
-// (0x00112CC0) when +0x24 is set.
+// (0x00112CC0) when its switch is set.
 void update_fx_fade_out(FxCustomInstance& instance, Actor& actor)
 {
     RuntimeFxCustomContext& context = *fx_context;
     u8* bytes = instance.bytes;
-    const std::span<const u8> view{bytes, 0x28};
+    const std::span<u8> effect{bytes, sizeof(FxFadeState)};
     const float step = frame_step(context);
     const float rate = actor.animation_pause > 0.f ? 0.f : actor.animation_rate; // +0x930, +0x92C
     const float actor_step = rate * step;
-    put_float(bytes, 0x10, read_f32(view, 0x10) + step);
-    const float target = read_f32(view, 0x1C);
-    const float difference = target - read_f32(view, 0x18);
+    base_of(effect).elapsed = base_of(effect).elapsed + step;
+    const float target = fade_of(effect).target;
+    const float difference = target - fade_of(effect).level;
     const float distance = float(engine_absolute(difference)); // 0x00152BB0
-    const float speed = read_f32(view, 0x20);
+    const float speed = fade_of(effect).speed;
     const float delta = speed * actor_step;
     if (speed != 0.f)
     {
         if (delta > distance)
         {
-            put_float(bytes, 0x20, 0.f);
-            put_float(bytes, 0x18, target);
+            fade_of(effect).speed = 0.f;
+            fade_of(effect).level = target;
         }
         else
         {
-            const float level = read_f32(view, 0x18);
-            put_float(bytes, 0x18, 0.f > difference ? level - delta : level + delta);
+            const float level = fade_of(effect).level;
+            fade_of(effect).level = 0.f > difference ? level - delta : level + delta;
         }
     }
-    const u8 alpha = u8(truncate_runtime_float((1.L - read_f32(view, 0x18)) * 255.f)); // 0x001673D8, DAT_0032B158
+    const u8 alpha = u8(truncate_runtime_float((1.L - fade_of(effect).level) * 255.f)); // 0x001673D8, DAT_0032B158
     RuntimeActorStartupState& state = context.startup_of(actor);
     state.color = (state.color & 0x00FFFFFFu) | (u32(alpha) << 24); // Actor +0x19B.
-    if (read_f32(view, 0x18) != 1.f) // DAT_0032B0F8.
+    if (fade_of(effect).level != 1.f) // DAT_0032B0F8.
     {
         return;
     }
-    if (read_u32(view, 0x24) != 0)
+    if (fade_of(effect).fade_out_activates_binds != 0)
     {
         activate_actor_bind_tree(actor); // 0x00112CC0, ESI actor
     }
@@ -610,8 +662,8 @@ bool construct_fx_custom_view(FactoryObject& object, std::span<const u8> paramet
     FxCustomInstance& instance = *slot;
     instance.bytes = object.bytes.get();
     instance.type = object.type;
-    const u32 actor_address = read_u32(parameters, 8);
-    put_word(object.bytes.get(), 0x14, actor_address);
+    const u32 actor_address = get(parameters, base_parameter::actor);
+    base_of(std::span<u8>{object.bytes.get(), sizeof(FxCustomBase)}).actor = actor_address;
     instance.actor = context.actor_at(actor_address);
     if (instance.actor == nullptr)
     {
@@ -679,12 +731,13 @@ void collect_fx_electric_sparks(FxCustomInstance& instance, u8* bytes)
             break;
         }
     }
-    put_word(bytes, 0x9C, count);
+    electric_of(std::span<u8>{bytes, sizeof(FxElectricState)}).spark_count = count;
     if (count == 0)
     {
         return;
     }
-    put_word(bytes, 0xA0, 1); // 0x000F72D0(count * 8): the rows live on the host.
+    // 0x000F72D0(count * 8): the rows live on the host.
+    electric_of(std::span<u8>{bytes, sizeof(FxElectricState)}).sparks = 1;
     const u8 frames = instance.texture[0x11];
     for (const u8* record = block + 8; record != nullptr; record = record + record[1])
     {
@@ -708,15 +761,15 @@ void start_fx_electric_light(FxCustomInstance& instance, u8* bytes)
     instance.light = std::make_unique<std::array<u8, 0x98>>(); // 0x000F72D0(0x98)
     u8* record = instance.light->data();
     const std::int8_t slot = allocate_runtime_light(2, light_position(actor), record, context.lights); // 0x000FE080
-    record[0x66] |= 0x48;
-    put_float(record, 0x6C, reach * 2.f); // DAT_0032B110.
-    record[0x66] |= 1;
-    put_float(record, 0x70, reach * 4.f); // DAT_0032B1B0.
-    put_word(record, 0x78, 0xFFFFFF00u); // DAT_00314F40.
-    put_word(record, 0x80, 0xFFFFFF00u);
-    put_word(record, 0x84, 0xFFC0C0C0u); // DAT_00314F94.
-    put_float(record, 0x88, 2.f);
-    bytes[0xA4] = u8(slot);
+    light_record(record).flags |= 0x48;
+    light_record(record).inner_range = reach * 2.f; // DAT_0032B110.
+    light_record(record).flags |= 1;
+    light_record(record).range = reach * 4.f; // DAT_0032B1B0.
+    light_record(record).colour = 0xFFFFFF00u; // DAT_00314F40.
+    light_record(record).colour_low = 0xFFFFFF00u;
+    light_record(record).colour_high = 0xFFC0C0C0u; // DAT_00314F94.
+    light_record(record).colour_period = 2.f;
+    electric_of(std::span<u8>{bytes, sizeof(FxElectricState)}).light_slot = slot;
 }
 
 // Xbox 0x000765E0
@@ -726,7 +779,8 @@ bool construct_fx_custom_electric_view(FactoryObject& object, std::span<const u8
     FxCustomInstance& instance = instance_of(object);
     instance.type = 0x2E;
     u8* bytes = object.bytes.get();
-    const char* texture_name = reinterpret_cast<const char*>(parameters.data() + 0x8C);
+    const std::span<u8> effect{bytes, sizeof(FxElectricState)};
+    const char* texture_name = field_data(parameters, electric_parameter::texture);
     u32 prefix;
     std::memcpy(&prefix, texture_name, 4);
     if (prefix == 0x5F646961) // "aid_".
@@ -737,20 +791,20 @@ bool construct_fx_custom_electric_view(FactoryObject& object, std::span<const u8
             resource_error(context.error, 2);
         }
     }
-    put_word(bytes, 0x98, instance.texture.data() != nullptr ? 1u : 0u);
-    bytes[0xA4] = 0xFF;
+    electric_of(effect).texture_loaded = instance.texture.data() != nullptr ? 1u : 0u;
+    electric_of(effect).light_slot = -1;
     if (instance.texture.data() == nullptr)
     {
         return false;
     }
     collect_fx_electric_sparks(instance, bytes); // 0x000769D0
-    if (read_u32(bytes_of(object), 0x9C) == 0)
+    if (electric_of(effect).spark_count == 0)
     {
         return false;
     }
     start_fx_electric_light(instance, bytes); // 0x00076B00
-    const char* sound = reinterpret_cast<const char*>(parameters.data() + 0xC);
-    char* name = reinterpret_cast<char*>(bytes + 0x18);
+    const char* sound = field_data(parameters, electric_parameter::sound);
+    char* name = electric_of(effect).sound.data();
     size_t index = 0;
     do
     {
@@ -774,32 +828,32 @@ void destroy_fx_custom_electric_view(FactoryObject& object)
         return;
     }
     FxCustomInstance& instance = *found->second;
-    u8* bytes = object.bytes.get();
-    if (read_u32(bytes_of(object), 0x98) != 0)
+    const std::span<u8> effect{object.bytes.get(), sizeof(FxElectricState)};
+    if (electric_of(effect).texture_loaded != 0)
     {
         release_animation_resource(context.registry, instance.texture); // 0x00035C00
         instance.texture = {};
-        put_word(bytes, 0x98, 0);
+        electric_of(effect).texture_loaded = 0;
     }
-    if (read_u32(bytes_of(object), 0xA0) != 0)
+    if (electric_of(effect).sparks != 0)
     {
         instance.sparks.clear(); // 0x000663E0
-        put_word(bytes, 0xA0, 0);
+        electric_of(effect).sparks = 0;
     }
-    const std::int8_t slot = std::int8_t(bytes[0xA4]);
+    const std::int8_t slot = electric_of(effect).light_slot;
     if (slot != -1)
     {
         u8*& record = context.lights.records.at(size_t(slot));
         // The host keeps the record in the instance; the scene's light reset (0x000FDED0) may have emptied the slot.
-        if (record != nullptr && (record[0x66] & 0x10) == 0)
+        if (record != nullptr && (light_record(record).flags & 0x10) == 0)
         {
             instance.light.reset(); // 0x000663E0
         }
         record = nullptr;
         --context.lights.count;
-        bytes[0xA4] = 0xFF;
+        electric_of(effect).light_slot = -1;
     }
-    if (bytes[0x18] != 0)
+    if (electric_of(effect).sound.data()[0] != 0)
     {
         release_actor_sound(instance.actor->sound_slots[4], context.sounds); // 0x0012A3D0, actor +0x614
     }
@@ -807,7 +861,7 @@ void destroy_fx_custom_electric_view(FactoryObject& object)
 
 // Xbox 0x00077AD0, EAX actor, ESI effect: a {shape, random time, frame} row for each shape of the actor's kind-4
 // block that carries the first of 0x80, 0x20002 and 1 its list has (0x00077D30), is of kind 0 and passes the
-// effect's shape filter (+0xC0, -1 for any).
+// effect's shape group (-1 for any).
 void collect_fx_outline_rows(FxCustomInstance& instance, u8* bytes)
 {
     const u8* block = runtime_actor_model_block(*instance.actor, 4); // Actor +0x204's kind-4 block.
@@ -825,8 +879,8 @@ void collect_fx_outline_rows(FxCustomInstance& instance, u8* bytes)
             break;
         }
     }
-    i16 filter;
-    std::memcpy(&filter, bytes + 0xC0, 2);
+    const std::span<u8> effect{bytes, sizeof(FxOutlineState)};
+    const i16 filter = outline_of(effect).shape_group;
     const auto wanted = [mask, filter](const u8* record)
     {
         i16 group;
@@ -845,12 +899,12 @@ void collect_fx_outline_rows(FxCustomInstance& instance, u8* bytes)
             break;
         }
     }
-    put_word(bytes, 0xC4, count);
+    outline_of(effect).row_count = count;
     if (count == 0)
     {
         return;
     }
-    put_word(bytes, 0xC8, 1); // 0x000F72D0(count * 0xC): the rows live on the host.
+    outline_of(effect).rows = 1; // 0x000F72D0(count * 0xC): the rows live on the host.
     for (const u8* record = block + 8; record != nullptr; record = record + record[1])
     {
         if (wanted(record))
@@ -865,11 +919,12 @@ void collect_fx_outline_rows(FxCustomInstance& instance, u8* bytes)
     }
 }
 
-// Xbox 0x00077C70, EAX parameters, ECX actor: with +0x124 set, a kind-2 light at the actor half its height up, 20
-// across, its flags (+0x128) and colours (+0x12A, +0x12E, +0x132) from the parameters; else no light (-1).
+// Xbox 0x00077C70, EAX parameters, ECX actor: with the parameters' light switch set, a kind-2 light at the actor
+// half its height up, 20 across, its flags and its +0x78 / +0x80 / +0x84 words from the parameters; else no light
+// (-1).
 std::int8_t start_fx_outline_light(FxCustomInstance& instance, std::span<const u8> parameters)
 {
-    if (read_u32(parameters, 0x124) == 0)
+    if (get(parameters, outline_parameter::has_light) == 0)
     {
         return -1;
     }
@@ -879,18 +934,18 @@ std::int8_t start_fx_outline_light(FxCustomInstance& instance, std::span<const u
     const std::int8_t slot = allocate_runtime_light(2, light_position(*instance.actor), record,
         context.lights); // 0x000FE080
     u16 flags;
-    std::memcpy(&flags, record + 0x66, 2);
-    flags |= read_u16(parameters, 0x128);
-    std::memcpy(record + 0x66, &flags, 2);
-    put_float(record, 0x6C, 10.f); // DAT_0032B10C.
-    record[0x66] |= 1;
-    put_float(record, 0x6C, 20.f); // DAT_0032B234.
-    record[0x66] |= 1;
-    put_word(record, 0x78, read_u32(parameters, 0x12A));
-    record[0x66] |= 1;
-    put_word(record, 0x80, read_u32(parameters, 0x12E));
-    put_word(record, 0x84, read_u32(parameters, 0x132));
-    put_float(record, 0x88, 2.f); // DAT_0032B110.
+    flags = light_record(record).flag_bits();
+    flags |= get(parameters, outline_parameter::light_flags);
+    light_record(record).set_flag_bits(flags);
+    light_record(record).inner_range = 10.f; // DAT_0032B10C.
+    light_record(record).flags |= 1;
+    light_record(record).inner_range = 20.f; // DAT_0032B234.
+    light_record(record).flags |= 1;
+    light_record(record).colour = get(parameters, outline_parameter::light_78);
+    light_record(record).flags |= 1;
+    light_record(record).colour_low = get(parameters, outline_parameter::light_80);
+    light_record(record).colour_high = get(parameters, outline_parameter::light_84);
+    light_record(record).colour_period = 2.f; // DAT_0032B110.
     return slot;
 }
 
@@ -901,49 +956,50 @@ bool construct_fx_outline_view(FactoryObject& object, std::span<const u8> parame
     FxCustomInstance& instance = instance_of(object);
     instance.type = 0x31;
     u8* bytes = object.bytes.get();
-    bytes[0xCC] = 0xFF;
+    const std::span<u8> effect{bytes, sizeof(FxOutlineState)};
+    outline_of(effect).light_slot = -1;
     instance.texture = {};
-    if (read_u32(parameters, 0x8C) == 0x5F646961) // "aid_".
+    const char* texture_name = field_data(parameters, outline_parameter::texture);
+    if (read_u32(parameters, outline_parameter::texture.offset) == 0x5F646961) // "aid_".
     {
-        instance.texture = acquire_animation_resource(context.registry,
-            reinterpret_cast<const char*>(parameters.data() + 0x8C)); // 0x00035E90
+        instance.texture = acquire_animation_resource(context.registry, texture_name); // 0x00035E90
         if (instance.texture.data() == nullptr)
         {
             resource_error(context.error, 2); // 0x00032700
         }
     }
-    put_word(bytes, 0xB0, instance.texture.data() != nullptr ? 1u : 0u);
+    outline_of(effect).texture_loaded = instance.texture.data() != nullptr ? 1u : 0u;
     if (instance.texture.data() == nullptr)
     {
         return false;
     }
-    std::memcpy(bytes + 0xC0, parameters.data() + 0x120, 2);
-    put_word(bytes, 0xB4, read_u32(parameters, 0x118));
-    put_word(bytes, 0xB8, read_u32(parameters, 0x11C));
-    put_word(bytes, 0x24, read_u32(parameters, 0x110));
-    put_word(bytes, 0x28, read_u32(parameters, 0x10C));
-    put_word(bytes, 0x2C, read_u32(parameters, 0x114));
+    outline_of(effect).shape_group = get(parameters, outline_parameter::shape_group);
+    outline_of(effect).scale = get(parameters, outline_parameter::scale);
+    outline_of(effect).colour = get(parameters, outline_parameter::colour);
+    outline_of(effect).hold_time = get(parameters, outline_parameter::hold_time);
+    outline_of(effect).fade_in_time = get(parameters, outline_parameter::fade_in_time);
+    outline_of(effect).fade_out_time = get(parameters, outline_parameter::fade_out_time);
     float level = 1.f; // DAT_0032B0F8.
-    if (read_f32(parameters, 0x10C) > 0.f) // DAT_0032B100.
+    if (get(parameters, outline_parameter::fade_in_time) > 0.f) // DAT_0032B100.
     {
-        put_word(bytes, 0x18, 1);
-        put_word(bytes, 0x20, read_u32(parameters, 0x10C));
+        outline_of(effect).phase = 1;
+        outline_of(effect).time_left = get(parameters, outline_parameter::fade_in_time);
         level = 0.01f; // DAT_0032B124.
     }
     else
     {
-        put_word(bytes, 0x18, 2);
-        put_word(bytes, 0x20, read_u32(parameters, 0x110));
+        outline_of(effect).phase = 2;
+        outline_of(effect).time_left = get(parameters, outline_parameter::hold_time);
     }
-    put_float(bytes, 0xBC, level);
+    outline_of(effect).level = level;
     collect_fx_outline_rows(instance, bytes); // 0x00077AD0
-    if (read_u32(bytes_of(object), 0xC4) == 0)
+    if (outline_of(effect).row_count == 0)
     {
         return false;
     }
-    bytes[0xCC] = u8(start_fx_outline_light(instance, parameters)); // 0x00077C70
-    const char* sound = reinterpret_cast<const char*>(parameters.data() + 0xC);
-    char* name = reinterpret_cast<char*>(bytes + 0x30);
+    outline_of(effect).light_slot = start_fx_outline_light(instance, parameters); // 0x00077C70
+    const char* sound = field_data(parameters, outline_parameter::sound);
+    char* name = outline_of(effect).sound.data();
     size_t index = 0;
     do
     {
@@ -967,32 +1023,32 @@ void destroy_fx_outline_view(FactoryObject& object)
         return;
     }
     FxCustomInstance& instance = *found->second;
-    u8* bytes = object.bytes.get();
-    if (read_u32(bytes_of(object), 0xB0) != 0)
+    const std::span<u8> effect{object.bytes.get(), sizeof(FxOutlineState)};
+    if (outline_of(effect).texture_loaded != 0)
     {
         release_animation_resource(context.registry, instance.texture); // 0x00035C00
         instance.texture = {};
-        put_word(bytes, 0xB0, 0);
+        outline_of(effect).texture_loaded = 0;
     }
-    if (read_u32(bytes_of(object), 0xC8) != 0)
+    if (outline_of(effect).rows != 0)
     {
         instance.sparks.clear(); // 0x000663E0
-        put_word(bytes, 0xC8, 0);
+        outline_of(effect).rows = 0;
     }
-    const std::int8_t slot = std::int8_t(bytes[0xCC]);
+    const std::int8_t slot = outline_of(effect).light_slot;
     if (slot != -1)
     {
         u8*& record = context.lights.records.at(size_t(slot));
         // The host keeps the record in the instance; the scene's light reset (0x000FDED0) may have emptied the slot.
-        if (record != nullptr && (record[0x66] & 0x10) == 0)
+        if (record != nullptr && (light_record(record).flags & 0x10) == 0)
         {
             instance.light.reset(); // 0x000663E0
         }
         record = nullptr;
         --context.lights.count;
-        bytes[0xCC] = 0xFF;
+        outline_of(effect).light_slot = -1;
     }
-    if (bytes[0x30] != 0)
+    if (outline_of(effect).sound.data()[0] != 0)
     {
         release_actor_sound(instance.actor->sound_slots[4], context.sounds); // 0x0012A3D0, actor +0x614
     }
@@ -1025,12 +1081,13 @@ bool construct_fx_solid_fade_in_view(FactoryObject& object, std::span<const u8> 
     FxCustomInstance& instance = instance_of(object);
     instance.type = 0x32;
     u8* bytes = object.bytes.get();
-    put_word(bytes, 0x24, read_u32(parameters, 0x14));
-    put_word(bytes, 0x28, read_u32(parameters, 0x18));
-    put_word(bytes, 0x2C, read_u32(parameters, 0x1C));
-    put_word(bytes, 0x30, read_u32(parameters, 0x20));
-    put_word(bytes, 0x34, read_u32(parameters, 0xC));
-    put_word(bytes, 0x38, read_u32(parameters, 0x10));
+    const std::span<u8> effect{bytes, sizeof(FxSolidFadeInState)};
+    solid_of(effect).fade_in_time = get(parameters, solid_parameter::fade_in_time);
+    solid_of(effect).hold_time = get(parameters, solid_parameter::hold_time);
+    solid_of(effect).fade_out_time = get(parameters, solid_parameter::fade_out_time);
+    solid_of(effect).wait_time = get(parameters, solid_parameter::wait_time);
+    solid_of(effect).colour = get(parameters, solid_parameter::colour);
+    solid_of(effect).strength = get(parameters, solid_parameter::strength);
     restart_fx_solid_fade_in(bytes); // The inlined 0x00078110.
     return true;
 }
@@ -1063,16 +1120,17 @@ bool construct_fx_fade_to_grey_view(FactoryObject& object, std::span<const u8> p
     FxCustomInstance& instance = instance_of(object);
     instance.type = 0x30;
     u8* bytes = object.bytes.get();
-    const float seconds = read_f32(parameters, 0xC);
+    const std::span<u8> effect{bytes, sizeof(FxFadeState)};
+    const float seconds = get(parameters, fade_parameter::seconds);
     if (seconds > 0.f)
     {
-        put_float(bytes, 0x1C, 1.f); // DAT_0032B0F8.
-        put_float(bytes, 0x20, float(engine_absolute((1.f - read_f32({bytes, 0x28}, 0x18)) / seconds))); // 0x00152BB0
+        fade_of(effect).target = 1.f; // DAT_0032B0F8.
+        fade_of(effect).speed = float(engine_absolute((1.f - fade_of(effect).level) / seconds)); // 0x00152BB0
     }
     else
     {
-        put_float(bytes, 0x18, 1.f);
-        put_float(bytes, 0x20, 0.f);
+        fade_of(effect).level = 1.f;
+        fade_of(effect).speed = 0.f;
     }
     Actor& actor = *instance.actor; // Effect +0x14.
     const std::span<u8> actor_bytes = context.object_bytes(actor);
@@ -1080,16 +1138,17 @@ bool construct_fx_fade_to_grey_view(FactoryObject& object, std::span<const u8> p
     put_word(actor_bytes.data(), 0x1A4, 0x000771F0u);
     put_word(actor_bytes.data(), 0x1A8, context.address_of(bytes));
     instance.texture = {};
-    if (read_u32(parameters, 0x10) == 0x5F646961) // "aid_".
+    if (read_u32(parameters, fade_parameter::fade_to_grey_texture.offset) == 0x5F646961) // "aid_".
     {
         instance.texture = acquire_animation_resource(context.registry,
-            reinterpret_cast<const char*>(parameters.data() + 0x10)); // 0x00035E90
+            field_data(parameters, fade_parameter::fade_to_grey_texture)); // 0x00035E90
         if (instance.texture.data() == nullptr)
         {
             resource_error(context.error, 2); // 0x00032700
         }
     }
-    put_word(bytes, 0x24, instance.texture.data() == nullptr ? 0u : context.resource_address(instance.texture.data()));
+    fade_of(effect).fade_to_grey_texture = instance.texture.data() == nullptr ? 0u
+        : context.resource_address(instance.texture.data());
     actor_bytes[0x196] = 1;
     return true;
 }
@@ -1109,7 +1168,7 @@ void destroy_fx_fade_to_grey_view(FactoryObject& object)
     put_word(actor_bytes.data(), 0x1A4, 0);
     put_word(actor_bytes.data(), 0x1A8, 0);
     actor_bytes[0x196] = 0;
-    if (read_u32(bytes_of(object), 0x24) != 0)
+    if (fade_of(bytes_of(object)).fade_to_grey_texture != 0)
     {
         release_animation_resource(context.registry, instance.texture); // 0x00035C00, EBX texture
         instance.texture = {};
@@ -1134,18 +1193,18 @@ const ObjectFactoryVtable* fx_solid_fade_in_lifecycle()
 // Xbox 0x00076C30
 bool construct_fx_fade_out_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    u8* bytes = object.bytes.get();
-    const float seconds = read_f32(parameters, 0xC);
+    const std::span<u8> effect{object.bytes.get(), sizeof(FxFadeState)};
+    const float seconds = get(parameters, fade_parameter::seconds);
     if (0.f < seconds)
     {
-        put_float(bytes, 0x1C, 1.f); // DAT_0032B0F8.
-        put_float(bytes, 0x20, float(engine_absolute((1.f - read_f32({bytes, 0x28}, 0x18)) / seconds))); // 0x00152BB0
-        put_word(bytes, 0x24, read_u32(parameters, 0x10));
+        fade_of(effect).target = 1.f; // DAT_0032B0F8.
+        fade_of(effect).speed = float(engine_absolute((1.f - fade_of(effect).level) / seconds)); // 0x00152BB0
+        fade_of(effect).fade_out_activates_binds = get(parameters, fade_parameter::fade_out_activates_binds);
         return true;
     }
-    put_float(bytes, 0x18, 1.f);
-    put_float(bytes, 0x20, 0.f);
-    put_word(bytes, 0x24, read_u32(parameters, 0x10));
+    fade_of(effect).level = 1.f;
+    fade_of(effect).speed = 0.f;
+    fade_of(effect).fade_out_activates_binds = get(parameters, fade_parameter::fade_out_activates_binds);
     return true;
 }
 
@@ -1167,8 +1226,8 @@ const ObjectFactoryVtable* fx_fade_out_lifecycle()
 // Xbox 0x00076E60
 void fx_custom_fade_to_grey_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x28;
-    output.parameters = 0x90;
+    output.instance = sizeof(FxFadeState);
+    output.parameters = fade_parameter::kFadeToGreySize;
 }
 
 // Xbox 0x00076DF0
@@ -1182,20 +1241,19 @@ void message_fx_custom_fade_to_grey(std::span<u8> effect, std::span<const u32> m
     const float seconds = std::bit_cast<float>(message[2]);
     if (seconds > 0.f)
     {
-        put_float(effect.data(), 0x1C, level);
-        put_float(effect.data(), 0x20,
-            float(engine_absolute((level - read_f32(effect, 0x18)) / seconds))); // 0x00152BB0
+        fade_of(effect).target = level;
+        fade_of(effect).speed = float(engine_absolute((level - fade_of(effect).level) / seconds)); // 0x00152BB0
         return;
     }
-    put_float(effect.data(), 0x18, level);
-    put_float(effect.data(), 0x20, 0.f);
+    fade_of(effect).level = level;
+    fade_of(effect).speed = 0.f;
 }
 
 // Xbox 0x000772E0
 void fx_custom_outline_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0xD0;
-    output.parameters = 0x138;
+    output.instance = sizeof(FxOutlineState);
+    output.parameters = outline_parameter::kSize;
 }
 
 // Xbox 0x00077A80
@@ -1203,23 +1261,23 @@ void message_fx_custom_outline(std::span<u8> effect, std::span<const u32> messag
 {
     if (message[0] == 3)
     {
-        put_float(effect.data(), 0xBC, 1.f); // DAT_0032B0F8.
-        put_word(effect.data(), 0x18, 2);
-        put_word(effect.data(), 0x20, read_u32(effect, 0x24));
-        put_word(effect.data(), 0x1C, 0);
+        outline_of(effect).level = 1.f; // DAT_0032B0F8.
+        outline_of(effect).phase = 2;
+        outline_of(effect).time_left = outline_of(effect).hold_time;
+        outline_of(effect).hold_ended = 0;
         return;
     }
     if (message[0] == 5)
     {
-        put_word(effect.data(), 0x1C, 1);
+        outline_of(effect).hold_ended = 1;
     }
 }
 
 // Xbox 0x00077D90
 void fx_custom_solid_fade_in_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x54;
-    output.parameters = 0x24;
+    output.instance = sizeof(FxSolidFadeInState);
+    output.parameters = solid_parameter::kSize;
 }
 
 // Xbox 0x000780C0
@@ -1227,33 +1285,33 @@ void message_fx_custom_solid_fade_in(std::span<u8> effect, std::span<const u32> 
 {
     if (message[0] == 3)
     {
-        const i32 phase = i32(read_u32(effect, 0x18));
+        const i32 phase = i32(solid_of(effect).phase);
         if (0 < phase && phase < 3)
         {
-            put_word(effect.data(), 0x18, 1);
-            put_word(effect.data(), 0x1C, read_u32(effect, 0x28));
-            put_float(effect.data(), 0x20, 1.f); // DAT_0032B0F8.
-            put_word(effect.data(), 0x50, 0);
+            solid_of(effect).phase = 1;
+            solid_of(effect).time_left = solid_of(effect).hold_time;
+            solid_of(effect).level = 1.f; // DAT_0032B0F8.
+            solid_of(effect).hold_ended = 0;
         }
     }
     else if (message[0] == 5)
     {
-        put_word(effect.data(), 0x50, 1);
+        solid_of(effect).hold_ended = 1;
     }
 }
 
 // Xbox 0x00095530
 void fx_custom_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x18;
-    output.parameters = 0xC;
+    output.instance = sizeof(FxCustomBase);
+    output.parameters = base_parameter::kSize;
 }
 
 // Xbox 0x00076570
 void fx_custom_electric_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0xA8;
-    output.parameters = 0x10C;
+    output.instance = sizeof(FxElectricState);
+    output.parameters = electric_parameter::kSize;
 }
 
 // Xbox 0x000FE080, ESI position
@@ -1273,12 +1331,12 @@ std::int8_t allocate_runtime_light(u8 kind, const Vec3& position, u8* record, Ru
         throw Error("0x000FE080 stores a light record through DAT_00509B7C[-1]: all 40 slots are taken");
     }
     initialize_runtime_light(record); // 0x00051BC0
-    record[0x64] = kind;
+    light_record(record).kind = kind;
     if (kind == 2 || kind == 3)
     {
-        record[0x66] |= 0xA;
+        light_record(record).flags |= 0xA;
     }
-    std::memcpy(record + 0x40, &position, 12);
+    light_record(record).position = position;
     lights.records[size_t(slot)] = record;
     ++lights.count;
     return slot;
@@ -1292,15 +1350,15 @@ void move_runtime_light(std::int8_t slot, const Vec3& position, RuntimeShaderReg
     {
         throw Error("0x000FE0F0 moves an empty light slot");
     }
-    std::memcpy(record + 0x40, &position, 12);
-    if (record[0x64] != 2)
+    light_record(record).position = position;
+    if (light_record(record).kind != 2)
     {
         return;
     }
     const Vec3 toward{0.f - position.x, 0.f - position.y, 0.f - position.z};
     Vec3 direction;
-    runtime_direction_or_axis(toward, direction, 0x79); // 0x00106B90, EDX record +0x4C
-    std::memcpy(record + 0x4C, &direction, 12);
+    runtime_direction_or_axis(toward, direction, 0x79); // 0x00106B90, EDX the record's direction
+    light_record(record).direction = direction;
 }
 
 // Xbox 0x00056C80, EDX the list

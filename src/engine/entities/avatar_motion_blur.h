@@ -23,10 +23,9 @@ struct RuntimeAvatarActorViews
 };
 
 // entityAvatarFxMotionBlur (type 15, getter 0x00066900, vtable 0x005049A0) over the avatar actor (type 2): the
-// fading copy of a dying actor. Bytes: +0x934 the copied +0x34 scale, +0x938 the phase timer, +0x93C the fade,
-// +0x940 the light slot, +0x944 the phase, +0x948 a count from the source's +0x196, +0x94C the resource named at
-// parameter +0x338, +0x950 / +0x9D0 the names from parameters +0x3B8 / +0x438. Parameter +0x334 is the source
-// actor. +0x1A0 / +0x1A4 are the draw hooks 0x00066B90 / 0x00066C00 with +0x1A8 the avatar.
+// fading copy of a dying actor. Its bytes and parameters are `AvatarMotionBlurState` and
+// `avatar_motion_blur_parameter` (avatar_fields.h). +0x1A0 / +0x1A4 are the draw hooks 0x00066B90 / 0x00066C00 with
+// +0x1A8 the avatar.
 struct RuntimeAvatarMotionBlur
 {
     RuntimeAvatarActorViews self;
@@ -82,10 +81,8 @@ void start_runtime_avatar_effect(RuntimeAvatarMotionBlur& context, const char* n
     float scale); // Xbox 0x00066AB0
 
 // Type 16 (getter 0x000690A0, vtable 0x00504A54) over the avatar actor (type 2): a copy of an actor's look that
-// fades over its life, the swing trail 0x0013B030 leaves. Bytes: +0x934 the time left, +0x938 the life (parameter
-// +0x338), +0x93C the alpha and +0x940 its start (parameter +0x33C), +0x944..+0x94C the copy's +0x30 at the start,
-// +0x950..+0x958 the end (parameters +0x340..+0x348), +0x95C / +0x960 the effect and resource named at parameter
-// +0x350, +0x964 the glow flag (parameter +0x34C). Parameter +0x334 is the source actor.
+// fades over its life, the swing trail 0x0013B030 leaves. Its bytes and parameters are `AvatarAfterimageState` and
+// `avatar_afterimage_parameter` (avatar_fields.h).
 struct RuntimeAvatarAfterimage
 {
     RuntimeAvatarActorViews self;

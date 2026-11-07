@@ -1,4 +1,6 @@
 #include "spider_strategy.h"
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
 #include "player_mind_goals.h"
@@ -9,6 +11,8 @@
 #include "../navigation/navigation.h"
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -18,14 +22,19 @@ namespace gbtg
 {
 namespace
 {
+SpiderStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<SpiderStrategyState>(strategy);
+}
+
+const SpiderStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<SpiderStrategyState>(strategy);
+}
+
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, 12);
 }
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeSpiderStrategy& context)
@@ -69,7 +78,8 @@ RuntimeMindTarget* selected_target(RuntimeSpiderStrategy& context, bool& found)
 
 Vec3 target_point(const RuntimeMindTarget& target)
 {
-    return Vec3{read_f32(target.bytes, 0x20), read_f32(target.bytes, 0x24), read_f32(target.bytes, 0x28)};
+    return Vec3{mind_target_record(target.bytes).shape.position.x, mind_target_record(target.bytes).shape.position.y,
+        mind_target_record(target.bytes).shape.position.z};
 }
 
 // 30 units (DAT_0032B108) from the point along the heading, at its height.
@@ -96,9 +106,9 @@ void request_move(float pace, float wait, float linger, RuntimeSpiderStrategy& c
 {
     RuntimeMindGoalContext& mind = goals_of(context).entry.goals;
     RuntimePlayerMindRequest* move = allocate_runtime_mind_request(mind.anchor, 0x2D, mind.sizes); // 0x00029D90
-    put_float(move->bytes, 0x10, pace);
-    put_float(move->bytes, 0x14, 1.f); // DAT_0032B0F8.
-    put_float(move->bytes, 0x1C, 0.f);
+    set(move->bytes, position_request::speed_low, pace);
+    set(move->bytes, position_request::speed_high, 1.f); // DAT_0032B0F8.
+    set(move->bytes, position_request::approach, 0.f);
     RuntimePlayerMindRequest* hold = allocate_runtime_mind_request(mind.anchor, 0x29, mind.sizes); // 0x00029D90
     put_float(hold->bytes, 0x10, wait);
     put_float(hold->bytes, 0x14, linger);
@@ -108,12 +118,13 @@ void request_move(float pace, float wait, float linger, RuntimeSpiderStrategy& c
 // Xbox 0x00141490, EAX target
 bool runtime_mind_target_climbing(const RuntimeMindTarget& target, RuntimeSpiderStrategy& context)
 {
-    if (target.bytes[0x14] != 0)
+    if (mind_target_record(target.bytes).kind != 0)
     {
         return false;
     }
     const std::span<const u8> body = context.views.body_of(target.actor).bytes; // Target +0x10 actor's +0x95C.
-    const u8 kind = read_u16(body, 0x880) == 0 ? body[0x874] : body[0x87E];
+    const u8 kind = body_record(body).surface_override_frames == 0 ? body_record(body).surface
+                                                                        : body_record(body).surface_override;
     return kind == 0xC;
 }
 
@@ -122,12 +133,12 @@ float runtime_strategy_target_gap(const RuntimeMindTarget& target, RuntimeSpider
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
-    const long double dx = static_cast<long double>(read_f32(target.bytes, 0x20)) - position.x;
-    const long double dy = static_cast<long double>(read_f32(target.bytes, 0x24)) - position.y;
-    const long double dz = static_cast<long double>(read_f32(target.bytes, 0x28)) - position.z;
+    const long double dx = static_cast<long double>(mind_target_record(target.bytes).shape.position.x) - position.x;
+    const long double dy = static_cast<long double>(mind_target_record(target.bytes).shape.position.y) - position.y;
+    const long double dz = static_cast<long double>(mind_target_record(target.bytes).shape.position.z) - position.z;
     const long double distance = std::sqrt(dz * dz + dy * dy + dx * dx);
     const long double reach = static_cast<long double>(goals.entry.actor.radius_xz) * read_f32(body_of_actor(context),
-        0x888) + read_f32(target.bytes, 0x38);
+        0x888) + mind_target_record(target.bytes).shape.radius;
     const long double gap = distance - reach;
     return 0.0L < gap ? float(gap) : 0.f;
 }
@@ -144,7 +155,7 @@ bool approach_runtime_spider_target(const RuntimeMindTarget& target, RuntimeSpid
     float angle = std::bit_cast<float>(target.address);
     runtime_direction_angle(toward, angle); // 0x00105F90
     const float side = std::bit_cast<float>(0x3EDF66F3u); // DAT_0032B598, 25 degrees.
-    const i32 floor = target.bytes[0x19];
+    const i32 floor = mind_target_record(target.bytes).floor;
     Vec3 first_point;
     const Vec3 first_center = point_along(position, angle + side);
     const bool first = clear_point(floor, &position, first_center, 0.f, 10.f, 0x1C, first_point, context);
@@ -153,7 +164,7 @@ bool approach_runtime_spider_target(const RuntimeMindTarget& target, RuntimeSpid
     const bool second = clear_point(floor, &position, second_center, 0.f, 10.f, 0x1C, second_point, context);
     if (!first && !second)
     {
-        put_vec3(mind, 0x70, at);
+        mind_record(mind).goal_point = at;
     }
     else
     {
@@ -168,7 +179,7 @@ bool approach_runtime_spider_target(const RuntimeMindTarget& target, RuntimeSpid
         {
             chosen = second ? &second_point : &first_point;
         }
-        put_vec3(mind, 0x70, *chosen);
+        mind_record(mind).goal_point = *chosen;
     }
     request_move(1.f, 0.1f, 0.2f, context); // DAT_0032B254, DAT_0032B1AC.
     return !(30.f < runtime_strategy_target_gap(target, context)); // 0x00141650, DAT_0032B108.
@@ -180,7 +191,7 @@ void roam_runtime_spider(RuntimeSpiderStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> mind = mind_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const i32 floor = i32(read_u32(actor, 0xCEC));
+    const i32 floor = i32(player_record(actor).floor);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
     struct Candidate
     {
@@ -203,7 +214,7 @@ void roam_runtime_spider(RuntimeSpiderStrategy& context)
     if (count == 0)
     {
         const float minimum = float(static_cast<long double>(goals.entry.actor.radius_xz)
-            * read_f32(body_of_actor(context), 0x888));
+            * body_record(body_of_actor(context)).radius_scale);
         candidates[0].clear = clear_point(floor, nullptr, position, minimum, 40.f, 0xC, candidates[0].point, context);
         count = candidates[0].clear ? 1 : 0;
         if (count == 0)
@@ -229,7 +240,7 @@ void roam_runtime_spider(RuntimeSpiderStrategy& context)
         }
         ++seen;
     }
-    put_vec3(mind, 0x70, candidates[size_t(chosen)].point);
+    mind_record(mind).goal_point = candidates[size_t(chosen)].point;
     request_move(0.6f, 0.1f, 2.f, context); // DAT_0032B248, DAT_0032B254, DAT_0032B110.
 }
 
@@ -239,8 +250,8 @@ void check_runtime_spider_goal_cell(RuntimeSpiderStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> mind = mind_of(context);
     const Vec3 position = actor_world_position(goals.entry.actor); // 0x000412A0
-    const i32 floor = i32(read_u32(goals.entry.actor_bytes, 0xCEC));
-    const Vec3 goal{read_f32(mind, 0x70), read_f32(mind, 0x74), read_f32(mind, 0x78)};
+    const i32 floor = i32(player_record(goals.entry.actor_bytes).floor);
+    const Vec3 goal(mind_record(mind).goal_point);
     const i32 goal_cell = entity_detail::navigation_cell_index(floor, goal); // 0x00110EF0, EBX mind +0x70
     if (goal_cell == -1)
     {
@@ -269,7 +280,7 @@ bool runtime_spider_holds_target(const RuntimeMindTarget& target, RuntimeSpiderS
 // Xbox 0x000C1190, EAX strategy, ESI target
 bool runtime_spider_bites(const RuntimeMindTarget* target, RuntimeSpiderStrategy& context)
 {
-    if (target == nullptr || get(strategy_of(context), spider_strategy_field::web_delay) != 0.f)
+    if (target == nullptr || fields_of(strategy_of(context)).web_delay != 0.f)
     {
         return false;
     }
@@ -294,7 +305,7 @@ void choose_runtime_spider_attack(const RuntimeMindTarget& target, RuntimeSpider
 void end_runtime_spider_web(const RuntimeMindTarget& target, RuntimeSpiderStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    if (read_u16(body, 0x30) != 0 || read_f32(body, 0x34) != 0.f) // DAT_0032B100.
+    if (body_record(body).move_holds != 0 || body_record(body).move_hold_time != 0.f) // DAT_0032B100.
     {
         return;
     }
@@ -309,15 +320,15 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
-    const float delay = get(strategy, spider_strategy_field::web_delay);
+    const u16 state = strategy_base(strategy).state;
+    const float delay = fields_of(strategy).web_delay;
     if (0.f < delay)
     {
         const float left = delay - runtime_actor_rate(goals.entry.actor) * runtime_frame_step(goals.clock);
-        set(strategy, spider_strategy_field::web_delay, left);
+        fields_of(strategy).web_delay = left;
         if (left <= 0.f)
         {
-            set(strategy, spider_strategy_field::web_delay, 0.f);
+            fields_of(strategy).web_delay = 0.f;
         }
     }
     update_runtime_base_strategy(goals); // 0x0002C130
@@ -351,7 +362,7 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
         {
             return;
         }
-        if (get(strategy, spider_strategy_field::reached) == 0)
+        if (fields_of(strategy).reached == 0)
         {
             check_runtime_spider_goal_cell(context); // 0x000C0AF0
             if (requests_pending(context))
@@ -363,7 +374,7 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
                 return;
             }
             const bool reached = approach_runtime_spider_target(*target, context);
-            set(strategy, spider_strategy_field::reached, reached ? 1u : 0u);
+            fields_of(strategy).reached = reached ? 1u : 0u;
             if (reached)
             {
                 const bool climbing = target != nullptr && runtime_mind_target_climbing(*target, context);
@@ -386,13 +397,13 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
         {
             return;
         }
-        if (get(strategy, spider_strategy_field::reached) == 0)
+        if (fields_of(strategy).reached == 0)
         {
             check_runtime_spider_goal_cell(context); // 0x000C0AF0
             if (!requests_pending(context))
             {
                 const bool reached = approach_runtime_spider_target(*target, context);
-                set(strategy, spider_strategy_field::reached, reached ? 1u : 0u);
+                fields_of(strategy).reached = reached ? 1u : 0u;
                 if (reached)
                 {
                     clear_runtime_player_mind_requests(*goals.setup.mind);
@@ -461,7 +472,7 @@ void update_runtime_spider_strategy(RuntimeSpiderStrategy& context)
 void dispatch_runtime_spider_message(std::span<const u32> message, RuntimeSpiderStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 actor = read_u32(goals.entry.strategy, 8);
+    const u32 actor = strategy_base(goals.entry.strategy).actor;
     if (react_runtime_strategy_message(message, context.checks) != 0)
     {
         dispatch_runtime_base_strategy_message(message, context.base);
@@ -489,7 +500,7 @@ void dispatch_runtime_spider_message(std::span<const u32> message, RuntimeSpider
         {
             return;
         }
-        set(strategy_of(context), spider_strategy_field::web_delay, 5.f); // DAT_0032B184.
+        fields_of(strategy_of(context)).web_delay = 5.f; // DAT_0032B184.
         change_state(0x3F2, context);
         return;
     case 0x82:
@@ -511,25 +522,25 @@ void enter_runtime_spider_state(u16 state, u16 previous, RuntimeSpiderStrategy& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = body_of_actor(context);
-    const u32 target_address = read_u32(mind_of(context), 0x10);
-    body[0x328] = 2;
-    strategy[0x1A] = 0;
-    strategy[0x1B] = 0;
+    const u32 target_address = mind_record(mind_of(context)).target_record;
+    body_record(body).move_class = 2;
+    strategy_base(strategy).attacking = 0;
+    strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3EC:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         approach_runtime_spider_target(*goals.target_at(target_address), context); // 0x000C0620
         return;
     case 0x3ED:
-        body[0x328] = 4;
-        set(strategy, spider_strategy_field::reached, 0u);
-        strategy[0x1A] = 1;
+        body_record(body).move_class = 4;
+        fields_of(strategy).reached = 0u;
+        strategy_base(strategy).attacking = 1;
         return;
     case 0x3EF:
-        body[0x328] = 6;
-        set(strategy, spider_strategy_field::reached, 0u);
-        strategy[0x1B] = 1;
+        body_record(body).move_class = 6;
+        fields_of(strategy).reached = 0u;
+        strategy_base(strategy).unk_1B = 1;
         return;
     case 0x40D:
     {
@@ -556,7 +567,7 @@ void leave_runtime_spider_state(u16 state, RuntimeSpiderStrategy& context)
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy_of(context)[0x1C];
+        --strategy_base(strategy_of(context)).pause_count;
     }
 }
 }

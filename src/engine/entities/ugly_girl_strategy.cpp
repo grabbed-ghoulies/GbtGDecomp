@@ -1,4 +1,6 @@
 #include "ugly_girl_strategy.h"
+#include "body_fields.h"
+#include "strategy_fields.h"
 #include "player_mind_goals.h"
 #include "player_strategy.h"
 #include "gbtg/entity.h"
@@ -8,7 +10,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = ugly_girl_strategy_field;
+UglyGirlStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<UglyGirlStrategyState>(strategy);
+}
+
+const UglyGirlStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<UglyGirlStrategyState>(strategy);
+}
+
 namespace parameter = ugly_girl_strategy_parameter;
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeUglyGirlStrategy& context)
@@ -42,7 +53,7 @@ bool target_selected(RuntimeUglyGirlStrategy& context)
 // Xbox 0x000C1300
 void ugly_girl_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(UglyGirlStrategyState);
     output.parameters = parameter::kSize;
 }
 
@@ -50,7 +61,7 @@ void ugly_girl_strategy_object_sizes(ObjectSizes& output)
 bool initialize_runtime_ugly_girl_strategy(std::span<u8> strategy, std::span<const u8> parameters)
 {
     const auto source = record(parameters, parameter::attachment);
-    const auto target = record(strategy, field::attachment);
+    const auto target = retail_bytes(strategy_view<UglyGirlStrategyState>(strategy).attachment);
     size_t index = 0;
     do
     {
@@ -64,7 +75,7 @@ bool initialize_runtime_ugly_girl_strategy(std::span<u8> strategy, std::span<con
 void update_runtime_ugly_girl_strategy(RuntimeUglyGirlStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u16 state = get(strategy_of(context), strategy_field::state);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     if (state == 0x3EC)
     {
@@ -96,12 +107,12 @@ void enter_runtime_ugly_girl_state(u16 state, u16 previous, RuntimeUglyGirlStrat
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = goals.entry.body; // Actor +0x95C.
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     if (state == 0x3EC)
     {
         u32 token = 0;
-        const char* name = reinterpret_cast<const char*>(record(strategy, field::attachment).data());
-        if (read_u32(record(strategy, field::attachment), 0) == 0x5F646961) // "aid_"
+        const char* name = strategy_view<UglyGirlStrategyState>(strategy).attachment.data();
+        if (read_u32(retail_bytes(strategy_view<UglyGirlStrategyState>(strategy).attachment), 0) == 0x5F646961) // "aid_"
         {
             ActorAttachmentNode* node = actor_create_attachment(context.attachments, name, 0, 1); // 0x0003D1B0
             if (node != nullptr)
@@ -111,8 +122,8 @@ void enter_runtime_ugly_girl_state(u16 state, u16 previous, RuntimeUglyGirlStrat
                 token = read_u16(node->bytes, 0x18);
             }
         }
-        set(strategy, field::attachment_token, token);
-        body[0x328] = 3;
+        fields_of(strategy).attachment_token = token;
+        body_record(body).move_class = 3;
         load_runtime_mind_goal(context.goal_attack, goals.entry.goals); // 0x0002A8E0
         return;
     }
@@ -130,16 +141,16 @@ void leave_runtime_ugly_girl_state(u16 state, RuntimeUglyGirlStrategy& context)
     std::span<u8> strategy = strategy_of(context);
     if (state == 0x3EC)
     {
-        if (get(strategy, field::attachment_token) != 0)
+        if (fields_of(strategy).attachment_token != 0)
         {
-            remove_runtime_body_attachment(u16(get(strategy, field::attachment_token)), context.lists); // 0x0003CFD0
-            set(strategy, field::attachment_token, 0u);
+            remove_runtime_body_attachment(u16(fields_of(strategy).attachment_token), context.lists); // 0x0003CFD0
+            fields_of(strategy).attachment_token = 0u;
         }
         return;
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
 }
 }

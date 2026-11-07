@@ -278,45 +278,41 @@ void update_runtime_body_joint_motion(float* local, const float* parent, float* 
     u16, void* context, float elapsed)
 {
     multiply_affine_matrices(output, local, parent);
-    auto* bytes = static_cast<u8*>(context);
-    if (read_u16({bytes, 0x30}, 0) != 0)
+    auto& motion = *static_cast<RuntimeBodyJointMotion*>(context);
+    if (motion.bone != 0)
     {
         float roll, pitch, yaw;
         extract_runtime_body_angles(local, roll, pitch, yaw);
-        const auto field = [&](size_t offset) -> float&
+        if (motion.pitch_limit != -1.f)
         {
-            return *reinterpret_cast<float*>(bytes + offset);
-        };
-        if (field(0x2C) != -1.f)
-        {
-            field(0x20) = constrain_runtime_body_angle(field(0x20), 0.f - pitch, field(0x2C));
-            if (field(0xC) > 0.f)
+            motion.pitch_target = constrain_runtime_body_angle(motion.pitch_target, 0.f - pitch, motion.pitch_limit);
+            if (motion.weight > 0.f)
             {
-                accelerate_runtime_body_angle(field(0x24), field(0x20), field(0x28),
-                    0.f, field(4), field(8), elapsed);
+                accelerate_runtime_body_angle(motion.pitch, motion.pitch_target, motion.pitch_speed,
+                    0.f, motion.max_speed, motion.acceleration, elapsed);
             }
             else
             {
-                field(0x24) = field(0x20);
-                field(0x28) = 0.f;
+                motion.pitch = motion.pitch_target;
+                motion.pitch_speed = 0.f;
             }
-            adjust_runtime_body_pitch(output, field(0x24), field(0xC));
+            adjust_runtime_body_pitch(output, motion.pitch, motion.weight);
         }
-        if (field(0x1C) != -1.f)
+        if (motion.yaw_limit != -1.f)
         {
-            field(0x10) = constrain_runtime_body_angle(field(0x10), yaw, field(0x1C));
-            if (field(0xC) > 0.f)
+            motion.yaw_target = constrain_runtime_body_angle(motion.yaw_target, yaw, motion.yaw_limit);
+            if (motion.weight > 0.f)
             {
-                accelerate_runtime_body_angle(field(0x14), field(0x10), field(0x18),
-                    yaw, field(4), field(8), elapsed);
+                accelerate_runtime_body_angle(motion.yaw, motion.yaw_target, motion.yaw_speed,
+                    yaw, motion.max_speed, motion.acceleration, elapsed);
             }
             else
             {
-                field(0x14) = field(0x10);
-                field(0x18) = 0.f;
+                motion.yaw = motion.yaw_target;
+                motion.yaw_speed = 0.f;
             }
-            field(0x14) = constrain_runtime_body_angle(field(0x14), yaw, field(0x1C));
-            adjust_runtime_body_yaw(output, field(0x14), field(0xC));
+            motion.yaw = constrain_runtime_body_angle(motion.yaw, yaw, motion.yaw_limit);
+            adjust_runtime_body_yaw(output, motion.yaw, motion.weight);
         }
     }
 }

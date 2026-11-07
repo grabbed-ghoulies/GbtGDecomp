@@ -1,5 +1,7 @@
 #pragma once
+#include "weapon_fields.h"
 
+#include "thrown_projectile.h"
 #include "weapon_actor.h"
 #include "actor_frame_render.h"
 #include "../graphics/glow_pass.h"
@@ -30,32 +32,35 @@ constexpr RetailField<float, 0x61C> beep_range{};
 constexpr RetailField<float, 0x620> beep_interval{};
 constexpr RetailRecord<0x624, 0x80> beep_sound{};
 } // namespace homing_projectile_parameter
-namespace homing_projectile_field
+struct HomingProjectileState
 {
-constexpr RetailField<u32, 0xE60> hits{}; // the contact reports' hits counted (0x00141A30)
-// +0xE64 the flight animation record
-constexpr RetailField<float, 0xE68> trail_scale{}; // the flight trail (0x000CC910); zero draws none
-constexpr RetailField<float, 0xE6C> trail_timer{};
-constexpr RetailField<Vec3, 0xE70> rest_euler{}; // message 0x9D (0x000CC010)
-constexpr RetailField<Vec3, 0xE7C> rest_position{};
-constexpr RetailField<float, 0xE88> shatter_timer{}; // DAT_004288F4 at the shatter's start, ticking down
-// +0xE8C the collision override pool
-constexpr RetailField<u32, 0xE90> shatter_shown{}; // set once the shatter's callout 10 has run
-constexpr RetailField<u32, 0xE94> shatters{}; // a hit shatters (state 4) rather than breaks (state 9)
-constexpr RetailField<u32, 0xE98> beeps{}; // the flight beeps near the holder's target
-constexpr RetailField<float, 0xE9C> beep_timer{};
-constexpr RetailField<float, 0xEA0> beep_interval{};
-constexpr RetailField<float, 0xEA4> beep_range{};
-constexpr RetailRecord<0xEA8, 0x80> beep_sound{}; // 0x00041D40's cue
-constexpr RetailField<float, 0xF28> follow_slack{}; // the flight's +0xCEC
-constexpr RetailField<float, 0xF2C> follow_speed{}; // the flight's +0xCF0
-constexpr RetailField<float, 0xF30> follow_rise{}; // the flight's +0xCF4
-constexpr RetailRecord<0xF34, 36> command_attachments{}; // the attachments 0x0013B8B0 records at launch
-constexpr RetailField<u32, 0xF58> ghost{}; // the flight's +0xCF8: no world probes, and the glow draw
-constexpr RetailField<u32, 0xF5C> contact_tail{}; // 0x00141A30's last word
-constexpr u32 kSize = 0xF60;
-static_assert(retail_fits(kSize, contact_tail));
-} // namespace homing_projectile_field
+    WeaponBase base{}; // +0
+    std::array<u8, 0xC> unk_E54{}; // +0xE54, never read or written by translated code
+    u32 hits = 0; // +0xE60, the contact reports' hits counted (0x00141A30)
+    std::array<u8, 4> flight_animation_word{}; // +0xE64, the host keeps RuntimeWeaponActor::flight_animation
+    float trail_scale = 0.f; // +0xE68, the flight trail (0x000CC910); zero draws none
+    float trail_timer = 0.f; // +0xE6C
+    Vec3 rest_euler{}; // +0xE70, message 0x9D (0x000CC010)
+    Vec3 rest_position{}; // +0xE7C
+    float shatter_timer = 0.f; // +0xE88, DAT_004288F4 at the shatter's start, ticking down
+    std::array<u8, 4> collision_overrides_word{}; // +0xE8C, the host keeps RuntimeWeaponActor::collision_overrides
+    u32 shatter_shown = 0; // +0xE90, set once the shatter's callout 10 has run
+    u32 shatters = 0; // +0xE94, a hit shatters (state 4) rather than breaks (state 9)
+    u32 beeps = 0; // +0xE98, the flight beeps near the holder's target
+    float beep_timer = 0.f; // +0xE9C
+    float beep_interval = 0.f; // +0xEA0
+    float beep_range = 0.f; // +0xEA4
+    std::array<u8, 0x80> beep_sound{}; // +0xEA8, 0x00041D40's cue
+    float follow_slack = 0.f; // +0xF28, the flight's +0xCEC
+    float follow_speed = 0.f; // +0xF2C, the flight's +0xCF0
+    float follow_rise = 0.f; // +0xF30, the flight's +0xCF4
+    std::array<u8, 0x24> command_attachments{}; // +0xF34, the attachments 0x0013B8B0 records at launch
+    u32 ghost = 0; // +0xF58, the flight's +0xCF8: no world probes, and the glow draw
+    u32 contact_tail = 0; // +0xF5C, 0x00141A30's last word
+};
+static_assert(sizeof(HomingProjectileState) == 0xF60);
+static_assert(offsetof(HomingProjectileState, trail_scale) == offsetof(ProjectileTrailFields, trail_scale));
+static_assert(offsetof(HomingProjectileState, trail_timer) == offsetof(ProjectileTrailFields, trail_timer));
 void homing_projectile_object_sizes(ObjectSizes& sizes); // Xbox 0x000CC770
 bool initialize_runtime_homing_projectile(RuntimeWeaponActor& weapon,
     std::span<const u8> parameters); // Xbox 0x000CC800

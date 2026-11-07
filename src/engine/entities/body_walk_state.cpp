@@ -1,10 +1,13 @@
 #include "body_walk_state.h"
+#include <cstddef>
+#include "strategy_fields.h"
 #include "actor_bind_tree.h"
 #include "actor_trail_requests.h"
 #include "actor_transform.h"
 #include "player_attachment_helpers.h"
 #include "../camera/camera_body_slots.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -14,15 +17,9 @@ namespace gbtg
 {
 namespace
 {
-namespace field = walk_state_field;
 namespace parameter = walk_state_parameter;
 
 std::function<RuntimeWalkStateContext&(u32)> walk_context_of;
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -34,21 +31,14 @@ void put_half(std::span<u8> bytes, size_t offset, u16 value)
     std::memcpy(bytes.data() + offset, &value, 2);
 }
 
-void copy_name(std::span<u8> destination, size_t offset, const u8* source)
+void copy_name(char* output, const char* input)
 {
-    char* output = reinterpret_cast<char*>(destination.data() + offset);
-    const char* input = reinterpret_cast<const char*>(source);
     char character;
     do
     {
         character = *input++;
         *output++ = character;
     } while (character != '\0');
-}
-
-size_t slot_offset(i32 index)
-{
-    return field::kSlots + size_t(index) * 0xC;
 }
 
 float roll(u32& random)
@@ -70,21 +60,16 @@ float wrap_angle(float value)
     return result;
 }
 
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 bool construct_walk_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_walk_state(state, parameters, walk_context_of(body_address_of(state)));
+    WalkState& state = body_state_view<WalkState>({object.bytes.get(), object.size});
+    return initialize_runtime_walk_state(state, parameters, walk_context_of(state.base.body));
 }
 
 void destroy_walk_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_walk_state(state, walk_context_of(body_address_of(state)));
+    WalkState& state = body_state_view<WalkState>({object.bytes.get(), object.size});
+    destroy_runtime_walk_state(state, walk_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* walk_state_lifecycle()
@@ -94,9 +79,9 @@ const ObjectFactoryVtable* walk_state_lifecycle()
     return &table;
 }
 
-void set_bit(std::span<const u8> state, RuntimeWalkStateContext& context)
+void set_bit(const WalkState& state, RuntimeWalkStateContext& context)
 {
-    const u32 bit = get(state, field::bit);
+    const u32 bit = state.bit;
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] |= u8(1u << (bit & 7));
@@ -107,23 +92,24 @@ void set_bit(std::span<const u8> state, RuntimeWalkStateContext& context)
 // Xbox 0x000A4CD0
 void walk_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(WalkState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x000A54D0
-void place_runtime_walk_object(std::span<const u8> state, std::span<const u8> body, const Actor& actor, i32 index,
+void place_runtime_walk_object(const WalkState& state, std::span<const u8> body, const Actor& actor, i32 index,
     Vec3& position, Vec3& euler)
 {
-    const float reach = actor.radius_xz * read_f32(body, 0x888) + 2.f; // DAT_0032B110.
-    const float height = actor.radius_y * read_f32(body, 0x884) * std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
+    const float reach = actor.radius_xz * body_record(body).radius_scale + 2.f; // DAT_0032B110.
+    const float height =
+        actor.radius_y * body_record(body).height_scale * std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
     position = Vec3{0.f, height, 0.f};
-    const float orbit = read_f32(state, slot_offset(index));
+    const float orbit = state.slots[size_t(index)].orbit_angle;
     const float side = float(retail_sin(orbit));
     const float forward = float(retail_cos(orbit));
     position.x = side * reach + position.x;
     position.z = forward * reach + position.z;
-    const float bob = read_f32(state, slot_offset(index) + 4);
+    const float bob = state.slots[size_t(index)].bob_angle;
     const long double lift = retail_sin(bob);
     (void)retail_cos(bob);
     position.y = float((lift + lift) + position.y);
@@ -131,46 +117,46 @@ void place_runtime_walk_object(std::span<const u8> state, std::span<const u8> bo
 }
 
 // Xbox 0x000A4D50
-bool initialize_runtime_walk_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_walk_state(WalkState& state, std::span<const u8> parameters,
     RuntimeWalkStateContext& context)
 {
     Actor& actor = context.actor;
-    set(state, field::bit, get(parameters, parameter::bit));
-    set(state, field::next, get(parameters, parameter::next));
-    set(state, field::start_yaw, actor.euler.y); // Actor +0x18.
+    state.bit = get(parameters, parameter::bit);
+    state.next = get(parameters, parameter::next);
+    state.start_yaw = actor.euler.y; // Actor +0x18.
     const float least = get(parameters, parameter::least_turn);
     const float unit = roll(context.random);
-    set(state, field::turn, ((get(parameters, parameter::most_turn) - least) * unit + least)
-        * 0.01745329238474369f); // DAT_0032B0FC.
-    set(state, field::time, 0.f);
-    set(state, field::length, get(parameters, parameter::length));
-    set(state, field::orbit, get(parameters, parameter::orbit));
-    set(state, field::size, get(parameters, parameter::size));
-    copy_name(state, field::first_name.offset, parameters.data() + parameter::first_name.offset);
-    copy_name(state, field::second_name.offset, parameters.data() + parameter::second_name.offset);
-    set(state, field::clockwise, 0.5f < roll(context.random) ? 0u : 1u); // DAT_0032B0F4.
-    if (get(state, field::orbit) == 0)
+    // DAT_0032B0FC.
+    state.turn = ((get(parameters, parameter::most_turn) - least) * unit + least) * 0.01745329238474369f;
+    state.time = 0.f;
+    state.length = get(parameters, parameter::length);
+    state.orbit = get(parameters, parameter::orbit);
+    state.size = get(parameters, parameter::size);
+    copy_name(state.first_name.data(), field_data(parameters, parameter::first_name));
+    copy_name(state.second_name.data(), field_data(parameters, parameter::second_name));
+    state.clockwise = 0.5f < roll(context.random) ? 0u : 1u; // DAT_0032B0F4.
+    if (state.orbit == 0)
     {
         return true;
     }
     std::array<u8, 0x334> object{};
     initialize_actor_effect_parameters(object.data(), context.empty_name); // 0x000411A0
     put_half(object, 2, 0x3F);
-    copy_name(object, 0x28, state.data() + field::first_name.offset);
-    copy_name(object, 0xA8, state.data() + field::second_name.offset);
-    put_float(object, 0x20, actor.radius_xz * get(state, field::size) * 0.2f); // DAT_0032B1AC.
+    copy_name(reinterpret_cast<char*>(object.data() + 0x28), state.first_name.data());
+    copy_name(reinterpret_cast<char*>(object.data() + 0xA8), state.second_name.data());
+    put_float(object, 0x20, actor.radius_xz * state.size * 0.2f); // DAT_0032B1AC.
     for (i32 index = 0; index < 3; ++index)
     {
-        const size_t slot = slot_offset(index);
-        put_float(state, slot, float(index) * std::bit_cast<float>(0x40060A92u)); // DAT_0032B558.
-        put_float(state, slot + 4, roll(context.random) * std::bit_cast<float>(0x40C90FDBu)); // DAT_0032B298.
+        WalkObjectSlot& slot = state.slots[size_t(index)];
+        slot.orbit_angle = float(index) * std::bit_cast<float>(0x40060A92u); // DAT_0032B558.
+        slot.bob_angle = roll(context.random) * std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
         Vec3 position;
         Vec3 euler;
         place_runtime_walk_object(state, context.body, actor, index, position, euler); // 0x000A54D0
         std::memcpy(object.data() + 8, &position, 12);
         std::memcpy(object.data() + 0x14, &euler, 12);
         const u32 created = context.objects.create(object); // 0x00107520
-        put_word(state, slot + 8, created);
+        slot.object = created;
         if (created == 0)
         {
             continue;
@@ -203,17 +189,17 @@ bool initialize_runtime_walk_state(std::span<u8> state, std::span<const u8> para
 }
 
 // Xbox 0x000A5060
-void destroy_runtime_walk_state(std::span<u8> state, RuntimeWalkStateContext& context)
+void destroy_runtime_walk_state(WalkState& state, RuntimeWalkStateContext& context)
 {
-    const u32 bit = get(state, field::bit);
+    const u32 bit = state.bit;
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
     }
     for (i32 index = 0; index < 3; ++index)
     {
-        const size_t slot = slot_offset(index) + 8;
-        const u32 placed = read_u32(state, slot);
+        WalkObjectSlot& slot = state.slots[size_t(index)];
+        const u32 placed = slot.object;
         if (placed == 0)
         {
             continue;
@@ -232,37 +218,37 @@ void destroy_runtime_walk_state(std::span<u8> state, RuntimeWalkStateContext& co
                 register_actor_child_list(render); // 0x0003ED70
             }
         }
-        put_word(state, slot, 0);
+        slot.object = 0;
     }
 }
 
 // Xbox 0x000A5100
-void tick_runtime_walk_state(std::span<u8> state, RuntimeWalkStateContext& context)
+void tick_runtime_walk_state(WalkState& state, RuntimeWalkStateContext& context)
 {
     Actor& actor = context.actor;
-    if (context.strategy.empty() || read_u16(context.strategy, 0xE) == 1000)
+    if (context.strategy.empty() || strategy_base(context.strategy).state == 1000)
     {
         end_runtime_walk_state(state, context); // 0x000A5340
         return;
     }
-    const float time = runtime_actor_rate(actor) * runtime_frame_step(context.clock) + get(state, field::time);
-    set(state, field::time, time);
-    const float fraction = time / get(state, field::length);
+    const float time = runtime_actor_rate(actor) * runtime_frame_step(context.clock) + state.time;
+    state.time = time;
+    const float fraction = time / state.length;
     if (fraction > 1.f) // DAT_0032B0F8.
     {
         end_runtime_walk_state(state, context);
         return;
     }
-    if (get(state, field::orbit) != 0)
+    if (state.orbit != 0)
     {
         orbit_runtime_walk_objects(state, runtime_actor_rate(actor) * runtime_frame_step(context.clock),
             context); // 0x000A5390
     }
-    const float turn = get(state, field::turn) * fraction;
-    const float yaw = get(state, field::clockwise) != 0 ? get(state, field::start_yaw) - turn
-                                                        : turn + get(state, field::start_yaw);
+    const float turn = state.turn * fraction;
+    const float yaw = state.clockwise != 0 ? state.start_yaw - turn
+                                                        : turn + state.start_yaw;
     const Vec3 world = actor_world_euler(actor); // 0x00041820, EDI body +0x72C
-    std::memcpy(context.body.data() + 0x72C, &world, sizeof(world));
+    std::memcpy(context.body.data() + offsetof(BodyRecord, euler.x), &world, sizeof(world));
     Vec3 euler = actor_world_euler(actor); // 0x00041820
     euler.y = yaw;
     wrap_runtime_euler(euler, actor.euler); // 0x00105AA0, EDI actor +0x14
@@ -270,25 +256,25 @@ void tick_runtime_walk_state(std::span<u8> state, RuntimeWalkStateContext& conte
 }
 
 // Xbox 0x000A5270
-void message_runtime_walk_state(std::span<u8> state, std::span<const u32> message, RuntimeWalkStateContext& context)
+void message_runtime_walk_state(WalkState& state, std::span<const u32> message, RuntimeWalkStateContext& context)
 {
     switch (message[0])
     {
     case 0x27:
         set_bit(state, context);
-        set(state, body_state_field::next_key, context.primary_key()); // 0x00026950
+        state.base.next_key = context.primary_key(); // 0x00026950
         return;
     case 0x7C:
         for (i32 index = 0; index < 3; ++index)
         {
-            if (message[1] == read_u32(state, slot_offset(index) + 8))
+            if (message[1] == state.slots[size_t(index)].object)
             {
-                put_word(state, slot_offset(index) + 8, 0);
+                state.slots[size_t(index)].object = 0;
             }
         }
         return;
     case 0x87:
-        if (get(state, field::orbit) != 0 && message[2] == 2)
+        if (state.orbit != 0 && message[2] == 2)
         {
             end_runtime_walk_state(state, context); // 0x000A5340
         }
@@ -299,31 +285,31 @@ void message_runtime_walk_state(std::span<u8> state, std::span<const u32> messag
 }
 
 // Xbox 0x000A5340, ESI state, EDI actor
-void end_runtime_walk_state(std::span<u8> state, RuntimeWalkStateContext& context)
+void end_runtime_walk_state(WalkState& state, RuntimeWalkStateContext& context)
 {
     set_bit(state, context);
-    u16 next = get(state, field::next);
+    u16 next = state.next;
     if (next == 0)
     {
         next = context.primary_key(); // 0x00026950
     }
-    set(state, body_state_field::next_key, next);
+    state.base.next_key = next;
 }
 
 // Xbox 0x000A5390
-void orbit_runtime_walk_objects(std::span<u8> state, float step, RuntimeWalkStateContext& context)
+void orbit_runtime_walk_objects(WalkState& state, float step, RuntimeWalkStateContext& context)
 {
     const float angle_step = step * 0.0872664675116539f; // DAT_0032B474.
     for (i32 index = 0; index < 3; ++index)
     {
-        const size_t slot = slot_offset(index);
-        const u32 placed = read_u32(state, slot + 8);
+        WalkObjectSlot& slot = state.slots[size_t(index)];
+        const u32 placed = slot.object;
         if (placed == 0)
         {
             continue;
         }
-        put_float(state, slot, wrap_angle(angle_step + read_f32(state, slot)));
-        put_float(state, slot + 4, wrap_angle(angle_step + read_f32(state, slot + 4)));
+        slot.orbit_angle = wrap_angle(angle_step + slot.orbit_angle);
+        slot.bob_angle = wrap_angle(angle_step + slot.bob_angle);
         Vec3 position;
         Vec3 euler;
         place_runtime_walk_object(state, context.body, context.actor, index, position, euler); // 0x000A54D0

@@ -24,9 +24,17 @@ using namespace weapon_detail;
 
 namespace
 {
-namespace field = water_pistol_weapon_field;
+WaterPistolWeaponState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<WaterPistolWeaponState>(bytes);
+}
+
+const WaterPistolWeaponState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<WaterPistolWeaponState>(bytes);
+}
+
 namespace parameter = water_pistol_weapon_parameter;
-namespace gun = gun_weapon_field;
 
 // The droplet block pools (retail +0xF34 and the twelve +0xF04 words), the texture (+0xF00), the muzzle effect node
 // (+0xEFC) and the draw's point list (+0xF3C), by the weapon's bytes.
@@ -51,18 +59,18 @@ WaterPistolBlocks& blocks_of(const RuntimeWeaponActor& weapon)
 void sync_blocks(RuntimeWeaponActor& weapon)
 {
     const WaterPistolBlocks& blocks = blocks_of(weapon);
-    set(weapon.bytes, field::active, blocks.active != nullptr ? 1u : 0u);
+    fields_of(weapon.bytes).active = blocks.active != nullptr ? 1u : 0u;
     for (u32 index = 0; index < 12; ++index)
     {
-        store32(weapon.bytes, field::kTrails + index * 4, blocks.trails[index] != nullptr ? 1u : 0u);
+        fields_of(weapon.bytes).trails[index] = blocks.trails[index] != nullptr ? 1u : 0u;
     }
-    set(weapon.bytes, field::muzzle_effect, blocks.muzzle != nullptr ? 1u : 0u);
-    set(weapon.bytes, field::strip, blocks.strip != nullptr ? 1u : 0u);
+    fields_of(weapon.bytes).muzzle_effect = blocks.muzzle != nullptr ? 1u : 0u;
+    fields_of(weapon.bytes).strip = blocks.strip != nullptr ? 1u : 0u;
 }
 
 float fire_word(const RuntimeWeaponActor& weapon)
 {
-    return std::bit_cast<float>(get(weapon.bytes, gun::unk_EE8));
+    return std::bit_cast<float>(actor_record_view<GunWeaponState>(weapon.bytes).unk_EE8);
 }
 
 // The droplets' speed: 150 x +0xEE8 + 50 (DAT_0032B444, DAT_0032B1E0).
@@ -203,7 +211,7 @@ void trail_between(RuntimeWeaponActor& weapon, const RuntimeWaterDroplet& from, 
         const Vec3 velocity{(to.velocity.x - from.velocity.x) * t + from.velocity.x,
             (to.velocity.y - from.velocity.y) * t + from.velocity.y,
             (to.velocity.z - from.velocity.z) * t + from.velocity.z};
-        if (ActorEffectNode* effect = spawn_effect(weapon, field::trail_effect.offset, point, nullptr);
+        if (ActorEffectNode* effect = spawn_effect(weapon, offsetof(WaterPistolWeaponState, trail_effect), point, nullptr);
             effect != nullptr)
         {
             std::memcpy(effect->bytes.data() + 0x8C, &velocity, 12);
@@ -270,7 +278,7 @@ bool sweep_droplet(RuntimeWeaponActor& weapon, GhoulySpawnPool& block, u8* dropl
             break;
         }
     }
-    splash(weapon, field::hit_effect.offset, to);
+    splash(weapon, offsetof(WaterPistolWeaponState, hit_effect), to);
     drop_before(weapon, block, behind); // 0x000CA480
     return true;
 }
@@ -344,7 +352,7 @@ bool query_muzzle(RuntimeWeaponActor& weapon, GhoulySpawnPool& block, Vec3 point
         hit.point = point;
         hit.velocity = velocity;
     }
-    splash(weapon, field::hit_effect.offset, point);
+    splash(weapon, offsetof(WaterPistolWeaponState, hit_effect), point);
     if (droplet_count(block) != 0)
     {
         drop_before(weapon, block, block.cursor - 0x28); // 0x000CA480
@@ -410,7 +418,7 @@ void draw_block(RuntimeWeaponActor& weapon, const GhoulySpawnPool& block, const 
 // Xbox 0x000C91F0
 void water_pistol_weapon_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(WaterPistolWeaponState);
     sizes.parameters = parameter::kSize;
 }
 
@@ -428,14 +436,14 @@ bool initialize_runtime_water_pistol_weapon(RuntimeWeaponActor& weapon, std::spa
         }
     }
     blocks_of(weapon) = WaterPistolBlocks{texture};
-    set(bytes, field::texture, texture.data() != nullptr ? 1u : 0u);
+    fields_of(bytes).texture = texture.data() != nullptr ? 1u : 0u;
     for (u32 index = 0; index < 4; ++index)
     {
         const char* name = reinterpret_cast<const char*>(parameters.data() + parameter::hit.offset + index * 0x80);
-        std::memcpy(bytes.data() + field::hit_effect.offset + index * 0x80, name, std::strlen(name) + 1);
+        std::memcpy(bytes.data() + offsetof(WaterPistolWeaponState, hit_effect) + index * 0x80, name, std::strlen(name) + 1);
     }
-    set(bytes, gun::recharge, 0.075f); // DAT_0032B44C.
-    set(bytes, gun::drain, 0.15f); // DAT_0032B168.
+    actor_record_view<GunWeaponState>(bytes).recharge = 0.075f; // DAT_0032B44C.
+    actor_record_view<GunWeaponState>(bytes).drain = 0.15f; // DAT_0032B168.
     sync_blocks(weapon);
     return true;
 }
@@ -445,10 +453,10 @@ void destroy_runtime_water_pistol_weapon(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
     WaterPistolBlocks& blocks = blocks_of(weapon);
-    if (get(bytes, field::texture) != 0)
+    if (fields_of(bytes).texture != 0)
     {
         release_animation_resource(weapon.registry, blocks.texture); // 0x00035C00
-        set(bytes, field::texture, 0u);
+        fields_of(bytes).texture = 0u;
     }
     if (blocks.active != nullptr)
     {
@@ -477,7 +485,7 @@ void start_runtime_water_pistol_fire(RuntimeWeaponActor& weapon, const Vec3& poi
 {
     WaterPistolBlocks& blocks = blocks_of(weapon);
     blocks.active = allocate_runtime_shape_pool(sizeof(RuntimeWaterDroplet), 0x20); // The inlined 0x00066260.
-    set(weapon.bytes, field::emission, 0.f);
+    fields_of(weapon.bytes).emission = 0.f;
     Vec3 euler{};
     if (direction != nullptr)
     {
@@ -486,7 +494,7 @@ void start_runtime_water_pistol_fire(RuntimeWeaponActor& weapon, const Vec3& poi
         direction_to_yaw_pitch(direction->x, direction->y, direction->z, yaw, pitch); // 0x00105E20
         euler = Vec3{pitch, yaw, 0.f};
     }
-    blocks.muzzle = spawn_effect(weapon, field::muzzle_name.offset, point, direction != nullptr ? &euler : nullptr);
+    blocks.muzzle = spawn_effect(weapon, offsetof(WaterPistolWeaponState, muzzle_name), point, direction != nullptr ? &euler : nullptr);
     if (blocks.muzzle != nullptr)
     {
         blocks.muzzle->bytes[0x18] &= 0xF7;
@@ -498,7 +506,7 @@ void start_runtime_water_pistol_fire(RuntimeWeaponActor& weapon, const Vec3& poi
 void end_runtime_water_pistol_fire(RuntimeWeaponActor& weapon, const Vec3& point)
 {
     retire_runtime_water_pistol_block(weapon); // 0x000CA3D0, ESI actor
-    splash(weapon, field::expire_effect.offset, point);
+    splash(weapon, offsetof(WaterPistolWeaponState, expire_effect), point);
     end_muzzle_effect(weapon);
     sync_blocks(weapon);
 }
@@ -507,7 +515,7 @@ void end_runtime_water_pistol_fire(RuntimeWeaponActor& weapon, const Vec3& point
 void retire_runtime_water_pistol_block(RuntimeWeaponActor& weapon)
 {
     WaterPistolBlocks& blocks = blocks_of(weapon);
-    weapon.bytes[0x940] = 0;
+    weapon_base(weapon.bytes).firing = 0;
     GhoulySpawnPool* block = blocks.active;
     if (block == nullptr)
     {
@@ -539,10 +547,10 @@ void retire_runtime_water_pistol_block(RuntimeWeaponActor& weapon)
 void update_runtime_water_pistol(RuntimeWeaponActor& weapon, float step)
 {
     auto bytes = weapon.bytes;
-    set(bytes, gun::drain, (fire_word(weapon) + 1.f) * 0.075f); // DAT_0032B0F8, DAT_0032B44C.
+    actor_record_view<GunWeaponState>(bytes).drain = (fire_word(weapon) + 1.f) * 0.075f; // DAT_0032B0F8, DAT_0032B44C.
     WaterPistolBlocks& blocks = blocks_of(weapon);
     if (blocks.active != nullptr && !step_runtime_water_block(weapon, *blocks.active, step) // 0x000C96E0
-        && get(bytes, gun::firing) == 0)
+        && actor_record_view<GunWeaponState>(bytes).firing == 0)
     {
         engine_heap_free(blocks.active); // 0x000663E0
         blocks.active = nullptr;
@@ -575,7 +583,7 @@ bool step_runtime_water_block(RuntimeWeaponActor& weapon, GhoulySpawnPool& block
         {
             continue;
         }
-        splash(weapon, field::expire_effect.offset, droplet.position);
+        splash(weapon, offsetof(WaterPistolWeaponState, expire_effect), droplet.position);
         const u8* last = block.cursor - block.stride;
         if (at < last)
         {
@@ -592,19 +600,19 @@ void emit_runtime_water_pistol(RuntimeWeaponActor& weapon, u32 firing, const Vec
 {
     auto bytes = weapon.bytes;
     const float step = frame_rate(weapon.actor) * frame_step(weapon.frame);
-    bytes[0x940] = u8(firing);
+    weapon_base(bytes).firing = u8(firing);
     if (firing == 0)
     {
         return;
     }
-    set(bytes, field::emission, step + get(bytes, field::emission));
+    fields_of(bytes).emission = step + fields_of(bytes).emission;
     float offset = 0.f;
     Vec3 aim{};
     normalize_runtime_graphics_vector(aim, direction); // D3DXVec3Normalize, 0x00184F99
     WaterPistolBlocks& blocks = blocks_of(weapon);
-    while (get(bytes, field::emission) > kEmitInterval)
+    while (fields_of(bytes).emission > kEmitInterval)
     {
-        set(bytes, field::emission, get(bytes, field::emission) - kEmitInterval);
+        fields_of(bytes).emission = fields_of(bytes).emission - kEmitInterval;
         offset = offset + kEmitInterval;
         if (blocks.active == nullptr)
         {

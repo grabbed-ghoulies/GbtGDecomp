@@ -111,6 +111,11 @@ void* engine_heap_allocate(i32 size)
     // allocates there too. 0x0014E872 takes (handle, 0, size+4). On a non-null
     // block, 0x0014DED0's msize stores u16 0x1234 at msize-4 and the byte at
     // record+0x20 at msize-2.
+    //
+    // HeapAlloc's flags are 0, so retail hands back whatever the block last held. On the Xbox that follows from the
+    // game's own earlier allocations and repeats run to run; host malloc returns memory other threads (D3D, XAudio)
+    // have touched, which differed between runs (an occupancy sphere's unused +0x34 yaw read garbage). The host
+    // zero-fills new blocks so what a block starts with repeats.
     const i32 index = g_heap_current;
     void* block = std::malloc(static_cast<size_t>(static_cast<u32>(size) + 4u));
     if (block == nullptr)
@@ -118,6 +123,7 @@ void* engine_heap_allocate(i32 size)
         return nullptr;
     }
     const size_t span = host_heap_block_size(block);
+    std::memset(block, 0, span);
     u8* tag = static_cast<u8*>(block) + span - 4;
     tag[0] = 0x34;
     tag[1] = 0x12;
@@ -142,6 +148,7 @@ void* engine_heap_allocate_aligned(i32 size, u32 alignment)
             aligned_blocks.emplace(block, alignment);
         }
         const size_t span = native_heap_size(block);
+        std::memset(block, 0, span); // Zero-filled as engine_heap_allocate's are, so a run repeats.
         auto* footer = static_cast<u8*>(block) + span - 4;
         footer[0] = 0x34;
         footer[1] = 0x12;
@@ -154,11 +161,18 @@ void* engine_heap_allocate_aligned(i32 size, u32 alignment)
 // Xbox 0x000F73A0
 void* engine_heap_reallocate(void* block, i32 size)
 {
-    const u8 heap_id = *(static_cast<const u8*>(block) + host_heap_block_size(block) - 2);
+    const size_t old_span = host_heap_block_size(block);
+    const u8 heap_id = *(static_cast<const u8*>(block) + old_span - 2);
     void* grown = std::realloc(block, static_cast<size_t>(u32(size) + 4u));
     if (grown != nullptr)
     {
-        auto* footer = static_cast<u8*>(grown) + host_heap_block_size(grown) - 4;
+        // The bytes past the old contents (the old footer included) are zero-filled as new blocks are.
+        const size_t span = host_heap_block_size(grown);
+        if (span > old_span - 4)
+        {
+            std::memset(static_cast<u8*>(grown) + old_span - 4, 0, span - (old_span - 4));
+        }
+        auto* footer = static_cast<u8*>(grown) + span - 4;
         footer[0] = 0x34;
         footer[1] = 0x12;
         footer[2] = heap_id;

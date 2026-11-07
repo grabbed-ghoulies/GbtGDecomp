@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "actor_factory_owner.h"
@@ -42,27 +43,27 @@ constexpr RetailField<std::array<char, 0x80>, 0x39C> hit_sound{}; // slot 1 when
 constexpr u32 kSize = 0x41C;
 static_assert(retail_fits(kSize, hit_sound));
 } // namespace transform_state_parameter
-namespace transform_state_field
+struct TransformState
 {
-constexpr RetailField<u32, 0x18> phase{}; // 1 showing the morph, 2 and 3 the holds, 4 done
-constexpr RetailField<u32, 0x1C> body_animation{}; // 0x0003AAA0's record (its host half kept beside the state)
-constexpr RetailField<u32, 0x20> morph{}; // the morph actor's address, or 0
-constexpr RetailField<std::array<char, 0x80>, 0x24> bits_effect{};
-constexpr RetailField<u32, 0xA4> morph_animation{}; // the morph actor's records, host halves beside the state
-constexpr RetailField<u32, 0xA8> second_animation{};
-constexpr RetailField<u32, 0xAC> third_animation{};
-constexpr RetailField<float, 0xB0> second_hold{}; // seconds, at the actor's rate
-constexpr RetailField<float, 0xB4> third_hold{};
-constexpr RetailField<u32, 0xB8> shown{}; // every morph node is shown and the body's render bins went
-constexpr RetailField<std::array<char, 0x80>, 0xBC> result{};
-constexpr RetailField<std::array<char, 0x80>, 0x13C> first_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0x1BC> second_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0x23C> third_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0x2BC> result_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0x33C> hit_sound{};
-constexpr u32 kSize = 0x3BC;
-static_assert(retail_fits(kSize, hit_sound));
-} // namespace transform_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 1 showing the morph, 2 and 3 the holds, 4 done
+    u32 body_animation = 0; // +0x1C, 0x0003AAA0's record (its host half kept beside the state)
+    u32 morph = 0; // +0x20, the morph actor's address, or 0
+    std::array<char, 0x80> bits_effect{}; // +0x24
+    u32 morph_animation = 0; // +0xA4, the morph actor's records, host halves beside the state
+    u32 second_animation = 0; // +0xA8
+    u32 third_animation = 0; // +0xAC
+    float second_hold = 0.f; // +0xB0, seconds, at the actor's rate
+    float third_hold = 0.f; // +0xB4
+    u32 shown = 0; // +0xB8, every morph node is shown and the body's render bins went
+    std::array<char, 0x80> result{}; // +0xBC
+    std::array<char, 0x80> first_sound{}; // +0x13C
+    std::array<char, 0x80> second_sound{}; // +0x1BC
+    std::array<char, 0x80> third_sound{}; // +0x23C
+    std::array<char, 0x80> result_sound{}; // +0x2BC
+    std::array<char, 0x80> hit_sound{}; // +0x33C
+};
+static_assert(sizeof(TransformState) == 0x3BC);
 struct RuntimeTransformStateContext
 {
     std::span<u8> body;
@@ -89,11 +90,11 @@ struct RuntimeTransformStateContext
     u32& random; // DAT_0054DD7C.
 };
 void transform_state_object_sizes(ObjectSizes& output); // Xbox 0x000A4380
-bool initialize_runtime_transform_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_transform_state(TransformState& state, std::span<const u8> parameters,
     RuntimeTransformStateContext& context); // Xbox 0x000A4400
-void destroy_runtime_transform_state(std::span<u8> state, RuntimeTransformStateContext& context); // Xbox 0x000A4690
-void tick_runtime_transform_state(std::span<u8> state, RuntimeTransformStateContext& context); // Xbox 0x000A46D0
-void message_runtime_transform_state(std::span<u8> state, std::span<const u32> message,
+void destroy_runtime_transform_state(TransformState& state, RuntimeTransformStateContext& context); // Xbox 0x000A4690
+void tick_runtime_transform_state(TransformState& state, RuntimeTransformStateContext& context); // Xbox 0x000A46D0
+void message_runtime_transform_state(TransformState& state, std::span<const u32> message,
     RuntimeTransformStateContext& context); // Xbox 0x000A49D0
 // Type 0x8C (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_transform_state_class(std::span<ObjectFactoryType> types,

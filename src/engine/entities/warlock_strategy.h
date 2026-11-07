@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "actor_factory_owner.h"
 #include "body_attachment_cleanup.h"
 #include "body_state_actions.h"
@@ -25,35 +26,36 @@ struct DisplayView;
 // Holding (0x401) runs the modes of 0x000C3160: 1 shown and waiting, 2 vanishing, 3 gone (moved), 4 reappearing and
 // 5 waiting to attack (0x3EE).
 // Strategy bytes: +0x1A attacking, +0x1C pause count (states 0x3FC, 0x3FF and 0x415 leave it one lower).
-namespace warlock_strategy_field
+struct WarlockStrategyState
 {
-constexpr RetailField<u32, 0x38> record{}; // 0x003034F8
-constexpr RetailField<u32, 0x3C> mode{}; // 1 .. 5 (0x000C3160), 0 outside holding
-constexpr RetailField<float, 0x40> timer{}; // the mode's time left
-constexpr RetailField<float, 0x44> notice_timer{}; // until callout 0x53
-constexpr RetailField<float, 0x48> duration{}; // the mode's full time, for the fade and the stretch
-constexpr RetailField<u32, 0x4C> model_flags{}; // actor +0x1F0 kept while out of the world
-constexpr RetailField<i32, 0x50> model_mode{}; // actor +0x118 kept while out of the world
-constexpr RetailField<u32, 0x54> shape_mode{}; // body +0x244
-constexpr RetailField<u32, 0x58> hit{}; // a hit landed while holding (message 0x6E)
-constexpr RetailField<u32, 0x5C> entering{}; // the first appearance: no hold, no message 0x26 / 0x27
-constexpr RetailField<u32, 0x60> shown{}; // drawn (0x000C3440), hidden by 0x001364B0
-constexpr RetailField<u32, 0x64> solid{}; // in the world's collision (0x001365C0), out by 0x00136540
-constexpr RetailField<float, 0x68> height{}; // the actor's height when mode 1 began
-constexpr RetailField<i32, 0x74> attacks{}; // attacks loaded since the attack began
-constexpr RetailField<i32, 0x78> attack_limit{}; // the record's +0 .. +0xC by energy (0x000C3BE0)
-constexpr RetailField<u32, 0x7C> entrance{}; // the entrance camera runs
-// +0x80 .. +0xDF is the entrance camera's view (0x000496C0), held natively beside the strategy.
-constexpr RetailField<Vec3, 0xE0> eye{}; // the display view's position when the entrance began
-constexpr RetailField<float, 0xEC> entrance_timer{}; // the record's +0x50
-constexpr RetailField<std::array<u8, 0x24>, 0xF0> first_events{}; // count +0, tokens after (0x0003CFD0)
-constexpr RetailField<std::array<u8, 0x24>, 0x114> second_events{};
-constexpr RetailField<std::array<char, 0x80>, 0x138> effect_name{}; // parameters +0x18
-constexpr RetailField<u32, 0x1B8> effect{}; // the vanish's object (0x0003DF40)
-constexpr RetailField<u32, 0x1BC> noticed{}; // callout 0x53 has run, or the notice is not wanted
-constexpr u32 kSize = 0x1C0;
-static_assert(retail_fits(kSize, noticed));
-} // namespace warlock_strategy_field
+    StrategyBase base{}; // +0
+    u32 record = 0; // +0x38, 0x003034F8
+    u32 mode = 0; // +0x3C, 1 .. 5 (0x000C3160), 0 outside holding
+    float timer = 0.f; // +0x40, the mode's time left
+    float notice_timer = 0.f; // +0x44, until callout 0x53
+    float duration = 0.f; // +0x48, the mode's full time, for the fade and the stretch
+    u32 model_flags = 0; // +0x4C, actor +0x1F0 kept while out of the world
+    i32 model_mode = 0; // +0x50, actor +0x118 kept while out of the world
+    u32 shape_mode = 0; // +0x54, body +0x244
+    u32 hit = 0; // +0x58, a hit landed while holding (message 0x6E)
+    u32 entering = 0; // +0x5C, the first appearance: no hold, no message 0x26 / 0x27
+    u32 shown = 0; // +0x60, drawn (0x000C3440), hidden by 0x001364B0
+    u32 solid = 0; // +0x64, in the world's collision (0x001365C0), out by 0x00136540
+    float height = 0.f; // +0x68, the actor's height when mode 1 began
+    std::array<u8, 8> unk_6C{}; // +0x6C, never read or written by translated code
+    i32 attacks = 0; // +0x74, attacks loaded since the attack began
+    i32 attack_limit = 0; // +0x78, the record's +0 .. +0xC by energy (0x000C3BE0)
+    u32 entrance = 0; // +0x7C, the entrance camera runs
+    std::array<u8, 0x60> unk_80{}; // +0x80, the entrance camera's view (0x000496C0), held natively beside the strategy
+    Vec3 eye{}; // +0xE0, the display view's position when the entrance began
+    float entrance_timer = 0.f; // +0xEC, the record's +0x50
+    std::array<u8, 0x24> first_events{}; // +0xF0, count +0, tokens after (0x0003CFD0)
+    std::array<u8, 0x24> second_events{}; // +0x114
+    std::array<char, 0x80> effect_name{}; // +0x138, parameters +0x18
+    u32 effect = 0; // +0x1B8, the vanish's object (0x0003DF40)
+    u32 noticed = 0; // +0x1BC, callout 0x53 has run, or the notice is not wanted
+};
+static_assert(sizeof(WarlockStrategyState) == 0x1C0);
 namespace warlock_strategy_parameter
 {
 constexpr RetailField<std::array<char, 0x80>, 0x18> effect_name{};

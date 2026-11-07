@@ -1,10 +1,13 @@
 #include "player_factory_owner.h"
+#include <cstddef>
+#include "mind_fields.h"
 #include "../scene/cutscene_scene_runtime.h"
 #include "../camera/display_view.h"
 #include "player_state.h"
 #include "actor_attachment_events.h"
 #include "body_request_selection.h"
 #include "player_attachment_helpers.h"
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -1355,7 +1358,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           },
           [this]() -> RuntimeBodyAttachedActor*
           {
-              const u32 action = mind.empty() ? 0 : read_u32(mind, 0x18);
+              const u32 action = mind.empty() ? 0 : mind_record(mind).action_actor;
               if (action == 0)
               {
                   return nullptr;
@@ -1428,7 +1431,7 @@ NativePlayerInstance::NativePlayerInstance(NativePlayerSceneBindings& scene_bind
           scene_bindings.target_of, scene_bindings.actor_bytes_of},
       imp_fire{strategy_messages, target_checks, target_queue, scene_bindings.imp_fire_parameters,
           owner_instance.animation, scene_bindings.registry, scene_bindings.create_effect, scene_bindings.object_message,
-          scene_bindings.body_at, scene_bindings.body_of, scene_bindings.model_of, scene_bindings.attachment_limit,
+          scene_bindings.body_at, scene_bindings.body_of, scene_bindings.model_of, scene_bindings.head_marker_index,
           "aid_objparams_ghoulies_fx_mutatehalo", "attack", "mutateup", "jumpbite", "jumpbiteprepare"},
       butler{strategy_messages, scene_bindings.actor_address, scene_bindings.first_live_attachment_at,
           scene_bindings.actor_bytes_at,
@@ -1918,8 +1921,9 @@ void NativePlayerInstance::refresh_body_views()
     actor.euler_out = body.empty() ? nullptr : &body_output;
     if (!body.empty())
     {
-        body_output.position = Vec3{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
-        body_output.euler = Vec3{read_f32(body, 0x72C), read_f32(body, 0x730), read_f32(body, 0x734)};
+        body_output.position = body_record(body).position;
+        body_output.euler =
+            body_record(body).euler;
     }
     if (body_flags != nullptr)
     {
@@ -1928,10 +1932,10 @@ void NativePlayerInstance::refresh_body_views()
     carried = body_attributes.data();
     if (!body.empty())
     {
-        std::memcpy(body.data() + 0x154, &body_hash_count, 4);
+        std::memcpy(body.data() + offsetof(BodyRecord, hash_count), &body_hash_count, 4);
     }
     strategy_entry.body = body;
-    callout.command_attachments = body.empty() ? std::span<u8>() : body.subspan(0x2D8);
+    callout.command_attachments = body.empty() ? std::span<u8>() : body.subspan(offsetof(BodyRecord, command_tokens));
 }
 
 void NativePlayerInstance::refresh_input_views()

@@ -1,4 +1,10 @@
 #include "medusa_strategy.h"
+#include "gbtg/retail_field.h"
+#include <cstddef>
+#include "body_fields.h"
+#include "strategy_fields.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_animation_commands.h"
 #include "body_damage_motion.h"
@@ -17,6 +23,7 @@
 #include "../navigation/navigation.h"
 #include "../scene/trophy_heads_control.h"
 #include "gbtg/anim.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -25,8 +32,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = medusa_strategy_field;
-namespace cone = light_cone_field;
+MedusaStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<MedusaStrategyState>(strategy);
+}
+
+const MedusaStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<MedusaStrategyState>(strategy);
+}
+
 
 void put_u32(std::span<u8> bytes, size_t offset, u32 value)
 {
@@ -82,9 +97,9 @@ void load_goal(const char* name, RuntimeMedusaStrategy& context)
     load_runtime_mind_goal(name, goals_of(context).entry.goals); // 0x0002A8E0
 }
 
-float parameter(RuntimeMedusaStrategy& context, size_t offset)
+const MedusaParameters& parameters_of(RuntimeMedusaStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<MedusaParameters>(context.parameters);
 }
 
 EntityBitBlock& body_bits(RuntimeMedusaStrategy& context, const char* caller)
@@ -104,9 +119,9 @@ float actor_step(RuntimeMedusaStrategy& context)
 }
 
 // A running timer counts down by the step and stops at zero.
-void count_down(std::span<u8> strategy, size_t offset, float step)
+void count_down(float& timer, float step)
 {
-    float value = read_f32(strategy, offset);
+    float value = timer;
     if (0.f < value)
     {
         value = value - step;
@@ -114,7 +129,7 @@ void count_down(std::span<u8> strategy, size_t offset, float step)
         {
             value = 0.f;
         }
-        std::memcpy(strategy.data() + offset, &value, 4);
+        timer = value;
     }
 }
 
@@ -148,7 +163,7 @@ RuntimeMindTarget* mind_target(RuntimeMedusaStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = read_u32(mind, 0x10);
+    const u32 target = mind_record(mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -164,20 +179,20 @@ RuntimeLightCones& cones_of(RuntimeMedusaStrategy& context, const char* caller)
 // A cone's +4: drawn or not.
 void show_cone(RuntimeMedusaStrategy& context, i32 index, u32 visible, const char* caller)
 {
-    set(std::span<u8>(cones_of(context, caller).records.at(size_t(index)).bytes), cone::visible, visible);
+    cones_of(context, caller).records.at(size_t(index)).visible = visible;
 }
 
 // Xbox 0x000BA6D0, ECX strategy: both cones are hidden.
 void hide_cones(RuntimeMedusaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::first_cone) >= 0)
+    if (fields_of(strategy).first_cone >= 0)
     {
-        show_cone(context, get(strategy, field::first_cone), 0, "0x000BA6D0");
+        show_cone(context, fields_of(strategy).first_cone, 0, "0x000BA6D0");
     }
-    if (get(strategy, field::second_cone) >= 0)
+    if (fields_of(strategy).second_cone >= 0)
     {
-        show_cone(context, get(strategy, field::second_cone), 0, "0x000BA6D0");
+        show_cone(context, fields_of(strategy).second_cone, 0, "0x000BA6D0");
     }
 }
 
@@ -188,24 +203,24 @@ void make_cones(RuntimeMedusaStrategy& context)
     Actor& actor = actor_of(context);
     const u32 address = goals_of(context).address_of(goals_of(context).entry.actor_bytes.data());
     constexpr float kDegree = 0.01745329238474369f; // DAT_0032B0FC.
-    if (get(strategy, field::first_cone) < 0)
+    if (fields_of(strategy).first_cone < 0)
     {
-        set(strategy, field::first_cone, add_runtime_light_cone(cones_of(context, "0x000BA700"), actor, address, 7,
-            parameter(context, 0x30) * kDegree, parameter(context, 0x34) * kDegree, parameter(context, 0x38),
-            parameter(context, 0x3C), parameter(context, 0x40), parameter(context, 0x44))); // 0x0011AEE0
+        fields_of(strategy).first_cone = add_runtime_light_cone(cones_of(context, "0x000BA700"), actor, address, 7,
+            parameters_of(context).cone_pitch * kDegree, parameters_of(context).cone_yaw * kDegree, parameters_of(context).cone_spread,
+            parameters_of(context).cone_length, parameters_of(context).cone_fade, parameters_of(context).cone_spot_offset); // 0x0011AEE0
     }
-    if (get(strategy, field::second_cone) < 0)
+    if (fields_of(strategy).second_cone < 0)
     {
-        set(strategy, field::second_cone, add_runtime_light_cone(cones_of(context, "0x000BA700"), actor, address, 6,
-            parameter(context, 0x30) * kDegree, parameter(context, 0x34) * -0.01745329238474369f, // DAT_0032B54C.
-            parameter(context, 0x38), parameter(context, 0x3C), parameter(context, 0x40),
-            parameter(context, 0x44))); // 0x0011AEE0
+        fields_of(strategy).second_cone = add_runtime_light_cone(cones_of(context, "0x000BA700"), actor, address, 6,
+            parameters_of(context).cone_pitch * kDegree, parameters_of(context).cone_yaw * -0.01745329238474369f, // DAT_0032B54C.
+            parameters_of(context).cone_spread, parameters_of(context).cone_length, parameters_of(context).cone_fade,
+            parameters_of(context).cone_spot_offset); // 0x0011AEE0
     }
-    if (get(strategy, field::rattle_sound) == 0)
+    if (fields_of(strategy).rattle_sound == 0)
     {
         queue_actor_sound(actor.sound_slots[4], 0, &actor, 4, nullptr, nullptr, 1.f,
             "XACT_SOUNDBANK_GMEDUSA_RATTLESNAKE", context.sounds); // 0x0012A260, EBX actor +0x614
-        set(strategy, field::rattle_sound, 1u);
+        fields_of(strategy).rattle_sound = 1u;
     }
     hide_cones(context);
 }
@@ -216,25 +231,25 @@ void release_cones(RuntimeMedusaStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = actor_of(context);
     hide_cones(context);
-    const auto give_back = [&](const auto& slot)
+    const auto give_back = [&](i32& slot)
     {
-        const i32 index = get(strategy, slot);
+        const i32 index = slot;
         if (index < 0)
         {
             return;
         }
         RuntimeLightCones& cones = cones_of(context, "0x000BA840");
-        set(std::span<u8>(cones.records.at(size_t(index)).bytes), cone::used, 0u);
+        cones.records.at(size_t(index)).used = 0u;
         cones.count = cones.count - 1;
-        set(strategy, slot, -1);
+        slot = -1;
     };
-    give_back(field::first_cone);
-    give_back(field::second_cone);
-    if (get(strategy, field::rattle_sound) != 0)
+    give_back(fields_of(strategy).first_cone);
+    give_back(fields_of(strategy).second_cone);
+    if (fields_of(strategy).rattle_sound != 0)
     {
         release_actor_sound(actor.sound_slots[4], context.sounds); // 0x0012A3D0, ESI actor +0x614
     }
-    if (get(strategy, field::unk_164) != 0)
+    if (fields_of(strategy).unk_164 != 0)
     {
         release_actor_sound(actor.sound_slots[7], context.sounds); // 0x0012A3D0, ESI actor +0x83C
     }
@@ -250,22 +265,22 @@ void request_attack(RuntimeMedusaStrategy& context)
     }
     const u8* row = find_runtime_attachment_first_request(*context.attack_tables.at(context.attack_resource.data()),
         0xF8); // 0x0001C560, EAX body +0x5C, EBX 0xF8
-    put_u32(body, 0x84, row == nullptr ? 0u : context.address_of(row));
-    body[0x6A] = u8(body[0x6A] + 1);
-    put_u32(body, 0x74C, 1);
-    set(strategy_of(context), field::attack_request, 1u);
+   body_record(body).hit_record = row == nullptr ? 0u : context.address_of(row);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
+   body_record(body).unk_74C = 1;
+    fields_of(strategy_of(context)).attack_request = 1u;
 }
 
 // Xbox 0x000BA050, ECX strategy: the attack row is dropped and the cones hidden.
 void drop_attack(RuntimeMedusaStrategy& context)
 {
     const std::span<u8> body = body_of(context);
-    put_u32(body, 0x84, 0);
-    put_u32(body, 0x88, 0);
-    body[0x6A] = u8(body[0x6A] - 1);
-    put_u32(body, 0x74C, 0);
+   body_record(body).hit_record = 0;
+   body_record(body).unk_88 = 0;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
+   body_record(body).unk_74C = 0;
     hide_cones(context);
-    set(strategy_of(context), field::attack_request, 0u);
+    fields_of(strategy_of(context)).attack_request = 0u;
 }
 
 // Xbox 0x000BA680, EAX strategy, EDX actor: the Super Scary challenge from the two names.
@@ -275,9 +290,9 @@ void start_challenge(RuntimeMedusaStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::array<u8, 0x1D8> parameters{};
     build_runtime_scene_challenge_parameters(parameters,
-        reinterpret_cast<const char*>(strategy.data() + field::challenge_first.offset),
+        fields_of(strategy).challenge_first.data(),
         goals.address_of(goals.entry.actor_bytes.data()), -1.f, -1.f, nullptr, nullptr, 0, nullptr, 0, 0, 1,
-        reinterpret_cast<const char*>(strategy.data() + field::challenge_second.offset),
+        fields_of(strategy).challenge_second.data(),
         context.runtime_flags); // 0x000873A0
     context.create_object(parameters); // 0x00107520
 }
@@ -323,9 +338,9 @@ bool gaze_reaches_target(RuntimeMedusaStrategy& context, const Vec3& eye, const 
     }
     Vec3 near = eye;
     Vec3 far = eye;
-    add_sound_direction(near, euler.x, euler.y, parameter(context, 0x28)); // 0x00106220
-    add_sound_direction(far, euler.x, euler.y, parameter(context, 0x2C)); // 0x00106220
-    const float radius = parameter(context, 0x28);
+    add_sound_direction(near, euler.x, euler.y, parameters_of(context).gaze_near); // 0x00106220
+    add_sound_direction(far, euler.x, euler.y, parameters_of(context).gaze_far); // 0x00106220
+    const float radius = parameters_of(context).gaze_near;
     entity_record_movement_probe(far, near, std::bit_cast<u32>(radius), 4, 0); // 0x001226C0, EBX far
     if ((context.runtime_flags & 0x400) != 0)
     {
@@ -359,8 +374,8 @@ void gaze(RuntimeMedusaStrategy& context, u32 attacking)
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = actor_of(context);
     constexpr float kDegree = 0.01745329238474369f; // DAT_0032B0FC.
-    const float pitch_offset = parameter(context, 0x20) * kDegree;
-    const float yaw_offset = parameter(context, 0x24) * kDegree;
+    const float pitch_offset = parameters_of(context).eye_pitch_offset * kDegree;
+    const float yaw_offset = parameters_of(context).eye_yaw_offset * kDegree;
     Vec3 eye{};
     Vec3 euler{};
     Vec3 second_euler{};
@@ -390,19 +405,19 @@ void gaze(RuntimeMedusaStrategy& context, u32 attacking)
     }
     const u32 saved_flags = actor.model_flags; // Actor +0x1F0.
     actor.model_flags = 0;
-    show_cone(context, get(strategy, field::first_cone), 1, "0x000BA0B0");
+    show_cone(context, fields_of(strategy).first_cone, 1, "0x000BA0B0");
     euler.x = euler.x + pitch_offset;
     euler.y = euler.y + yaw_offset;
-    show_cone(context, get(strategy, field::second_cone), 1, "0x000BA0B0");
+    show_cone(context, fields_of(strategy).second_cone, 1, "0x000BA0B0");
     if (attacking != 0)
     {
         entity_detail::SegmentProbe* hit = nullptr;
         const bool reached = gaze_reaches_target(context, eye, euler, hit); // 0x000BA300
-        set(strategy, field::gaze_toggle, get(strategy, field::gaze_toggle) == 0 ? 1u : 0u);
+        fields_of(strategy).gaze_toggle = fields_of(strategy).gaze_toggle == 0 ? 1u : 0u;
         if (reached)
         {
             const std::span<u8> body = body_of(context);
-            set(strategy, field::gaze_hit, 1u);
+            fields_of(strategy).gaze_hit = 1u;
             start_challenge(context); // 0x000BA680
             const float angle = runtime_actor_angle_toward(context.contact_actor(*hit).actor, actor); // 0x00041900
             Vec3 turned = actor_world_euler(actor); // 0x00041820
@@ -411,7 +426,7 @@ void gaze(RuntimeMedusaStrategy& context, u32 attacking)
             const u32 stale = 0;
             std::memcpy(goals_of(context).entry.actor_bytes.data() + 0x2A8, &stale, 4);
             actor.xform_valid = 0;
-            put_f32(body, 0x730, angle);
+           body_record(body).euler.y = angle;
         }
     }
     actor.model_flags = saved_flags;
@@ -420,7 +435,7 @@ void gaze(RuntimeMedusaStrategy& context, u32 attacking)
 // The target's point lies within the parameters' reach (+0).
 bool target_near(RuntimeMedusaStrategy& context)
 {
-    return runtime_mind_target_within(parameter(context, 0), goals_of(context)); // 0x000BABF0
+    return runtime_mind_target_within(parameters_of(context).target_reach, goals_of(context)); // 0x000BABF0
 }
 
 // Xbox 0x000BAC90, ECX strategy, EBX actor: a live, standing target near enough and in a clear walk, with no attack
@@ -433,7 +448,7 @@ bool can_attack(RuntimeMedusaStrategy& context)
     {
         return false;
     }
-    if (get(strategy_of(context), field::attack_delay) != 0.f)
+    if (fields_of(strategy_of(context)).attack_delay != 0.f)
     {
         return false;
     }
@@ -452,7 +467,7 @@ bool can_attack(RuntimeMedusaStrategy& context)
 // toward a point the parameters' +0x18 out from it.
 bool face_attack(RuntimeMedusaStrategy& context)
 {
-    const float out = parameter(context, 0x18);
+    const float out = parameters_of(context).attack_lead;
     if (!(out > 0.f))
     {
         return false;
@@ -462,15 +477,16 @@ bool face_attack(RuntimeMedusaStrategy& context)
     {
         return false;
     }
-    const Vec3 at{read_f32(target->bytes, 0x20), read_f32(target->bytes, 0x24), read_f32(target->bytes, 0x28)};
-    const float facing_x = read_f32(target->bytes, 0x5C);
-    const float facing_z = read_f32(target->bytes, 0x64);
+    const Vec3 at{mind_target_record(target->bytes).shape.position.x,
+        mind_target_record(target->bytes).shape.position.y, mind_target_record(target->bytes).shape.position.z};
+    const float facing_x = mind_target_record(target->bytes).direction.x;
+    const float facing_z = mind_target_record(target->bytes).direction.z;
     Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     if (facing_z * (position.z - at.z) + (position.x - at.x) * facing_x + (position.y - at.y) * 0.f > 0.f)
     {
         const Vec3 point{facing_x * out + at.x, out * 0.f + at.y, facing_z * out + at.z};
         position = actor_world_position(actor_of(context)); // 0x000412A0
-        put_f32(body_of(context), 0x730, runtime_horizontal_angle_between(point, position)); // 0x00106140
+       body_record(body_of(context)).euler.y = runtime_horizontal_angle_between(point, position); // 0x00106140
     }
     return true;
 }
@@ -479,18 +495,18 @@ bool face_attack(RuntimeMedusaStrategy& context)
 void set_walk_mode(u32 mode, RuntimeMedusaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::walk_mode) == mode)
+    if (fields_of(strategy).walk_mode == mode)
     {
         return;
     }
-    if (get(strategy, field::walk_mode) == 2)
+    if (fields_of(strategy).walk_mode == 2)
     {
-        set(strategy, field::attack_delay, parameter(context, 0x1C));
+        fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
     }
-    set(strategy, field::walk_mode, mode);
+    fields_of(strategy).walk_mode = mode;
     if (mode == 1)
     {
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     }
     if (mode != 2)
@@ -502,14 +518,14 @@ void set_walk_mode(u32 mode, RuntimeMedusaStrategy& context)
     load_goal(context.goal_attack, context);
     goals.room = nullptr; // Actor +0xCA0.
     face_attack(context); // 0x000BAE60
-    strategy[0x1A] = 1;
+    strategy_base(strategy).attacking = 1;
 }
 
 // Xbox 0x000BAD30, ECX strategy: the gaze is due (always, or once the delay has run down).
 bool special_due(RuntimeMedusaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::always_special) != 0)
+    if (fields_of(strategy).always_special != 0)
     {
         return true;
     }
@@ -518,8 +534,8 @@ bool special_due(RuntimeMedusaStrategy& context)
     {
         return false;
     }
-    count_down(strategy, field::special_delay.offset, actor_step(context));
-    return get(strategy, field::special_delay) <= 0.001f; // DAT_0032B1A4.
+    count_down(fields_of(strategy).special_delay, actor_step(context));
+    return fields_of(strategy).special_delay <= 0.001f; // DAT_0032B1A4.
 }
 
 // Xbox 0x000BB100, EAX actor: the target's point lies within the body's reach (0x0001D3D0) plus 15.
@@ -532,9 +548,9 @@ bool target_in_reach(RuntimeMedusaStrategy& context)
     }
     const float reach = context.attachment_radius() + 15.f; // 0x0001D3D0, DAT_0032B214
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - read_f32(target->bytes, 0x20);
-    const float dz = position.z - read_f32(target->bytes, 0x28);
-    const float dy = position.y - read_f32(target->bytes, 0x24);
+    const float dx = position.x - mind_target_record(target->bytes).shape.position.x;
+    const float dz = position.z - mind_target_record(target->bytes).shape.position.z;
+    const float dy = position.y - mind_target_record(target->bytes).shape.position.y;
     return dx * dx + dz * dz + dy * dy < reach * reach;
 }
 
@@ -542,11 +558,11 @@ bool target_in_reach(RuntimeMedusaStrategy& context)
 void set_dizzy_step(u32 step, RuntimeMedusaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::dizzy_step) == step)
+    if (fields_of(strategy).dizzy_step == step)
     {
         return;
     }
-    set(strategy, field::dizzy_step, step);
+    fields_of(strategy).dizzy_step = step;
     if (step != 2)
     {
         return;
@@ -570,34 +586,34 @@ void tick_gaze(RuntimeMedusaStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     RuntimeMindTarget* target = nullptr;
     select_runtime_strategy_target(target, 0, goals); // 0x00139AA0
-    count_down(strategy, field::gaze_time.offset, actor_step(context));
+    count_down(fields_of(strategy).gaze_time, actor_step(context));
     if ((body_bits(context, "0x000B9D60").bytes[5] & 0x20) != 0)
     {
         make_cones(context); // 0x000BA700
-        gaze(context, get(strategy, field::attack_request)); // 0x000BA0B0
+        gaze(context, fields_of(strategy).attack_request); // 0x000BA0B0
     }
     else
     {
-        if (get(strategy, field::first_cone) >= 0)
+        if (fields_of(strategy).first_cone >= 0)
         {
-            show_cone(context, get(strategy, field::first_cone), 0, "0x000B9D60");
+            show_cone(context, fields_of(strategy).first_cone, 0, "0x000B9D60");
         }
-        if (get(strategy, field::second_cone) >= 0)
+        if (fields_of(strategy).second_cone >= 0)
         {
-            show_cone(context, get(strategy, field::second_cone), 0, "0x000B9D60");
+            show_cone(context, fields_of(strategy).second_cone, 0, "0x000B9D60");
         }
     }
-    const u32 phase = get(strategy, field::gaze_phase);
+    const u32 phase = fields_of(strategy).gaze_phase;
     const auto walk = [&]()
     {
         // LAB 0x000B9FCF: on to walking with a fresh spin delay.
-        if (get(strategy, field::gaze_phase) == 3)
+        if (fields_of(strategy).gaze_phase == 3)
         {
             return;
         }
-        set(strategy, field::gaze_phase, 3u);
-        set(strategy, field::spin_delay,
-            runtime_body_random_range(goals.random, parameter(context, 0xC), parameter(context, 0xC))); // 0x000191C0
+        fields_of(strategy).gaze_phase = 3u;
+        fields_of(strategy).spin_delay = runtime_body_random_range(goals.random, parameters_of(context).spin_delay,
+            parameters_of(context).spin_delay); // 0x000191C0
     };
     switch (phase)
     {
@@ -606,12 +622,12 @@ void tick_gaze(RuntimeMedusaStrategy& context)
         {
             return;
         }
-        set(strategy, field::gaze_phase, 2u);
-        if (get(strategy, field::attack_request) == 0)
+        fields_of(strategy).gaze_phase = 2u;
+        if (fields_of(strategy).attack_request == 0)
         {
             request_attack(context); // 0x000BA010
         }
-        set(strategy, field::face_delay, parameter(context, 0x14));
+        fields_of(strategy).face_delay = parameters_of(context).face_delay;
         return;
     case 2:
     {
@@ -620,9 +636,9 @@ void tick_gaze(RuntimeMedusaStrategy& context)
             walk();
             return;
         }
-        float delay = get(strategy, field::face_delay);
+        float delay = fields_of(strategy).face_delay;
         const bool done = count_down_runtime_strategy_timer(delay, goals); // 0x0002B9F0, ECX +0x14C
-        set(strategy, field::face_delay, delay);
+        fields_of(strategy).face_delay = delay;
         if (done)
         {
             walk();
@@ -637,27 +653,27 @@ void tick_gaze(RuntimeMedusaStrategy& context)
     }
     case 3:
     {
-        if (get(strategy, field::always_special) == 0 && !(get(strategy, field::gaze_time) > 0.001f))
+        if (fields_of(strategy).always_special == 0 && !(fields_of(strategy).gaze_time > 0.001f))
         {
             hide_cones(context); // 0x000BA6D0
-            if (get(strategy, field::gaze_phase) == 5)
+            if (fields_of(strategy).gaze_phase == 5)
             {
                 return;
             }
-            set(strategy, field::gaze_phase, 5u);
+            fields_of(strategy).gaze_phase = 5u;
             change_state(0x3F0, context);
             return;
         }
-        float delay = get(strategy, field::spin_delay);
+        float delay = fields_of(strategy).spin_delay;
         count_down_runtime_strategy_timer(delay, goals); // 0x0002B9F0, ECX +0x148
-        set(strategy, field::spin_delay, delay);
+        fields_of(strategy).spin_delay = delay;
         if (0.001f > delay) // DAT_0032B1A4.
         {
-            if (get(strategy, field::gaze_phase) == 4)
+            if (fields_of(strategy).gaze_phase == 4)
             {
                 return;
             }
-            set(strategy, field::gaze_phase, 4u);
+            fields_of(strategy).gaze_phase = 4u;
             clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
             load_goal(context.goal_spin, context);
             return;
@@ -687,13 +703,13 @@ void tick_walk(RuntimeMedusaStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     RuntimeMindTarget* target = nullptr;
     select_runtime_strategy_target(target, 0, goals); // 0x00139AA0
-    count_down(strategy, field::attack_delay.offset, actor_step(context));
+    count_down(fields_of(strategy).attack_delay, actor_step(context));
     if (special_due(context)) // 0x000BAD30
     {
         change_state(0x3EF, context);
         return;
     }
-    switch (get(strategy, field::walk_mode))
+    switch (fields_of(strategy).walk_mode)
     {
     case 1:
         if (can_attack(context)) // 0x000BAC90
@@ -711,9 +727,9 @@ void tick_walk(RuntimeMedusaStrategy& context)
         {
             return;
         }
-        set(strategy, field::attack_delay, parameter(context, 0x1C));
-        set(strategy, field::walk_mode, 1u);
-        strategy[0x1A] = 0;
+        fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
+        fields_of(strategy).walk_mode = 1u;
+        strategy_base(strategy).attacking = 0;
         return;
     default:
         return;
@@ -724,7 +740,7 @@ void tick_walk(RuntimeMedusaStrategy& context)
 void tick_dizzy(RuntimeMedusaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    switch (get(strategy, field::dizzy_step))
+    switch (fields_of(strategy).dizzy_step)
     {
     case 1:
         if ((body_bits(context, "0x000BB040").bytes[6] & 1) != 0)
@@ -747,7 +763,7 @@ void tick_dizzy(RuntimeMedusaStrategy& context)
 // Xbox 0x000BB1B0
 void medusa_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(MedusaStrategyState);
     output.parameters = 0x118;
 }
 
@@ -755,24 +771,24 @@ void medusa_strategy_object_sizes(ObjectSizes& output)
 bool initialize_runtime_medusa_strategy(std::span<u8> strategy, std::span<const u8> parameters,
     RuntimeMedusaStrategy& context)
 {
-    set(strategy, field::first_cone, -1);
-    set(strategy, field::second_cone, -1);
-    set(strategy, field::parameters, 0x004287F0u);
-    set(strategy, field::gaze_phase, 0u);
-    set(strategy, field::unk_17C, 0u);
-    set(strategy, field::unk_180, 0u);
-    set(strategy, field::attack_request, 0u);
-    set(strategy, field::shock_won, 0u);
-    set(strategy, field::gazed, 0u);
-    set(strategy, field::always_special, 0u);
+    fields_of(strategy).first_cone = -1;
+    fields_of(strategy).second_cone = -1;
+    fields_of(strategy).parameters = 0x004287F0u;
+    fields_of(strategy).gaze_phase = 0u;
+    fields_of(strategy).unk_17C = 0u;
+    fields_of(strategy).unk_180 = 0u;
+    fields_of(strategy).attack_request = 0u;
+    fields_of(strategy).shock_won = 0u;
+    fields_of(strategy).gazed = 0u;
+    fields_of(strategy).always_special = 0u;
     const char* first = reinterpret_cast<const char*>(parameters.data() + 0x18);
-    std::memcpy(strategy.data() + field::challenge_first.offset, first, std::strlen(first) + 1);
+    std::memcpy(fields_of(strategy).challenge_first.data(), first, std::strlen(first) + 1);
     const char* second = reinterpret_cast<const char*>(parameters.data() + 0x98);
-    std::memcpy(strategy.data() + field::challenge_second.offset, second, std::strlen(second) + 1);
-    set(strategy, field::special_delay, roll_special_delay(context));
+    std::memcpy(fields_of(strategy).challenge_second.data(), second, std::strlen(second) + 1);
+    fields_of(strategy).special_delay = roll_special_delay(context);
     if (attributes_always_special(context))
     {
-        set(strategy, field::always_special, 1u);
+        fields_of(strategy).always_special = 1u;
     }
     return true;
 }
@@ -781,10 +797,10 @@ bool initialize_runtime_medusa_strategy(std::span<u8> strategy, std::span<const 
 void update_runtime_medusa_strategy(RuntimeMedusaStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = strategy_base(strategy).state;
     if (attributes_always_special(context))
     {
-        set(strategy, field::always_special, 1u);
+        fields_of(strategy).always_special = 1u;
     }
     update_runtime_base_strategy(goals_of(context)); // 0x0002C130
     switch (state)
@@ -816,8 +832,8 @@ void dispatch_runtime_medusa_message(std::span<const u32> message, RuntimeMedusa
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     RuntimeSpiderStrategy& shared = context.shared;
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
-    const u16 state = read_u16(strategy, 0xE);
+    const u32 actor = strategy_base(strategy).actor;
+    const u16 state = strategy_base(strategy).state;
     const bool attacking = state >= 0x3ED && state <= 0x3EF; // 0x000B7120
     switch (message[0])
     {
@@ -854,12 +870,13 @@ void dispatch_runtime_medusa_message(std::span<const u32> message, RuntimeMedusa
         {
             return;
         }
-        if (strategy[0x1C] != 0)
+        if (strategy_base(strategy).pause_count != 0)
         {
             return;
         }
         const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
-        const u32 kind = read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0 ? 1u : 0u;
+        const u32 kind =
+            player_record(actor_bytes).mode == 2 || player_record(actor_bytes).case_link != 0 ? 1u : 0u;
         if (goals.resume.references[kind] != 0 || goals.resume.decay_enabled[goals.resume.decay_index] == 0)
         {
             return;
@@ -887,7 +904,7 @@ void dispatch_runtime_medusa_message(std::span<const u32> message, RuntimeMedusa
         return;
     case 0x8E:
     {
-        if (get(strategy, field::gaze_hit) == 0)
+        if (fields_of(strategy).gaze_hit == 0)
         {
             return;
         }
@@ -895,38 +912,38 @@ void dispatch_runtime_medusa_message(std::span<const u32> message, RuntimeMedusa
         Actor& owner = actor_of(context);
         const auto release_shock = [&]()
         {
-            if (get(strategy, field::shocked) == 0)
+            if (fields_of(strategy).shocked == 0)
             {
                 return;
             }
             clear_runtime_body_bit(body_bits(context, "0x000BB400"), 0x3E); // 0x0001F030, EAX body
             decrement_runtime_body_latch_mask(body, 0x3F, owner, context.latches); // 0x0001F2F0, ECX body
-            set(strategy, field::shocked, 0u);
+            fields_of(strategy).shocked = 0u;
         };
         switch (message[1])
         {
         case 0:
-            body[0x92] = 1;
+            body_record(body).unk_92 = 1;
             select_runtime_body_animation(context.shock_camera_first, context.actions); // 0x0001AF10
-            if (get(strategy, field::shocked) != 0)
+            if (fields_of(strategy).shocked != 0)
             {
                 return;
             }
             set_runtime_body_bit(body_bits(context, "0x000BB400"), 0x3E); // 0x0001EFD0, EAX body
             increment_runtime_body_latch_mask(body, 0x3F, owner, context.latches); // 0x0001F3F0, ECX body
-            set(strategy, field::shocked, 1u);
+            fields_of(strategy).shocked = 1u;
             return;
         case 2:
             select_runtime_body_animation(context.shock_camera_second, context.actions); // 0x0001AF10
             return;
         case 7:
             reset_runtime_body_flinch(body, goals.random); // 0x0001D9D0, ECX body
-            set(strategy, field::shock_won, 1u);
+            fields_of(strategy).shock_won = 1u;
             release_shock();
             return;
         case 8:
             reset_runtime_body_flinch(body, goals.random); // 0x0001D9D0, ECX body
-            set(strategy, field::shock_won, 0u);
+            fields_of(strategy).shock_won = 0u;
             release_shock();
             return;
         default:
@@ -945,43 +962,41 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = body_of(context);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     switch (state)
     {
     case 0x3EF:
         // 0x000B9C00, ESI strategy.
-        set(strategy, field::special_delay, 1000000000.f); // DAT_0032B30C.
-        set(strategy, field::shock_won, 0u);
-        set(strategy, field::gaze_hit, 0u);
-        set(strategy, field::gazed, 1u);
-        set(strategy, field::rattle_sound, 0u);
-        set(strategy, field::unk_164, 0u);
-        set(strategy, field::shocked, 0u);
+        fields_of(strategy).special_delay = 1000000000.f; // DAT_0032B30C.
+        fields_of(strategy).shock_won = 0u;
+        fields_of(strategy).gaze_hit = 0u;
+        fields_of(strategy).gazed = 1u;
+        fields_of(strategy).rattle_sound = 0u;
+        fields_of(strategy).unk_164 = 0u;
+        fields_of(strategy).shocked = 0u;
         load_goal(context.goal_special_attack, context);
-        body[0x328] = 6;
-        strategy[0x1A] = 1;
-        if (get(strategy, field::gaze_phase) != 1)
+        body_record(body).move_class = 6;
+        strategy_base(strategy).attacking = 1;
+        if (fields_of(strategy).gaze_phase != 1)
         {
-            set(strategy, field::gaze_phase, 1u);
-            set(strategy, field::gaze_time,
-                runtime_body_random_range(goals.random, parameter(context, 4), parameter(context, 8))); // 0x000191C0
+            fields_of(strategy).gaze_phase = 1u;
+            fields_of(strategy).gaze_time = runtime_body_random_range(goals.random, parameters_of(context).gaze_time_low,
+                parameters_of(context).gaze_time_high); // 0x000191C0
         }
-        put_u32(body, 0x71C, read_u32(context.parameters, 0x48));
-        put_f32(body, 0x720, parameter(context, 0x4C));
-        put_f32(body, 0x724, parameter(context, 0x50));
-        set(strategy, field::gaze_toggle, 0u);
+        body_record(body).turn_rates = parameters_of(context).turn_rates;
+        fields_of(strategy).gaze_toggle = 0u;
         return;
     case 0x3F0:
         // 0x000BA8F0.
-        if (get(strategy, field::gazed) == 0)
+        if (fields_of(strategy).gazed == 0)
         {
             change_state(0x401, context);
         }
-        else if (get(strategy, field::gaze_hit) == 0)
+        else if (fields_of(strategy).gaze_hit == 0)
         {
             load_goal(context.goal_back_to_normal, context);
         }
-        else if (get(strategy, field::shock_won) != 0)
+        else if (fields_of(strategy).shock_won != 0)
         {
             load_goal(context.goal_special_succeed, context);
         }
@@ -989,42 +1004,42 @@ void enter_runtime_medusa_state(u16 state, u16 previous, RuntimeMedusaStrategy& 
         {
             change_state(0x3F2, context);
         }
-        set(strategy, field::gaze_hit, 0u);
-        set(strategy, field::gazed, 0u);
+        fields_of(strategy).gaze_hit = 0u;
+        fields_of(strategy).gazed = 0u;
         return;
     case 0x401:
         // The tail jump to 0x000BAA30.
-        set(strategy, field::attack_delay, 0.f);
-        if (get(strategy, field::walk_mode) != 1)
+        fields_of(strategy).attack_delay = 0.f;
+        if (fields_of(strategy).walk_mode != 1)
         {
-            if (get(strategy, field::walk_mode) == 2)
+            if (fields_of(strategy).walk_mode == 2)
             {
-                set(strategy, field::attack_delay, parameter(context, 0x1C));
+                fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
             }
-            set(strategy, field::walk_mode, 1u);
-            strategy[0x1A] = 0;
+            fields_of(strategy).walk_mode = 1u;
+            strategy_base(strategy).attacking = 0;
         }
-        if (get(strategy, field::special_delay) > 60.f) // DAT_0032B28C.
+        if (fields_of(strategy).special_delay > 60.f) // DAT_0032B28C.
         {
-            set(strategy, field::special_delay, roll_special_delay(context)); // The tail jump to 0x000BB870.
+            fields_of(strategy).special_delay = roll_special_delay(context); // The tail jump to 0x000BB870.
         }
         return;
     case 0x403:
         // 0x000BAF90, ESI strategy.
         if (attributes_always_special(context))
         {
-            set(strategy, field::always_special, 1u);
+            fields_of(strategy).always_special = 1u;
         }
         change_state(0x401, context);
         return;
     case 0x409:
         // The tail jump to 0x000BB000.
-        set(strategy, field::unk_17C, 1u);
-        set(strategy, field::unk_180, 0u);
-        body[0x328] = 5;
-        if (get(strategy, field::dizzy_step) != 1)
+        fields_of(strategy).unk_17C = 1u;
+        fields_of(strategy).unk_180 = 0u;
+        body_record(body).move_class = 5;
+        if (fields_of(strategy).dizzy_step != 1)
         {
-            set(strategy, field::dizzy_step, 1u);
+            fields_of(strategy).dizzy_step = 1u;
         }
         return;
     default:
@@ -1043,49 +1058,49 @@ void leave_runtime_medusa_state(u16 state, RuntimeMedusaStrategy& context)
     case 0x3EF:
     {
         // The tail jump to 0x000B9CD0, EAX strategy.
-        if (get(strategy, field::attack_request) != 0)
+        if (fields_of(strategy).attack_request != 0)
         {
             drop_attack(context); // 0x000BA050
         }
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         const std::span<u8> body = body_of(context);
-        put_f32(body, 0x71C, 0.5585053563117981f); // DAT_0032B220.
-        put_f32(body, 0x720, 12.566370964050293f); // DAT_0032B21C.
-        put_f32(body, 0x724, 6.f); // DAT_0032B218.
+        put_f32(body, offsetof(BodyRecord, turn_rates), 0.5585053563117981f); // DAT_0032B220.
+       body_record(body).turn_rates[1] = 12.566370964050293f; // DAT_0032B21C.
+       body_record(body).turn_rates[2] = 6.f; // DAT_0032B218.
         body_bits(context, "0x000B9CD0").bytes[5] &= 0xDF;
         release_cones(context); // 0x000BA840, EDI strategy
-        if (get(strategy, field::gaze_phase) != 0)
+        if (fields_of(strategy).gaze_phase != 0)
         {
-            set(strategy, field::gaze_phase, 0u);
+            fields_of(strategy).gaze_phase = 0u;
         }
         return;
     }
     case 0x3F0:
-        set(strategy, field::special_delay, roll_special_delay(context)); // The tail jump to 0x000BB870.
+        fields_of(strategy).special_delay = roll_special_delay(context); // The tail jump to 0x000BB870.
         return;
     case 0x401:
         // The tail jump to 0x000BAA80.
-        if (get(strategy, field::walk_mode) != 0)
+        if (fields_of(strategy).walk_mode != 0)
         {
-            if (get(strategy, field::walk_mode) == 2)
+            if (fields_of(strategy).walk_mode == 2)
             {
-                set(strategy, field::attack_delay, parameter(context, 0x1C));
+                fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
             }
-            set(strategy, field::walk_mode, 0u);
+            fields_of(strategy).walk_mode = 0u;
         }
         return;
     case 0x403:
         return;
     case 0x409:
-        if (get(strategy, field::dizzy_step) != 0)
+        if (fields_of(strategy).dizzy_step != 0)
         {
-            set(strategy, field::dizzy_step, 0u);
+            fields_of(strategy).dizzy_step = 0u;
         }
         return;
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }
@@ -1094,11 +1109,11 @@ void leave_runtime_medusa_state(u16 state, RuntimeMedusaStrategy& context)
 // Xbox 0x0001D9D0, ECX body
 void reset_runtime_body_flinch(std::span<u8> body, u32& random)
 {
-    body[0x90] = 2;
-    body[0x91] = 0;
-    body[0x92] = 2;
+    body_record(body).channel_keys = 2;
+    body_record(body).channel_key = 0;
+    body_record(body).unk_92 = 2;
     random = random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C; +0x8C held DAT_00338EE0 first.
-    put_f32(body, 0x8C, std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f); // DAT_0032B0F8.
+   body_record(body).channel_timer = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
 }
 
 // Xbox 0x00106140, ESI first, EDI second

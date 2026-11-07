@@ -1,4 +1,5 @@
 #pragma once
+#include "strategy_fields.h"
 #include "player_strategy_goals.h"
 #include "strategy_target_selection.h"
 #include "gbtg/object_factory.h"
@@ -6,7 +7,13 @@
 namespace gbtg
 {
 // The butler's strategy (factory type 0x3B, getter 0x000AB040, vtable 0x00505D70) over the base strategy (type 8).
-// Strategy bytes: +0x1C pause count, +0x38 the parameter block's +0x18 string, copied to body +0x288 while scared.
+struct ButlerStrategyState
+{
+    StrategyBase base;
+    // +0x38: the parameter block's +0x18 string, copied to body +0x288 while scared.
+    std::array<char, 0x60> scared_name{};
+};
+static_assert(sizeof(ButlerStrategyState) == 0x98);
 struct RuntimeButlerStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and the 0x00128DF0 query.

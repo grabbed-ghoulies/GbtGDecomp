@@ -1,4 +1,6 @@
 #include "body_throw_state.h"
+#include "mind_fields.h"
+#include "player_mind_targets.h"
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
 #include "body_action_selection.h"
@@ -10,6 +12,8 @@
 #include "player_mind_events.h"
 #include "../camera/camera_mind_rig.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <bit>
@@ -19,24 +23,9 @@ namespace gbtg
 {
 namespace
 {
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 Vec3 read_vector(std::span<const u8> bytes, size_t offset)
 {
     return Vec3{read_f32(bytes, offset), read_f32(bytes, offset + 4), read_f32(bytes, offset + 8)};
-}
-
-void put_vector(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, 12);
 }
 
 void adjust_body_counters(std::span<u8> body, i32 step)
@@ -66,7 +55,7 @@ const MinaPlayer* first_player(const ActorAnimationState& animation)
 // The aim's lift above the actor: half the actor's +0x34 height scaled by body +0x884 (DAT_0032B0F4).
 float throw_lift(const RuntimeThrowStateContext& context)
 {
-    return context.actor.radius_y * read_f32(context.body, 0x884) * 0.5f;
+    return context.actor.radius_y * body_record(context.body).height_scale * 0.5f;
 }
 }
 
@@ -78,40 +67,39 @@ void throw_state_object_sizes(ObjectSizes& output)
 }
 
 // Xbox 0x000A3850
-bool initialize_runtime_throw_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_throw_state(ThrowState& state, std::span<const u8> parameters,
     RuntimeThrowStateContext& context)
 {
     const auto body = context.body;
-    set(state, throw_state_field::aim_angle,
-        get(parameters, throw_state_parameter::aim_angle_degrees) * std::bit_cast<float>(0x3C8EFA35u)); // DAT_0032B0FC.
-    set(state, throw_state_field::aim_mode, get(parameters, throw_state_parameter::aim_mode));
-    set(state, throw_state_field::spread, get(parameters, throw_state_parameter::spread));
-    set(state, throw_state_field::end_key, get(parameters, throw_state_parameter::end_key));
-    set(state, throw_state_field::turn_to_aim, get(parameters, throw_state_parameter::turn_to_aim));
-    set(state, throw_state_field::smooth_launch, get(parameters, throw_state_parameter::smooth_launch));
-    set(state, throw_state_field::settle_turn, get(parameters, throw_state_parameter::settle_turn));
-    set(state, throw_state_field::near_range, get(parameters, throw_state_parameter::near_range));
-    set(state, throw_state_field::ended, 0);
-    body[0x38] = 1;
-    body[0x39] = 1;
-    body[0x6A] = u8(body[0x6A] + 1);
+    state.aim_angle = get(parameters, throw_state_parameter::aim_angle_degrees) * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
+    state.aim_mode = get(parameters, throw_state_parameter::aim_mode);
+    state.spread = get(parameters, throw_state_parameter::spread);
+    state.end_key = get(parameters, throw_state_parameter::end_key);
+    state.turn_to_aim = get(parameters, throw_state_parameter::turn_to_aim);
+    state.smooth_launch = get(parameters, throw_state_parameter::smooth_launch);
+    state.settle_turn = get(parameters, throw_state_parameter::settle_turn);
+    state.near_range = get(parameters, throw_state_parameter::near_range);
+    state.ended = 0;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
     adjust_live_attachment_holds(context.live_attachments, 1);
-    body[0x6D] = u8(body[0x6D] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     adjust_body_counters(body, 1);
     context.bits.bytes[6] |= 8;
     // 0x00041820, ESI actor, EDI state +0x18.
-    set(state, throw_state_field::entry_euler, actor_world_euler(context.actor));
+    state.entry_euler = actor_world_euler(context.actor);
     return true;
 }
 
 // Xbox 0x000A3910
-void destroy_runtime_throw_state(std::span<u8>, RuntimeThrowStateContext& context)
+void destroy_runtime_throw_state(ThrowState&, RuntimeThrowStateContext& context)
 {
     const auto body = context.body;
     adjust_body_counters(body, -1);
-    body[0x6A] = u8(body[0x6A] - 1);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
     adjust_live_attachment_holds(context.live_attachments, -1);
-    body[0x6D] = u8(body[0x6D] - 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
     context.bits.bytes[6] &= 0xF7;
     // The tail jump into 0x0001B720: a weapon still at +0x4C (with nothing in the hand, or one whose +0x93D is 2)
     // is let go (0x0001B570) and told {0x97, 0}.
@@ -127,33 +115,33 @@ void destroy_runtime_throw_state(std::span<u8>, RuntimeThrowStateContext& contex
 }
 
 // Xbox 0x000A3D50
-void turn_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& context)
+void turn_runtime_throw_state(ThrowState& state, RuntimeThrowStateContext& context)
 {
-    if (get(state, throw_state_field::launch_seeded) == 0 || get(state, throw_state_field::smooth_launch) == 0)
+    if (state.launch_seeded == 0 || state.smooth_launch == 0)
     {
-        set(state, throw_state_field::launch, get(state, throw_state_field::aim));
-        set(state, throw_state_field::launch_seeded, 1);
+        state.launch = state.aim;
+        state.launch_seeded = 1;
     }
     else
     {
         // x87: the actor's rate times the frame step times 100 (DAT_0032B12C), stored as a float.
         const float amount = float(static_cast<long double>(runtime_actor_rate(context.actor))
             * runtime_frame_step(context.clock) * 100.f);
-        const Vec3 aim = get(state, throw_state_field::aim);
-        Vec3 launch = get(state, throw_state_field::launch);
+        const Vec3 aim = state.aim;
+        Vec3 launch = state.launch;
         launch.x = approach_runtime_scalar(launch.x, aim.x, amount);
         launch.y = approach_runtime_scalar(launch.y, aim.y, amount);
         launch.z = approach_runtime_scalar(launch.z, aim.z, amount);
-        set(state, throw_state_field::launch, launch);
+        state.launch = launch;
     }
     Vec3 euler{};
-    if (turn_runtime_body_toward(get(state, throw_state_field::launch), context.body,
-            get(state, throw_state_field::entry_euler), euler,
+    if (turn_runtime_body_toward(state.launch, context.body,
+            state.entry_euler, euler,
             context.hit, context.actor, context.animation)) // 0x0001D5B0, EAX state +0x30
     {
         normalize_euler_angles(context.actor.euler, euler); // 0x00105AA0
         context.actor.xform_valid = 0; // +0x2A8.
-        put_vector(context.body, 0x72C, actor_world_euler(context.actor)); // 0x00041820, actor +0x95C -> +0x72C
+        body_record(context.body).euler = actor_world_euler(context.actor); // 0x00041820, actor +0x95C -> +0x72C
     }
 }
 
@@ -162,7 +150,8 @@ void aim_runtime_throw_by_stick(Vec3& aim, RuntimeThrowStateContext& context)
 {
     const auto body = context.body;
     std::array<float, 2> axes{0.f, 0.f};
-    if (context.own_input != nullptr && read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (context.own_input != nullptr && body_record(body).move_holds == 0 &&
+        body_record(body).move_hold_time == 0.f)
     {
         runtime_input_secondary_axes(*context.own_input, axes, context.input_state); // 0x001088D0
     }
@@ -227,20 +216,20 @@ void lead_runtime_throw_target(Vec3& aim, RuntimeThrowStateContext& context)
 {
     const auto target = context.target;
     const Vec3 seen = read_vector(target, 0x20);
-    if (!(read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0))
+    if (!(player_record(context.actor_bytes).mode == 2 || player_record(context.actor_bytes).case_link != 0))
     {
         aim = seen;
         return;
     }
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0, ESI actor
-    const float lead = read_f32(context.body, 0x7C);
+    const float lead = body_record(context.body).throw_lead;
     aim = seen;
-    const Actor& moving = context.actor_at(read_u32(target, 0x10));
+    const Actor& moving = context.actor_at(mind_target_record(target).actor);
     if (!(moving.animation_pause > 0.f)) // Target actor +0x930; DAT_0032B100.
     {
-        aim.x = read_f32(target, 0x5C) * lead + aim.x;
-        aim.y = read_f32(target, 0x60) * lead + aim.y;
-        aim.z = read_f32(target, 0x64) * lead + aim.z;
+        aim.x = mind_target_record(target).direction.x * lead + aim.x;
+        aim.y = mind_target_record(target).direction.y * lead + aim.y;
+        aim.z = mind_target_record(target).direction.z * lead + aim.z;
     }
     aim.y = seen.y;
     // The led direction and the direct one, each normalized when not zero (x87 from the reciprocal root).
@@ -274,29 +263,28 @@ void lead_runtime_throw_target(Vec3& aim, RuntimeThrowStateContext& context)
 }
 
 // Xbox 0x000A3990
-void tick_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& context)
+void tick_runtime_throw_state(ThrowState& state, RuntimeThrowStateContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    const u32 held = read_u32(body, 0x4C);
+    const u32 held = body_record(body).unk_4C;
     const bool targeted = context.target.data() != nullptr;
-    set(state, body_state_field::elapsed,
-        runtime_actor_step(actor, context.clock) + get(state, body_state_field::elapsed));
-    const u32 mode = get(state, throw_state_field::aim_mode);
+    state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
+    const u32 mode = state.aim_mode;
     if (mode == 3)
     {
         if (held != 0)
         {
             Vec3 aim{};
             aim_runtime_throw_by_stick(aim, context); // 0x000A3E80, EBX state +0x24
-            set(state, throw_state_field::aim, aim);
+            state.aim = aim;
         }
     }
     else if (targeted)
     {
         Vec3 aim{};
         lead_runtime_throw_target(aim, context); // 0x000A4100, EBX the target record
-        const float height = read_f32(context.target, 0x30);
+        const float height = mind_target_record(context.target).shape.height;
         if (mode == 0)
         {
             aim.y = height * 0.8f + aim.y; // DAT_0032B244.
@@ -309,41 +297,41 @@ void tick_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& con
         {
             aim.y = height * 0.1f + aim.y; // DAT_0032B254.
         }
-        set(state, throw_state_field::aim, aim);
+        state.aim = aim;
     }
     else
     {
         // 50 ahead of the actor along its yaw turned by +0x54, at half its height (x87 for the sums).
         Vec3 aim = actor_world_position(actor); // 0x000412A0, EDI state +0x24
         aim.y = throw_lift(context) + aim.y;
-        const float angle = float(static_cast<long double>(get(state, throw_state_field::aim_angle)) + actor.euler.y);
+        const float angle = float(static_cast<long double>(state.aim_angle) + actor.euler.y);
         const float side = float(retail_sin(angle)); // 0x00153320, stored
         const long double forward = retail_cos(angle); // 0x00153230, kept in x87
         aim.x = float(static_cast<long double>(side) * 50.f + aim.x); // DAT_0032B1E0.
         aim.z = float(forward * 50.f + aim.z);
-        set(state, throw_state_field::aim, aim);
-        set(state, throw_state_field::launch, aim);
+        state.aim = aim;
+        state.launch = aim;
     }
-    if (get(state, throw_state_field::thrown) == 0 && get(state, throw_state_field::turn_to_aim) != 0)
+    if (state.thrown == 0 && state.turn_to_aim != 0)
     {
         turn_runtime_throw_state(state, context); // 0x000A3D50
     }
-    if (get(state, throw_state_field::settle_turn) != 0)
+    if (state.settle_turn != 0)
     {
         settle_runtime_body_turn(body, actor); // 0x00134720, ESI body
     }
     if (held != 0 && (context.bits.bytes[0] & 4) != 0)
     {
         // The release key: launch from +0x30, or from in front of the actor when the target is within +0x40.
-        Vec3 launch = get(state, throw_state_field::launch);
-        const float near = get(state, throw_state_field::near_range);
+        Vec3 launch = state.launch;
+        const float near = state.near_range;
         if (targeted && near != 0.f)
         {
             const long double distance = runtime_actor_flat_distance(actor, launch); // 0x000413F0, EBX state +0x30
             if (static_cast<long double>(near) >= distance)
             {
                 launch = actor_world_position(actor); // 0x000412A0
-                offset_camera_point(launch, get(state, throw_state_field::aim_angle) + actor.euler.y,
+                offset_camera_point(launch, state.aim_angle + actor.euler.y,
                     40.f); // 0x001062A0
                 launch.y = throw_lift(context) + launch.y;
             }
@@ -359,13 +347,13 @@ void tick_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& con
                 }
                 launch.y = actor_world_position(*weapon->actor).y; // 0x000412A0, ESI the weapon
             }
-            spread_runtime_throw(get(state, throw_state_field::spread), launch, actor,
+            spread_runtime_throw(state.spread, launch, actor,
                 context.random); // 0x000A3FE0, ECX actor
         }
         auto& attachment = context.attachment;
         teleport_runtime_body_secondary(body, attachment.ownership.attached, attachment.secondary,
             attachment.actions.second_receiver, launch); // 0x0001B5D0, EAX body, EBX the launch point
-        set(state, throw_state_field::thrown, 1);
+        state.thrown = 1;
     }
     const MinaPlayer* player = first_player(context.animation);
     bool done = true;
@@ -386,29 +374,29 @@ void tick_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& con
     }
     if (done)
     {
-        set(state, throw_state_field::ended, 1);
+        state.ended = 1;
     }
-    if (get(state, throw_state_field::ended) == 0)
+    if (state.ended == 0)
     {
         return;
     }
-    u16 key = get(state, throw_state_field::end_key);
+    u16 key = state.end_key;
     if (key == 0)
     {
         key = context.body_slot_key(0x20);
     }
-    set(state, body_state_field::next_key, key);
+    state.base.next_key = key;
 }
 
 // Xbox 0x000A3D20
-void message_runtime_throw_state(std::span<const u8> state, std::span<const u8> message,
+void message_runtime_throw_state(const ThrowState& state, std::span<const u8> message,
     RuntimeThrowStateContext& context)
 {
     if (read_u32(message, 0) != 0x25)
     {
         return;
     }
-    u16 key = get(state, throw_state_field::end_key);
+    u16 key = state.end_key;
     if (key == 0)
     {
         key = context.body_slot_key(0x20);

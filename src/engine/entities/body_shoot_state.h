@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "body_action_selection.h"
@@ -32,27 +33,27 @@ constexpr RetailField<std::array<char, 0x80>, 0x24> empty_sound{};
 constexpr u32 kSize = 0xA4;
 static_assert(retail_fits(kSize, empty_sound));
 } // namespace shoot_state_parameter
-namespace shoot_state_field
+struct ShootState
 {
-constexpr RetailField<u32, 0x18> phase{}; // 1 aiming and firing, 2 the second phase
-constexpr RetailField<u32, 0x1C> answered{}; // the gun answered message 0x9A
-constexpr RetailField<u32, 0x20> firing{}; // the gun was told 0xA2
-constexpr RetailField<float, 0x24> timer{}; // 0.35 s (DAT_0032B354) from phase 1's start
-// The four animations (0x0003AAA0), in the parameters' order; set when the record was found.
-constexpr RetailField<u32, 0x28> aim{};
-constexpr RetailField<u32, 0x2C> aim_blend{};
-constexpr RetailField<u32, 0x30> second{};
-constexpr RetailField<u32, 0x34> second_blend{};
-constexpr RetailField<float, 0x38> lowest_pitch{}; // radians
-constexpr RetailField<float, 0x3C> highest_pitch{};
-constexpr RetailField<float, 0x40> weight{}; // slot 2's weight, following +0x44 at 2 a second
-constexpr RetailField<float, 0x44> aimed_weight{}; // the target's pitch between the limits, 0..1
-constexpr RetailField<u32, 0x48> aimed{}; // set once +0x44 was taken from a target (0x000A0160)
-constexpr RetailField<std::array<char, 0x80>, 0x4C> empty_sound{};
-constexpr RetailField<u32, 0xCC> last_target{}; // the target record of the last tick
-constexpr u32 kSize = 0xD0;
-static_assert(retail_fits(kSize, last_target));
-} // namespace shoot_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 1 aiming and firing, 2 the second phase
+    u32 answered = 0; // +0x1C, the gun answered message 0x9A
+    u32 firing = 0; // +0x20, the gun was told 0xA2
+    float timer = 0.f; // +0x24, 0.35 s (DAT_0032B354) from phase 1's start
+    // +0x28: The four animations (0x0003AAA0), in the parameters' order; set when the record was found.
+    u32 aim = 0;
+    u32 aim_blend = 0; // +0x2C
+    u32 second = 0; // +0x30
+    u32 second_blend = 0; // +0x34
+    float lowest_pitch = 0.f; // +0x38, radians
+    float highest_pitch = 0.f; // +0x3C
+    float weight = 0.f; // +0x40, slot 2's weight, following +0x44 at 2 a second
+    float aimed_weight = 0.f; // +0x44, the target's pitch between the limits, 0..1
+    u32 aimed = 0; // +0x48, set once +0x44 was taken from a target (0x000A0160)
+    std::array<char, 0x80> empty_sound{}; // +0x4C
+    u32 last_target = 0; // +0xCC, the target record of the last tick
+};
+static_assert(sizeof(ShootState) == 0xD0);
 struct RuntimeShootStateContext
 {
     std::span<u8> body;
@@ -74,18 +75,19 @@ struct RuntimeShootStateContext
     std::function<u16()> next_key; // Body vtable +0x20.
 };
 void shoot_state_object_sizes(ObjectSizes& output); // Xbox 0x0009F6C0
-bool initialize_runtime_shoot_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_shoot_state(ShootState& state, std::span<const u8> parameters,
     RuntimeShootStateContext& context); // Xbox 0x0009F740
-void destroy_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& context); // Xbox 0x0009F9B0
-void tick_runtime_shoot_state(std::span<u8> state, RuntimeShootStateContext& context); // Xbox 0x0009FA80
+void destroy_runtime_shoot_state(ShootState& state, RuntimeShootStateContext& context); // Xbox 0x0009F9B0
+void tick_runtime_shoot_state(ShootState& state, RuntimeShootStateContext& context); // Xbox 0x0009FA80
 // Leaving phase 1 tells the gun 0xA3; phase 1 or 2 starts its animation pair with slot 2 at +0x40.
-void set_runtime_shoot_phase(std::span<u8> state, u32 phase, RuntimeShootStateContext& context); // Xbox 0x0009FED0, EDI state
+void set_runtime_shoot_phase(ShootState& state,
+    u32 phase, RuntimeShootStateContext& context); // Xbox 0x0009FED0, EDI state
 // Once the gun's muzzle (0x9F) faces `point` (within 30 degrees, or the target is near and the aim settled), the gun
 // is told {0xA2, target, point}. Whether it is firing.
-bool fire_runtime_shoot_state(std::span<u8> state, u32 target, float radius, const Vec3& point,
+bool fire_runtime_shoot_state(ShootState& state, u32 target, float radius, const Vec3& point,
     RuntimeShootStateContext& context); // Xbox 0x0009FF90, EDI state, ESI point
 // Slot 2's weight follows the target's pitch from the body's eye height.
-void aim_runtime_shoot_state(std::span<u8> state, std::span<const u8> target,
+void aim_runtime_shoot_state(ShootState& state, std::span<const u8> target,
     RuntimeShootStateContext& context); // Xbox 0x000A0160, EAX target, ECX actor, EBX state
 // The turn toward the target, relative to the body's hit heading.
 Vec3 runtime_shoot_turn(std::span<const u8> target, RuntimeShootStateContext& context); // Xbox 0x000A0320, EAX target, EDX body

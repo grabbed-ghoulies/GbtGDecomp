@@ -1,6 +1,8 @@
 #include "body_hold_state.h"
+#include <cstddef>
 #include "actor_live_attachments.h"
 #include "body_orientation.h"
+#include "body_fields.h"
 
 #include <array>
 #include <bit>
@@ -10,20 +12,13 @@ namespace gbtg
 {
 namespace
 {
-namespace field = hold_state_field;
-
 // Body fields wait for the body's layout.
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // Body +0x6B, +0x30 (a word) and +0x309..+0x30C move together.
 void adjust_hold_counters(std::span<u8> body, i32 step)
 {
-    body[0x6B] = u8(body[0x6B] + step);
-    const u16 held = u16(read_u16(body, 0x30) + step);
-    std::memcpy(body.data() + 0x30, &held, 2);
+    body_record(body).unk_6B = u8(body_record(body).unk_6B + step);
+    const u16 held = u16(body_record(body).move_holds + step);
+    body_record(body).move_holds = held;
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + step);
@@ -39,20 +34,19 @@ void hold_state_object_sizes(ObjectSizes& output)
 }
 
 // Xbox 0x000A3520
-bool initialize_runtime_hold_state(std::span<u8> state, RuntimeBodyStateContext& context)
+bool initialize_runtime_hold_state(HoldState& state, RuntimeBodyStateContext& context)
 {
     const auto body = context.body;
     adjust_hold_counters(body, 1);
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits->bytes[6] |= 4;
-    set(state, field::timer, read_f32(body, 0x240)); // The word copied as a float: the same bits.
+    state.timer = body_record(body).unk_240; // The word copied as a float: the same bits.
     // The base's +0xC word (next_key and the +0xE half), copied whole.
-    set(state, field::settle_turn, u32(get(state, body_state_field::next_key))
-        | u32(get(state, body_state_field::unk_E)) << 16);
+    state.settle_turn = u32(state.base.next_key) | u32(state.base.unk_E) << 16;
     const float scale = std::bit_cast<float>(0x3E19999Au); // DAT_0032B168.
-    set(state, field::timer, (1.f - read_f32(body, 0x16C)) * scale + get(state, field::timer)); // DAT_0032B0F8.
-    const u32 bit = get(state, field::body_bit);
+    state.timer = (1.f - body_record(body).stagger) * scale + state.timer; // DAT_0032B0F8.
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] |= u8(1u << (bit & 7));
@@ -61,11 +55,11 @@ bool initialize_runtime_hold_state(std::span<u8> state, RuntimeBodyStateContext&
 }
 
 // Xbox 0x000A35E0
-void destroy_runtime_hold_state(std::span<const u8> state, RuntimeBodyStateContext& context)
+void destroy_runtime_hold_state(const HoldState& state, RuntimeBodyStateContext& context)
 {
     adjust_hold_counters(context.body, -1);
     context.bits->bytes[6] &= 0xFB;
-    const u32 bit = get(state, field::body_bit);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits->bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
@@ -73,33 +67,31 @@ void destroy_runtime_hold_state(std::span<const u8> state, RuntimeBodyStateConte
 }
 
 // Xbox 0x000A3670
-void tick_runtime_hold_state(std::span<u8> state, RuntimeHoldStateTick& context)
+void tick_runtime_hold_state(HoldState& state, RuntimeHoldStateTick& context)
 {
     const auto body = context.body;
-    set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
-        + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
-    if (get(state, field::settle_turn) != 0)
+    state.base.elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
+    level_body_euler(body);
+    if (state.settle_turn != 0)
     {
         settle_runtime_body_turn(body, context.actor); // 0x00134720, ESI body.
     }
-    const float timer = get(state, field::timer);
+    const float timer = state.timer;
     if (timer > 0.f)
     {
         const float left = timer - runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
-        set(state, field::timer, left);
+        state.timer = left;
         if (0.f >= left)
         {
-            set(state, field::timer, 0.f);
+            state.timer = 0.f;
         }
     }
-    if (get(state, field::timer) != 0.f) // DAT_0032B100; unordered also returns.
+    if (state.timer != 0.f) // DAT_0032B100; unordered also returns.
     {
         return;
     }
     auto& recovery = context.recovery;
-    if (read_f32(body, 0x168) == 0.f)
+    if (body_record(body).unk_168 == 0.f)
     {
         const auto settings = recovery.settings; // Body +0x268.
         const u32 brake = settings.data() == nullptr ? 1 : (settings[0x1A4] == 0 ? 1 : 0);
@@ -107,6 +99,6 @@ void tick_runtime_hold_state(std::span<u8> state, RuntimeHoldStateTick& context)
     }
     const std::array<u32, 2> notice{0x75, context.actor_address};
     broadcast_actor_pulse_message(reinterpret_cast<const i32*>(notice.data())); // 0x00122C70, EDI notice.
-    select_runtime_body_goal_action(state, recovery); // 0x00134060, EBX body.
+    select_runtime_body_goal_action(state.base, recovery); // 0x00134060, EBX body.
 }
 }

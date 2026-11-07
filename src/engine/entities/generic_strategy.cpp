@@ -1,4 +1,7 @@
 #include "generic_strategy.h"
+#include <cstddef>
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_shape_bounds.h"
 #include "player_children.h"
@@ -8,6 +11,7 @@
 #include "player_parent_lifecycle.h"
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
+#include "body_fields.h"
 #include <cmath>
 #include <cstring>
 
@@ -15,7 +19,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = generic_strategy_field;
+GenericStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<GenericStrategyState>(strategy);
+}
+
+const GenericStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<GenericStrategyState>(strategy);
+}
+
 
 constexpr float kOne = 1.f; // DAT_0032B0F8.
 constexpr float kChaseRange = 40.f; // DAT_0032B1B8.
@@ -118,18 +131,18 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> mind = mind_of(context);
-    const u32 prior = read_u32(mind, 0x10);
-    float timer = get(strategy, field::reselect_timer) - runtime_frame_step(goals.clock);
-    set(strategy, field::reselect_timer, timer);
+    const u32 prior = mind_record(mind).target_record;
+    float timer = fields_of(strategy).reselect_timer - runtime_frame_step(goals.clock);
+    fields_of(strategy).reselect_timer = timer;
     bool elapsed = false;
     if (!(0.f < timer)) // COMISS; JC keeps a positive time.
     {
-        set(strategy, field::reselect_timer, timer + kOne);
+        fields_of(strategy).reselect_timer = timer + kOne;
         elapsed = true;
     }
     bool changed = false;
     bool settled = false;
-    if ((body_of(context)[0x6E] & 1) != 0 && prior != 0 && elapsed)
+    if ((body_of(context)[offsetof(BodyRecord, tag)] & 1) != 0 && prior != 0 && elapsed)
     {
         select_runtime_strategy_target(output, 1, goals); // 0x00139AA0
         if (output != nullptr)
@@ -145,16 +158,16 @@ bool select_target(RuntimeMindTarget*& output, bool reset, RuntimeGenericStrateg
     }
     if (!settled)
     {
-        const u32 current = read_u32(mind, 0x10);
-        select_runtime_strategy_target(output, get(strategy, field::reselect) != 0 ? 1u : 0u, goals); // 0x00139AA0
+        const u32 current = mind_record(mind).target_record;
+        select_runtime_strategy_target(output, fields_of(strategy).reselect != 0 ? 1u : 0u, goals); // 0x00139AA0
         changed = current == 0 && output != nullptr;
     }
-    if (changed && get(strategy, field::attack_new) != 0)
+    if (changed && fields_of(strategy).attack_new != 0)
     {
         start_attack(context); // 0x000ABA40
     }
-    set(strategy, field::attack_new, 0u);
-    set(strategy, field::reselect, 0u);
+    fields_of(strategy).attack_new = 0u;
+    fields_of(strategy).reselect = 0u;
     if (output != nullptr)
     {
         return true;
@@ -206,7 +219,7 @@ float target_gap(std::span<const u8> record, RuntimeGenericStrategy& context)
     const float dz = position.z - read_f32(record, 0x28);
     const float scale = actor.radius_xz; // Body +8, +0x38.
     const float distance = float(std::sqrt(double(dx) * dx + double(dy) * dy + double(dz) * dz));
-    float reach = read_f32(body, 0x78) * scale;
+    float reach = body_record(body).reach * scale;
     float weapon_radius = 0.f;
     const RuntimeBodyAttachedActor* weapon = weapon_of(context);
     const u8 kind = weapon == nullptr ? 0 : weapon->bytes[0x93D];
@@ -222,7 +235,7 @@ float target_gap(std::span<const u8> record, RuntimeGenericStrategy& context)
         }
     }
     reach += weapon_radius;
-    const float gap = distance - (read_f32(body, 0x888) * scale + reach + read_f32(record, 0x38));
+    const float gap = distance - (body_record(body).radius_scale * scale + reach + read_f32(record, 0x38));
     return 0.f >= gap ? 0.f : gap;
 }
 
@@ -265,7 +278,7 @@ void load_attack_goal(RuntimeGenericStrategy& context)
         }
         if (kind == 4)
         {
-            const u32 record = read_u32(goals_of(context).entry.events.mind, 0x10); // ESI, mind +0x10.
+            const u32 record = mind_record(goals_of(context).entry.events.mind).target_record; // ESI, mind +0x10.
             load_goal(gun_target_in_range(*weapon, record, context) ? context.goal_attack_gun
                 : context.goal_attack_gun_secondary, context);
             return;
@@ -294,7 +307,7 @@ bool initialize_runtime_generic_strategy(RuntimeGenericStrategy& context)
             row = find_runtime_mind_goal(*goals.table, context.goal_get_weapon); // 0x0002A770
         }
     }
-    set(strategy, field::can_arm, row != nullptr && row->bytes.data() + 4 != nullptr ? 1u : 0u);
+    fields_of(strategy).can_arm = row != nullptr && row->bytes.data() + 4 != nullptr ? 1u : 0u;
     return true;
 }
 
@@ -303,7 +316,7 @@ void dispatch_runtime_generic_message(std::span<const u32> message, RuntimeGener
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
     if (react_runtime_strategy_message(message, context.checks) != 0) // 0x001384F0, EAX strategy, ECX message
     {
@@ -332,7 +345,7 @@ void dispatch_runtime_generic_message(std::span<const u32> message, RuntimeGener
         return;
     }
     bool arming = false;
-    if (message[4] != 0 && get(strategy, field::can_arm) != 0 && weapon_of(context) == nullptr)
+    if (message[4] != 0 && fields_of(strategy).can_arm != 0 && weapon_of(context) == nullptr)
     {
         bool near = false;
         if (actor != message[1])
@@ -346,8 +359,8 @@ void dispatch_runtime_generic_message(std::span<const u32> message, RuntimeGener
             arming = true;
         }
     }
-    set(strategy, field::reselect, 1u);
-    set(strategy, field::attack_new, arming ? 0u : 1u);
+    fields_of(strategy).reselect = 1u;
+    fields_of(strategy).attack_new = arming ? 0u : 1u;
 }
 
 // Xbox 0x000AB540
@@ -355,7 +368,7 @@ void update_runtime_generic_strategy(RuntimeGenericStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     RuntimeMindTarget* target = nullptr;
     switch (state)
@@ -449,13 +462,13 @@ void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    body[0x328] = 2;
-    strategy[0x1A] = 0;
+    body_record(body).move_class = 2;
+    strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3EC:
     {
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         RuntimePlayerMindRequest& chase = allocate_request(0x2F, context); // 0x00029D90, EBX 0x2F
         put_float(chase.bytes, 0x10, kOne);
         put_float(chase.bytes, 0x14, kOne);
@@ -464,15 +477,15 @@ void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
         return;
     }
     case 0x3EE:
-        body[0x328] = 5;
-        strategy[0x1A] = context.attack_resource.data() != nullptr ? 1 : 0; // Body +0x5C.
+        body_record(body).move_class = 5;
+        strategy_base(strategy).attacking = context.attack_resource.data() != nullptr ? 1 : 0; // Body +0x5C.
         load_attack_goal(context); // The tail jump to 0x000ABA80.
         return;
     case 0x401:
         load_goal(context.goal_far, context);
         return;
     case 0x405:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         load_goal(context.goal_get_weapon, context);
         return;
     case 0x40D:
@@ -496,7 +509,7 @@ void leave_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

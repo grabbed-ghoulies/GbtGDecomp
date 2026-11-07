@@ -40,8 +40,8 @@ void engine_heap_free(void* block)
 {
     ++g_freed;
 }
-void* g_512344 = nullptr; // DAT_00512344.
-i32 g_512348 = 0; // DAT_00512348.
+void* g_occupancy_pool = nullptr; // DAT_00512344.
+i32 g_occupancy_mask = 0; // DAT_00512348.
 // Bound-actor and resource paths are unreachable here: the oracle never supplies a bind.
 struct ModelPoseBuffer;
 struct Joint;
@@ -390,7 +390,7 @@ void run_room()
     Player player;
     read_actor(player);
     const u32 present = next();
-    g_512348 = i32(next());
+    g_occupancy_mask = i32(next());
     const u32 count = next();
     std::vector<OccupancyRecord> records(std::max<u32>(count, 1));
     for (u32 index = 0; index < count; ++index)
@@ -402,7 +402,7 @@ void run_room()
         record.extent_x = next_float();
     }
     OccupancyPool pool{0x38, 4, records.data(), records.data() + count, records.data() + count};
-    g_512344 = present != 0 ? &pool : nullptr;
+    g_occupancy_pool = present != 0 ? &pool : nullptr;
     put_u16(player.bytes, 6, u16(next()));
     const OccupancyRecord* allowed = next() != 0 ? records.data() : nullptr;
     const OccupancyRecord* current = nullptr;

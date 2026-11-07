@@ -1,4 +1,10 @@
 #include "jessie_clyde_strategy.h"
+#include "gbtg/retail_field.h"
+#include <cstddef>
+#include "body_fields.h"
+#include "strategy_fields.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_action_ids.h"
 #include "body_animation_commands.h"
@@ -16,6 +22,7 @@
 #include "../navigation/navigation.h"
 #include "gbtg/entity.h"
 #include "gbtg/model_runtime.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -25,7 +32,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = jessie_clyde_strategy_field;
+JessieClydeStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<JessieClydeStrategyState>(strategy);
+}
+
+const JessieClydeStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<JessieClydeStrategyState>(strategy);
+}
+
 
 constexpr float kHalfPi = 1.5707964f; // DAT_0032B140.
 
@@ -72,9 +88,9 @@ EntityBitBlock& body_bits(RuntimeJessieClydeStrategy& context, const char* calle
     return *bits;
 }
 
-float parameter(RuntimeJessieClydeStrategy& context, size_t offset)
+const JessieClydeParameters& parameters_of(RuntimeJessieClydeStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<JessieClydeParameters>(context.parameters);
 }
 
 // Mind +0x58: the first pending mind request.
@@ -107,7 +123,7 @@ RuntimeMindTarget* mind_target(RuntimeJessieClydeStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = read_u32(mind, 0x10);
+    const u32 target = mind_record(mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -129,7 +145,7 @@ float attribute(RuntimeJessieClydeStrategy& context, size_t offset)
 u32 provoked(RuntimeJessieClydeStrategy& context)
 {
     const std::span<const u8> actor = goals_of(context).entry.actor_bytes;
-    return read_f32(actor, 0x978) > 0.f ? 1u : u32(actor[0x969]); // DAT_0032B100.
+    return player_record(actor).countdown_56 > 0.f ? 1u : u32(player_record(actor).provoked); // DAT_0032B100.
 }
 
 // The current effect (+0x13C) ends (message 5).
@@ -137,16 +153,16 @@ void end_effect(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     const std::array<u32, 2> message{5, 0};
-    context.object_message(get(strategy, field::effect), message); // Effect vtable +0xC.
-    set(strategy, field::effect, 0u);
+    context.object_message(fields_of(strategy).effect, message); // Effect vtable +0xC.
+    fields_of(strategy).effect = 0u;
 }
 
 // The effect named at +0x4C, made with the actor at +8 (0x00107720, 0x00107520, 0x000663E0), kept at +0x13C.
 void make_effect(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const char* name = reinterpret_cast<const char*>(strategy.data() + field::effect_name.offset);
-    set(strategy, field::effect, context.create_effect(name, actor_address(context)));
+    const char* name = fields_of(strategy).effect_name.data();
+    fields_of(strategy).effect = context.create_effect(name, actor_address(context));
 }
 
 // Xbox 0x000B8080, AX state: an attack state (0x3ED..0x3EF).
@@ -163,29 +179,29 @@ void step_transform(u32 step, RuntimeJessieClydeStrategy& context)
     const std::span<u8> body = body_of(context);
     if (step == 1)
     {
-        clear_runtime_player_attachment_events(strategy.subspan(field::events.offset), context.lists); // 0x0013B810
+        clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).events), context.lists); // 0x0013B810
         clear_requests(context);
         load_goal(context.goal_transform, context);
         make_effect(context);
         increment_runtime_body_latches(body, actor, context.latches); // The inlined 0x0001FC40.
-        set(strategy, field::transform_step, 1u);
+        fields_of(strategy).transform_step = 1u;
         return;
     }
     if (step != 2)
     {
-        set(strategy, field::transform_step, step);
+        fields_of(strategy).transform_step = step;
         return;
     }
-    set(strategy, field::calm, 0u);
+    fields_of(strategy).calm = 0u;
     EntityBitBlock& bits = body_bits(context, "0x000B83A0");
     bits.bytes[1] = u8(bits.bytes[1] | 0x80);
-    if (get(strategy, field::effect) != 0)
+    if (fields_of(strategy).effect != 0)
     {
         end_effect(context);
     }
     decrement_runtime_body_latches(body, actor, context.latches); // The inlined 0x0001FD20.
     const char* flower = "noflower"; // 0x00324304.
-    std::memcpy(body.data() + 0x288, flower, std::strlen(flower) + 1);
+    std::memcpy(body.data() + offsetof(BodyRecord, variant), flower, std::strlen(flower) + 1);
     if (actor.model == nullptr)
     {
         throw Error("0x00052F80 reads Jessie Clyde's model data through address zero");
@@ -194,7 +210,7 @@ void step_transform(u32 step, RuntimeJessieClydeStrategy& context)
     {
         context.model_nodes(0x10, 0); // 0x000F96F0 on +0x204 and +0x310
     }
-    set(strategy, field::transform_step, 2u);
+    fields_of(strategy).transform_step = 2u;
 }
 
 // Xbox 0x000B8270, EAX actor: her target is in reach of the eye: a clear path to it, within a quarter turn of her
@@ -207,7 +223,8 @@ bool target_in_view(RuntimeJessieClydeStrategy& context)
         return false;
     }
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const Vec3 point{read_f32(target->bytes, 0x20), read_f32(target->bytes, 0x24), read_f32(target->bytes, 0x28)};
+    const Vec3 point{mind_target_record(target->bytes).shape.position.x,
+        mind_target_record(target->bytes).shape.position.y, mind_target_record(target->bytes).shape.position.z};
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     i32 last_cell = 0;
     if (!navigation_path_clear(position, point, 1, 0, 0, 0, nullptr, &last_cell,
@@ -224,7 +241,7 @@ bool target_in_view(RuntimeJessieClydeStrategy& context)
     {
         return false;
     }
-    return runtime_actor_point_within(actor_of(context), target->bytes, parameter(context, 0x10)); // 0x000416C0
+    return runtime_actor_point_within(actor_of(context), target->bytes, parameters_of(context).eye_reach); // 0x000416C0
 }
 
 // Xbox 0x000B8100, EAX actor, EDI strategy: calm, she walks about until struck, provoked or seeing her target near,
@@ -232,10 +249,10 @@ bool target_in_view(RuntimeJessieClydeStrategy& context)
 void tick_calm(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    switch (get(strategy, field::transform_step))
+    switch (fields_of(strategy).transform_step)
     {
     case 0:
-        if (provoked(context) == 0 && get(strategy, field::struck) == 0 && !target_in_view(context))
+        if (provoked(context) == 0 && fields_of(strategy).struck == 0 && !target_in_view(context))
         {
             if (!requests_pending(context))
             {
@@ -269,7 +286,7 @@ void tick_calm(RuntimeJessieClydeStrategy& context)
 bool ready_to_attack(RuntimeJessieClydeStrategy& context)
 {
     const RuntimeMindTarget* target = mind_target(context);
-    if (!(get(strategy_of(context), field::cue) <= 0.001f) || target == nullptr) // DAT_0032B1A4.
+    if (!(fields_of(strategy_of(context)).cue <= 0.001f) || target == nullptr) // DAT_0032B1A4.
     {
         return false;
     }
@@ -294,7 +311,7 @@ bool ready_to_attack(RuntimeJessieClydeStrategy& context)
     {
         return false;
     }
-    return runtime_actor_point_within(actor_of(context), target->bytes, parameter(context, 4)); // 0x000416C0
+    return runtime_actor_point_within(actor_of(context), target->bytes, parameters_of(context).attack_reach); // 0x000416C0
 }
 
 // Xbox 0x000B86E0, ECX strategy: the attack: the special (0x3EF) when open or by the attributes' +8 chance, else the
@@ -307,7 +324,7 @@ void choose_attack(RuntimeJessieClydeStrategy& context)
         return;
     }
     goals.room = nullptr; // Actor +0x954 -> +8 -> +0xCA0.
-    if (get(strategy_of(context), field::open) == 0)
+    if (fields_of(strategy_of(context)).open == 0)
     {
         const float chance = attribute(context, 8);
         if (chance < roll(context))
@@ -329,9 +346,9 @@ void tick_angry(RuntimeJessieClydeStrategy& context)
     {
         notice_runtime_strategy_target(0x14, context.shared.checks); // 0x0013A430
     }
-    float cue = get(strategy, field::cue);
+    float cue = fields_of(strategy).cue;
     count_down_runtime_strategy_timer(cue, goals_of(context)); // Inlined 0x0002B9F0.
-    set(strategy, field::cue, cue);
+    fields_of(strategy).cue = cue;
     if (ready_to_attack(context)) // 0x000B87F0
     {
         choose_attack(context); // The tail jump to 0x000B86E0.
@@ -353,7 +370,7 @@ void tick_idle(RuntimeJessieClydeStrategy& context)
     {
         return;
     }
-    if (get(strategy_of(context), field::calm) != 0)
+    if (fields_of(strategy_of(context)).calm != 0)
     {
         tick_calm(context); // 0x000B8100
         return;
@@ -366,11 +383,11 @@ void tick_idle(RuntimeJessieClydeStrategy& context)
 void step_shout(u32 step, RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::shout_step) == step)
+    if (fields_of(strategy).shout_step == step)
     {
         return;
     }
-    set(strategy, field::shout_step, step);
+    fields_of(strategy).shout_step = step;
     if (step == 1)
     {
         load_goal(context.goal_shout, context);
@@ -391,14 +408,14 @@ void step_shout(u32 step, RuntimeJessieClydeStrategy& context)
         }
     }
     const float facing = read_f32(goals_of(context).entry.actor_bytes, 0x18);
-    const float forward = parameter(context, 0x24);
+    const float forward = parameters_of(context).scare_forward;
     point.x = float(retail_sin(facing) * forward + point.x); // 0x00153320
     const long double cosine = retail_cos(facing); // 0x00153230
     EntityBitBlock& bits = body_bits(context, "0x000B8A70");
-    point.y = parameter(context, 0x28) + point.y;
+    point.y = parameters_of(context).scare_rise + point.y;
     bits.bytes[2] = u8(bits.bytes[2] & 0x7F);
     point.z = float(cosine * forward + point.z);
-    context.scare_at(point, actor_address(context), parameter(context, 0x1C), parameter(context, 0x20), 1,
+    context.scare_at(point, actor_address(context), parameters_of(context).scare_intensity, parameters_of(context).scare_scale, 1,
         1); // 0x0013B270
 }
 
@@ -407,7 +424,7 @@ void step_shout(u32 step, RuntimeJessieClydeStrategy& context)
 void tick_shout(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 step = get(strategy, field::shout_step);
+    const u32 step = fields_of(strategy).shout_step;
     if (step == 2)
     {
         if (!requests_pending(context))
@@ -454,10 +471,10 @@ void tick_knockdown(RuntimeJessieClydeStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     if (!requests_pending(context))
     {
-        change_state(get(strategy, field::follow_up) != 0 ? 0x3F2 : 0x401, context);
+        change_state(fields_of(strategy).follow_up != 0 ? 0x3F2 : 0x401, context);
         return;
     }
-    if (get(strategy, field::knockdown_effect) == 0)
+    if (fields_of(strategy).knockdown_effect == 0)
     {
         return;
     }
@@ -469,28 +486,28 @@ void tick_knockdown(RuntimeJessieClydeStrategy& context)
     bits.bytes[0] = u8(bits.bytes[0] & 0xEF);
     end_effect(context);
     decrement_runtime_body_latch_mask(body_of(context), 0x3F, actor_of(context), context.latches); // 0x0001F2F0
-    set(strategy, field::knockdown_effect, 0u);
+    fields_of(strategy).knockdown_effect = 0u;
 }
 
 // Xbox 0x000B9160, EAX strategy: the special's time runs out this tick, or message 0x6E asked it to end.
 bool special_over(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    float time = get(strategy, field::special_time);
+    float time = fields_of(strategy).special_time;
     const bool done = count_down_runtime_strategy_timer(time, goals_of(context)); // Inlined 0x0002B9F0.
-    set(strategy, field::special_time, time);
+    fields_of(strategy).special_time = time;
     if (done)
     {
         return true;
     }
-    return get(strategy, field::unk_D4) != 0;
+    return fields_of(strategy).unk_D4 != 0;
 }
 
 // Xbox 0x000B90D0, EAX strategy: the special (0x3EF) ends in 0x3F2 (asked to) or 0x401.
 void tick_special(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::unk_D8) != 0)
+    if (fields_of(strategy).unk_D8 != 0)
     {
         RuntimeMindTarget* target = nullptr;
         if (!select_runtime_strategy_target(target, 0, goals_of(context))) // 0x00139AA0
@@ -498,11 +515,11 @@ void tick_special(RuntimeJessieClydeStrategy& context)
             return;
         }
     }
-    if (get(strategy, field::special_step) != 2 || !special_over(context)) // 0x000B9160
+    if (fields_of(strategy).special_step != 2 || !special_over(context)) // 0x000B9160
     {
         return;
     }
-    change_state(get(strategy, field::unk_D4) != 0 ? 0x3F2 : 0x401, context);
+    change_state(fields_of(strategy).unk_D4 != 0 ? 0x3F2 : 0x401, context);
 }
 
 // Xbox 0x000B9300, EAX step, ESI strategy: the special's steps; step 2 times it, makes its effect and raises every
@@ -510,31 +527,31 @@ void tick_special(RuntimeJessieClydeStrategy& context)
 void step_special(u32 step, RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::special_step) == step)
+    if (fields_of(strategy).special_step == step)
     {
         return;
     }
-    set(strategy, field::special_step, step);
+    fields_of(strategy).special_step = step;
     if (step == 1)
     {
         load_goal(context.goal_special_prepare, context);
-        set(strategy, field::unk_D8, 1u);
-        set(strategy, field::unk_D0, 1u);
-        set(strategy, field::unk_D4, 0u);
-        set(strategy, field::special_effect, 0u);
-        body_of(context)[0x328] = 6;
-        strategy[0x1A] = 1;
+        fields_of(strategy).unk_D8 = 1u;
+        fields_of(strategy).unk_D0 = 1u;
+        fields_of(strategy).unk_D4 = 0u;
+        fields_of(strategy).special_effect = 0u;
+        body_record(body_of(context)).move_class = 6;
+        strategy_base(strategy).attacking = 1;
         return;
     }
     if (step != 2)
     {
         return;
     }
-    const float shortest = parameter(context, 0x14);
-    set(strategy, field::special_time, (parameter(context, 0x18) - shortest) * roll(context) + shortest);
+    const float shortest = parameters_of(context).special_time_low;
+    fields_of(strategy).special_time = (parameters_of(context).special_time_high - shortest) * roll(context) + shortest;
     make_effect(context);
     increment_runtime_body_latch_mask(body_of(context), 0x3F, actor_of(context), context.latches); // 0x0001F3F0
-    set(strategy, field::special_effect, 1u);
+    fields_of(strategy).special_effect = 1u;
 }
 
 // Xbox 0x000B9260, EAX strategy: message 0x6E from her target during the special's second step: ended at once when
@@ -542,22 +559,22 @@ void step_special(u32 step, RuntimeJessieClydeStrategy& context)
 void special_struck(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::special_step) != 2 || read_u16(strategy, 0xE) != 0x3EF)
+    if (fields_of(strategy).special_step != 2 || strategy_base(strategy).state != 0x3EF)
     {
         return;
     }
-    if (get(strategy, field::unk_D0) != 0)
+    if (fields_of(strategy).unk_D0 != 0)
     {
-        set(strategy, field::unk_D4, 1u);
+        fields_of(strategy).unk_D4 = 1u;
         return;
     }
     const u32 none = 0;
     std::memcpy(mind_of(context).data() + 0x10, &none, 4); // Written directly, not through 0x0002A030.
     RuntimeMindTarget* target = nullptr;
     select_runtime_strategy_hostile_target(target, 0, goals_of(context)); // 0x00139C70, EDX 0
-    set(strategy, field::unk_D8, 1u);
-    set(strategy, field::unk_D0, 1u);
-    set(strategy, field::unk_D4, 0u);
+    fields_of(strategy).unk_D8 = 1u;
+    fields_of(strategy).unk_D0 = 1u;
+    fields_of(strategy).unk_D4 = 0u;
     if (target != nullptr)
     {
         load_goal(context.goal_special, context);
@@ -571,7 +588,7 @@ void special_struck(RuntimeJessieClydeStrategy& context)
 bool special_retarget(u32 actor, RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::special_step) != 2 || read_u16(strategy, 0xE) != 0x3EF)
+    if (fields_of(strategy).special_step != 2 || strategy_base(strategy).state != 0x3EF)
     {
         return false;
     }
@@ -581,8 +598,8 @@ bool special_retarget(u32 actor, RuntimeJessieClydeStrategy& context)
         return false;
     }
     set_runtime_mind_target(goals_of(context).entry.events, record); // 0x0002A030, ESI mind, EAX record
-    set(strategy, field::unk_D8, 0u);
-    set(strategy, field::unk_D0, 0u);
+    fields_of(strategy).unk_D8 = 0u;
+    fields_of(strategy).unk_D0 = 0u;
     clear_requests(context);
     load_goal(context.goal_special, context);
     return true;
@@ -593,20 +610,20 @@ bool special_retarget(u32 actor, RuntimeJessieClydeStrategy& context)
 void target_called(u32 actor, RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::calm) != 0)
+    if (fields_of(strategy).calm != 0)
     {
         return;
     }
     const RuntimeMindTarget* target = mind_target(context);
-    if (target == nullptr || read_u32(target->bytes, 0x10) != actor)
+    if (target == nullptr || mind_target_record(target->bytes).actor != actor)
     {
         return;
     }
-    if (!runtime_actor_point_within(actor_of(context), target->bytes, parameter(context, 0xC))) // 0x000416C0
+    if (!runtime_actor_point_within(actor_of(context), target->bytes, parameters_of(context).call_reach)) // 0x000416C0
     {
         return;
     }
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = strategy_base(strategy).state;
     if (state == 0x3ED || state == 0x3EF)
     {
         if (requests_pending(context))
@@ -630,7 +647,7 @@ void target_called(u32 actor, RuntimeJessieClydeStrategy& context)
 // Xbox 0x000B9420
 void jessie_clyde_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(JessieClydeStrategyState);
     output.parameters = 0x98;
 }
 
@@ -639,14 +656,14 @@ bool initialize_runtime_jessie_clyde_strategy(std::span<const u8> parameters, Ru
 {
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = actor_of(context);
-    set(strategy, field::parameters, context.parameters_address);
-    set(strategy, field::calm, 1u);
-    set(strategy, field::struck, 0u);
-    set(strategy, field::unk_D8, 1u);
-    set(strategy, field::effect, 0u);
-    set(strategy, field::open, provoked(context));
+    fields_of(strategy).parameters = context.parameters_address;
+    fields_of(strategy).calm = 1u;
+    fields_of(strategy).struck = 0u;
+    fields_of(strategy).unk_D8 = 1u;
+    fields_of(strategy).effect = 0u;
+    fields_of(strategy).open = provoked(context);
     const char* name = reinterpret_cast<const char*>(parameters.data() + 0x18);
-    std::memcpy(strategy.data() + field::effect_name.offset, name, std::strlen(name) + 1);
+    std::memcpy(fields_of(strategy).effect_name.data(), name, std::strlen(name) + 1);
     EntityBitBlock& bits = body_bits(context, "0x000B9490");
     bits.bytes[1] = u8(bits.bytes[1] & 0x7F);
     if (actor.model == nullptr)
@@ -658,7 +675,8 @@ bool initialize_runtime_jessie_clyde_strategy(std::span<const u8> parameters, Ru
         context.model_nodes(0x10, 1); // 0x000F96F0 on +0x204 and +0x310
     }
     dispatch_actor_attachment_records(context.resource.resource.data(), 0x11, record_runtime_body_attachment_event,
-        nullptr, context.callouts, goals_of(context).address_of(strategy.data()) + field::events.offset); // 0x0003BE20
+        nullptr, context.callouts,
+        goals_of(context).address_of(strategy.data()) + offsetof(JessieClydeStrategyState, events)); // 0x0003BE20
     return true;
 }
 
@@ -667,8 +685,8 @@ void destroy_runtime_jessie_clyde_strategy(RuntimeJessieClydeStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     // Both blocks as the inlined 0x0013B810.
-    clear_runtime_player_attachment_events(strategy.subspan(field::other_events.offset), context.lists);
-    clear_runtime_player_attachment_events(strategy.subspan(field::events.offset), context.lists);
+    clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).other_events), context.lists);
+    clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).events), context.lists);
 }
 
 // Xbox 0x000B9630
@@ -676,7 +694,7 @@ void update_runtime_jessie_clyde_strategy(RuntimeJessieClydeStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = strategy_base(strategy).state;
     const RuntimeMindTarget* target = mind_target(context);
     u32 open = 0;
     if (target == nullptr)
@@ -687,7 +705,7 @@ void update_runtime_jessie_clyde_strategy(RuntimeJessieClydeStrategy& context)
     {
         open = provoked(context) != 0 || !runtime_strategy_target_watching_player(*target) ? 1u : 0u; // 0x001414F0
     }
-    set(strategy, field::open, open);
+    fields_of(strategy).open = open;
     update_runtime_base_strategy(goals); // 0x0002C130
     switch (state)
     {
@@ -715,17 +733,17 @@ void dispatch_runtime_jessie_clyde_message(std::span<const u32> message, Runtime
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     RuntimeSpiderStrategy& shared = context.shared;
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     react_runtime_strategy_message(message, shared.checks); // 0x001384F0; its result is not read.
     dispatch_runtime_base_strategy_message(message, shared.base); // 0x0002BC10
-    const u16 state = read_u16(strategy, 0xE);
-    const bool calm = get(strategy, field::calm) != 0;
+    const u16 state = strategy_base(strategy).state;
+    const bool calm = fields_of(strategy).calm != 0;
     switch (message[0])
     {
     case 0x14:
-        if (get(strategy, field::effect) == message[1])
+        if (fields_of(strategy).effect == message[1])
         {
-            set(strategy, field::effect, 0u);
+            fields_of(strategy).effect = 0u;
         }
         return;
     case 0x2C:
@@ -738,7 +756,7 @@ void dispatch_runtime_jessie_clyde_message(std::span<const u32> message, Runtime
         special_retarget(message[2], context); // 0x000B91F0
         return;
     case 0x31:
-        if (!calm && get(strategy, field::unk_D0) != 0)
+        if (!calm && fields_of(strategy).unk_D0 != 0)
         {
             react_runtime_strategy_watched_actor(message, shared.checks, shared.views); // 0x001397B0
         }
@@ -748,13 +766,13 @@ void dispatch_runtime_jessie_clyde_message(std::span<const u32> message, Runtime
         return;
     case 0x3B:
         // The tail jump to 0x000B9130: the special's second step, when it is not already on.
-        if (message[2] == 2 && get(strategy, field::special_step) != 2 && state == 0x3EF)
+        if (message[2] == 2 && fields_of(strategy).special_step != 2 && state == 0x3EF)
         {
             step_special(2, context); // 0x000B9300
         }
         return;
     case 0x57:
-        set(strategy, field::follow_up, 1u);
+        fields_of(strategy).follow_up = 1u;
         return;
     case 0x6E:
     {
@@ -773,15 +791,16 @@ void dispatch_runtime_jessie_clyde_message(std::span<const u32> message, Runtime
         }
         if (calm)
         {
-            set(strategy, field::struck, 1u);
+            fields_of(strategy).struck = 1u;
         }
         retaliate_runtime_strategy_contact(message, -1, shared.checks, shared.views); // 0x00139390
-        if (strategy[0x1C] != 0)
+        if (strategy_base(strategy).pause_count != 0)
         {
             return;
         }
         const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
-        const u32 kind = read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0 ? 1u : 0u;
+        const u32 kind =
+            player_record(actor_bytes).mode == 2 || player_record(actor_bytes).case_link != 0 ? 1u : 0u;
         if (goals.resume.references[kind] != 0 || goals.resume.decay_enabled[goals.resume.decay_index] == 0)
         {
             return;
@@ -824,34 +843,34 @@ void enter_runtime_jessie_clyde_state(u16 state, u16 previous, RuntimeJessieClyd
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     switch (state)
     {
     case 0x3ED:
         // 0x000B88F0.
-        if (get(strategy, field::shout_step) != 1)
+        if (fields_of(strategy).shout_step != 1)
         {
-            set(strategy, field::shout_step, 1u);
+            fields_of(strategy).shout_step = 1u;
             load_goal(context.goal_shout, context);
         }
-        body[0x328] = 4;
-        strategy[0x1A] = 1;
+        body_record(body).move_class = 4;
+        strategy_base(strategy).attacking = 1;
         return;
     case 0x3EE:
     {
         // 0x000B8B90, EDI strategy.
         load_goal(context.goal_knockdown, context);
-        set(strategy, field::follow_up, 0u);
-        set(strategy, field::knockdown_effect, 0u);
-        body[0x328] = 5;
-        strategy[0x1A] = 1;
+        fields_of(strategy).follow_up = 0u;
+        fields_of(strategy).knockdown_effect = 0u;
+        body_record(body).move_class = 5;
+        strategy_base(strategy).attacking = 1;
         const EntityBitBlock& bits = body_bits(context, "0x000B8B90");
         if ((bits.bytes[3] & 0x80) != 0 || (bits.bytes[4] & 0x10) != 0)
         {
-            set(strategy, field::knockdown_effect, 1u);
+            fields_of(strategy).knockdown_effect = 1u;
             make_effect(context);
             increment_runtime_body_latches(body, actor_of(context), context.latches); // The inlined 0x0001FC40.
-            set(strategy, field::knockdown_effect, 1u);
+            fields_of(strategy).knockdown_effect = 1u;
         }
         return;
     }
@@ -859,11 +878,11 @@ void enter_runtime_jessie_clyde_state(u16 state, u16 previous, RuntimeJessieClyd
         step_special(1, context); // 0x000B8F30, the same first step as 0x000B9300.
         return;
     case 0x401:
-        set(strategy, field::cue, read_f32(context.parameters, 0));
+        fields_of(strategy).cue = parameters_of(context).cue_time;
         return;
     case 0x403:
         // 0x000B88A0.
-        set(strategy, field::struck, 1u);
+        fields_of(strategy).struck = 1u;
         change_state(0x401, context);
         return;
     default:
@@ -882,24 +901,24 @@ void leave_runtime_jessie_clyde_state(u16 state, RuntimeJessieClydeStrategy& con
     case 0x3ED:
     {
         // The tail jump to 0x000B8930.
-        if (get(strategy, field::shout_step) != 0)
+        if (fields_of(strategy).shout_step != 0)
         {
-            set(strategy, field::shout_step, 0u);
+            fields_of(strategy).shout_step = 0u;
         }
         EntityBitBlock& bits = body_bits(context, "0x000B8930");
         bits.bytes[2] = u8(bits.bytes[2] & 0x7F);
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     }
     case 0x3EE:
     {
         // 0x000B8D00.
-        strategy[0x1A] = 0;
-        if (get(strategy, field::knockdown_effect) != 0)
+        strategy_base(strategy).attacking = 0;
+        if (fields_of(strategy).knockdown_effect != 0)
         {
             end_effect(context);
             decrement_runtime_body_latches(body_of(context), actor_of(context), context.latches); // Inlined 0x0001FD20.
-            set(strategy, field::knockdown_effect, 0u);
+            fields_of(strategy).knockdown_effect = 0u;
         }
         EntityBitBlock& bits = body_bits(context, "0x000B8D00");
         bits.bytes[0] = u8(bits.bytes[0] & 0xEF);
@@ -907,19 +926,19 @@ void leave_runtime_jessie_clyde_state(u16 state, RuntimeJessieClydeStrategy& con
     }
     case 0x3EF:
         // 0x000B8F90, EDI strategy.
-        set(strategy, field::unk_D8, 1u);
-        set(strategy, field::unk_D0, 1u);
-        set(strategy, field::unk_D4, 0u);
-        if (get(strategy, field::special_effect) != 0)
+        fields_of(strategy).unk_D8 = 1u;
+        fields_of(strategy).unk_D0 = 1u;
+        fields_of(strategy).unk_D4 = 0u;
+        if (fields_of(strategy).special_effect != 0)
         {
             end_effect(context);
             decrement_runtime_body_latches(body_of(context), actor_of(context), context.latches); // Inlined 0x0001FD20.
-            set(strategy, field::special_effect, 0u);
+            fields_of(strategy).special_effect = 0u;
         }
-        strategy[0x1A] = 0;
-        if (get(strategy, field::special_step) != 0)
+        strategy_base(strategy).attacking = 0;
+        if (fields_of(strategy).special_step != 0)
         {
-            set(strategy, field::special_step, 0u);
+            fields_of(strategy).special_step = 0u;
         }
         return;
     case 0x401:
@@ -928,7 +947,7 @@ void leave_runtime_jessie_clyde_state(u16 state, RuntimeJessieClydeStrategy& con
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

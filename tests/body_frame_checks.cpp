@@ -40,7 +40,7 @@ void check_body_frame_methods()
 {
     using namespace gbtg;
     std::array<u8, 0x924> body{};
-    std::array<u8, 0xE00> actor_storage{};
+    std::array<u8, 0xF00> actor_storage{};
     std::span<u8> actor_bytes = actor_storage;
     Actor actor;
     actor.animation_rate = 1.f;
@@ -296,7 +296,7 @@ void check_body_frame_methods()
     require(shapes->limit - shapes->begin == 0x190,
         "shape pool growth must use stride times original grow count");
     engine_heap_free(shapes);
-    std::array<u8, 0xE00> source{};
+    std::array<u8, 0xF00> source{};
     put(actor_bytes, 0xCE0, 1);
     put(actor_bytes, 0xCDC, 2);
     body[0x6A] = 1;
@@ -351,7 +351,7 @@ void check_body_frame_methods()
     };
     require(notify_runtime_player_collision_action(position, position, position, position, nullptr, current_action)
         && position.y == 40.f, "collision action must preserve actual reply and target writes");
-    std::array<u8, 0xD00> attached_bytes{};
+    std::array<u8, 0xF00> attached_bytes{};
     RuntimeBodyAttachedActor attached;
     attached.bytes = attached_bytes;
     RuntimeBodyActionIds ids{&attached, 7, 0x10001234};

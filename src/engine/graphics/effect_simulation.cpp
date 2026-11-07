@@ -4,44 +4,37 @@
 #include "effect_command_selection.h"
 #include "../entities/bounded_channels.h"
 #include "../entities/entity.h"
+#include "effect_particles.h"
 
-#include <cstring>
+#include <bit>
 
 namespace gbtg
 {
-namespace
-{
-void write_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-}
-
 // Xbox 0x000F18E0
-u32 simulate_actor_effect_particle(std::span<u8> particle, ActorEffectNode& owner,
+u32 simulate_actor_effect_particle(EffectParticle& particle, ActorEffectNode& owner,
     float step, u32& collided, float& previous_collisions,
     RuntimeEffectSimulation& context)
 {
-    const float life = read_f32(particle, 0xA8);
+    const float life = particle.life;
     if (life != -1.f)
     {
         const float remaining = life - step;
-        write_float(particle, 0xA8, remaining);
+        particle.life = remaining;
         if (0.f >= remaining)
         {
             return 0;
         }
     }
-    const u32 kind = read_u32(owner.bytes, 0x13C);
+    const u32 kind = effect_header(owner.bytes).draw_mode;
     if (kind == 0 || kind == 2)
     {
-        if ((particle[0x104] & 2) != 0)
+        if ((particle.frames.mode & 2) != 0)
         {
-            decrease_runtime_bounded_channel(particle.subspan(0xF4, 0x14), step);
+            decrease_runtime_bounded_channel(particle.frames, step);
         }
-        else if ((particle[0x104] & 1) != 0)
+        else if ((particle.frames.mode & 1) != 0)
         {
-            increase_runtime_bounded_channel(particle.subspan(0xF4, 0x14), step);
+            increase_runtime_bounded_channel(particle.frames, step);
         }
     }
     const bool hit = move_actor_effect_particle(particle, context.movement, [&]()
@@ -54,60 +47,61 @@ u32 simulate_actor_effect_particle(std::span<u8> particle, ActorEffectNode& owne
         return context.commands.callback_result;
     }
     collided = 0;
-    std::memcpy(&previous_collisions, particle.data() + 0x5C, 4);
-    approach_actor_effect_channels(particle.subspan(0x60, 0x3C), context.movement.clock);
-    const float target = read_f32(particle, 0xA0);
-    const float difference = target - read_f32(particle, 0x48);
+    previous_collisions = std::bit_cast<float>(particle.collisions);
+    approach_actor_effect_channels(particle.colour_channels, context.movement.clock);
+    const float target = particle.target_size;
+    const float difference = target - particle.size;
     const float distance = engine_absolute(difference);
-    const float rate = read_f32(particle, 0x9C);
+    const float rate = particle.size_rate;
     const float change = rate * step;
     if (rate != 0.f)
     {
         if (change > distance)
         {
-            write_float(particle, 0x9C, 0.f);
-            write_float(particle, 0x48, target);
+            particle.size_rate = 0.f;
+            particle.size = target;
         }
         else if (0.f > difference)
         {
-            write_float(particle, 0x48, read_f32(particle, 0x48) - change);
+            particle.size = particle.size - change;
         }
         else
         {
-            write_float(particle, 0x48, read_f32(particle, 0x48) + change);
+            particle.size = particle.size + change;
         }
     }
-    if ((particle[0x58] & 4) != 0)
+    if ((particle.channel_flags & 4) != 0)
     {
-        tick_actor_effect_oscillation(particle.subspan(0xB8, 0x3C), step);
+        tick_actor_effect_oscillation(particle.oscillation, step);
     }
-    if ((particle[0x58] & 8) != 0)
+    if ((particle.channel_flags & 8) != 0)
     {
-        tick_runtime_bounded_channels(particle.subspan(0x10C, 0x3C), step, nullptr);
+        tick_runtime_bounded_channels(particle.bounded_channels, step, nullptr);
     }
-    if (read_f32(particle, 0x108) > 0.f)
+    if (particle.unk_108 > 0.f)
     {
-        write_float(particle, 0x108, read_f32(particle, 0x108) - step);
+        particle.unk_108 = particle.unk_108 - step;
     }
-    if (read_f32(owner.bytes, 0xBC) != -1.f)
+    if (effect_header(owner.bytes).reach != -1.f)
     {
-        const float x = read_f32(particle, 0) - read_f32(owner.bytes, 0x1C);
-        const float y = read_f32(particle, 4) - read_f32(owner.bytes, 0x20);
-        const float z = read_f32(particle, 8) - read_f32(owner.bytes, 0x24);
+        const Vec3 origin = effect_header(owner.bytes).position;
+        const float x = particle.position.x - origin.x;
+        const float y = particle.position.y - origin.y;
+        const float z = particle.position.z - origin.z;
         const float squared = (x * x + y * y) + z * z;
-        if (squared > read_f32(owner.bytes, 0xBC))
+        if (squared > effect_header(owner.bytes).reach)
         {
             const u32 fallback = find_actor_effect_fallback_command(particle, owner, context.resolve);
             if (fallback != 0)
             {
-                std::memcpy(particle.data() + 0x14C, &fallback, 4);
+                particle.command = fallback;
             }
         }
     }
-    u32 cursor = read_u32(particle, 0x14C);
+    u32 cursor = particle.command;
     const bool alive = execute_actor_effect_commands(particle, owner, cursor, context.resolve,
         context.commands.effects.random_state, context.pal, context.override_pal);
-    std::memcpy(particle.data() + 0x14C, &cursor, 4);
+    particle.command = cursor;
     return alive;
 }
 }

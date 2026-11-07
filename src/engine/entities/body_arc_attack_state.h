@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "body_state_actions.h"
 #include "actor_clock.h"
@@ -59,65 +60,69 @@ constexpr u32 kSize = 0x214;
 static_assert(retail_fits(kSize, latch));
 } // namespace arc_attack_state_parameter
 // The arc attack state's own fields at their retail offsets (0x268 bytes), after the body-state base
-// (body_state_field).
-namespace arc_attack_state_field
+// (BodyStateBase).
+struct ArcAttackState
 {
-constexpr RetailField<u32, 0x18> target{}; // the mind's target record (actor +0x958 -> +0x14) at entry, or 0
-constexpr RetailField<u32, 0x1C> phase{}; // 1 take-off, 2 rise, 3 hold, 4 leap, 5 retreat, 0 done
-constexpr RetailField<float, 0x20> spin_rate{}; // radians per second about the actor's x axis
-constexpr RetailField<float, 0x24> launch_yaw{}; // the leap's direction (0x00105F90)
-constexpr RetailField<float, 0x2C> trail_timer{};
-constexpr RetailField<float, 0x30> trail_scale{};
-constexpr RetailField<u32, 0x34> retreated{};
-constexpr RetailField<u32, 0x38> bounce{};
-constexpr RetailField<u16, 0x3C> bounce_key{};
-constexpr RetailField<float, 0x40> speed{}; // the parameters', or the actor's reply to message 0x58
-constexpr RetailField<float, 0x44> spin_degrees{};
-constexpr RetailField<float, 0x48> gravity{};
-constexpr RetailField<float, 0x4C> landing_gravity{};
-constexpr RetailField<u32, 0x50> settled{}; // set once body +0x324 took the landing gravity
-constexpr RetailField<float, 0x54> hold{}; // counted down by the hold phase
-constexpr RetailField<float, 0x58> settle{};
-constexpr RetailField<float, 0x5C> saved_gravity{}; // body +0x324 at entry, restored by the destructor
-constexpr RetailField<u32, 0x60> shape_mode{}; // 0x0001FEB0's previous mode, restored by the destructor
-constexpr RetailField<Vec3, 0x64> start{}; // the actor's world position at entry
-constexpr RetailField<u32, 0x70> zero_gravity{};
-constexpr RetailField<float, 0x74> take_off_time{};
-constexpr RetailField<u16, 0x78> shape_tag{};
-constexpr RetailField<float, 0x7C> shape_scale{};
-constexpr RetailField<u32, 0x80> shapes_active{}; // set while the leap's contact shapes are live
-constexpr RetailField<std::array<char, 0x80>, 0x84> launch_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0x104> flight_sound{};
-constexpr RetailField<float, 0x184> settle_timer{};
-constexpr RetailField<u32, 0x188> latch{};
-constexpr RetailField<u32, 0x18C> latched{}; // set while the leap holds the body latches
-constexpr RetailField<u32, 0x190> retreat{};
-constexpr RetailField<u32, 0x194> reflect{};
-constexpr RetailField<float, 0x198> retreat_speed{};
-constexpr RetailField<float, 0x19C> retreat_spin_degrees{};
-constexpr RetailField<float, 0x1A0> retreat_gravity{};
-constexpr RetailField<u32, 0x1A4> damage_end{};
-constexpr RetailField<u16, 0x1A8> end_key{};
-constexpr RetailField<Vec3, 0x1AC> lift_origin{}; // the actor's world position when the rise starts
-constexpr RetailField<float, 0x1B8> lift_height{};
-constexpr RetailField<float, 0x1BC> lift_start{};
-constexpr RetailField<std::array<char, 0x80>, 0x1C0> take_off_sound{};
-constexpr RetailField<u32, 0x240> flat{};
-constexpr RetailField<float, 0x244> height_scale{};
-// Five animation records (0x0003AAA0); set when the record was found. 0x00089700 starts phase 1's +0x248, 2's +0x250,
-// 3's +0x24C, 4's +0x254 and 5's +0x258.
-constexpr RetailField<u32, 0x248> take_off_animation{};
-constexpr RetailField<u32, 0x24C> flight_animation{};
-constexpr RetailField<u32, 0x250> lift_animation{};
-constexpr RetailField<u32, 0x254> leap_animation{};
-constexpr RetailField<u32, 0x258> retreat_animation{};
-constexpr RetailField<u32, 0x25C> keep_pitch{};
-// Read by the hurt (0x00089DB0) to price the hit; no dump writes it, so it keeps the factory's zero fill.
-constexpr RetailField<u32, 0x260> unk_260{};
-constexpr RetailField<u32, 0x264> land_on_contact{};
-constexpr u32 kSize = 0x268;
-static_assert(retail_fits(kSize, land_on_contact));
-} // namespace arc_attack_state_field
+    BodyStateBase base{}; // +0
+    u32 target = 0; // +0x18, the mind's target record (actor +0x958 -> +0x14) at entry, or 0
+    u32 phase = 0; // +0x1C, 1 take-off, 2 rise, 3 hold, 4 leap, 5 retreat, 0 done
+    float spin_rate = 0.f; // +0x20, radians per second about the actor's x axis
+    float launch_yaw = 0.f; // +0x24, the leap's direction (0x00105F90)
+    std::array<u8, 4> unk_28{}; // +0x28, never read or written by translated code
+    float trail_timer = 0.f; // +0x2C
+    float trail_scale = 0.f; // +0x30
+    u32 retreated = 0; // +0x34
+    u32 bounce = 0; // +0x38
+    u16 bounce_key = 0; // +0x3C
+    std::array<u8, 2> unk_3E{}; // +0x3E, padding
+    float speed = 0.f; // +0x40, the parameters', or the actor's reply to message 0x58
+    float spin_degrees = 0.f; // +0x44
+    float gravity = 0.f; // +0x48
+    float landing_gravity = 0.f; // +0x4C
+    u32 settled = 0; // +0x50, set once body +0x324 took the landing gravity
+    float hold = 0.f; // +0x54, counted down by the hold phase
+    float settle = 0.f; // +0x58
+    float saved_gravity = 0.f; // +0x5C, body +0x324 at entry, restored by the destructor
+    u32 shape_mode = 0; // +0x60, 0x0001FEB0's previous mode, restored by the destructor
+    Vec3 start{}; // +0x64, the actor's world position at entry
+    u32 zero_gravity = 0; // +0x70
+    float take_off_time = 0.f; // +0x74
+    u16 shape_tag = 0; // +0x78
+    std::array<u8, 2> unk_7A{}; // +0x7A, padding
+    float shape_scale = 0.f; // +0x7C
+    u32 shapes_active = 0; // +0x80, set while the leap's contact shapes are live
+    std::array<char, 0x80> launch_sound{}; // +0x84
+    std::array<char, 0x80> flight_sound{}; // +0x104
+    float settle_timer = 0.f; // +0x184
+    u32 latch = 0; // +0x188
+    u32 latched = 0; // +0x18C, set while the leap holds the body latches
+    u32 retreat = 0; // +0x190
+    u32 reflect = 0; // +0x194
+    float retreat_speed = 0.f; // +0x198
+    float retreat_spin_degrees = 0.f; // +0x19C
+    float retreat_gravity = 0.f; // +0x1A0
+    u32 damage_end = 0; // +0x1A4
+    u16 end_key = 0; // +0x1A8
+    std::array<u8, 2> unk_1AA{}; // +0x1AA, padding
+    Vec3 lift_origin{}; // +0x1AC, the actor's world position when the rise starts
+    float lift_height = 0.f; // +0x1B8
+    float lift_start = 0.f; // +0x1BC
+    std::array<char, 0x80> take_off_sound{}; // +0x1C0
+    u32 flat = 0; // +0x240
+    float height_scale = 0.f; // +0x244
+    // +0x248: Five animation records (0x0003AAA0); set when the record was found. 0x00089700 starts phase 1's +0x248,
+    // 2's +0x250, 3's +0x24C, 4's +0x254 and 5's +0x258.
+    u32 take_off_animation = 0;
+    u32 flight_animation = 0; // +0x24C
+    u32 lift_animation = 0; // +0x250
+    u32 leap_animation = 0; // +0x254
+    u32 retreat_animation = 0; // +0x258
+    u32 keep_pitch = 0; // +0x25C
+    // +0x260: Read by the hurt (0x00089DB0) to price the hit; no dump writes it, so it keeps the factory's zero fill.
+    u32 unk_260 = 0;
+    u32 land_on_contact = 0; // +0x264
+};
+static_assert(sizeof(ArcAttackState) == 0x268);
 struct RuntimeArcAttackStateContext
 {
     std::span<u8> body;
@@ -149,14 +154,14 @@ struct RuntimeArcAttackStateContext
     u32& random; // DAT_0054DD7C.
 };
 void arc_attack_state_object_sizes(ObjectSizes& output); // Xbox 0x00088990
-bool initialize_runtime_arc_attack_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_arc_attack_state(ArcAttackState& state, std::span<const u8> parameters,
     RuntimeArcAttackStateContext& context); // Xbox 0x00088A10
-void destroy_runtime_arc_attack_state(std::span<u8> state,
+void destroy_runtime_arc_attack_state(ArcAttackState& state,
     RuntimeArcAttackStateContext& context); // Xbox 0x00088ED0
 // `contact` is message 0x62's +0x1C record (a position, then the surface normal at +0xC), empty for the others.
-void message_runtime_arc_attack_state(std::span<u8> state, std::span<u32> message, std::span<const u8> contact,
+void message_runtime_arc_attack_state(ArcAttackState& state, std::span<u32> message, std::span<const u8> contact,
     RuntimeArcAttackStateContext& context); // Xbox 0x00089530
-void tick_runtime_arc_attack_state(std::span<u8> state, RuntimeArcAttackStateContext& context); // Xbox 0x00089060
+void tick_runtime_arc_attack_state(ArcAttackState& state, RuntimeArcAttackStateContext& context); // Xbox 0x00089060
 // Type 0x5F (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_arc_attack_state_class(std::span<ObjectFactoryType> types,
     std::function<RuntimeArcAttackStateContext&(u32 body_address)> context_of);

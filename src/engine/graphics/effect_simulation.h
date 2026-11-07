@@ -12,7 +12,7 @@ struct RuntimeEffectSimulation
     const i32& pal;
     const i32& override_pal;
 };
-u32 simulate_actor_effect_particle(std::span<u8> particle, ActorEffectNode& owner,
+u32 simulate_actor_effect_particle(EffectParticle& particle, ActorEffectNode& owner,
     float step, u32& collided, float& previous_collisions,
     RuntimeEffectSimulation& context); // Xbox 0x000F18E0
 }

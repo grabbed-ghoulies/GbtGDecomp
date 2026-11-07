@@ -1,4 +1,7 @@
 #include "body_jump_on_state.h"
+#include "weapon_fields.h"
+#include <cstddef>
+#include "mind_fields.h"
 #include "actor_bind_tree.h"
 #include "actor_live_attachments.h"
 #include "actor_shape_bounds.h"
@@ -13,6 +16,8 @@
 #include "player_mind_targets.h"
 #include "../navigation/navigation.h"
 #include "../navigation/spawn_candidates.h"
+#include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <bit>
@@ -23,9 +28,7 @@ namespace gbtg
 {
 namespace
 {
-namespace field = jump_on_state_field;
 namespace parameter = jump_on_state_parameter;
-namespace ride = ride_field;
 
 std::function<RuntimeJumpOnStateContext&(u32)> jump_on_context_of;
 
@@ -45,26 +48,6 @@ void put_float(std::span<u8> bytes, size_t offset, float value)
     std::memcpy(bytes.data() + offset, &value, 4);
 }
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
-float global(RuntimeJumpOnStateContext& context, u32 address)
-{
-    return read_f32(context.globals, address - 0x00428680);
-}
-
-i32 head_marker(RuntimeJumpOnStateContext& context)
-{
-    return i32(read_u32(context.globals, 0x00428684 - 0x00428680));
-}
-
 float roll(u32& random)
 {
     random = random * 0x19660Du + 0x3C6EF35Fu; // DAT_0054DD7C.
@@ -76,19 +59,9 @@ float actor_step(RuntimeJumpOnStateContext& context)
     return runtime_actor_rate(context.actor) * runtime_frame_step(context.clock);
 }
 
-std::span<u8> ride_of(std::span<u8> state)
+JumpOnAnimations& animations_of(const u8* state_key)
 {
-    return state.subspan(field::kRide, ride::kSize);
-}
-
-std::span<u8> state_of_ride(std::span<u8> ride_bytes)
-{
-    return {ride_bytes.data() - field::kRide, field::kSize};
-}
-
-JumpOnAnimations& animations_of(std::span<const u8> state)
-{
-    return jump_on_animations[state.data()];
+    return jump_on_animations[state_key];
 }
 
 const AnimationRecord& record(const AnimationRecord* found, const char* caller)
@@ -135,7 +108,7 @@ const MinaPlayer* first_player(RuntimeJumpOnStateContext& context)
 // 0x00028C30: the mind's target record, or 0 without a mind.
 u32 mind_target(RuntimeJumpOnStateContext& context)
 {
-    return context.mind.empty() ? 0u : read_u32(context.mind, 0x10);
+    return context.mind.empty() ? 0u : mind_record(context.mind).target_record;
 }
 
 // Mind +0x10's record +0x10: the target actor (the record read through address zero without one).
@@ -146,7 +119,7 @@ RuntimeJumpOnPeer target_peer(RuntimeJumpOnStateContext& context, const char* ca
     {
         throw Error(std::string(caller) + " reads the target actor of a mind with no target");
     }
-    return context.peer_at(read_u32(context.target_at(target), 0x10));
+    return context.peer_at(mind_target_record(context.target_at(target)).actor);
 }
 
 // 0x0003B8B0 and the host's views.
@@ -213,14 +186,14 @@ bool window_crossed(const MinaPlayer& player, float time)
 }
 
 // The leap's progress for the arc's height: 1 for a zero length, else the elapsed fraction clamped to 0..1.
-float leap_fraction(std::span<const u8> leap)
+float leap_fraction(const LeapRecord& leap)
 {
-    const float length = read_f32(leap, 0x48);
+    const float length = leap.length;
     if (0.f == length)
     {
         return 1.f; // DAT_0032B0F8.
     }
-    const float fraction = (read_f32(leap, 0x4C) - length) / (0.f - length);
+    const float fraction = (leap.time_left - length) / (0.f - length);
     if (fraction > 1.f)
     {
         return 1.f;
@@ -233,38 +206,32 @@ float leap_fraction(std::span<const u8> leap)
 }
 
 // The body point along the leap with the arc's height (sin(fraction * pi) * DAT_00428680) added.
-void place_on_leap(std::span<const u8> state, RuntimeJumpOnStateContext& context)
+void place_on_leap(const JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
-    const std::span<const u8> leap = state.subspan(0x18, 0x50);
-    const float x = read_f32(state, 0x54);
-    const float y = read_f32(state, 0x58);
-    const float z = read_f32(state, 0x5C);
-    const float fraction = leap_fraction(leap);
+    const float x = state.leap.position.x;
+    const float y = state.leap.position.y;
+    const float z = state.leap.position.z;
+    const float fraction = leap_fraction(state.leap);
     const long double arc = retail_sin(fraction * 3.1415927410125732f); // 0x00153320, DAT_0032B148.
-    put_float(context.body, 0x18, x);
-    put_float(context.body, 0x20, z);
-    put_float(context.body, 0x1C, float(arc * static_cast<long double>(global(context, 0x00428680))
-        + static_cast<long double>(y)));
+   body_record(context.body).position.x = x;
+   body_record(context.body).position.z = z;
+    body_record(context.body).position.y = float(arc * static_cast<long double>(context.tunables.leap_arc_height)
+        + static_cast<long double>(y));
 }
 }
 
 namespace
 {
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
 bool construct_jump_on_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_jump_on_state(state, parameters, jump_on_context_of(body_address_of(state)));
+    JumpOnState& state = body_state_view<JumpOnState>({object.bytes.get(), object.size});
+    return initialize_runtime_jump_on_state(state, parameters, jump_on_context_of(state.base.body));
 }
 
 void destroy_jump_on_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_jump_on_state(state, jump_on_context_of(body_address_of(state)));
+    JumpOnState& state = body_state_view<JumpOnState>({object.bytes.get(), object.size});
+    destroy_runtime_jump_on_state(state, jump_on_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* jump_on_state_lifecycle()
@@ -278,89 +245,88 @@ const ObjectFactoryVtable* jump_on_state_lifecycle()
 // Xbox 0x0009A0F0
 void jump_on_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(JumpOnState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0009A4C0
-bool initialize_runtime_jump_on_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_jump_on_state(JumpOnState& state, std::span<const u8> parameters,
     RuntimeJumpOnStateContext& context)
 {
     const std::span<u8> body = context.body;
-    put_u16(body, 0x30, u16(read_u16(body, 0x30) + 1));
+   body_record(body).move_holds = u16(body_record(body).move_holds + 1);
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] + 1);
     }
-    body[0x6A] = u8(body[0x6A] + 1);
-    set(state, field::knocked, 0u);
-    set(state, field::keep_riding, get(parameters, parameter::keep_riding));
-    set(state, field::aborted, 0u);
-    set(state, field::claimed, 0u);
-    set(state, field::target, 0u);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
+    state.knocked = 0u;
+    state.keep_riding = get(parameters, parameter::keep_riding);
+    state.aborted = 0u;
+    state.claimed = 0u;
+    state.target = 0u;
     // Each name through the inlined 0x0003AAA0 pair: the attached actor's +0xDB0 variant first, then the plain name.
     const auto find = [&](u32 offset)
     {
         return find_runtime_body_animation(context.image_string(read_u32(parameters, offset)), context.actions);
     };
-    JumpOnAnimations& found = animations_of(state);
+    JumpOnAnimations& found = animations_of(body_state_key(state));
     found.take_off = find(parameter::take_off.offset);
-    set(state, field::take_off, found.take_off != nullptr ? 1u : 0u);
+    state.take_off = found.take_off != nullptr ? 1u : 0u;
     found.jump_off = find(parameter::jump_off.offset);
-    set(state, field::jump_off, found.jump_off != nullptr ? 1u : 0u);
-    const std::span<u8> riding = ride_of(state);
+    state.jump_off = found.jump_off != nullptr ? 1u : 0u;
     found.ride = find(parameter::ride.offset);
-    set(riding, ride::ride, found.ride != nullptr ? 1u : 0u);
+    state.ride.ride = found.ride != nullptr ? 1u : 0u;
     found.hit = find(parameter::hit.offset);
-    set(riding, ride::hit, found.hit != nullptr ? 1u : 0u);
+    state.ride.hit = found.hit != nullptr ? 1u : 0u;
     found.hold = find(parameter::hold.offset);
-    set(riding, ride::hold, found.hold != nullptr ? 1u : 0u);
-    put_float(context.globals, 0x004286B0 - 0x00428680, get(parameters, parameter::take_off_blend));
+    state.ride.hold = found.hold != nullptr ? 1u : 0u;
+    context.tunables.take_off_duration = get(parameters, parameter::take_off_duration);
     const char* sound = reinterpret_cast<const char*>(parameters.data() + parameter::hold_sound.offset);
-    std::memcpy(riding.data() + ride::hold_sound.offset, sound, std::strlen(sound) + 1);
-    set(state, field::shape_mode, u32(set_runtime_body_shape_mode(0, context.shape))); // 0x0001FEB0, BL 0
-    set(state, field::released, 1u);
-    set(state, field::phase, 1u);
-    start_retimed(found.take_off, global(context, 0x004286B0), "0x0009A4C0", context); // 0x0001AFF0
+    std::memcpy(state.ride.hold_sound.data(), sound, std::strlen(sound) + 1);
+    state.shape_mode = u32(set_runtime_body_shape_mode(0, context.shape)); // 0x0001FEB0, BL 0
+    state.released = 1u;
+    state.phase = 1u;
+    start_retimed(found.take_off, context.tunables.take_off_duration, "0x0009A4C0", context); // 0x0001AFF0
     return true;
 }
 
 // Xbox 0x0009A710
-void destroy_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& context)
+void destroy_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
     const std::span<u8> body = context.body;
     const u32 target = mind_target(context);
-    put_u16(body, 0x30, u16(read_u16(body, 0x30) - 1));
+   body_record(body).move_holds = u16(body_record(body).move_holds - 1);
     for (size_t offset = 0x309; offset <= 0x30C; ++offset)
     {
         body[offset] = u8(body[offset] - 1);
     }
-    set_runtime_body_shape_mode(u8(get(state, field::shape_mode)), context.shape); // 0x0001FEB0
-    body[0x6A] = u8(body[0x6A] - 1);
-    if (get(state, field::released) == 0)
+    set_runtime_body_shape_mode(u8(state.shape_mode), context.shape); // 0x0001FEB0
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
+    if (state.released == 0)
     {
         hold_runtime_jump_on_body(1, state, context); // The inlined 0x0009A420 release.
     }
-    if (target != 0 && read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (target != 0 && body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const std::span<const u8> record_bytes = context.target_at(target);
-        const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
+        const Vec3 point = mind_target_record(record_bytes).shape.position;
         face_runtime_body_point(body, context.actor, point); // 0x00134510
     }
     release_runtime_jump_on_claim(state, context); // The inlined 0x0009B300.
-    if (get(state, field::phase) == 3)
+    if (state.phase == 3)
     {
-        end_runtime_ride(ride_of(state), context); // 0x00099550
+        end_runtime_ride(state.ride, context); // 0x00099550
     }
-    set(state, field::phase, 0u);
-    jump_on_animations.erase(state.data());
+    state.phase = 0u;
+    jump_on_animations.erase(body_state_key(state));
 }
 
 // Xbox 0x0009AB00
-void tick_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& context)
+void tick_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
-    set(state, body_state_field::elapsed, actor_step(context) + get(state, body_state_field::elapsed));
-    if (get(state, field::aborted) != 0)
+    state.base.elapsed = actor_step(context) + state.base.elapsed;
+    if (state.aborted != 0)
     {
         end_runtime_jump_on_state(context); // 0x0009B290
         return;
@@ -368,13 +334,13 @@ void tick_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& 
     // Each phase change below is the inlined 0x0009B160: a ride (phase 3) ends first.
     const auto leave_ride = [&]() -> Actor*
     {
-        return get(state, field::phase) == 3 ? end_runtime_ride(ride_of(state), context) : nullptr; // 0x00099550
+        return state.phase == 3 ? end_runtime_ride(state.ride, context) : nullptr; // 0x00099550
     };
-    switch (get(state, field::phase))
+    switch (state.phase)
     {
     case 1:
     {
-        if (!runtime_jump_on_window_open(global(context, 0x004286A0), context)) // 0x0009A170
+        if (!runtime_jump_on_window_open(context.tunables.leap_start_fraction, context)) // 0x0009A170
         {
             return;
         }
@@ -384,15 +350,15 @@ void tick_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& 
             end_runtime_jump_on_state(context);
             return;
         }
-        set(state, field::target, read_u32(context.target_at(target), 0x10));
-        const RuntimeJumpOnPeer peer = context.peer_at(get(state, field::target));
+        state.target = mind_target_record(context.target_at(target)).actor;
+        const RuntimeJumpOnPeer peer = context.peer_at(state.target);
         if (!claim_runtime_rider(&peer, context.actor_address)) // 0x00138140
         {
-            set(state, field::target, 0u);
+            state.target = 0u;
             end_runtime_jump_on_state(context);
             return;
         }
-        set(state, field::claimed, 1u);
+        state.claimed = 1u;
         if (runtime_jump_on_blocked(state, context)) // 0x0009A250
         {
             release_runtime_rider(&peer, context.actor_address); // 0x00138190
@@ -409,33 +375,33 @@ void tick_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& 
         if (!runtime_jump_on_target_pose(position, euler, context)) // 0x0009A2E0
         {
             Actor* ridden = leave_ride();
-            set(state, field::phase, 4u);
+            state.phase = 4u;
             start_runtime_jump_off_leap(ridden, state, context); // 0x0009B010
             return;
         }
-        set(state, field::leap_end, position);
-        set(state, field::leap_target_euler, euler);
+        state.leap.end = position;
+        state.leap.target_euler = euler;
         if (!step_runtime_jump_on_leap(state, context)) // 0x0009A870
         {
             return;
         }
         leave_ride();
-        set(state, field::phase, 3u);
-        start_runtime_ride(ride_of(state), context); // 0x000994E0
+        state.phase = 3u;
+        start_runtime_ride(state.ride, context); // 0x000994E0
         return;
     }
     case 3:
     {
-        if (!tick_runtime_ride(state, get(state, field::keep_riding), context)) // 0x00099610
+        if (!tick_runtime_ride(state, state.keep_riding, context)) // 0x00099610
         {
             return;
         }
-        if (get(state, field::keep_riding) != 0)
+        if (state.keep_riding != 0)
         {
-            set(state, field::knocked, 1u);
+            state.knocked = 1u;
         }
         Actor* ridden = leave_ride();
-        set(state, field::phase, 4u);
+        state.phase = 4u;
         start_runtime_jump_off_leap(ridden, state, context); // 0x0009B010
         return;
     }
@@ -445,9 +411,9 @@ void tick_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& 
             return;
         }
         leave_ride();
-        set(state, field::phase, 5u);
+        state.phase = 5u;
         hold_runtime_jump_on_body(1, state, context); // 0x0009A420
-        retime_slot(0, global(context, 0x004286C0), context); // 0x00030DB0, EAX 0
+        retime_slot(0, context.tunables.release_duration, context); // 0x00030DB0, EAX 0
         release_runtime_jump_on_claim(state, context); // 0x0009B300
         return;
     case 5:
@@ -456,14 +422,14 @@ void tick_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& 
             return;
         }
         leave_ride();
-        set(state, field::phase, 6u);
-        if (get(state, field::knocked) != 0)
+        state.phase = 6u;
+        if (state.knocked != 0)
         {
-            put_float(context.body, 0x23C, 0.75f); // DAT_0032B2AC.
-            set(state, body_state_field::next_key, context.body_slot_key(0x34));
+           body_record(context.body).unk_23C = 0.75f; // DAT_0032B2AC.
+            state.base.next_key = context.body_slot_key(0x34);
             return;
         }
-        set(state, body_state_field::next_key, context.body_slot_key(0x20));
+        state.base.next_key = context.body_slot_key(0x20);
         return;
     default:
         return;
@@ -471,16 +437,16 @@ void tick_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& 
 }
 
 // Xbox 0x0009AE60
-void message_runtime_jump_on_state(std::span<u8> state, std::span<const u32> message,
+void message_runtime_jump_on_state(JumpOnState& state, std::span<const u32> message,
     RuntimeJumpOnStateContext& context)
 {
     switch (message[0])
     {
     case 0x7C:
-        if (get(state, field::claimed) != 0 && message[1] == get(state, field::target))
+        if (state.claimed != 0 && message[1] == state.target)
         {
             release_runtime_jump_on_claim(state, context); // 0x0009B300
-            set(state, field::aborted, 1u);
+            state.aborted = 1u;
         }
         break;
     case 0x86:
@@ -488,19 +454,19 @@ void message_runtime_jump_on_state(std::span<u8> state, std::span<const u32> mes
         {
             break;
         }
-        set(state, field::aborted, 1u);
+        state.aborted = 1u;
         break;
     case 0x5D:
-        set(state, field::aborted, 1u);
+        state.aborted = 1u;
         break;
     case 0x80:
-        set(state, field::aborted, 1u);
+        state.aborted = 1u;
         release_runtime_jump_on_claim(state, context); // 0x0009B300
         break;
     default:
         break;
     }
-    const i32 phase = i32(get(state, field::phase));
+    const i32 phase = i32(state.phase);
     if (phase <= 0)
     {
         return;
@@ -516,7 +482,7 @@ void message_runtime_jump_on_state(std::span<u8> state, std::span<const u32> mes
         {
             throw Error("0x0009AE60 reads the target actor of a mind with no target");
         }
-        if (message[1] == read_u32(context.target_at(target), 0x10) && message[4] != 0)
+        if (message[1] == mind_target_record(context.target_at(target)).actor && message[4] != 0)
         {
             end_runtime_jump_on_state(context); // 0x0009B290
         }
@@ -524,7 +490,7 @@ void message_runtime_jump_on_state(std::span<u8> state, std::span<const u32> mes
     }
     if (phase == 3)
     {
-        message_runtime_ride(ride_of(state), message, context); // 0x00099940
+        message_runtime_ride(state.ride, message, context); // 0x00099940
     }
 }
 
@@ -542,13 +508,13 @@ bool runtime_jump_on_window_open(float time, RuntimeJumpOnStateContext& context)
 // Xbox 0x0009A1E0, EAX target
 bool runtime_jump_on_target_open(u32 target, RuntimeJumpOnStateContext& context)
 {
-    const u32 actor = read_u32(context.target_at(target), 0x10);
+    const u32 actor = mind_target_record(context.target_at(target)).actor;
     if (actor == 0)
     {
         return false;
     }
     const RuntimeJumpOnPeer peer = context.peer_at(actor);
-    if (head_record(peer, head_marker(context)) == nullptr || read_u16(peer.body, 0x94) == 0)
+    if (head_record(peer, context.tunables.head_marker_index) == nullptr || body_record(peer.body).energy == 0)
     {
         return false;
     }
@@ -556,9 +522,9 @@ bool runtime_jump_on_target_open(u32 target, RuntimeJumpOnStateContext& context)
 }
 
 // Xbox 0x0009A250, EAX state, EDI actor
-bool runtime_jump_on_blocked(std::span<const u8> state, RuntimeJumpOnStateContext& context)
+bool runtime_jump_on_blocked(const JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
-    if (get(state, field::aborted) != 0 || get(state, field::claimed) == 0 || (context.runtime_flags & 0x400) != 0)
+    if (state.aborted != 0 || state.claimed == 0 || (context.runtime_flags & 0x400) != 0)
     {
         return true;
     }
@@ -568,7 +534,7 @@ bool runtime_jump_on_blocked(std::span<const u8> state, RuntimeJumpOnStateContex
         return true;
     }
     const std::span<const u8> record_bytes = context.target_at(target);
-    const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
+    const Vec3 point = mind_target_record(record_bytes).shape.position;
     // 0x0012C970: from the actor's point (0x000412A0) along the floor, region mode 1, the actor's class.
     i32 last_cell = 0;
     const Vec3 from = actor_world_position(context.actor);
@@ -584,14 +550,14 @@ bool runtime_jump_on_target_pose(Vec3& position, Vec3& euler, RuntimeJumpOnState
     {
         return false;
     }
-    const u32 actor = read_u32(context.target_at(target), 0x10);
+    const u32 actor = mind_target_record(context.target_at(target)).actor;
     if (actor == 0 || !runtime_jump_on_target_open(target, context))
     {
         return false;
     }
     const RuntimeJumpOnPeer peer = context.peer_at(actor);
-    runtime_jump_on_marker_position(peer, head_marker(context), position); // 0x0009A330
-    runtime_jump_on_marker_euler(peer, head_marker(context), euler); // 0x0009A3A0
+    runtime_jump_on_marker_position(peer, context.tunables.head_marker_index, position); // 0x0009A330
+    runtime_jump_on_marker_euler(peer, context.tunables.head_marker_index, euler); // 0x0009A3A0
     return true;
 }
 
@@ -624,7 +590,7 @@ void runtime_jump_on_marker_euler(const RuntimeJumpOnPeer& target, i32 marker, V
 }
 
 // Xbox 0x0009A420, ECX release, EAX state
-void hold_runtime_jump_on_body(u32 release, std::span<u8> state, RuntimeJumpOnStateContext& context)
+void hold_runtime_jump_on_body(u32 release, JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
     const std::span<u8> body = context.body;
     const auto adjust_holds = [&](i32 step)
@@ -638,28 +604,28 @@ void hold_runtime_jump_on_body(u32 release, std::span<u8> state, RuntimeJumpOnSt
     };
     if (release != 0)
     {
-        if (get(state, field::released) != 0)
+        if (state.released != 0)
         {
             return;
         }
-        set(state, field::released, 1u);
+        state.released = 1u;
         adjust_holds(-1);
-        body[0x6D] = u8(body[0x6D] - 1);
+        body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
         decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
-        body[0x69] = u8(body[0x69] - 1);
+        body_record(body).unk_69 = u8(body_record(body).unk_69 - 1);
         std::array<u8, 0x20> scratch{};
         notify_runtime_body_spatial_shape(body, scratch, context.spatial); // 0x0001D780
         return;
     }
-    if (get(state, field::released) == 0)
+    if (state.released == 0)
     {
         return;
     }
-    set(state, field::released, 0u);
+    state.released = 0u;
     adjust_holds(1);
-    body[0x6D] = u8(body[0x6D] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
-    body[0x69] = u8(body[0x69] + 1);
+    body_record(body).unk_69 = u8(body_record(body).unk_69 + 1);
     auto* first = static_cast<ActorLiveAttachment*>(context.live_attachments.next); // Actor +0x8F8.
     if (first == nullptr)
     {
@@ -669,34 +635,34 @@ void hold_runtime_jump_on_body(u32 release, std::span<u8> state, RuntimeJumpOnSt
 }
 
 // Xbox 0x0009A870, EAX state, EBX body
-bool step_runtime_jump_on_leap(std::span<u8> state, RuntimeJumpOnStateContext& context)
+bool step_runtime_jump_on_leap(JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
-    const bool done = step_runtime_leap(state.subspan(0x18, 0x50), actor_step(context)); // 0x001036D0
+    const bool done = step_runtime_leap(state.leap, actor_step(context)); // 0x001036D0
     place_on_leap(state, context);
-    const Vec3 euler = get(state, RetailField<Vec3, 0x30>{});
+    const Vec3 euler = state.leap.euler;
     normalize_euler_angles(context.actor.euler, euler); // 0x00105AA0, EDI actor +0x14
     context.actor.xform_valid = 0; // Actor +0x2A8.
     return done;
 }
 
 // Xbox 0x0009A9C0, EBX state, EDI body
-bool step_runtime_jump_off_leap(std::span<u8> state, RuntimeJumpOnStateContext& context)
+bool step_runtime_jump_off_leap(JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
-    const bool done = step_runtime_leap(state.subspan(0x18, 0x50), actor_step(context)); // 0x001036D0
+    const bool done = step_runtime_leap(state.leap, actor_step(context)); // 0x001036D0
     place_on_leap(state, context);
     const u32 target = mind_target(context);
     const std::span<u8> body = context.body;
-    if (target != 0 && read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f)
+    if (target != 0 && body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f)
     {
         const std::span<const u8> record_bytes = context.target_at(target);
-        const Vec3 point{read_f32(record_bytes, 0x20), read_f32(record_bytes, 0x24), read_f32(record_bytes, 0x28)};
+        const Vec3 point = mind_target_record(record_bytes).shape.position;
         face_runtime_body_point(body, context.actor, point); // 0x00134510
     }
     return done;
 }
 
 // Xbox 0x0009AF60, EAX actor
-void start_runtime_jump_on_leap(std::span<u8> state, RuntimeJumpOnStateContext& context)
+void start_runtime_jump_on_leap(JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
     const Vec3 start = actor_world_position(context.actor); // 0x000412A0
     const Vec3 start_euler = actor_world_euler(context.actor); // 0x00041820
@@ -709,12 +675,12 @@ void start_runtime_jump_on_leap(std::span<u8> state, RuntimeJumpOnStateContext& 
     }
     const MinaPlayer* player = first_player(context);
     const float duration = player != nullptr ? player->duration : 0.f; // Slot 0 player +0x20.
-    start_runtime_leap(state.subspan(0x18, 0x50), target_euler, start_euler, start, end,
-        (global(context, 0x004286A4) - global(context, 0x004286A0)) * duration); // 0x00103650
+    start_runtime_leap(state.leap, target_euler, start_euler, start, end,
+        (context.tunables.leap_end_fraction - context.tunables.leap_start_fraction) * duration); // 0x00103650
 }
 
 // Xbox 0x0009B010, EAX ridden
-void start_runtime_jump_off_leap(Actor* ridden, std::span<u8> state, RuntimeJumpOnStateContext& context)
+void start_runtime_jump_off_leap(Actor* ridden, JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
     if (ridden != nullptr)
     {
@@ -725,55 +691,56 @@ void start_runtime_jump_off_leap(Actor* ridden, std::span<u8> state, RuntimeJump
     Vec3 landing;
     if (!find_runtime_jump_landing(from, 10.f, landing, context)) // 0x00138220, 0x41200000
     {
-        landing = get(state, RetailField<Vec3, 0x3C>{}); // Where the leap on began.
+        landing = state.leap.start; // Where the leap on began.
     }
-    start_retimed(animations_of(state).jump_off, global(context, 0x004286BC), "0x0009B010", context);
+    start_retimed(animations_of(body_state_key(state)).jump_off, context.tunables.jump_off_duration, "0x0009B010", context);
     const MinaPlayer* player = first_player(context);
     const float position = player != nullptr ? player->position : 0.f; // Slot 0 player +0x14.
     const float duration = player != nullptr ? player->duration : 0.f; // +0x20.
     // x87: (DAT_004286AC - position) * duration, stored as a float.
-    const float length = float((static_cast<long double>(global(context, 0x004286AC)) - position)
+    const float length = float((static_cast<long double>(context.tunables.jump_off_end_fraction) - position)
         * static_cast<long double>(duration));
     const Vec3 start = actor_world_position(context.actor); // 0x000412A0
     const Vec3 start_euler = actor_world_euler(context.actor); // 0x00041820
-    start_runtime_leap(state.subspan(0x18, 0x50), context.default_euler, start_euler, start, landing,
+    start_runtime_leap(state.leap, context.default_euler, start_euler, start, landing,
         length); // 0x00103650, ESI DAT_0050DD74
 }
 
 // Xbox 0x0009B160, ESI state
-void set_runtime_jump_on_phase(u32 phase, std::span<u8> state, RuntimeJumpOnStateContext& context)
+void set_runtime_jump_on_phase(u32 phase, JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
-    Actor* ridden = get(state, field::phase) == 3 ? end_runtime_ride(ride_of(state), context) : nullptr; // 0x00099550
-    set(state, field::phase, phase);
+    Actor* ridden = state.phase == 3 ? end_runtime_ride(state.ride, context) : nullptr; // 0x00099550
+    state.phase = phase;
     switch (phase)
     {
     case 1:
-        start_retimed(animations_of(state).take_off, global(context, 0x004286B0), "0x0009B160", context); // 0x0001AFF0
+        start_retimed(animations_of(body_state_key(state)).take_off, context.tunables.take_off_duration,
+            "0x0009B160", context); // 0x0001AFF0
         return;
     case 2:
-        retime_slot(0, global(context, 0x004286B4), context); // 0x00030DB0, EAX 0
+        retime_slot(0, context.tunables.leap_duration, context); // 0x00030DB0, EAX 0
         start_runtime_jump_on_leap(state, context); // 0x0009AF60
         hold_runtime_jump_on_body(0, state, context); // The tail jump to 0x0009A420, ECX 0
         return;
     case 3:
-        start_runtime_ride(ride_of(state), context); // The tail jump to 0x000994E0
+        start_runtime_ride(state.ride, context); // The tail jump to 0x000994E0
         return;
     case 4:
         start_runtime_jump_off_leap(ridden, state, context); // 0x0009B010
         return;
     case 5:
         hold_runtime_jump_on_body(1, state, context); // 0x0009A420
-        retime_slot(0, global(context, 0x004286C0), context); // 0x00030DB0, EAX 0
+        retime_slot(0, context.tunables.release_duration, context); // 0x00030DB0, EAX 0
         release_runtime_jump_on_claim(state, context); // 0x0009B300
         return;
     case 6:
-        if (get(state, field::knocked) != 0)
+        if (state.knocked != 0)
         {
-            put_float(context.body, 0x23C, 0.75f); // DAT_0032B2AC.
-            set(state, body_state_field::next_key, context.body_slot_key(0x34));
+           body_record(context.body).unk_23C = 0.75f; // DAT_0032B2AC.
+            state.base.next_key = context.body_slot_key(0x34);
             return;
         }
-        set(state, body_state_field::next_key, context.body_slot_key(0x20));
+        state.base.next_key = context.body_slot_key(0x20);
         return;
     default:
         return;
@@ -789,60 +756,60 @@ void end_runtime_jump_on_state(RuntimeJumpOnStateContext& context)
 }
 
 // Xbox 0x0009B300, EDX state, EDI actor
-void release_runtime_jump_on_claim(std::span<u8> state, RuntimeJumpOnStateContext& context)
+void release_runtime_jump_on_claim(JumpOnState& state, RuntimeJumpOnStateContext& context)
 {
-    if (get(state, field::claimed) == 0)
+    if (state.claimed == 0)
     {
         return;
     }
-    const u32 target = get(state, field::target);
+    const u32 target = state.target;
     if (target != 0)
     {
         const RuntimeJumpOnPeer peer = context.peer_at(target);
-        const u32 rider = read_u32(peer.body, 0x718);
+        const u32 rider = body_record(peer.body).rider;
         if (rider != 0 && rider == context.actor_address)
         {
-            put_word(peer.body, 0x718, 0);
+           body_record(peer.body).rider = 0;
         }
     }
-    set(state, field::claimed, 0u);
-    set(state, field::target, 0u);
+    state.claimed = 0u;
+    state.target = 0u;
 }
 
 // Xbox 0x000994E0, ECX ride, EAX actor
-void start_runtime_ride(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& context)
+void start_runtime_ride(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
 {
-    put_float(ride_bytes, 0x30, 0.f);
-    put_float(ride_bytes, 0x2C, 0.f);
-    put_float(ride_bytes, 0x38, 0.f);
-    put_float(ride_bytes, 0x34, 0.f);
-    set(ride_bytes, ride::shake_state, 1u);
-    put_float(ride_bytes, 0x3C, 0.f);
+    ride.tracking.axes[1] = 0.f;
+    ride.tracking.axes[0] = 0.f;
+    ride.tracking.accumulation = 0.f;
+    ride.tracking.activity = 0.f;
+    ride.tracking.state = 1u;
+    ride.tracking.hold_timer = 0.f;
     attach_runtime_ride(context); // 0x00099DF0
     context.actor.model_flags &= 0xFFFDFFFDu; // Actor +0x1F0.
-    put_word(context.body, 0x258, read_u32(context.body, 0x258) + 1);
-    set(ride_bytes, ride::phase, 0u);
-    set_runtime_ride_phase(ride_bytes, 1, context); // 0x00099CA0
+    body_record(context.body).holds = body_record(context.body).holds + 1;
+    ride.phase = 0u;
+    set_runtime_ride_phase(ride, 1, context); // 0x00099CA0
 }
 
 // Xbox 0x00099550, EBX actor
-Actor* end_runtime_ride(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& context)
+Actor* end_runtime_ride(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
 {
-    const u32 phase = get(ride_bytes, ride::phase);
+    const u32 phase = ride.phase;
     if (phase == 2)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds); // 0x0012A3D0, ESI actor +0x614
     }
     else if (phase == 3)
     {
-        set(ride_bytes, ride::ride_time, (global(context, 0x0042869C) - global(context, 0x00428698))
-            * roll(context.random) + global(context, 0x00428698));
+        ride.ride_time = (context.tunables.leave_ride_time_high - context.tunables.leave_ride_time_low)
+            * roll(context.random) + context.tunables.leave_ride_time_low;
     }
-    set(ride_bytes, ride::phase, 0u);
+    ride.phase = 0u;
     Actor* host = detach_runtime_ride(context); // 0x00099EE0
     context.actor.model_flags |= 0x20002u;
-    const u32 count = read_u32(context.body, 0x258) - 1;
-    put_word(context.body, 0x258, count);
+    const u32 count = body_record(context.body).holds - 1;
+    body_record(context.body).holds = count;
     if (count == 0)
     {
         const std::array<u32, 2> message{0x4A, 0}; // Word 1 is the caller's stack slot.
@@ -852,33 +819,34 @@ Actor* end_runtime_ride(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& con
 }
 
 // Xbox 0x00099610, EBX ride
-bool tick_runtime_ride(std::span<u8> state, u32 keep_riding, RuntimeJumpOnStateContext& context)
+bool tick_runtime_ride(JumpOnState& state, u32 keep_riding, RuntimeJumpOnStateContext& context)
 {
-    const std::span<u8> ride_bytes = ride_of(state);
+    JumpOnRide& ride = state.ride;
     const std::span<u8> body = context.body;
     const Vec3 euler = actor_world_euler(context.actor); // 0x00041820, EDI body +0x72C
-    std::memcpy(body.data() + 0x72C, &euler, sizeof(euler));
+    std::memcpy(body.data() + offsetof(BodyRecord, euler.x), &euler, sizeof(euler));
     const std::span<const u8> actor_bytes = context.actor_bytes;
-    const u32 group = (read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0) ? 1u : 0u;
+    const u32 group =
+        (player_record(actor_bytes).mode == 2 || player_record(actor_bytes).case_link != 0) ? 1u : 0u;
     if (context.player_blocked[group] == 0 && context.player_modes[context.player_mode] != 0)
     {
         const float step = actor_step(context);
-        const auto count = [&](size_t offset)
+        const auto count = [&](float& timer)
         {
-            float value = read_f32(ride_bytes, offset);
+            float value = timer;
             if (0.f < value)
             {
                 value = value - step;
-                put_float(ride_bytes, offset, value);
+                timer = value;
                 if (!(0.f < value))
                 {
-                    put_float(ride_bytes, offset, 0.f);
+                    timer = 0.f;
                 }
             }
         };
-        count(ride::ride_time.offset);
-        count(ride::hold_time.offset);
-        track_runtime_ride_input(ride_bytes, context); // 0x0009A060
+        count(ride.ride_time);
+        count(ride.hold_time);
+        track_runtime_ride_input(ride, context); // 0x0009A060
     }
     if (runtime_jump_on_blocked(state, context)) // 0x0009A250
     {
@@ -887,33 +855,33 @@ bool tick_runtime_ride(std::span<u8> state, u32 keep_riding, RuntimeJumpOnStateC
     // The inlined 0x00099CA0 to phase 3: its hit animation.
     const auto hit = [&]()
     {
-        set_runtime_ride_phase(ride_bytes, 3, context);
+        set_runtime_ride_phase(ride, 3, context);
     };
-    switch (get(ride_bytes, ride::phase))
+    switch (ride.phase)
     {
     case 1:
-        if (keep_riding != 0 && get(ride_bytes, ride::shake_state) == 2 && query_runtime_ride_host(1, context) != 0)
+        if (keep_riding != 0 && ride.tracking.state == 2 && query_runtime_ride_host(1, context) != 0)
         {
-            set_runtime_ride_phase(ride_bytes, 2, context); // 0x00099CA0
+            set_runtime_ride_phase(ride, 2, context); // 0x00099CA0
             return false;
         }
-        steer_runtime_ride_host(ride_bytes, context); // 0x00099AD0
-        if (keep_riding != 0 && get(ride_bytes, ride::ride_time) != 0.f)
+        steer_runtime_ride_host(ride, context); // 0x00099AD0
+        if (keep_riding != 0 && ride.ride_time != 0.f)
         {
             return false;
         }
         hit();
         return false;
     case 2:
-        if (get(ride_bytes, ride::shake_state) == 1 && query_runtime_ride_host(0, context) != 0)
+        if (ride.tracking.state == 1 && query_runtime_ride_host(0, context) != 0)
         {
             return true;
         }
-        if (get(ride_bytes, ride::hold_time) == 0.f && get(ride_bytes, ride::shaken) == global(context, 0x004286DC))
+        if (ride.hold_time == 0.f && ride.tracking.accumulation == context.tunables.tracking.cap)
         {
             return true;
         }
-        if (get(ride_bytes, ride::ride_time) != 0.f)
+        if (ride.ride_time != 0.f)
         {
             return false;
         }
@@ -924,11 +892,11 @@ bool tick_runtime_ride(std::span<u8> state, u32 keep_riding, RuntimeJumpOnStateC
         {
             if ((context.bits.bytes[0] & 4) != 0) // Body +0x15C.
             {
-                strike_runtime_ride_host(ride_bytes, context); // 0x00099F60
+                strike_runtime_ride_host(ride, context); // 0x00099F60
             }
             if (runtime_actor_animation_slot_complete(context.animation, 0)) // 0x0003B290, ECX 0
             {
-                set_runtime_ride_phase(ride_bytes, 1, context); // 0x00099CA0
+                set_runtime_ride_phase(ride, 1, context); // 0x00099CA0
             }
             return false;
         }
@@ -936,7 +904,7 @@ bool tick_runtime_ride(std::span<u8> state, u32 keep_riding, RuntimeJumpOnStateC
         {
             return false;
         }
-        strike_runtime_ride_host(ride_bytes, context);
+        strike_runtime_ride_host(ride, context);
         return true;
     default:
         return false;
@@ -944,7 +912,7 @@ bool tick_runtime_ride(std::span<u8> state, u32 keep_riding, RuntimeJumpOnStateC
 }
 
 // Xbox 0x00099940, ECX ride, EAX actor, ESI message
-void message_runtime_ride(std::span<u8> ride_bytes, std::span<const u32> message, RuntimeJumpOnStateContext& context)
+void message_runtime_ride(JumpOnRide& ride, std::span<const u32> message, RuntimeJumpOnStateContext& context)
 {
     const auto end_action = [&]()
     {
@@ -973,9 +941,9 @@ void message_runtime_ride(std::span<u8> ride_bytes, std::span<const u32> message
         end_action();
         return;
     case 0x54:
-        if (get(ride_bytes, ride::phase) == 2)
+        if (ride.phase == 2)
         {
-            set_runtime_ride_phase(ride_bytes, 1, context); // 0x00099CA0
+            set_runtime_ride_phase(ride, 1, context); // 0x00099CA0
         }
         return;
     default:
@@ -993,82 +961,80 @@ u32 query_runtime_ride_host(u32 value, RuntimeJumpOnStateContext& context)
 }
 
 // Xbox 0x00099A60, ECX ride
-void reset_runtime_ride_wobble(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& context)
+void reset_runtime_ride_wobble(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
 {
-    set(ride_bytes, ride::wobble_maximum, 1.2f); // DAT_0032B24C.
-    set(ride_bytes, ride::wobble_minimum, 0.5f); // DAT_0032B0F4.
-    set(ride_bytes, ride::wobble_delay, roll(context.random) * 0.7f + 0.5f); // DAT_0032B2BC.
-    set(ride_bytes, ride::wobble, 0.f);
+    ride.wobble_timer.maximum = 1.2f; // DAT_0032B24C.
+    ride.wobble_timer.minimum = 0.5f; // DAT_0032B0F4.
+    ride.wobble_timer.delay = roll(context.random) * 0.7f + 0.5f; // DAT_0032B2BC.
+    ride.wobble = 0.f;
 }
 
 // Xbox 0x00099AD0, EAX actor
-void steer_runtime_ride_host(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& context)
+void steer_runtime_ride_host(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
 {
     const RuntimeJumpOnPeer host = host_of(context, "0x00099AD0");
-    if (tick_runtime_random_timer(ride_bytes.subspan(0x14, 0xC), context.random, context.clock)) // 0x001050A0
+    if (tick_runtime_random_timer(retail_bytes(ride.wobble_timer), context.random, context.clock)) // 0x001050A0
     {
         const float angle = (roll(context.random) * 10.f + 20.f) * 0.01745329238474369f; // DAT_0032B10C, DAT_0032B234.
         const float side = roll(context.random);
-        set(ride_bytes, ride::wobble, 0.5f < side ? 0.f - angle : angle); // DAT_0032B0F4.
+        ride.wobble = 0.5f < side ? 0.f - angle : angle; // DAT_0032B0F4.
     }
     Vec3 point = actor_world_position(*host.actor); // 0x000412A0
-    point.y = host.actor->radius_y * read_f32(host.body, 0x884) + point.y; // Host +0x34, body +0x884.
+    point.y = host.actor->radius_y * body_record(host.body).height_scale + point.y; // Host +0x34, body +0x884.
     Vec3 direction{};
-    add_sound_direction(direction, global(context, 0x004286C8),
-        host.actor->euler.y + get(ride_bytes, ride::wobble), global(context, 0x004286C4)); // 0x00106220
+    add_sound_direction(direction, context.tunables.gaze_pitch,
+        host.actor->euler.y + ride.wobble, context.tunables.gaze_distance); // 0x00106220
     if (host.mind.empty())
     {
         throw Error("0x00099AD0 steers a host with no mind");
     }
-    put_word(host.mind, 0x3C, 1);
-    put_float(host.mind, 0x40, point.x + direction.x);
-    put_float(host.mind, 0x44, direction.y + point.y);
-    put_float(host.mind, 0x48, point.z + direction.z);
+    mind_record(host.mind).gaze_point_set = 1;
+    mind_record(host.mind).gaze_point = Vec3{point.x + direction.x, direction.y + point.y, point.z + direction.z};
 }
 
 // Xbox 0x00099C40
-void roll_runtime_ride_idle(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& context)
+void roll_runtime_ride_idle(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
 {
-    set(ride_bytes, ride::ride_time, (global(context, 0x00428694) - global(context, 0x00428690))
-        * roll(context.random) + global(context, 0x00428690));
+    ride.ride_time = (context.tunables.idle_ride_time_high - context.tunables.idle_ride_time_low)
+        * roll(context.random) + context.tunables.idle_ride_time_low;
 }
 
 // Xbox 0x00099CA0, EDI ride
-void set_runtime_ride_phase(std::span<u8> ride_bytes, u32 phase, RuntimeJumpOnStateContext& context)
+void set_runtime_ride_phase(JumpOnRide& ride, u32 phase, RuntimeJumpOnStateContext& context)
 {
-    const u32 previous = get(ride_bytes, ride::phase);
+    const u32 previous = ride.phase;
     if (previous == 2)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds); // 0x0012A3D0, ESI actor +0x614
     }
     else if (previous == 3)
     {
-        set(ride_bytes, ride::ride_time, (global(context, 0x0042869C) - global(context, 0x00428698))
-            * roll(context.random) + global(context, 0x00428698));
+        ride.ride_time = (context.tunables.leave_ride_time_high - context.tunables.leave_ride_time_low)
+            * roll(context.random) + context.tunables.leave_ride_time_low;
     }
-    set(ride_bytes, ride::phase, phase);
-    const JumpOnAnimations& found = animations_of(state_of_ride(ride_bytes));
+    ride.phase = phase;
+    const JumpOnAnimations& found = animations_of(reinterpret_cast<const u8*>(&ride) - offsetof(JumpOnState, ride));
     switch (phase)
     {
     case 1:
         start_record(found.ride, "0x00099CA0", context); // 0x0001AFA0, ECX ride +8
         if (previous == 0)
         {
-            reset_runtime_ride_wobble(ride_bytes, context); // 0x00099A60
-            roll_runtime_ride_idle(ride_bytes, context); // 0x00099C40
+            reset_runtime_ride_wobble(ride, context); // 0x00099A60
+            roll_runtime_ride_idle(ride, context); // 0x00099C40
         }
         return;
     case 2:
     {
         start_record(found.hold, "0x00099CA0", context); // 0x0001AFA0, ECX ride +0x10
-        const char* sound = reinterpret_cast<const char*>(ride_bytes.data() + ride::hold_sound.offset);
+        const char* sound = ride.hold_sound.data();
         if (sound[0] != '\0')
         {
             queue_actor_sound(context.actor.sound_slots[4], 0, &context.actor, 4, nullptr, nullptr, 1.f, sound,
                 context.sounds); // 0x0012A260, EBX actor +0x614
         }
-        set(ride_bytes, ride::hold_time, (global(context, 0x0042868C) - global(context, 0x00428688))
-            * roll(context.random) + global(context, 0x00428688));
+        ride.hold_time = (context.tunables.hold_time_high - context.tunables.hold_time_low)
+            * roll(context.random) + context.tunables.hold_time_low;
         return;
     }
     case 3:
@@ -1083,23 +1049,23 @@ void set_runtime_ride_phase(std::span<u8> ride_bytes, u32 phase, RuntimeJumpOnSt
 void attach_runtime_ride(RuntimeJumpOnStateContext& context)
 {
     const RuntimeJumpOnPeer target = target_peer(context, "0x00099DF0");
-    const u8* row = head_record(target, head_marker(context));
+    const u8* row = head_record(target, context.tunables.head_marker_index);
     if (row == nullptr)
     {
         throw Error("0x00099DF0 binds the rider to a head marker its target does not have");
     }
     bind_runtime_actor_marker_now(context.actor, target.actor, row, 0, context.default_position,
         context.default_euler); // 0x0003B500, ECX actor, EAX target
-    put_word(context.body, 0x728, 0);
+   body_record(context.body).unk_728 = 0;
     if (target.mind.empty())
     {
         throw Error("0x00099DF0 clears the chosen actor of a target with no mind");
     }
-    put_word(target.mind, 0xC, 0);
+    mind_record(target.mind).target = 0;
     normalize_euler_angles(context.actor.euler, context.default_euler); // 0x00105AA0, ESI DAT_0050DD74
     context.actor.xform_valid = 0; // Actor +0x2A8.
     const Vec3 euler = actor_world_euler(context.actor); // 0x00041820, EDI body +0x72C
-    std::memcpy(context.body.data() + 0x72C, &euler, sizeof(euler));
+    std::memcpy(context.body.data() + offsetof(BodyRecord, euler.x), &euler, sizeof(euler));
     if (context.shape.secondary != nullptr) // Actor +0x310.
     {
         context.shape.secondary_mode = 0; // Actor +0x30C.
@@ -1117,7 +1083,7 @@ Actor* detach_runtime_ride(RuntimeJumpOnStateContext& context)
     {
         detach_actor_bind(context.actor); // 0x0003B560, EBX actor
     }
-    put_word(context.body, 0x728, 1);
+   body_record(context.body).unk_728 = 1;
     if (host != nullptr)
     {
         const u32 address = context.address_of(host);
@@ -1133,7 +1099,7 @@ Actor* detach_runtime_ride(RuntimeJumpOnStateContext& context)
 }
 
 // Xbox 0x00099F60, EAX actor
-void strike_runtime_ride_host(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& context)
+void strike_runtime_ride_host(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
 {
     const RuntimeJumpOnPeer host = host_of(context, "0x00099F60");
     Vec3 point;
@@ -1155,17 +1121,17 @@ void strike_runtime_ride_host(std::span<u8> ride_bytes, RuntimeJumpOnStateContex
     std::array<u32, 5> message{0x2A, context.actor_address, std::bit_cast<u32>(point.x),
         std::bit_cast<u32>(point.y), std::bit_cast<u32>(point.z)};
     context.message(target.address, message); // Target vtable +0xC.
-    const u32 strikes = get(ride_bytes, ride::strikes) + 1;
-    set(ride_bytes, ride::strikes, strikes);
-    if (i32(strikes) >= 5 && get(ride_bytes, ride::hat_intro) == 0 && read_u16(target.body, 0x94) != 0
+    const u32 strikes = ride.strikes + 1;
+    ride.strikes = strikes;
+    if (i32(strikes) >= 5 && ride.hat_intro == 0 && body_record(target.body).energy != 0
         && queue_runtime_imp_hat_intro(context.story_byte, context.intro) != 0) // 0x0013FE60
     {
-        set(ride_bytes, ride::hat_intro, 1u);
+        ride.hat_intro = 1u;
     }
 }
 
 // Xbox 0x0009A060, EAX actor
-void track_runtime_ride_input(std::span<u8> ride_bytes, RuntimeJumpOnStateContext& context)
+void track_runtime_ride_input(JumpOnRide& ride, RuntimeJumpOnStateContext& context)
 {
     const RuntimeJumpOnPeer host = host_of(context, "0x0009A060");
     std::array<float, 2> axes{};
@@ -1187,10 +1153,10 @@ void track_runtime_ride_input(std::span<u8> ride_bytes, RuntimeJumpOnStateContex
     {
         busy = false;
     }
-    const u32 accumulate = get(ride_bytes, ride::hold_time) == 0.f && !busy && get(ride_bytes, ride::phase) == 2
+    const u32 accumulate = ride.hold_time == 0.f && !busy && ride.phase == 2
         ? 1u : 0u;
-    update_runtime_player_input_tracking(ride_bytes.subspan(ride::kTracking, 0x18), axes,
-        context.globals.subspan(0x004286D0 - 0x00428680, 0x10), accumulate, context.clock); // 0x00109810
+    update_runtime_player_input_tracking(retail_bytes(ride.tracking), axes,
+        retail_bytes(context.tunables.tracking), accumulate, context.clock); // 0x00109810
 }
 
 // Xbox 0x001050A0, ECX timer
@@ -1214,44 +1180,44 @@ bool tick_runtime_random_timer(std::span<u8> timer, u32& random, const RuntimeAc
 }
 
 // Xbox 0x00103650
-void start_runtime_leap(std::span<u8> leap, const Vec3& target_euler, const Vec3& start_euler, const Vec3& start,
+void start_runtime_leap(LeapRecord& leap, const Vec3& target_euler, const Vec3& start_euler, const Vec3& start,
     const Vec3& end, float length)
 {
-    std::memcpy(leap.data() + 0x24, &start, sizeof(start));
-    std::memcpy(leap.data() + 0x3C, &start, sizeof(start));
-    std::memcpy(leap.data() + 0x30, &end, sizeof(end));
-    std::memcpy(leap.data() + 0x0C, &start_euler, sizeof(start_euler));
-    std::memcpy(leap.data() + 0x18, &start_euler, sizeof(start_euler));
-    std::memcpy(leap.data() + 0x00, &target_euler, sizeof(target_euler));
-    put_float(leap, 0x48, length);
-    put_float(leap, 0x4C, length);
+    leap.start = start;
+    leap.position = start;
+    leap.end = end;
+    leap.start_euler = start_euler;
+    leap.euler = start_euler;
+    leap.target_euler = target_euler;
+    leap.length = length;
+    leap.time_left = length;
 }
 
 // Xbox 0x001036D0, ESI leap
-bool step_runtime_leap(std::span<u8> leap, float step)
+bool step_runtime_leap(LeapRecord& leap, float step)
 {
-    float left = read_f32(leap, 0x4C);
+    float left = leap.time_left;
     if (left > 0.f)
     {
         left = left - step;
-        put_float(leap, 0x4C, left);
+        leap.time_left = left;
         if (!(0.f < left))
         {
-            put_float(leap, 0x4C, 0.f);
+            leap.time_left = 0.f;
         }
     }
     const float fraction = leap_fraction(leap);
-    for (size_t axis = 0; axis < 3; ++axis)
+    const auto ease = [fraction](float from, float to)
     {
-        const float from = read_f32(leap, 0x24 + axis * 4);
-        put_float(leap, 0x3C + axis * 4, (read_f32(leap, 0x30 + axis * 4) - from) * fraction + from);
-    }
-    for (size_t axis = 0; axis < 3; ++axis)
-    {
-        put_float(leap, 0x18 + axis * 4, step_runtime_angle_toward(read_f32(leap, axis * 4),
-            read_f32(leap, 0xC + axis * 4), fraction)); // 0x001013A0
-    }
-    return read_f32(leap, 0x4C) == 0.f;
+        return (to - from) * fraction + from;
+    };
+    leap.position.x = ease(leap.start.x, leap.end.x);
+    leap.position.y = ease(leap.start.y, leap.end.y);
+    leap.position.z = ease(leap.start.z, leap.end.z);
+    leap.euler.x = step_runtime_angle_toward(leap.target_euler.x, leap.start_euler.x, fraction); // 0x001013A0
+    leap.euler.y = step_runtime_angle_toward(leap.target_euler.y, leap.start_euler.y, fraction);
+    leap.euler.z = step_runtime_angle_toward(leap.target_euler.z, leap.start_euler.z, fraction);
+    return leap.time_left == 0.f;
 }
 
 // Xbox 0x00138220, EAX from, the actor on the stack
@@ -1260,20 +1226,20 @@ bool find_runtime_jump_landing(const RuntimeJumpOnPeer& from, float extra, Vec3&
 {
     const Vec3 center = actor_world_position(*from.actor); // 0x000412A0
     const float scale = from.actor->radius_xz; // From +0x38.
-    const float body_reach = read_f32(from.body, 0x78) * scale;
+    const float body_reach = body_record(from.body).reach * scale;
     float sword = 0.f;
-    const u32 held = read_u32(from.body, 0x48);
+    const u32 held = body_record(from.body).attached;
     if (held != 0)
     {
         const RuntimeJumpOnPeer weapon = context.peer_at(held);
-        if (weapon.bytes[0x93D] == 1 && weapon.actor->model != nullptr && weapon.actor->model->cpu.data() != nullptr)
+        if (weapon.bytes[offsetof(WeaponBase, unk_93D)] == 1 && weapon.actor->model != nullptr && weapon.actor->model->cpu.data() != nullptr)
         {
             sword = float(actor_model_sweep_radius(*weapon.actor)); // 0x0003D9A0, EDI the weapon
         }
     }
-    const float inner = read_f32(from.body, 0x888) * scale + (sword + body_reach);
-    const float minimum = context.actor.radius_xz * read_f32(context.body, 0x888) + inner;
-    return entity_detail::select_navigation_spawn_position(i32(read_u32(context.actor_bytes, 0xCEC)), nullptr,
+    const float inner = body_record(from.body).radius_scale * scale + (sword + body_reach);
+    const float minimum = context.actor.radius_xz * body_record(context.body).radius_scale + inner;
+    return entity_detail::select_navigation_spawn_position(i32(player_record(context.actor_bytes).floor), nullptr,
         center, minimum, minimum + extra, nullptr, nullptr, 0, 0, output, context.random,
         context.occupancy_initial); // 0x00111420, EAX 0
 }
@@ -1281,9 +1247,9 @@ bool find_runtime_jump_landing(const RuntimeJumpOnPeer& from, float extra, Vec3&
 // Xbox 0x000265A0, EAX body
 bool claim_runtime_body_rider(std::span<u8> body, const EntityBitBlock& bits, u32 rider)
 {
-    if (read_u32(body, 0x718) == 0 && (bits.bytes[3] & 8) == 0)
+    if (body_record(body).rider == 0 && (bits.bytes[3] & 8) == 0)
     {
-        put_word(body, 0x718, rider);
+       body_record(body).rider = rider;
         return true;
     }
     return false;
@@ -1296,7 +1262,8 @@ bool claim_runtime_rider(const RuntimeJumpOnPeer* target, u32 rider)
     {
         return false;
     }
-    if ((target->bits->bytes[3] & 8) != 0 || read_u16(target->body, 0x94) == 0 || read_u32(target->body, 0x718) != 0)
+    if ((target->bits->bytes[3] & 8) != 0 || body_record(target->body).energy == 0
+        || body_record(target->body).rider != 0)
     {
         return false;
     }
@@ -1311,10 +1278,10 @@ bool release_runtime_rider(const RuntimeJumpOnPeer* target, u32 rider)
     {
         return false;
     }
-    const u32 current = read_u32(target->body, 0x718);
+    const u32 current = body_record(target->body).rider;
     if (current != 0 && current == rider)
     {
-        put_word(target->body, 0x718, 0);
+       body_record(target->body).rider = 0;
         return true;
     }
     return false;

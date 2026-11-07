@@ -18,8 +18,8 @@ extern u32 g_script_e798; // DAT_0050E798, type 0x69's node+8.
 extern u32 g_script_e79c; // DAT_0050E79C, type 0x69's node+0xC.
 // DAT_00545978, the broken background parts, and DAT_00545980, the running score: 0x0012AF10 and a section title
 // clear them.
-extern u32 g_545978;
-extern u32 g_545980;
+extern u32 g_broken_background_parts;
+extern u32 g_running_score;
 // DAT_0050E76C..DAT_0050E780: the next scene's entry position and euler; DAT_0050E784 is 1 once they are set.
 extern Vec3 g_scene_entry_position;
 extern Vec3 g_scene_entry_euler;
@@ -37,18 +37,18 @@ void release_scene_script_title(Game& g); // Xbox 0x001289A0
 void script_initialize_statistics(std::span<u32> statistics); // Xbox 0x0012AF10, EAX statistics
 
 // DAT_00509B20..DAT_00509B28, the scene ambient tint 0x0011CAC0 resets to 1.
-extern float g_509b20;
-extern float g_509b24;
-extern float g_509b28;
-extern float g_509b2c;
-extern float g_509b4c; // DAT_00509B4C, the directional light intensity.
+extern float g_scene_ambient_tint_0;
+extern float g_scene_ambient_tint_1;
+extern float g_scene_ambient_tint_2;
+extern float g_scene_ambient_tint_3;
+extern float g_scene_light_intensity; // DAT_00509B4C, the directional light intensity.
 
 // Xbox 0x00049D10.
 bool scene_end_flag_set(); // Xbox 0x00049D10
-extern i32 g_545cc8; // DAT_00545CC8, the DAT_00545C48 pairs.
-extern i32 g_545d1c; // DAT_00545D1C, the DAT_00545CCC groups.
-extern std::array<u16, 0x40> g_545c48; // DAT_00545C48.
-extern std::array<u16, 0x28> g_545ccc; // DAT_00545CCC.
+extern i32 g_marker_swap_count; // DAT_00545CC8, the DAT_00545C48 pairs.
+extern i32 g_marker_group_count; // DAT_00545D1C, the DAT_00545CCC groups.
+extern std::array<u16, 0x40> g_marker_swap_ids; // DAT_00545C48.
+extern std::array<u16, 0x28> g_marker_group_ids; // DAT_00545CCC.
 bool script_end_gate_set(); // Xbox 0x00123B00
 bool test_and_set_runtime_story_bit(std::span<u8> bits, u32 index); // Xbox 0x000F2A20
 // Bit `index` of the story block (*(DAT_00506C6C + 8)); ECX index.

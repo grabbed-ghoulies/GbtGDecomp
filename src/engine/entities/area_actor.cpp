@@ -32,16 +32,16 @@ void runtime_area_storage_sizes(ObjectSizes& sizes)
 bool initialize_runtime_area_actor(FactoryObject& object, std::span<const u8> parameters)
 {
     const std::span<u8> bytes{object.bytes.get(), object.size};
-    word(bytes, 0x934, read_u32(parameters, 0x334));
-    word(bytes, 0x938, read_u32(parameters, 0x338));
-    word(bytes, 0x93C, read_u32(parameters, 0x33C));
-    word(bytes, 0x940, read_u32(parameters, 0x340));
-    word(bytes, 0x944, read_u32(parameters, 0x344));
-    word(bytes, 0x958, 0);
-    word(bytes, 0x948, 0xFFFFFFFFu);
-    word(bytes, 0x94C, 0xFFFFFFFFu);
-    word(bytes, 0x950, 0xFFFFFFFFu);
-    word(bytes, 0x954, 0xFFFFFFFFu);
+    actor_record_view<AreaActorState>(bytes).unk_934 = read_f32(parameters, 0x334);
+    actor_record_view<AreaActorState>(bytes).unk_938 = read_f32(parameters, 0x338);
+    actor_record_view<AreaActorState>(bytes).unk_93C = read_u32(parameters, 0x33C);
+    actor_record_view<AreaActorState>(bytes).unk_940 = read_u32(parameters, 0x340);
+    actor_record_view<AreaActorState>(bytes).unk_944 = read_u32(parameters, 0x344);
+    actor_record_view<AreaActorState>(bytes).recent_cursor = 0;
+    actor_record_view<AreaActorState>(bytes).recent_cells[0] = 0xFFFFFFFFu;
+    actor_record_view<AreaActorState>(bytes).recent_cells[1] = 0xFFFFFFFFu;
+    actor_record_view<AreaActorState>(bytes).recent_cells[2] = 0xFFFFFFFFu;
+    actor_record_view<AreaActorState>(bytes).recent_cells[3] = 0xFFFFFFFFu;
     return true;
 }
 
@@ -121,8 +121,8 @@ i32 select_runtime_area_position(std::span<u8> area, const Vec3& origin,
     i32 attempts = 0;
     do
     {
-        result = runtime_area_spawn_position(output, origin, floor, read_f32(area, 0x934),
-            read_f32(area, 0x938), random, occupancy_initial) ? 1 : 0;
+        result = runtime_area_spawn_position(output, origin, floor, actor_record_view<AreaActorState>(area).unk_934,
+            actor_record_view<AreaActorState>(area).unk_938, random, occupancy_initial) ? 1 : 0;
         auto* grid = entity_detail::g_nav_grids[floor];
         if (result != 0 && grid != nullptr)
         {
@@ -133,13 +133,13 @@ i32 select_runtime_area_position(std::span<u8> area, const Vec3& origin,
                 const i32 index = grid->width * z + x;
                 if (index != -1)
                 {
-                    const i32 cursor = i32(read_u32(area, 0x958));
+                    const i32 cursor = i32(actor_record_view<AreaActorState>(area).recent_cursor);
                     i32 row = i32(u32(cursor) + 1);
                     if (row != cursor)
                     {
                         do
                         {
-                            if (i32(read_u32(area, 0x948 + size_t(row) * 4)) == index)
+                            if (i32(actor_record_view<AreaActorState>(area).recent_cells[size_t(row)]) == index)
                             {
                                 break;
                             }
@@ -149,13 +149,13 @@ i32 select_runtime_area_position(std::span<u8> area, const Vec3& origin,
                                 row = 0;
                             }
                         }
-                        while (row != i32(read_u32(area, 0x958)));
+                        while (row != i32(actor_record_view<AreaActorState>(area).recent_cursor));
                     }
                     if (row == cursor)
                     {
-                        word(area, 0x948 + size_t(cursor) * 4, u32(index));
+                        actor_record_view<AreaActorState>(area).recent_cells[size_t(cursor)] = u32(index);
                         const i32 next = cursor + 1;
-                        word(area, 0x958, next >= 4 ? 0 : u32(next));
+                        actor_record_view<AreaActorState>(area).recent_cursor = next >= 4 ? 0 : u32(next);
                         return result;
                     }
                 }
@@ -172,13 +172,13 @@ i32 query_runtime_area_pose(RuntimeAreaActorContext& context, i32 select, Vec3& 
 {
     const Vec3 origin = actor_world_position(context.actor);
     i32 result;
-    if (read_u32(context.bytes, 0x93C) == 0 ||
+    if (actor_record_view<AreaActorState>(context.bytes).unk_93C == 0 ||
         (context.prompt_lock <= -1 && !runtime_area_dialogue_active(context.dialogue)))
     {
         if (select == 0)
         {
-            runtime_random_annulus_position(position, origin, read_f32(context.bytes, 0x938),
-                read_f32(context.bytes, 0x934), context.random);
+            runtime_random_annulus_position(position, origin, actor_record_view<AreaActorState>(context.bytes).unk_938,
+                actor_record_view<AreaActorState>(context.bytes).unk_934, context.random);
             result = 1;
         }
         else
@@ -195,7 +195,7 @@ i32 query_runtime_area_pose(RuntimeAreaActorContext& context, i32 select, Vec3& 
         position = origin;
         result = 1;
     }
-    if (read_u32(context.bytes, 0x944) != 0)
+    if (actor_record_view<AreaActorState>(context.bytes).unk_944 != 0)
     {
         position.y = origin.y;
     }
@@ -204,7 +204,7 @@ i32 query_runtime_area_pose(RuntimeAreaActorContext& context, i32 select, Vec3& 
     float angle;
     if (runtime_direction_angle(direction, angle))
     {
-        const u32 mode = read_u32(context.bytes, 0x940);
+        const u32 mode = actor_record_view<AreaActorState>(context.bytes).unk_940;
         if (mode == 1 || mode == 2)
         {
             if (mode == 2)

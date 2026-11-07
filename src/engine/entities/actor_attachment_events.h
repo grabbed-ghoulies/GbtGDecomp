@@ -5,6 +5,43 @@
 
 namespace gbtg
 {
+// An attachment event record (0x0003BEC0 runs it by kind): a chain of records of varying size, each with a callout's
+// name, a resource named at +0x48, then words by kind. Reads are by field, as a record can be shorter than kSize.
+namespace attachment_event_field
+{
+constexpr RetailField<u16, 0x00> size{}; // the next record is this far on
+constexpr RetailField<u16, 0x04> kind{}; // 0 ends the chain (0x0003BE20)
+constexpr RetailField<std::array<char, 0x40>, 0x08> callout{};
+constexpr RetailField<std::array<char, 0x80>, 0x48> name{};
+constexpr u32 kSize = 0xD4;
+} // namespace attachment_event_field
+// Kind 1: a sound on a slot, then an effect stream when +0xCC names one ("aid_").
+namespace sound_attachment_event
+{
+constexpr RetailField<u32, 0xC8> slot{};
+constexpr RetailField<std::array<char, 8>, 0xCC> effect{}; // a name that may run on past this field's end
+} // namespace sound_attachment_event
+// Kind 4: an attachment at a joint, if it has one.
+namespace joint_attachment_event
+{
+constexpr RetailField<u32, 0xC8> has_joint{};
+constexpr RetailField<i16, 0xCC> joint{};
+constexpr RetailField<u32, 0xD0> flags{};
+} // namespace joint_attachment_event
+// Kind 5: an attachment at a model binding of a kind.
+namespace binding_attachment_event
+{
+constexpr RetailField<i16, 0xC8> binding_kind{};
+constexpr RetailField<u32, 0xCC> flags{};
+} // namespace binding_attachment_event
+// Kind 6: an attachment at an index, unless +0xC8 is set.
+namespace index_attachment_event
+{
+constexpr RetailField<u32, 0xC8> no_index{};
+constexpr RetailField<i32, 0xCC> index{};
+constexpr RetailField<u32, 0xD0> flags{};
+} // namespace index_attachment_event
+
 struct ActorAttachmentEventContext
 {
     Actor& actor;

@@ -343,8 +343,8 @@ void register_runtime_door(const Vec3& position, const Vec3& euler, const Vec3& 
     build_runtime_pose_matrix(matrix, *reinterpret_cast<Vec3*>(cursor + 0xC),
         *reinterpret_cast<Vec3*>(cursor + 0x18), *reinterpret_cast<Vec3*>(cursor + 0x24),
         reinterpret_cast<float*>(cursor + 0x70));
-    const float x = read_f32(context.names.dimensions, u32(shape) * 0x94u);
-    const float z = read_f32(context.names.dimensions, u32(shape) * 0x94u + 4);
+    const float x = retail_row<DoorShapeRow>(context.names.dimensions, u32(shape)).x;
+    const float z = retail_row<DoorShapeRow>(context.names.dimensions, u32(shape)).z;
     store(door.fields, 0xA8, std::bit_cast<u32>(z - 15.f));
     store(door.fields, 0xA0, std::bit_cast<u32>(x - 20.f));
     store(door.fields, 0xA4, 0);
@@ -729,8 +729,7 @@ void break_runtime_door_actor(RuntimeDoorClips& door, RuntimeDoorContext& contex
     wrap_runtime_euler(euler, actor->euler); // 0x00105AA0, ESI euler, EDI actor +0x14
     actor->xform_valid = 0; // Actor +0x2A8.
     const i32 shape = std::bit_cast<i32>(read_u32(door.fields, 0));
-    const size_t offset = size_t(shape) * 0x94 + 0x10;
-    if (shape < 0 || offset >= context.names.dimensions.size())
+    if (shape < 0 || size_t(shape) >= context.names.dimensions.size() / sizeof(DoorShapeRow))
     {
         throw Error("0x0005A9B0 reads a door shape outside DAT_004249A4");
     }
@@ -738,7 +737,7 @@ void break_runtime_door_actor(RuntimeDoorClips& door, RuntimeDoorContext& contex
     {
         throw Error("0x0005A9B0 bursts the door actor (0x0013B1F0) without the scene's effect views");
     }
-    context.burst(*actor, 1.f, reinterpret_cast<const char*>(context.names.dimensions.data() + offset)); // 0x0013B1F0
+    context.burst(*actor, 1.f, retail_row<DoorShapeRow>(context.names.dimensions, size_t(shape)).breakable_model.data()); // 0x0013B1F0
 }
 
 // Xbox 0x0005AA90

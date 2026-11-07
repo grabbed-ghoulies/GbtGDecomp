@@ -1,10 +1,13 @@
 #include "body_scoop_whack_state.h"
+#include <cstddef>
+#include "mind_fields.h"
 #include "actor_collision_culling.h"
 #include "actor_live_attachments.h"
 #include "actor_runtime_queries.h"
 #include "actor_shape_bounds.h"
 #include "shape_transform.h"
 #include "gbtg/entity.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -13,28 +16,12 @@ namespace gbtg
 {
 namespace
 {
-namespace field = scoop_whack_state_field;
 namespace parameter = scoop_whack_state_parameter;
 
 std::function<RuntimeScoopWhackStateContext&(u32)> scoop_whack_context_of;
 
 constexpr float kStrikeStart = 0.22f; // DAT_0032B500.
 constexpr float kStrikeEnd = 0.32f; // DAT_0032B4FC.
-
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void step_byte(std::span<u8> bytes, size_t offset, i32 step)
-{
-    bytes[offset] = u8(bytes[offset] + step);
-}
 
 // The body's latches and the actor's live attachment holds (+0x8F8 records, +0x15) all move by `step`.
 void hold_body(i32 step, RuntimeScoopWhackStateContext& context)
@@ -44,8 +31,8 @@ void hold_body(i32 step, RuntimeScoopWhackStateContext& context)
     {
         live->hold = u8(live->hold + step);
     }
-    step_byte(context.body, 0x6D, step);
-    step_byte(context.body, 0x6A, step);
+    body_record(context.body).unk_6D = u8(body_record(context.body).unk_6D + step);
+    body_record(context.body).unk_6A = u8(body_record(context.body).unk_6A + step);
 }
 
 // Slot 0's player of the actor's animation controller (+0x50 -> +0x58), or null.
@@ -82,14 +69,14 @@ const EntityBonePose* shape_pose(const Actor& actor)
 
 bool construct_scoop_whack_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_scoop_whack_state(state, parameters, scoop_whack_context_of(body_address_of(state)));
+    ScoopWhackState& state = body_state_view<ScoopWhackState>({object.bytes.get(), object.size});
+    return initialize_runtime_scoop_whack_state(state, parameters, scoop_whack_context_of(state.base.body));
 }
 
 void destroy_scoop_whack_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_scoop_whack_state(scoop_whack_context_of(body_address_of(state)));
+    ScoopWhackState& state = body_state_view<ScoopWhackState>({object.bytes.get(), object.size});
+    destroy_runtime_scoop_whack_state(scoop_whack_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* scoop_whack_state_lifecycle()
@@ -103,23 +90,23 @@ const ObjectFactoryVtable* scoop_whack_state_lifecycle()
 // Xbox 0x0009EB20
 void scoop_whack_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(ScoopWhackState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0009EBA0
-bool initialize_runtime_scoop_whack_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_scoop_whack_state(ScoopWhackState& state, std::span<const u8> parameters,
     RuntimeScoopWhackStateContext& context)
 {
     const auto body = context.body;
-    set(state, field::callout, get(parameters, parameter::callout));
-    body[0x38] = 1;
-    body[0x39] = 1;
+    state.callout = get(parameters, parameter::callout);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     hold_body(1, context);
-    step_byte(body, 0x309, 1);
-    step_byte(body, 0x30A, 1);
-    step_byte(body, 0x30B, 1);
-    step_byte(body, 0x30C, 1);
+    ++body_record(body).unk_309;
+    ++body_record(body).unk_30A;
+    ++body_record(body).unk_30B;
+    ++body_record(body).unk_30C;
     AnimationController* controller = context.animation.controller.get(); // Actor +0x50.
     if (controller != nullptr)
     {
@@ -134,23 +121,21 @@ bool initialize_runtime_scoop_whack_state(std::span<u8> state, std::span<const u
 void destroy_runtime_scoop_whack_state(RuntimeScoopWhackStateContext& context)
 {
     const auto body = context.body;
-    step_byte(body, 0x309, -1);
-    step_byte(body, 0x30A, -1);
-    step_byte(body, 0x30B, -1);
-    step_byte(body, 0x30C, -1);
+    --body_record(body).unk_309;
+    --body_record(body).unk_30A;
+    --body_record(body).unk_30B;
+    --body_record(body).unk_30C;
     hold_body(-1, context);
 }
 
 // Xbox 0x0009EC90
-void tick_runtime_scoop_whack_state(std::span<u8> state, RuntimeScoopWhackStateContext& context)
+void tick_runtime_scoop_whack_state(ScoopWhackState& state, RuntimeScoopWhackStateContext& context)
 {
     const auto body = context.body;
-    const u32 target = context.mind.data() == nullptr ? 0u : read_u32(context.mind, 0x10);
-    set(state, body_state_field::elapsed, runtime_actor_rate(context.actor) * runtime_frame_step(context.clock)
-        + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
-    if (get(state, field::struck) == 0 && target != 0)
+    const u32 target = context.mind.data() == nullptr ? 0u : mind_record(context.mind).target_record;
+    state.base.elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
+    level_body_euler(body);
+    if (state.struck == 0 && target != 0)
     {
         const MinaPlayer* player = slot_player(context);
         if (player != nullptr && player->position >= kStrikeStart && !(kStrikeEnd < player->position))
@@ -167,7 +152,7 @@ void tick_runtime_scoop_whack_state(std::span<u8> state, RuntimeScoopWhackStateC
                 const std::array<u32, 5> message{0x4C, context.actor_address, std::bit_cast<u32>(point.x),
                     std::bit_cast<u32>(point.y), std::bit_cast<u32>(point.z)};
                 context.message(target_actor, message); // Vtable +0xC.
-                set(state, field::struck, 1u);
+                state.struck = 1u;
             }
         }
     }
@@ -214,23 +199,23 @@ void tick_runtime_scoop_whack_state(std::span<u8> state, RuntimeScoopWhackStateC
             return;
         }
     }
-    set(state, body_state_field::next_key, context.body_slot_key(0x20)); // Body vtable +0x20.
+    state.base.next_key = context.body_slot_key(0x20); // Body vtable +0x20.
 }
 
 // Xbox 0x0009EED0
-void message_runtime_scoop_whack_state(std::span<const u8> state, std::span<const u32> message,
+void message_runtime_scoop_whack_state(const ScoopWhackState& state, std::span<const u32> message,
     RuntimeScoopWhackStateContext& context)
 {
     if (message[0] == 0x41)
     {
         const Vec3 point{std::bit_cast<float>(message[7]), std::bit_cast<float>(message[8]),
             std::bit_cast<float>(message[9])};
-        call_out_runtime_hit_point(point, message[5], get(state, field::callout), context.actor_callout); // 0x0013AD60
+        call_out_runtime_hit_point(point, message[5], state.callout, context.actor_callout); // 0x0013AD60
         return;
     }
     if (message[0] == 0x70 && message[2] == context.actor_address && message[1] + 0x8Cu != 0)
     {
-        context.actor_callout(message[1], get(state, field::callout), nullptr); // 0x0003BE20
+        context.actor_callout(message[1], state.callout, nullptr); // 0x0003BE20
     }
 }
 

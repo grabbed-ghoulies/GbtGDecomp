@@ -1,4 +1,8 @@
 #include "player_strategy_entry.h"
+#include "body_fields.h"
+#include "strategy_fields.h"
+#include "mind_fields.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -22,11 +26,11 @@ std::span<const u8> current_row(const RuntimePlayerGoalRing& ring, std::span<con
 // Xbox 0x00138870
 void enter_runtime_player_goal(RuntimePlayerStrategyEntry& context)
 {
-    if (read_u32(context.actor_bytes, 0x98C) != 0)
+    if (player_record(context.actor_bytes).goal_volume != 0)
     {
         return;
     }
-    context.body[0x328] = 7;
+    body_record(context.body).move_class = 7;
     u16 kind;
     if (context.ring == nullptr)
     {
@@ -51,7 +55,8 @@ void enter_runtime_player_goal(RuntimePlayerStrategyEntry& context)
     case 0x15:
     {
         auto* request = append_runtime_position_request(context.goals.anchor, context.goals.sizes, position);
-        if (runtime_player_goal_flags(context.ring, context.address_zero) != 0 || context.actor_bytes[0x989] != 0)
+        if (runtime_player_goal_flags(context.ring, context.address_zero) != 0
+            || player_record(context.actor_bytes).unk_989 != 0)
         {
             put(request->bytes, 0x28, 0);
             return;
@@ -61,13 +66,15 @@ void enter_runtime_player_goal(RuntimePlayerStrategyEntry& context)
     case 10:
     {
         auto* request = append_runtime_position_request(context.goals.anchor, context.goals.sizes, position);
-        if (runtime_player_goal_flags(context.ring, context.address_zero) != 0 || context.actor_bytes[0x989] != 0)
+        if (runtime_player_goal_flags(context.ring, context.address_zero) != 0
+            || player_record(context.actor_bytes).unk_989 != 0)
         {
             put(request->bytes, 0x28, 0);
         }
         float distance;
         auto* target = find_runtime_mind_target(context.actor, context.allowed, 0, 0, &distance,
-            read_u32(context.events.mind, 0x68), (read_u32(context.events.mind, 0x64) & ~0x20u) | 8u,
+            mind_record(context.events.mind).target_categories,
+                (mind_record(context.events.mind).target_flags & ~0x20u) | 8u,
             context.targets);
         set_runtime_mind_target(context.events, target == nullptr ? 0 : target->address);
         if (!load_runtime_mind_goal(context.goal_target, context.goals))
@@ -99,14 +106,14 @@ void enter_runtime_base_strategy_state(RuntimePlayerStrategyEntry& context, u16 
         load_runtime_mind_goal(context.goal_default, context.goals);
         return;
     case 0x3F4:
-        context.body[0x328] = 8;
+        body_record(context.body).move_class = 8;
         load_runtime_mind_goal(context.goal_3f4, context.goals);
         return;
     case 0x3FB:
         enter_runtime_player_goal(context);
         return;
     case 0x3FC:
-        put(context.events.mind, 0x10, 0);
+        mind_record(context.events.mind).target_record = 0;
         for (LiveScript* event = context.events.anchor.next; event != nullptr; event = event->next)
         {
             if (u16(event->type) == 3)
@@ -115,13 +122,13 @@ void enter_runtime_base_strategy_state(RuntimePlayerStrategyEntry& context, u16 
                 break;
             }
         }
-        ++context.strategy[0x1C];
+        ++strategy_base(context.strategy).pause_count;
         return;
     case 0x3FF:
-        context.body[0x328] = 7;
+        body_record(context.body).move_class = 7;
         [[fallthrough]];
     case 0x415:
-        ++context.strategy[0x1C];
+        ++strategy_base(context.strategy).pause_count;
         return;
     case 0x418:
         load_runtime_mind_goal(context.goal_418, context.goals);

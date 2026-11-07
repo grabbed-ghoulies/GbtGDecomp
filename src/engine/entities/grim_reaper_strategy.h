@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -13,34 +14,54 @@ struct RuntimeBodyCollisionState;
 struct RuntimeBodyAttachmentLists;
 struct RuntimeActorSoundQueues;
 
+// DAT_00302B7C, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct GrimReaperParameters
+{
+    float reach; // +0x0
+    float unk_04; // +0x4
+    float speed_step; // +0x8
+    float unk_0C; // +0xC
+    float turn_speed_step; // +0x10
+    float turn_speed_limit; // +0x14
+    float unk_18; // +0x18
+    float unk_1C; // +0x1C
+    float cue_time_low; // +0x20
+    float cue_time_high; // +0x24
+    float fly_time; // +0x28
+    float pace_interval; // +0x2C
+    float hit_slow; // +0x30
+    float wind_up_time; // +0x34
+};
+static_assert(sizeof(GrimReaperParameters) == 0x38);
+
 // entityStrategyGrimReaper (factory type 0x3F, getter 0x000AD3B0, vtable 0x00505DE0) over the base strategy (type 8):
 // the Grim Reaper an event's failed time limit sends (0x000CF7B0). He chases his target (state 0x401) ever faster,
 // pointing and laughing now and then; near enough he swings (0x40C), his hands' contact shapes live for the swing's
 // second half, and a target that dies to him has its life sucked out (0x3F2). A hit slows him for a while; a landed one
 // knocks him down (0x409, "knockeddown"). He plays the reaper stream while he lives and takes a blob shadow.
 // Strategy bytes: +0x1A attacking, +0x1C pause count, +0x48 the swing's callout 0x2E tokens.
-namespace grim_reaper_strategy_field
+struct GrimReaperStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_00302B7C, the block his tunables come from
-constexpr RetailField<float, 0x3C> turn_speed{}; // the chase's +0x71C / +0x720; grows by the block's +0x10 to +0x14
-constexpr RetailField<float, 0x40> speed{}; // the chase pace (0.5 at first); grows by the block's +8 up to 1
-constexpr RetailField<float, 0x44> cue{}; // seconds to the next point or laugh, from the block's +0x20..+0x24
-constexpr RetailField<std::array<u8, 0x24>, 0x48> events{}; // callout 0x2E's tokens (0x0013B8B0)
-constexpr RetailField<float, 0x6C> fly{}; // seconds the body's fly bit (+0x15C byte 7 bit 3) stays set
-constexpr RetailField<float, 0x70> pace_time{}; // seconds to the next speed-up, from the block's +0x2C
-constexpr RetailField<float, 0x74> slow{}; // a hit's slow-down left
-constexpr RetailField<float, 0x78> slow_length{}; // and its whole length
-constexpr RetailField<u32, 0x7C> slowed{};
-constexpr RetailField<float, 0x80> held_speed{}; // the speed a hit slowed
-constexpr RetailField<u32, 0x84> grabbing{}; // the swing's contact shapes are on (0x000AD0D0 .. 0x000AD200)
-constexpr RetailField<u32, 0x88> swing{}; // 0 off, 1 winding up, 2 grabbing
-constexpr RetailField<float, 0x8C> wind_up{}; // the block's +0x34
-constexpr RetailField<u32, 0x90> fed{}; // his target died to him (message 0x31)
-constexpr RetailField<u32, 0x94> appearing{}; // set until his first chase request finishes
-constexpr RetailField<i32, 0x98> shadow{}; // the blob shadow (0x00119A60), or -1
-constexpr u32 kSize = 0x9C;
-static_assert(retail_fits(kSize, shadow));
-} // namespace grim_reaper_strategy_field
+    StrategyBase base{}; // +0
+    u32 parameters = 0; // +0x38, DAT_00302B7C, the block his tunables come from
+    float turn_speed = 0.f; // +0x3C, the chase's +0x71C / +0x720; grows by the block's +0x10 to +0x14
+    float speed = 0.f; // +0x40, the chase pace (0.5 at first); grows by the block's +8 up to 1
+    float cue = 0.f; // +0x44, seconds to the next point or laugh, from the block's +0x20..+0x24
+    std::array<u8, 0x24> events{}; // +0x48, callout 0x2E's tokens (0x0013B8B0)
+    float fly = 0.f; // +0x6C, seconds the body's fly bit (+0x15C byte 7 bit 3) stays set
+    float pace_time = 0.f; // +0x70, seconds to the next speed-up, from the block's +0x2C
+    float slow = 0.f; // +0x74, a hit's slow-down left
+    float slow_length = 0.f; // +0x78, and its whole length
+    u32 slowed = 0; // +0x7C
+    float held_speed = 0.f; // +0x80, the speed a hit slowed
+    u32 grabbing = 0; // +0x84, the swing's contact shapes are on (0x000AD0D0 .. 0x000AD200)
+    u32 swing = 0; // +0x88, 0 off, 1 winding up, 2 grabbing
+    float wind_up = 0.f; // +0x8C, the block's +0x34
+    u32 fed = 0; // +0x90, his target died to him (message 0x31)
+    u32 appearing = 0; // +0x94, set until his first chase request finishes
+    i32 shadow = 0; // +0x98, the blob shadow (0x00119A60), or -1
+};
+static_assert(sizeof(GrimReaperStrategyState) == 0x9C);
 // DAT_00512170: the powerup table's DizzyReaper row (DAT_00512140 kind 2) +0 active, which 0x00123E70 sets; set,
 // the reaper turns dizzy (0x3EA). A native scene points it at its row.
 extern const u32* g_grim_reaper_dizzy;

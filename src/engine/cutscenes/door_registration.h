@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include "../graphics/door_shape_row.h"
 #include "event_runtime.h"
 #include "../navigation/cell_registration.h"
 
@@ -16,7 +17,7 @@ struct RuntimeDoorNames
     std::span<const DoorRoomAlias, 2> aliases; // PTR_DAT_00434034, stride 8.
     std::span<const char* const> variants; // PTR_DAT_00424970.
     std::span<const char* const> shapes; // PTR_DAT_00425118.
-    std::span<const u8> dimensions; // DAT_00424994, stride 0x94, X and Z at +0/+4.
+    std::span<const u8> dimensions; // DAT_00424994, DoorShapeRow.
 };
 const char* runtime_door_room_suffix(const char* room,
     std::span<const DoorRoomAlias, 2> aliases); // Xbox 0x001410F0

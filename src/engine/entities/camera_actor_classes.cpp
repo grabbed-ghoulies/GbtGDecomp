@@ -1,6 +1,10 @@
 #include "camera_actor_classes.h"
+#include "body_fields.h"
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_mind_goals.h"
+#include "../camera/camera_mind_rig.h"
 #include "../camera/view_initialization.h"
 #include <cstring>
 
@@ -29,8 +33,8 @@ bool initialize_runtime_camera_body(RuntimeCameraBodyContext& context)
     camera_bind_named_view(0, "cameron");
     const Vec3 position = actor_world_position(context.actor);
     const Vec3 euler = actor_world_euler(context.actor);
-    std::memcpy(body.data() + 0x89C, &position, sizeof(position));
-    std::memcpy(body.data() + 0x8A8, &euler, sizeof(euler));
+    camera_body_record(body).view_position = position;
+    camera_body_record(body).view_euler = euler;
     // The native camera node is the record embedded at body +0x894 (position +8, Euler rotation +0x14).
     context.view.position = position;
     context.view.rotation.x = euler.x;
@@ -63,11 +67,10 @@ void director_strategy_object_sizes(ObjectSizes& output)
 // Xbox 0x000AAEB0
 bool initialize_runtime_director_strategy(std::span<u8> strategy)
 {
-    const u32 zero = 0;
-    const u32 one = 1;
-    std::memcpy(strategy.data() + 0x38, &zero, 4);
-    std::memcpy(strategy.data() + 0x3C, &one, 4);
-    std::memcpy(strategy.data() + 0x40, &one, 4);
+    DirectorStrategyState& state = strategy_view<DirectorStrategyState>(strategy);
+    state.unk_38 = 0;
+    state.first_update = 1;
+    state.starting = 1;
     return true;
 }
 
@@ -79,7 +82,7 @@ void enter_runtime_director_state(u16 state, RuntimeDirectorStrategy& context)
     case 0x3F6:
     {
         auto* request = allocate_runtime_mind_request(context.requests, 3, context.request_sizes);
-        std::memcpy(request->bytes.data() + 0x10, context.strategy.data() + 0x38, 4);
+        std::memcpy(request->bytes.data() + 0x10, &strategy_view<DirectorStrategyState>(context.strategy).unk_38, 4);
         return;
     }
     case 0x3F7:
@@ -118,7 +121,7 @@ void dispatch_runtime_director_message(std::span<const u32> message, RuntimeDire
         break;
     }
     case 0xBA:
-        std::memcpy(context.mind.data() + 0xC, &message[1], 4);
+        mind_record(context.mind).target = message[1];
         change_runtime_player_strategy_state(context.strategy, 0x40C, context.setup);
         break;
     case 0xBB:
@@ -136,10 +139,10 @@ void dispatch_runtime_camera_mind_message(std::span<const u32> message, RuntimeC
 {
     if (message[0] == 0x7C)
     {
-        if (message[1] == read_u32(context.mind, 0x7C))
+        if (message[1] == camera_mind_record(context.mind).focus_actor)
         {
             const u32 zero = 0;
-            std::memcpy(context.mind.data() + 0x7C, &zero, 4);
+            camera_mind_record(context.mind).focus_actor = zero;
         }
     }
     else if (message[0] == 0x7D)
@@ -157,7 +160,7 @@ void leave_runtime_director_state(std::span<u8> strategy, u16 state)
 {
     if (state != 0x3F7 && (state == 0x3FC || state == 0x3FF || state == 0x415))
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
 }
 }

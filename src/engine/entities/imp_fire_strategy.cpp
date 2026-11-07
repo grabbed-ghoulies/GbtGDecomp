@@ -1,4 +1,8 @@
 #include "imp_fire_strategy.h"
+#include "gbtg/retail_field.h"
+#include "strategy_fields.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "body_animation_setup.h"
 #include "body_message_helpers.h"
 #include "actor_transform.h"
@@ -6,6 +10,7 @@
 #include "../navigation/mind_navigation_angles.h"
 #include "../navigation/player_avoidance.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 #include <cmath>
@@ -14,12 +19,17 @@ namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
+const ImpFireParameters& parameters_of(RuntimeImpFireStrategy& context)
 {
-    std::memcpy(bytes.data() + offset, &value, 4);
+    return retail_view<ImpFireParameters>(context.parameters);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
+ImpFireStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<ImpFireStrategyState>(strategy);
+}
+
+void put(std::span<u8> bytes, size_t offset, u32 value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
 }
@@ -49,7 +59,7 @@ bool requests_pending(RuntimeImpFireStrategy& context)
 
 bool body_settled(std::span<const u8> body)
 {
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
 }
 
 void change_state(u16 state, RuntimeImpFireStrategy& context)
@@ -88,17 +98,17 @@ void imp_fire_strategy_object_sizes(ObjectSizes& output)
 void set_runtime_imp_fire_effect(u32 state, RuntimeImpFireStrategy& context)
 {
     std::span<u8> strategy = strategy_of(context);
-    const u32 previous = read_u32(strategy, 0x40);
+    const u32 previous = fields_of(strategy).effect_state;
     if (state == previous)
     {
         return;
     }
     if (previous == 2)
     {
-        if (read_u32(strategy, 0x44) != 0)
+        if (fields_of(strategy).effect != 0)
         {
             const std::array<u32, 2> message{5, 0};
-            context.object_message(read_u32(strategy, 0x44), message);
+            context.object_message(fields_of(strategy).effect, message);
         }
         AnimationController* controller = context.animation.controller.get();
         if (named_slot_animation(controller))
@@ -110,17 +120,17 @@ void set_runtime_imp_fire_effect(u32 state, RuntimeImpFireStrategy& context)
             controller->dirty = true;
         }
     }
-    put(strategy, 0x40, state);
+    fields_of(strategy).effect_state = state;
     if (state == 2 && previous != 2)
     {
-        put(strategy, 0x44, context.create_effect(context.effect_name, read_u32(strategy, 8)));
+        fields_of(strategy).effect = context.create_effect(context.effect_name, strategy_base(strategy).actor);
     }
 }
 
 // Xbox 0x000B4380
 void end_runtime_imp_fire_effect(RuntimeImpFireStrategy& context)
 {
-    const u32 object = read_u32(strategy_of(context), 0x44);
+    const u32 object = fields_of(strategy_of(context)).effect;
     if (object != 0)
     {
         const std::array<u32, 2> message{5, 0};
@@ -132,17 +142,17 @@ void end_runtime_imp_fire_effect(RuntimeImpFireStrategy& context)
 bool runtime_imp_fire_effect_playing(RuntimeImpFireStrategy& context)
 {
     const bool playing = named_slot_animation(context.animation.controller.get());
-    return read_u32(strategy_of(context), 0x40) == 2 && playing;
+    return fields_of(strategy_of(context)).effect_state == 2 && playing;
 }
 
 // Xbox 0x000B4570
 bool initialize_runtime_imp_fire_strategy(RuntimeImpFireStrategy& context)
 {
     std::span<u8> strategy = strategy_of(context);
-    put(strategy, 0x48, 0);
-    put(strategy, 0x40, 0);
+    fields_of(strategy).bite_request = 0;
+    fields_of(strategy).effect_state = 0;
     set_runtime_imp_fire_effect(1, context);
-    put(strategy, 0x4C, fire_parameters_address);
+    fields_of(strategy).parameters = fire_parameters_address;
     return true;
 }
 
@@ -156,16 +166,16 @@ void destroy_runtime_imp_fire_strategy(RuntimeImpFireStrategy& context)
 void release_runtime_imp_fire_hold(RuntimeImpFireStrategy& context)
 {
     std::span<u8> strategy = strategy_of(context);
-    const u32 held = read_u32(strategy, 0x3C);
+    const u32 held = fields_of(strategy).held_body;
     if (held == 0)
     {
         return;
     }
     const RuntimeStrategyBodyView body = context.body_at(held);
-    if (read_u32(body.bytes, 0x50) == read_u32(strategy, 8))
+    if (read_u32(body.bytes, 0x50) == strategy_base(strategy).actor)
     {
         put(body.bytes, 0x50, 0);
-        put(strategy, 0x3C, 0);
+        fields_of(strategy).held_body = 0;
     }
 }
 
@@ -173,11 +183,11 @@ void release_runtime_imp_fire_hold(RuntimeImpFireStrategy& context)
 float runtime_imp_fire_range_fraction(std::span<const u8> target, RuntimeImpFireStrategy& context)
 {
     const Vec3 position = actor_world_position(goals_of(context).entry.actor);
-    const float dx = position.x - read_f32(target, 0x20);
-    const float dy = position.y - read_f32(target, 0x24);
-    const float dz = position.z - read_f32(target, 0x28);
-    const float nearest = read_f32(context.parameters, 0x18);
-    const float farthest = read_f32(context.parameters, 0x1C);
+    const float dx = position.x - mind_target_record(target).shape.position.x;
+    const float dy = position.y - mind_target_record(target).shape.position.y;
+    const float dz = position.z - mind_target_record(target).shape.position.z;
+    const float nearest = parameters_of(context).nearest;
+    const float farthest = parameters_of(context).farthest;
     if (farthest == nearest)
     {
         return 1.f; // DAT_0032B0F8.
@@ -222,10 +232,11 @@ float select_runtime_imp_fire_heading(const RuntimeMindTarget& target, RuntimeIm
     Actor& actor = goals_of(context).entry.actor;
     const float fraction = runtime_imp_fire_range_fraction(target.bytes, context);
     const Vec3 position = actor_world_position(actor);
-    const Vec3 direction{read_f32(target.bytes, 0x20) - position.x, read_f32(target.bytes, 0x24) - position.y,
-        read_f32(target.bytes, 0x28) - position.z};
+    const Vec3 direction{mind_target_record(target.bytes).shape.position.x - position.x,
+        mind_target_record(target.bytes).shape.position.y - position.y,
+        mind_target_record(target.bytes).shape.position.z - position.z};
     // The output reuses the caller's argument slot, which holds the parameter block address.
-    float angle = std::bit_cast<float>(read_u32(strategy_of(context), 0x4C));
+    float angle = std::bit_cast<float>(fields_of(strategy_of(context)).parameters);
     runtime_direction_angle(direction, angle);
     const float heading = blend_runtime_imp_fire_heading(fraction, angle);
     const float reflected = reflect_runtime_angle(angle, heading);
@@ -240,7 +251,7 @@ float select_runtime_imp_fire_heading(const RuntimeMindTarget& target, RuntimeIm
     {
         scale = fraction * 2.f;
     }
-    const float width = read_f32(context.parameters, 0x20) * scale * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
+    const float width = parameters_of(context).heading_spread * scale * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
     return randomize_runtime_navigation_heading(chosen, width, goals_of(context).random);
 }
 
@@ -249,8 +260,9 @@ bool select_runtime_imp_fire_position(const RuntimeMindTarget& target, const Vec
     RuntimeImpFireStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const float range = read_f32(context.parameters, 4);
-    RuntimeNavigationHeadingSearch search{origin, i32(target.bytes[0x19]), range - 0.5f, range + 0.5f, nullptr,
+    const float range = parameters_of(context).move.range;
+    RuntimeNavigationHeadingSearch search{origin, i32(mind_target_record(target.bytes).floor), range - 0.5f, range
+        + 0.5f, nullptr,
         goals.entry.allowed, &output, 1, 0xD, i16(read_u16(goals.entry.actor_bytes, 6)), goals.random,
         0.f}; // Flag 0x10 is clear, so the retained occupancy scratch is not read.
     return search_runtime_navigation_headings(search, heading, std::bit_cast<float>(0x3E9C61AAu), 10);
@@ -264,7 +276,7 @@ void approach_runtime_imp_fire_target(const RuntimeMindTarget& target, RuntimeIm
     Vec3 selected;
     if (select_runtime_imp_fire_position(target, position, heading, selected, context))
     {
-        request_runtime_strategy_position(selected, context.parameters, goals_of(context));
+        request_runtime_strategy_position(selected, parameters_of(context).move, goals_of(context));
     }
 }
 
@@ -273,12 +285,12 @@ bool roll_runtime_imp_fire_attachment(RuntimeImpFireStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<const u8> mind = goals.entry.events.mind;
-    if (mind.data() == nullptr || read_u32(mind, 0x10) == 0)
+    if (mind.data() == nullptr || mind_record(mind).target_record == 0)
     {
         return false;
     }
-    const Actor& target = goals.target_at(read_u32(mind, 0x10))->actor;
-    i32 index = context.attachment_limit;
+    const Actor& target = goals.target_at(mind_record(mind).target_record)->actor;
+    i32 index = context.head_marker_index;
     const RuntimeBodyModelNodes* model = context.model_of(target);
     const u32 count = count_runtime_body_model_kind(model, 4);
     if (count == 0)
@@ -308,8 +320,8 @@ void grab_runtime_imp_fire_target(const Actor* target, RuntimeImpFireStrategy& c
     if (roll_runtime_imp_fire_attachment(context) && read_u32(body.bytes, 0x50) == 0
         && (body.bits->bytes[3] & 8) == 0 && read_u32(body.bytes, 0x58) != 0)
     {
-        put(body.bytes, 0x50, read_u32(strategy, 8));
-        put(strategy, 0x3C, body.address);
+        put(body.bytes, 0x50, strategy_base(strategy).actor);
+        fields_of(strategy).held_body = body.address;
         change_state(0x40B, context);
         return;
     }
@@ -322,7 +334,8 @@ u32 engage_runtime_imp_fire_target(const RuntimeMindTarget& target, RuntimeImpFi
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<const u8> body = body_of_actor(context);
     const EntityBitBlock& bits = *goals.body_bits;
-    if (body[0x6B] != 0 || body[0x6A] != 0 || read_f32(body, 0x70) > 0.f || !body_settled(body)
+    if (body_record(body).unk_6B != 0 || body_record(body).unk_6A != 0 || body_record(body).unk_70 > 0.f
+        || !body_settled(body)
         || (bits.bytes[3] & 8) != 0 || runtime_body_bit_set(bits, 0x2C) || runtime_body_bit_set(bits, 0x2A))
     {
         return 0;
@@ -368,26 +381,26 @@ void update_runtime_imp_fire_attack(RuntimeImpFireStrategy& context)
     std::span<u8> strategy = strategy_of(context);
     const float step = runtime_frame_step(goals.clock);
     const float rate = runtime_actor_rate(goals.entry.actor);
-    const float delay = read_f32(strategy, 0x38);
+    const float delay = fields_of(strategy).attack_delay;
     if (delay > 0.f)
     {
         const float remaining = delay - rate * step;
-        put_float(strategy, 0x38, remaining);
+        fields_of(strategy).attack_delay = remaining;
         if (0.f >= remaining)
         {
-            put_float(strategy, 0x38, 0.f);
+            fields_of(strategy).attack_delay = 0.f;
         }
     }
-    if (read_f32(strategy, 0x38) != 0.f && requests_pending(context)
+    if (fields_of(strategy).attack_delay != 0.f && requests_pending(context)
         && runtime_strategy_link_target(context.base.link, context.queue) != nullptr)
     {
         return;
     }
-    const float minimum = read_f32(context.parameters, 0x2C);
-    const float maximum = read_f32(context.parameters, 0x30);
+    const float minimum = parameters_of(context).body_timer_low;
+    const float maximum = parameters_of(context).body_timer_high;
     goals.random = goals.random * 0x19660Du + 0x3C6EF35Fu;
     const float fraction = std::bit_cast<float>((goals.random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
-    put_float(body_of_actor(context), 0x70, (maximum - minimum) * fraction + minimum);
+   body_record(body_of_actor(context)).unk_70 = (maximum - minimum) * fraction + minimum;
     change_state(0x40C, context);
 }
 
@@ -411,7 +424,7 @@ void update_runtime_imp_fire_retreat(RuntimeImpFireStrategy& context)
     }
     if (!requests_pending(context))
     {
-        request_runtime_strategy_roam(context.parameters, context.checks);
+        request_runtime_strategy_roam(parameters_of(context).move, context.checks);
     }
 }
 
@@ -466,15 +479,15 @@ void update_runtime_imp_fire_bite(RuntimeImpFireStrategy& context)
     }
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<const u8> mind = goals.entry.events.mind;
-    if (mind.data() != nullptr && read_u32(mind, 0x10) != 0 && runtime_imp_fire_effect_playing(context))
+    if (mind.data() != nullptr && mind_record(mind).target_record != 0 && runtime_imp_fire_effect_playing(context))
     {
         std::span<u8> strategy = strategy_of(context);
-        if (read_u32(strategy, 0x48) != 0)
+        if (fields_of(strategy).bite_request != 0)
         {
             load_runtime_mind_goal(context.goal_bite, goals.entry.goals);
             return;
         }
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_runtime_mind_goal(context.goal_bite_prepare, goals.entry.goals);
         return;
     }
@@ -486,7 +499,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     if (react_runtime_strategy_message(message, context.checks) != 0 || message[0] - 0x14 > 0x70)
     {
         dispatch_runtime_base_strategy_message(message, context.base);
@@ -495,14 +508,14 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
     switch (message[0])
     {
     case 0x14:
-        if (read_u32(strategy, 0x44) == message[1])
+        if (fields_of(strategy).effect == message[1])
         {
-            put(strategy, 0x44, 0);
+            fields_of(strategy).effect = 0;
         }
         return;
     case 0x26:
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x3EF && read_u32(strategy, 0x48) != 0)
+        if (strategy_base(strategy).state == 0x3EF && fields_of(strategy).bite_request != 0)
         {
             return;
         }
@@ -510,7 +523,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
         return;
     case 0x31:
     {
-        const u32 held = read_u32(strategy, 0x3C);
+        const u32 held = fields_of(strategy).held_body;
         if (held == 0)
         {
             return;
@@ -525,7 +538,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
         notice_runtime_strategy_hostile_target(0x10, context.checks);
         return;
     case 0x3B:
-        put(strategy, 0x48, 1);
+        fields_of(strategy).bite_request = 1;
         return;
     case 0x43:
         if (message[1] == actor)
@@ -540,7 +553,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
         }
         return;
     case 0x52:
-        if (read_u16(strategy, 0xE) == 0x3EF)
+        if (strategy_base(strategy).state == 0x3EF)
         {
             set_runtime_imp_fire_effect(1, context);
         }
@@ -548,7 +561,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
     case 0x6E:
     {
         const bool own = message[1] == actor;
-        const u16 state = read_u16(strategy, 0xE);
+        const u16 state = strategy_base(strategy).state;
         dispatch_runtime_base_strategy_message(message, context.base);
         if (check_runtime_player_knockout(goals) != 0)
         {
@@ -603,7 +616,7 @@ void dispatch_runtime_imp_fire_message(std::span<const u32> message, RuntimeImpF
 // Xbox 0x000B45D0
 void update_runtime_imp_fire_strategy(RuntimeImpFireStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_runtime_base_strategy(goals_of(context));
     switch (state)
     {
@@ -637,28 +650,28 @@ void enter_runtime_imp_fire_state(u16 state, u16 previous, RuntimeImpFireStrateg
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = body_of_actor(context);
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     switch (state)
     {
     case 0x3EE:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         load_runtime_mind_goal(context.goal_attack, goals.entry.goals);
-        put(strategy, 0x38, read_u32(context.parameters, 0x28));
+        fields_of(strategy).attack_delay = parameters_of(context).attack_delay;
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         return;
     case 0x401:
     case 0x416:
         return;
     case 0x40B:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         set_runtime_imp_fire_effect(2, context);
         load_runtime_mind_goal(context.goal_mutate, goals.entry.goals);
         return;
     case 0x40C:
-        body[0x328] = 3;
-        put_float(strategy, 0x38, 0.f);
+        body_record(body).move_class = 3;
+        fields_of(strategy).attack_delay = 0.f;
         return;
     default:
         enter_runtime_base_strategy_state(goals.entry, state);
@@ -676,8 +689,8 @@ void leave_runtime_imp_fire_state(u16 state, u16 next, RuntimeImpFireStrategy& c
     }
     if (state == 0x3EF || state == 0x40B)
     {
-        put(strategy, 0x48, 0);
-        strategy[0x1A] = 0;
+        fields_of(strategy).bite_request = 0;
+        strategy_base(strategy).attacking = 0;
         if (next != 0x3EF)
         {
             set_runtime_imp_fire_effect(1, context);
@@ -687,7 +700,7 @@ void leave_runtime_imp_fire_state(u16 state, u16 next, RuntimeImpFireStrategy& c
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
 }
 }

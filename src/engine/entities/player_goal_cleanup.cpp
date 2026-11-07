@@ -1,7 +1,10 @@
 #include "player_goal_cleanup.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "../scripts/script_conditions.h"
 #include "actor_live_attachments.h"
 #include "entity_heap.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -15,11 +18,11 @@ bool finish_runtime_player_goal(RuntimePlayerGoalCleanup& context,
 {
     auto body = context.body;
     const u32 zero = 0;
-    std::memcpy(context.actor.bytes.data() + 0x98C, &zero, 4);
-    if (context.actor.bytes[0x98A] != 0)
+    player_record(context.actor.bytes).goal_volume = zero;
+    if (player_record(context.actor.bytes).unk_98A != 0)
     {
         decrement_runtime_body_latches(body, context.body_owner, context.first);
-        context.actor.bytes[0x98A] = 0;
+        player_record(context.actor.bytes).unk_98A = 0;
     }
     bool result;
     if ((flags->bytes[2] & 2) == 0 && (flags->bytes[4] & 0x10) == 0)
@@ -77,10 +80,10 @@ u16 current_kind(const RuntimePlayerGoalRing* ring, std::span<const u8> address_
 // Xbox 0x0001F7A0
 u8 runtime_body_latch_mask(std::span<const u8> body)
 {
-    u8 mask = body[0x260] != 0;
+    u8 mask = body_record(body).unk_260 != 0;
     for (u32 index = 1; index < 6; ++index)
     {
-        if (body[0x260 + index] != 0)
+        if (body[offsetof(BodyRecord, unk_260) + index] != 0)
         {
             mask = u8(mask + (1u << index));
         }
@@ -97,7 +100,7 @@ void decrement_runtime_body_latch_mask(std::span<u8> body, u8 mask, Actor& owner
     {
         if ((mask & (1u << index)) != 0)
         {
-            body[0x260 + index] = u8(body[0x260 + index] - 1);
+            body[offsetof(BodyRecord, unk_260) + index] = u8(body[offsetof(BodyRecord, unk_260) + index] - 1);
         }
     }
     notify_latch_change(before, body, owner, first);
@@ -112,7 +115,7 @@ void increment_runtime_body_latch_mask(std::span<u8> body, u8 mask, Actor& owner
     {
         if ((mask & (1u << index)) != 0)
         {
-            body[0x260 + index] = u8(body[0x260 + index] + 1);
+            body[offsetof(BodyRecord, unk_260) + index] = u8(body[offsetof(BodyRecord, unk_260) + index] + 1);
         }
     }
     notify_latch_change(before, body, owner, first);
@@ -146,12 +149,12 @@ void decrement_runtime_body_latches(std::span<u8> body, Actor& owner,
 void hold_runtime_body_latch_timer(std::span<u8> body, float seconds, Actor& owner,
     entity_detail::LatchNode*& first)
 {
-    if (read_f32(body, 0x25C) == 0.f) // DAT_0032B100.
+    if (body_record(body).unk_25C == 0.f) // DAT_0032B100.
     {
         // 0x0001FC40's six raises and their {0x47, actor} notice, inlined.
         increment_runtime_body_latches(body, owner, first);
     }
-    std::memcpy(body.data() + 0x25C, &seconds, 4);
+    body_record(body).unk_25C = seconds;
 }
 
 // Xbox 0x000283D0
@@ -177,7 +180,7 @@ bool runtime_goal_requires_latches(u16 kind)
 bool restore_runtime_player_script_overrides(RuntimeBodyAttachedActor& actor,
     RuntimePlayerScriptOverrides& context)
 {
-    const i16 mode = i16(read_u16(actor.bytes, 0xCDC));
+    const i16 mode = i16(player_record(actor.bytes).mode);
     const bool player = mode == 1;
     if (!player && mode != 5)
     {
@@ -198,7 +201,7 @@ bool restore_runtime_player_script_overrides(RuntimeBodyAttachedActor& actor,
     }
     if (player && context.player_enabled != 0)
     {
-        put(actor.bytes, 0x978, context.player_value);
+        put(actor.bytes, offsetof(PlayerRecord, countdown_56), context.player_value);
         const std::array<u32, 5> message{0x86, context.player_name, 0x13, context.player_argument, 0};
         ++count;
         actor.message(message);
@@ -231,14 +234,14 @@ void remove_runtime_player_goal(RuntimePlayerGoalCleanup& context)
             {
                 engine_heap_free(ring);
                 context.ring = nullptr;
-                put(context.actor.bytes, 0x980, 0);
+                player_record(context.actor.bytes).unk_980 = 0;
             }
-            put(context.actor.bytes, 0x984, 0);
+            player_record(context.actor.bytes).unk_984 = 0;
             const std::array<i32, 2> message{0x79, i32(context.actor.address)};
             broadcast_actor_pulse_message(message.data());
-            if (context.actor.bytes[0x98B] != 0)
+            if (player_record(context.actor.bytes).unk_98B != 0)
             {
-                context.actor.bytes[0x98B] = 0;
+                player_record(context.actor.bytes).unk_98B = 0;
                 restore_runtime_player_script_overrides(context.actor, context.overrides);
                 return;
             }

@@ -1,8 +1,16 @@
 #pragma once
+#include "body_damage_fields.h"
 #include "body_damage_dispatch.h"
 
 namespace gbtg
 {
+// The actor's attribute block's words the hit messages read.
+namespace actor_attribute_field
+{
+constexpr RetailField<float, 0x190> hit_effect_scale{};
+constexpr RetailField<u8, 0x1A0> pushes_toward_bound{}; // set: a timer contact pushes from the source toward the bound's start
+} // namespace actor_attribute_field
+
 u32 receive_runtime_body_collision_hit(std::span<u8> body,
     RuntimeBodyAttachedActor& source, std::span<const u8> source_body,
     std::span<const u8> actor_bytes, const Vec3& normal, const Vec3& position,
@@ -10,7 +18,7 @@ u32 receive_runtime_body_collision_hit(std::span<u8> body,
     RuntimeBodyDamageEntry& context); // Xbox 0x000202E0
 void reflect_runtime_body_timer_hit(std::span<const u8> body,
     RuntimeBodyAttachedActor& actor, std::span<u8> source_body,
-    std::span<u8> damage, RuntimeBodyDamageEntry& source_context,
+    BodyDamage& damage, RuntimeBodyDamageEntry& source_context,
     RuntimeBodyDamageEntry& reply_context); // Xbox 0x00020A60
 struct RuntimeBodyContactHitViews
 {
@@ -49,14 +57,14 @@ void receive_runtime_body_contact_health_hit(std::span<u8> body,
 void receive_runtime_body_contact_knockdown(std::span<u8> body,
     std::span<u8> message, const RuntimeBodyContactHitViews& views,
     RuntimeBodyDamageEntry& context); // Xbox 0x00023580
-void runtime_body_damage_contact_position(std::span<const u8> damage,
+void runtime_body_damage_contact_position(const BodyDamage& damage,
     const entity_detail::SegmentPool* contacts, Vec3& output); // Xbox 0x00021010
 void notify_runtime_body_lethal_hit_position(const Vec3& position,
     RuntimeBodyActionMessages& context); // Xbox 0x0001F1D0
 void notify_runtime_body_contact_hit_position(const Actor* source, const Vec3& position,
     u32 knockdown, u32 blocked, std::span<const u8> attributes,
     RuntimeBodyActionMessages& context); // Xbox 0x0001F240
-void dispatch_runtime_body_damage_reply(std::span<const u8> damage,
+void dispatch_runtime_body_damage_reply(const BodyDamage& damage,
     std::span<const u32, 4> result,
     RuntimeBodyDamageEntry& context); // Xbox 0x00020F80
 void dispatch_runtime_body_scaled_position_event(const Vec3& position, i32 id,

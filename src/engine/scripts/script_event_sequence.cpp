@@ -1,4 +1,8 @@
 #include "script_event_sequence.h"
+#include <cstddef>
+#include "../entities/player_fields.h"
+#include "../entities/body_fields.h"
+#include "script_event_step_fields.h"
 #include "script_actions.h"
 #include "script_conditions.h"
 #include "script_dialogue_actions.h"
@@ -55,9 +59,9 @@ ScriptEventSequenceContext& context()
     return *g_event_sequence_context;
 }
 
-std::span<u8> step_at(u8* row)
+EventStep& step_at(u8* row)
 {
-    return {row, kStepStride};
+    return *reinterpret_cast<EventStep*>(row);
 }
 
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
@@ -126,12 +130,12 @@ void remove_step(u8*& row, u8*& end)
 }
 
 // Xbox 0x000CFD80, ESI step: a linked type 0xF view (+0x84) is unlinked.
-void release_step_camera(std::span<u8> step)
+void release_step_camera(EventStep& step)
 {
-    if (read_u32(step, 0) == 0xF && read_u32(step, 0x84) != 0)
+    if (step.type == 0xF && step.key_carrier.camera_linked != 0)
     {
         camera_unlink_view(&g_event_sequence.key_camera); // 0x00048C70, EAX step +0x24
-        put_word(step, 0x84, 0);
+        step.key_carrier.camera_linked = 0;
     }
 }
 
@@ -254,9 +258,9 @@ void begin_script_event_sequence(u16 door, u32 hold, const char* name)
 }
 
 // Xbox 0x000D05D0
-void queue_script_event_step(std::span<const u8> step)
+void queue_script_event_step(const EventStep& step)
 {
-    const u32 type = read_u32(step, 0);
+    const u32 type = step.type;
     if ((g_flags_ea9c & 0x10u) != 0)
     {
         switch (type)
@@ -286,14 +290,14 @@ void queue_script_event_step(std::span<const u8> step)
     }
     u8* row = pool->end;
     pool->end += pool->stride;
-    const u32 size = read_u32(context().step_sizes, size_t(type) * 0x14);
-    if (size > kStepStride || size > step.size())
+    const u32 size = retail_row<EventStepType>(context().step_types, size_t(type)).size;
+    if (size > sizeof(EventStep))
     {
         throw Error("script event step type " + std::to_string(type) + " size outside its record");
     }
-    std::memcpy(row, step.data(), size); // 0x000F71F0
-    put_word(step_at(row), 0x10, 0);
-    put_word(step_at(row), 0x14, 0);
+    std::memcpy(row, &step, size); // 0x000F71F0
+    step_at(row).icon = 0;
+    step_at(row).icon_shown = 0;
 }
 
 // Xbox 0x000D0680
@@ -399,10 +403,10 @@ void start_script_event_key_step()
 }
 
 // Xbox 0x000CFAE0
-i32 run_script_event_key_carrier_step(std::span<u8> step)
+i32 run_script_event_key_carrier_step(EventStep& step)
 {
     auto& services = context();
-    if (read_u32(step, 0x18) == 0)
+    if (step.key_carrier.carrier_found == 0)
     {
         for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
              node != nullptr; node = static_cast<const entity_detail::ListHead*>(node->next))
@@ -413,7 +417,7 @@ i32 run_script_event_key_carrier_step(std::span<u8> step)
             {
                 continue;
             }
-            put_word(step, 0x18, 1);
+            step.key_carrier.carrier_found = 1;
             put_word(bytes, 0xCE4, 1);
             services.create_from_template("aid_objparams_ghoulies_fx_keycarrier", // 0x003038C8
                 [actor](std::span<u8> clone)
@@ -435,10 +439,10 @@ i32 run_script_event_key_carrier_step(std::span<u8> step)
     }
     const std::span<const u8> message{event->message.data(), event->message.size()}; // Node +8.
     const Vec3 point{read_f32(message, 8), read_f32(message, 0xC), read_f32(message, 0x10)};
-    if (read_u32(step, 0x1C) == 0)
+    if (step.key_carrier.key_shown == 0)
     {
         script_update_decay_latches(0xFFFF, 0); // 0x00117400
-        put_word(step, 0x1C, 1);
+        step.key_carrier.key_shown = 1;
         const u32 key = services.create_from_template("aid_objparams_ghoulies_misc_ghoulykey", // 0x00303948
             [&point](std::span<u8> clone)
             {
@@ -449,7 +453,7 @@ i32 run_script_event_key_carrier_step(std::span<u8> step)
                 put_float(clone, 0x18, 0.f);
                 put_float(clone, 0x1C, 0.f);
             });
-        put_word(step, 0x20, key);
+        step.key_carrier.key = key;
         if (entity_detail::g_display_view == nullptr)
         {
             throw Error("0x000CFAE0 reads the display view (DAT_005077A8) through address zero");
@@ -462,7 +466,7 @@ i32 run_script_event_key_carrier_step(std::span<u8> step)
         }
         initialize_camera_view(camera, "ghoulykeycam", 1); // 0x000496C0, CL 1, EDX step +0x24
         link_camera_view(0, camera); // 0x00048C20, ESI 0
-        put_word(step, 0x84, 1);
+        step.key_carrier.camera_linked = 1;
         camera_bind_named_view(0, "ghoulykeycam"); // 0x00048CF0
         camera.position = eye; // Step +0x2C.
         float yaw = 0.f;
@@ -473,30 +477,30 @@ i32 run_script_event_key_carrier_step(std::span<u8> step)
         camera.rotation.z = 0.f; // Step +0x40.
         return 5;
     }
-    const float left = read_f32(step, 4) - frame_step(); // DAT_004312DC, DAT_005096C0, DAT_004312C4.
-    put_float(step, 4, left);
+    const float left = step.delay.left - frame_step(); // DAT_004312DC, DAT_005096C0, DAT_004312C4.
+    step.delay.left = left;
     if (0.f < left)
     {
         return 5;
     }
     script_update_decay_latches(0xFFFF, 1); // 0x00117400
     release_runtime_script_events(0xB5); // 0x001168C0, EDI 0xB5
-    const u32 key = read_u32(step, 0x20);
+    const u32 key = step.key_carrier.key;
     if (key != 0)
     {
         services.activate_object(key); // 0x00112CC0, ESI the key
-        put_word(step, 0x20, 0);
+        step.key_carrier.key = 0;
     }
     release_step_camera(step); // 0x000CFD80
     return 1;
 }
 
 // Xbox 0x000D02E0: step type 0xF starts with no camera (+0x84) and +0x18 / +0x1C clear.
-void start_script_event_camera_step(std::span<u8> step)
+void start_script_event_camera_step(EventStep& step)
 {
-    put_word(step, 0x18, 0);
-    put_word(step, 0x1C, 0);
-    put_word(step, 0x84, 0);
+    step.key_carrier.carrier_found = 0;
+    step.key_carrier.key_shown = 0;
+    step.key_carrier.camera_linked = 0;
 }
 
 // Xbox 0x000D0B10
@@ -506,7 +510,7 @@ void prepare_script_event_steps()
     for (u8* row = pool->begin; row < pool->end; row += kStepStride)
     {
         // The table at 0x003039C8: types 1 and 0xF have 0x000D0200 / 0x000D02E0, the others the empty 0x001628B0.
-        const u32 type = read_u32(step_at(row), 0);
+        const u32 type = step_at(row).type;
         if (type == 1)
         {
             start_script_event_key_step(); // 0x000D0200
@@ -689,7 +693,7 @@ void pulse_script_event_icons()
     }
     for (u8* row = pool->begin; row < pool->end; row += kStepStride)
     {
-        const u32 id = read_u32(step_at(row), 0x10);
+        const u32 id = step_at(row).icon;
         if (id != 0)
         {
             if (auto* message = board_row(id); message != nullptr)
@@ -711,7 +715,7 @@ bool script_event_icons_ready()
     bool ready = true;
     for (u8* row = pool->begin; row < pool->end; row += kStepStride)
     {
-        const u32 id = read_u32(step_at(row), 0x10);
+        const u32 id = step_at(row).icon;
         if (ready && id != 0)
         {
             const auto* message = board_row(id);
@@ -781,7 +785,7 @@ u32 summon_runtime_grim_reaper(float first, float second)
         throw Error("0x000CF7B0 reads +0x954 of a Grim Reaper that was not created (address zero)");
     }
     const u16 cleared = 0;
-    std::memcpy(services.bytes_at(reaper, 0x992).data() + 0x990, &cleared, 2);
+    std::memcpy(services.bytes_at(reaper, 0x992).data() + offsetof(PlayerRecord, goal_latch), &cleared, 2);
     std::array<u32, 0x42> appear{};
     appear[0] = 0x4D;
     appear[1] = 4;
@@ -811,8 +815,8 @@ void show_script_event_icons()
     auto& services = context();
     for (u8* row = pool->begin; row < pool->end; row += kStepStride)
     {
-        const auto step = step_at(row);
-        const u32 type = read_u32(step, 0);
+        EventStep& step = step_at(row);
+        const u32 type = step.type;
         u16 kind = 0;
         u32 count = 0xFFFFFFFFu;
         switch (type)
@@ -820,13 +824,13 @@ void show_script_event_icons()
         case 2:
         case 7:
         case 0xD:
-            kind = read_u16(step, 0x18); // The step's tag; no count.
+            kind = step.tag.tag; // The step's tag (+0x18 in all three types); no count.
             break;
         case 3:
         {
             // The tag's kills still owed, never below zero.
-            kind = read_u16(step, 0x1C);
-            const i32 left = std::bit_cast<i32>(read_u32(step, 0x18))
+            kind = step.kill_count.tag;
+            const i32 left = step.kill_count.required
                 - script_statistic_at_address(0x00512B78u + u32(kind) * 4u);
             count = left < 0 ? 0u : u32(left);
             break;
@@ -834,22 +838,22 @@ void show_script_event_icons()
         case 4:
         case 5:
             // The seconds left, truncated; none once they have run out (DAT_0032B100, 0).
-            count = read_f32(step, 0x18) <= 0.f ? 0u : u32(read_f32(step, 0x18));
+            count = step.timed.seconds <= 0.f ? 0u : u32(step.timed.seconds);
             break;
         case 6:
             count = 0;
             break;
         case 8:
             // The step's tag once one is set; no count.
-            if (read_u16(step, 0x18) != 0)
+            if (step.next_different.current != 0)
             {
-                kind = read_u16(step, 0x18);
+                kind = step.next_different.current;
             }
             break;
         case 0xE:
         {
             // Xbox 0x000D01A0: the target (+0x18) less 0x0012AE40 plus 0x0012AE90 (both ECX 0), never below zero.
-            const i32 left = std::bit_cast<i32>(read_u32(step, 0x18)) - script_sum_statistics(0)
+            const i32 left = step.number.target - script_sum_statistics(0)
                 + script_sum_paired_statistics(0);
             count = left < 0 ? 0u : u32(left);
             break;
@@ -857,8 +861,8 @@ void show_script_event_icons()
         case 0x12:
         {
             // The tag's (+0x18) kills still owed against +0x1C, never below zero.
-            kind = read_u16(step, 0x18);
-            const i32 left = std::bit_cast<i32>(read_u32(step, 0x1C))
+            kind = step.tag_kill_count.tag;
+            const i32 left = step.tag_kill_count.required
                 - script_statistic_at_address(0x00512B78u + u32(kind) * 4u);
             count = left < 0 ? 0u : u32(left);
             break;
@@ -866,7 +870,7 @@ void show_script_event_icons()
         case 0x10:
         {
             // The target (+0x18) less the attacks (DAT_00525B84 and DAT_005251FC), none once it is reached.
-            const i32 left = std::bit_cast<i32>(read_u32(step, 0x18)) - script_statistic_at_address(0x00525B84u)
+            const i32 left = step.attack_limit.limit - script_statistic_at_address(0x00525B84u)
                 - script_statistic_at_address(0x005251FCu);
             count = left < 0 ? 0u : u32(left);
             break;
@@ -875,11 +879,12 @@ void show_script_event_icons()
             // Every other type shows its icon with no tag and no count.
             break;
         }
-        if (read_u32(step, 0x10) == 0 && read_u32(step, 0x14) == 0 && g_event_sequence.icon_delay <= 0.f)
+        if (step.icon == 0 && step.icon_shown == 0
+            && g_event_sequence.icon_delay <= 0.f)
         {
             g_event_sequence.icon_delay = services.icon_delay;
-            put_word(step, 0x10, add_script_event_icon(type, kind)); // 0x0012FB80, EDI type, ESI the tag
-            put_word(step, 0x14, 1);
+            step.icon = add_script_event_icon(type, kind); // 0x0012FB80, EDI type, ESI the tag
+            step.icon_shown = 1;
             const i16 voice = allocate_audio_event_voice(0, services.voices); // 0x00039830, EBX 0
             if (voice != -1)
             {
@@ -888,7 +893,7 @@ void show_script_event_icons()
                     : "XACT_SOUNDBANK_GPICKUPDITTIES_EVENTREQICON", services.voices); // 0x00039A20
             }
         }
-        const u32 id = read_u32(step, 0x10);
+        const u32 id = step.icon;
         if (id != 0)
         {
             if (auto* message = board_row(id); message != nullptr)
@@ -949,13 +954,14 @@ bool show_script_event_reminders(const SceneExecutableResources& image, RuntimeD
     u8* end = pool->end;
     for (u8* row = pool->begin; row < end; row += kStepStride)
     {
-        const u32 type = read_u32(step_at(row), 0);
+        const u32 type = step_at(row).type;
         if (g_event_reminders[type] != 0)
         {
             if (i32(dialogue.state.count) + 1 < 9) // DAT_004EE1E8
             {
-                // PTR_s_eventreminders_KillAll_00428918, stride 0x14 by step type.
-                const char* key = image.string(read_u32(image.memory(0x00428918u + type * 0x14u, 4), 0));
+                // PTR_s_eventreminders_KillAll_00428918.
+                const char* key = image.string(retail_view<EventStepType>(image.memory(kEventStepTypes + type * u32(sizeof(EventStepType)),
+                    sizeof(EventStepType))).reminder_key);
                 request_namespaced_localtext("aid_loctext_ghoulies_dialog_dialogs", "dialogs", key,
                     dialogue.measurement.wide_scratch, dialogue.measurement.localtext); // 0x000FF0A0 into DAT_00507E78
                 enqueue_runtime_dialogue(dialogue.measurement.wide_scratch, 0, dialogue); // 0x000582E0
@@ -988,8 +994,8 @@ bool run_script_event_steps(Game& g)
     u8* end = pool->end;
     for (u8* row = pool->begin; row < end; row += kStepStride)
     {
-        const auto step = step_at(row);
-        const u32 type = read_u32(step, 0);
+        EventStep& step = step_at(row);
+        const u32 type = step.type;
         bool skipped = false;
         if ((g_flags_ea9c & 0x10u) != 0)
         {
@@ -1101,8 +1107,8 @@ bool run_script_event_steps(Game& g)
         {
         case 1:
             broadcast_word(0x82);
-            fade_script_event_icon(read_u32(step, 0x10)); // 0x0012FDC0, EDX id
-            put_word(step, 0x10, 0);
+            fade_script_event_icon(step.icon); // 0x0012FDC0, EDX id
+            step.icon = 0;
             release_step_camera(step);
             remove_step(row, end);
             succeeded = true;
@@ -1113,8 +1119,8 @@ bool run_script_event_steps(Game& g)
             break;
         case 3:
             broadcast_word(0x84);
-            fade_script_event_icon(read_u32(step, 0x10));
-            put_word(step, 0x10, 0);
+            fade_script_event_icon(step.icon);
+            step.icon = 0;
             if ((g_flags_ea9c & 0x10u) == 0)
             {
                 summon_runtime_grim_reaper(g_script_6540, g_script_6544); // 0x000CF7B0
@@ -1143,8 +1149,8 @@ bool run_script_event_steps(Game& g)
     {
         for (u8* row = pool->begin; row < pool->end; row += kStepStride)
         {
-            const auto step = step_at(row);
-            if (auto* message = board_row(read_u32(step, 0x10)); message != nullptr)
+            EventStep& step = step_at(row);
+            if (auto* message = board_row(step.icon); message != nullptr)
             {
                 if (1 < message->word_8 && message->word_8 < 4)
                 {
@@ -1153,7 +1159,7 @@ bool run_script_event_steps(Game& g)
                 message->word_8 = 5;
                 message->float_10 = services.icon_fade;
             }
-            put_word(step, 0x10, 0);
+            step.icon = 0;
         }
         release_script_event_steps(); // 0x000D0490
         if (succeeded)
@@ -1170,19 +1176,19 @@ bool run_script_event_steps(Game& g)
 }
 
 // Xbox 0x000D0700
-bool script_event_step_delay_done(std::span<u8> timer)
+bool script_event_step_delay_done(EventStepDelay& timer)
 {
     const i32 cutscene = g_event_sequence_context == nullptr ? -1 : context().cutscene_index();
-    if (read_u32(timer, 4) == 0)
+    if (timer.started == 0)
     {
-        put_word(timer, 4, 1);
-        put_word(timer, 8, cutscene > -1 ? 1u : 0u);
+        timer.started = 1;
+        timer.waits_for_cutscene = cutscene > -1 ? 1u : 0u;
     }
-    if (read_u32(timer, 8) != 0)
+    if (timer.waits_for_cutscene != 0)
     {
         return cutscene <= -1;
     }
-    if (read_f32(timer, 0) > 0.f)
+    if (timer.left > 0.f)
     {
         // 0x000D06B0: no step while bit 4 of DAT_0050EA9C is set or the decay latches hold.
         float step = 0.f;
@@ -1190,19 +1196,19 @@ bool script_event_step_delay_done(std::span<u8> timer)
         {
             step = frame_step();
         }
-        const float left = read_f32(timer, 0) - step;
-        put_float(timer, 0, left);
+        const float left = timer.left - step;
+        timer.left = left;
         if (!(0.f < left))
         {
-            put_float(timer, 0, 0.f);
+            timer.left = 0.f;
             return true;
         }
     }
-    return read_f32(timer, 0) == 0.f;
+    return timer.left == 0.f;
 }
 
 // Xbox 0x000CFA10
-i32 run_script_event_kill_step(std::span<u8> step)
+i32 run_script_event_kill_step(EventStep& step)
 {
     i32 alive = 0;
     for (const auto* node = static_cast<const entity_detail::ListHead*>(entity_detail::g_world.alt.next);
@@ -1212,7 +1218,7 @@ i32 run_script_event_kill_step(std::span<u8> step)
         {
             throw Error("DAT_00511B48 node has no body view");
         }
-        if (read_u16(g_alt_node_body(node), 0x94) != 0)
+        if (body_record(g_alt_node_body(node)).energy != 0)
         {
             ++alive;
         }
@@ -1230,68 +1236,68 @@ i32 run_script_event_kill_step(std::span<u8> step)
     {
         return 0;
     }
-    return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+    return script_event_step_delay_done(step.delay) ? 1 : 5; // 0x000D0700, ECX step+4
 }
 
 // Xbox 0x000CFDA0: the tag step holds while an actor of its +0x18 tag lives (0x00129240, DX the tag), marking +0x1C
 // once one has been seen or the DAT_00512B78 tally for the tag is nonzero; once marked and none lives, it waits out
 // its delay.
-i32 run_script_event_tag_step(std::span<u8> step)
+i32 run_script_event_tag_step(EventStep& step)
 {
-    const u16 tag = read_u16(step, 0x18);
+    const u16 tag = step.tag.tag;
     if (script_count_actors_by_class(tag) == 0) // 0x00129240, DX kept for the tally below
     {
-        if (read_u32(step, 0x1C) != 0)
+        if (step.tag.seen != 0)
         {
-            return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+            // 0x000D0700, ECX step+4
+            return script_event_step_delay_done(step.delay) ? 1 : 5;
         }
         if (script_statistic_at_address(0x00512B78u + u32(tag) * 4u) == 0)
         {
             return 0;
         }
     }
-    put_word(step, 0x1C, 1);
+    step.tag.seen = 1;
     return 0;
 }
 
 // Xbox 0x000CFE20: the kill-count step holds while DAT_00512B78[+0x1C] kills fall short of +0x18, then waits out
 // its delay.
-i32 run_script_event_kill_count_step(std::span<u8> step)
+i32 run_script_event_kill_count_step(EventStep& step)
 {
-    const i32 required = std::bit_cast<i32>(read_u32(step, 0x18));
-    const i32 killed = script_statistic_at_address(0x00512B78u + u32(read_u16(step, 0x1C)) * 4u);
+    const i32 required = step.kill_count.required;
+    const i32 killed = script_statistic_at_address(0x00512B78u + u32(step.kill_count.tag) * 4u);
     const i32 left = required - killed;
     if (left > 0) // JS / JG
     {
         return 0;
     }
-    return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+    return script_event_step_delay_done(step.delay) ? 1 : 5; // 0x000D0700, ECX step+4
 }
 
 // Xbox 0x000CFDF0
-i32 run_script_event_tag_kill_count_step(std::span<u8> step)
+i32 run_script_event_tag_kill_count_step(EventStep& step)
 {
-    const i32 killed = script_statistic_at_address(0x00512B78u + u32(read_u16(step, 0x18)) * 4u);
-    if (killed < std::bit_cast<i32>(read_u32(step, 0x1C))) // JL
+    const i32 killed = script_statistic_at_address(0x00512B78u + u32(step.tag_kill_count.tag) * 4u);
+    if (killed < step.tag_kill_count.required) // JL
     {
         return 0;
     }
-    return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+    return script_event_step_delay_done(step.delay) ? 1 : 5; // 0x000D0700, ECX step+4
 }
 
 // Xbox 0x000CFFE0: "next one different". Each named tag (+0x1A, count in the byte at +0x4C) keeps its last kill total
 // (DAT_005138D0 + DAT_00512F48 by tag) at +0x2C; a new kill of the current tag (+0x18) fails the step (3) unless the
 // steps wait (DAT_0050653C); a new kill of another tag makes it the current one.
-i32 run_script_event_next_different_step(std::span<u8> step)
+i32 run_script_event_next_different_step(EventStep& step)
 {
     u16 latest = 0;
-    const u8 count = step[0x4C];
+    const u8 count = step.next_different.count;
     for (u8 index = 0; index < count; index = u8(index + 1))
     {
-        const u16 current = read_u16(step, 0x18);
-        const u16 tag = read_u16(step, 0x1A + size_t(index) * 2);
-        const size_t seen_at = 0x2C + size_t(index) * 4;
-        const i32 seen = std::bit_cast<i32>(read_u32(step, seen_at));
+        const u16 current = step.next_different.current;
+        const u16 tag = step.next_different.tags.at(index);
+        const i32 seen = step.next_different.seen.at(index);
         const i32 total = script_statistic_at_address(0x005138D0u + u32(tag) * 4u)
             + script_statistic_at_address(0x00512F48u + u32(tag) * 4u);
         if (tag == current)
@@ -1304,27 +1310,26 @@ i32 run_script_event_next_different_step(std::span<u8> step)
         else if (seen < total)
         {
             latest = tag;
-            put_word(step, seen_at, u32(total));
+            step.next_different.seen.data()[index] = total;
         }
     }
     if (latest != 0)
     {
-        const u16 value = latest;
-        std::memcpy(step.data() + 0x18, &value, 2);
+        step.next_different.current = latest;
     }
     return 2;
 }
 
 // Xbox 0x000D0160: the number step: its target (+0x18) less 0x0012AE40 plus 0x0012AE90 (both ECX 0) still to go.
-i32 run_script_event_number_step(std::span<u8> step)
+i32 run_script_event_number_step(EventStep& step)
 {
-    const i32 left = std::bit_cast<i32>(read_u32(step, 0x18)) - script_sum_statistics(0)
+    const i32 left = step.number.target - script_sum_statistics(0)
         + script_sum_paired_statistics(0);
     if (left > 0) // JS / JG
     {
         return 0;
     }
-    return script_event_step_delay_done(step.subspan(4)) ? 1 : 5; // 0x000D0700, ECX step+4
+    return script_event_step_delay_done(step.delay) ? 1 : 5; // 0x000D0700, ECX step+4
 }
 
 namespace
@@ -1343,14 +1348,14 @@ float script_event_step_time()
 
 // Xbox 0x000CFE50: the time-limit step counts its +0x18 seconds down unless the steps wait (DAT_0050653C); it
 // fails once they run out.
-i32 run_script_event_time_limit_step(std::span<u8> step)
+i32 run_script_event_time_limit_step(EventStep& step)
 {
     if (g_event_sequence.waiting != 0)
     {
         return 2;
     }
-    const float left = read_f32(step, 0x18) - script_event_step_time();
-    put_float(step, 0x18, left);
+    const float left = step.timed.seconds - script_event_step_time();
+    step.timed.seconds = left;
     if (left <= 0.f)
     {
         return 3;
@@ -1371,9 +1376,9 @@ i32 run_script_event_unpaired_step()
 
 // Xbox 0x000D01D0: the step fails (3) once the attacks (DAT_00525B84 and DAT_005251FC) pass its +0x18 while the steps
 // do not wait (DAT_0050653C).
-i32 run_script_event_attack_limit_step(std::span<u8> step)
+i32 run_script_event_attack_limit_step(EventStep& step)
 {
-    if (std::bit_cast<i32>(read_u32(step, 0x18)) - script_statistic_at_address(0x00525B84u)
+    if (step.attack_limit.limit - script_statistic_at_address(0x00525B84u)
             - script_statistic_at_address(0x005251FCu)
         >= 0) // JNS
     {
@@ -1392,7 +1397,7 @@ i32 run_script_event_untouched_step()
 // wait (DAT_0050653C); it never succeeds on its own.
 i32 run_script_event_no_points_step()
 {
-    if (g_545980 == 0 || g_event_sequence.waiting != 0)
+    if (g_running_score == 0 || g_event_sequence.waiting != 0)
     {
         return 2;
     }
@@ -1407,19 +1412,19 @@ i32 run_script_event_done_step()
 
 // Xbox 0x000CFF60: the spare step keeps the player's kills of its tag (+0x18; DAT_005138D0 + DAT_00512F48 by tag)
 // from its first run at +0x1C, and fails (3) once that total has grown.
-i32 run_script_event_spare_tag_step(std::span<u8> step)
+i32 run_script_event_spare_tag_step(EventStep& step)
 {
-    const u16 tag = read_u16(step, 0x18);
+    const u16 tag = step.spare_tag.tag;
     const auto total = [tag]()
     {
         return script_statistic_at_address(0x005138D0u + u32(tag) * 4u)
             + script_statistic_at_address(0x00512F48u + u32(tag) * 4u);
     };
-    if (std::bit_cast<i32>(read_u32(step, 0x1C)) < 0)
+    if (step.spare_tag.kept_total < 0)
     {
-        put_word(step, 0x1C, std::bit_cast<u32>(total()));
+        step.spare_tag.kept_total = total();
     }
-    return total() - std::bit_cast<i32>(read_u32(step, 0x1C)) > 0 ? 3 : 2;
+    return total() - step.spare_tag.kept_total > 0 ? 3 : 2;
 }
 
 // Xbox 0x000D0090: the unhit step fails (3) once the player has taken a kind-4 hit (DAT_00522160 + DAT_005217D8)
@@ -1436,14 +1441,13 @@ i32 run_script_event_unhit_step()
 
 // Xbox 0x000D00C0: as step type 9 for the player's kind-3 hits (DAT_0051E73C + DAT_0051DDB4), counted from the total
 // the step keeps at +0x18 on its first run.
-i32 run_script_event_unhit_since_step(std::span<u8> step)
+i32 run_script_event_unhit_since_step(EventStep& step)
 {
-    if (std::bit_cast<i32>(read_u32(step, 0x18)) < 0)
+    if (step.unhit_since.kept_total < 0)
     {
-        put_word(step, 0x18,
-            std::bit_cast<u32>(script_statistic_at_address(0x0051E73Cu) + script_statistic_at_address(0x0051DDB4u)));
+        step.unhit_since.kept_total = script_statistic_at_address(0x0051E73Cu) + script_statistic_at_address(0x0051DDB4u);
     }
-    if (script_statistic_at_address(0x0051E73Cu) - std::bit_cast<i32>(read_u32(step, 0x18))
+    if (script_statistic_at_address(0x0051E73Cu) - step.unhit_since.kept_total
                 + script_statistic_at_address(0x0051DDB4u)
             < 1
         || g_event_sequence.waiting != 0)
@@ -1454,10 +1458,10 @@ i32 run_script_event_unhit_since_step(std::span<u8> step)
 }
 
 // Xbox 0x000CFEE0: the survive step counts its +0x18 seconds down and succeeds once they run out.
-i32 run_script_event_survive_step(std::span<u8> step)
+i32 run_script_event_survive_step(EventStep& step)
 {
-    const float left = read_f32(step, 0x18) - script_event_step_time();
-    put_float(step, 0x18, left);
+    const float left = step.timed.seconds - script_event_step_time();
+    step.timed.seconds = left;
     if (left <= 0.f)
     {
         return 1;
@@ -1466,13 +1470,13 @@ i32 run_script_event_survive_step(std::span<u8> step)
 }
 
 // Xbox 0x000CFA90: the key step waits for event 0xAE (the bg-break key's show has ended), then its delay.
-i32 run_script_event_key_step(std::span<u8> step)
+i32 run_script_event_key_step(EventStep& step)
 {
     if (find_runtime_script_event_type(0xAE) == nullptr) // DAT_0050E4DC walk
     {
         return 0;
     }
-    if (!script_event_step_delay_done(step.subspan(4))) // 0x000D0700, ECX step+4
+    if (!script_event_step_delay_done(step.delay)) // 0x000D0700, ECX step+4
     {
         return 5;
     }

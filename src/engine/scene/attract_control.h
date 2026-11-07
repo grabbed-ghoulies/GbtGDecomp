@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "scene_control_fields.h"
 #include "cutscene_scene_runtime.h"
 #include "gbtg/object_factory.h"
 #include "gbtg/resource_error.h"
@@ -58,22 +60,29 @@ struct AttractControlServices
 // Native state of an attract control (factory type 0x9B) whose retail words are pointers.
 struct AttractControlState
 {
-    std::span<const u8> clips; // +0x298, the aidlist resource: rows of 0x80-byte cutscene names.
-    RuntimeCutsceneInstance* cutscene = nullptr; // +0x29C
+    u32 clip = 0; // +0x24, the playing row of clips
+    std::array<char16_t, 0x100> banner_text{}; // +0x28, the localized "StartBanner"
     RuntimeDialogueTextPool* banner_pool = nullptr; // +0x228
+    u32 banner = 0; // +0x22C, the text pool's id for the banner
     EntityCamNode camera{}; // +0x230
+    float banner_time = 0.f; // +0x290, seconds until the banner shows again
+    u32 started = 0; // +0x294, the start press was taken
+    std::span<const u8> clips; // +0x298, the aidlist resource: rows of 0x80-byte cutscene names
+    RuntimeCutsceneInstance* cutscene = nullptr; // +0x29C
+    u32 clip_count = 0; // +0x2A0
+    std::array<char, 0x80> next_script{}; // +0x2A4, the parameters' +0x108: requested when the clips run out
 };
 void attract_control_object_sizes(ObjectSizes& output); // Xbox 0x00080950
-bool construct_runtime_attract_control(std::span<u8> state, std::span<const u8> parameters,
+bool construct_runtime_attract_control(std::span<const u8> parameters,
     AttractControlState& control, AttractControlServices& services); // Xbox 0x00080A30
-void destroy_runtime_attract_control(std::span<u8> state, AttractControlState& control,
+void destroy_runtime_attract_control(AttractControlState& control,
     AttractControlServices& services); // Xbox 0x00080BB0
-void tick_runtime_attract_control(std::span<u8> state, AttractControlState& control,
+void tick_runtime_attract_control(SceneControlBase& base, AttractControlState& control,
     AttractControlServices& services); // Xbox 0x00080C10
-void show_runtime_attract_banner(std::span<u8> state, AttractControlState& control,
+void show_runtime_attract_banner(AttractControlState& control,
     AttractControlServices& services); // Xbox 0x000809C0, ESI state
-void accept_runtime_attract_start(std::span<u8> state, AttractControlServices& services); // Xbox 0x00080CB0
-void advance_runtime_attract_clip(std::span<u8> state, AttractControlState& control,
+void accept_runtime_attract_start(AttractControlState& control, AttractControlServices& services); // Xbox 0x00080CB0
+void advance_runtime_attract_clip(AttractControlState& control,
     AttractControlServices& services); // Xbox 0x00080D20, ESI state
 void show_runtime_attract_bubbles(AttractControlState& control,
     AttractControlServices& services); // Xbox 0x00080DA0

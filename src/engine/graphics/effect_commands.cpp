@@ -6,6 +6,7 @@
 #include "../entities/entity.h"
 #include "../runtime/random_state.h"
 #include "../audio/listener_settings.h"
+#include "effect_particles.h"
 #include <bit>
 #include <cstring>
 
@@ -13,27 +14,13 @@ namespace gbtg
 {
 namespace
 {
-void command_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-void command_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-Vec3 command_vector(std::span<const u8> bytes, size_t offset)
-{
-    return {read_f32(bytes, offset), read_f32(bytes, offset + 4), read_f32(bytes, offset + 8)};
-}
 float command_fraction(u32& random)
 {
     random = random * 0x19660Du + 0x3C6EF35Fu;
     return std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
 }
-float command_range(std::span<const u8> command, size_t low, size_t high, u32& random)
+float command_range(float first, float second, u32& random)
 {
-    const float first = read_f32(command, low);
-    const float second = read_f32(command, high);
     const float fraction = command_fraction(random);
     return (second - first) * fraction + first;
 }
@@ -55,7 +42,7 @@ float signed_command_range(float low, float high, u32& random)
 }
 
 // Xbox 0x000F0390
-bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owner, u32& cursor,
+bool execute_actor_effect_commands(EffectParticle& particle, ActorEffectNode& owner, u32& cursor,
     const std::function<std::span<const u8>(u32)>& resolve, u32& random,
     const i32& pal, const i32& override_pal)
 {
@@ -63,37 +50,40 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
     constexpr float epsilon = std::bit_cast<float>(0x3456BF95u);
     const auto detach = [&]
     {
-        const u16 slot = 0xFFFD;
-        std::memcpy(particle.data() + 0x5A, &slot, 2);
-        const u16 count = u16(read_u16(owner.bytes, 4) + 1);
-        std::memcpy(owner.bytes.data() + 4, &count, 2);
+        particle.next_free = 0xFFFD;
+        effect_header(owner.bytes).free_count = u16(effect_header(owner.bytes).free_count + 1);
     };
     const auto update_duration = [&](std::span<const u8> command)
     {
-        if (read_f32(particle, 0xAC) != read_f32(command, 0xC)
-            || read_f32(particle, 0xB0) != read_f32(command, 0x10))
+        if (particle.duration_low != get(command, timed_command::duration_low)
+            || particle.duration_high != get(command, timed_command::duration_high))
         {
-            command_float(particle, 0xB4, command_range(command, 0xC, 0x10, random));
-            command_word(particle, 0xAC, read_u32(command, 0xC));
-            command_word(particle, 0xB0, read_u32(command, 0x10));
+            particle.duration = command_range(get(command, timed_command::duration_low),
+                get(command, timed_command::duration_high), random);
+            particle.duration_low = get(command, timed_command::duration_low);
+            particle.duration_high = get(command, timed_command::duration_high);
         }
     };
     while (true)
     {
         const u32 address = cursor;
         const auto command = resolve(address);
-        const i32 opcode = std::bit_cast<i32>(read_u32(command, 4));
+        const i32 opcode = std::bit_cast<i32>(get(command, effect_command_field::opcode));
         switch (opcode)
         {
         case 2:
             return true;
         case 0x1B59:
+        {
             cursor = address + 0x10;
+            float* const values = particle.colour_channels.values.data();
+            const auto bytes = get(command, colour_command::values);
             for (size_t index = 0; index < 5; ++index)
             {
-                command_float(particle, 0x60 + index * 4, float(command[8 + index]));
+                values[index] = float(bytes[index]);
             }
             break;
+        }
         case 0x1B5A:
         {
             const float fraction = advance_runtime_random_fraction(random);
@@ -103,24 +93,28 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             for (size_t reverse = 5; reverse > 0; --reverse)
             {
                 const size_t index = reverse - 1;
-                const u8 low = sampled[index == 4 ? 0x10 : 8 + index];
-                const u8 high = sampled[index == 4 ? 0x11 : 0xC + index];
+                const u8 low = index == 4 ? get(sampled, colour_range_command::fifth_low)
+                    : get(sampled, colour_range_command::low)[index];
+                const u8 high = index == 4 ? get(sampled, colour_range_command::fifth_high)
+                    : get(sampled, colour_range_command::high)[index];
                 const long double value = static_cast<long double>(i32(high) - i32(low)) * fraction + i32(low);
                 color[index] = u8(truncate_runtime_float(value));
             }
+            float* const values = particle.colour_channels.values.data();
             for (size_t index = 0; index < 5; ++index)
             {
-                command_float(particle, 0x60 + index * 4, float(color[index]));
+                values[index] = float(color[index]);
             }
             break;
         }
         case 0x1B5B:
             cursor = address + 0xC;
-            command_float(particle, 0x4C, read_f32(command, 8) * read_f32(owner.bytes, 0xB8));
+            particle.gravity = get(command, value_command::value) * effect_header(owner.bytes).scale;
             break;
         case 0x1B5C:
             cursor = address + 0x10;
-            command_float(particle, 0x4C, command_range(command, 8, 0xC, random) * read_f32(owner.bytes, 0xB8));
+            particle.gravity = command_range(get(command, range_command::low), get(command, range_command::high), random)
+                * effect_header(owner.bytes).scale;
             break;
         case 0x1B5E:
             cursor = address + 0xC;
@@ -139,148 +133,154 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             break;
         case 0x1B61:
             cursor = address + 0x14;
-            if (read_f32(particle, 0xAC) != read_f32(command, 0xC)
-                || read_f32(particle, 0xB0) != read_f32(command, 0x10))
+            if (particle.duration_low != get(command, timed_command::duration_low)
+                || particle.duration_high != get(command, timed_command::duration_high))
             {
-                command_float(particle, 0xB4, runtime_body_random_range(random,
-                    read_f32(command, 0xC), read_f32(command, 0x10)));
-                command_word(particle, 0xAC, read_u32(command, 0xC));
-                command_word(particle, 0xB0, read_u32(command, 0x10));
+                particle.duration = runtime_body_random_range(random,
+                    get(command, timed_command::duration_low), get(command, timed_command::duration_high));
+                particle.duration_low = get(command, timed_command::duration_low);
+                particle.duration_high = get(command, timed_command::duration_high);
             }
-            target_actor_effect_alpha(particle.subspan(0x60), command[8], read_f32(particle, 0xB4));
+            target_actor_effect_alpha(particle.colour_channels, get(command, timed_command::colour)[0],
+                particle.duration);
             break;
         case 0x1B62:
             cursor = address + 0x14;
             update_duration(command);
-            target_actor_effect_color(particle.subspan(0x60), command[8], command[9], command[10], read_f32(particle, 0xB4));
+            target_actor_effect_color(particle.colour_channels,
+                get(command, timed_command::colour)[0], get(command, timed_command::colour)[1],
+                get(command, timed_command::colour)[2], particle.duration);
             break;
         case 0x1B63:
             cursor = address + 0xC;
-            command_word(particle, 0xA8, read_u32(command, 8));
+            particle.life = get(command, value_command::value);
             break;
         case 0x1B64:
             cursor = address + 0x10;
-            command_float(particle, 0xA8, command_range(command, 8, 0xC, random));
+            particle.life = command_range(get(command, range_command::low), get(command, range_command::high), random);
             break;
         case 0x1B65:
             cursor = address + 0xC;
-            command_word(particle, 0x24, 0);
-            command_word(particle, 0x28, 0);
-            command_float(particle, 0x2C, read_f32(command, 8) * degrees);
+            particle.spin = Vec3{0.f, 0.f, get(command, value_command::value) * degrees};
             break;
         case 0x1B66:
         {
             cursor = address + 0x10;
-            const float low = read_f32(command, 8) * degrees;
-            const float high = read_f32(command, 0xC) * degrees;
+            const float low = get(command, range_command::low) * degrees;
+            const float high = get(command, range_command::high) * degrees;
             const float fraction = command_fraction(random);
-            command_word(particle, 0x24, 0);
-            command_word(particle, 0x28, 0);
-            command_float(particle, 0x2C, (high - low) * fraction + low);
+            particle.spin = Vec3{0.f, 0.f, (high - low) * fraction + low};
             break;
         }
         case 0x1B67:
             cursor = address + 0xC;
-            command_float(particle, 0x48, read_f32(command, 8) * read_f32(particle, 0xA4));
+            particle.size = get(command, value_command::value) * particle.size_scale;
             break;
         case 0x1B68:
             cursor = address + 0x10;
-            command_float(particle, 0x48, command_range(command, 8, 0xC, random) * read_f32(particle, 0xA4));
+            particle.size = command_range(get(command, range_command::low), get(command, range_command::high), random)
+                * particle.size_scale;
             break;
         case 0x1B69:
         {
             cursor = address + 0x14;
-            command_float(particle, 0xA0, read_f32(command, 8) * read_f32(particle, 0xA4));
+            particle.target_size = get(command, value_command::value) * particle.size_scale;
             update_duration(command);
-            const float duration = read_f32(particle, 0xB4);
+            const float duration = particle.duration;
             if (duration > epsilon)
             {
-                const float difference = float(ExtendedFloat{read_f32(particle, 0xA0)} - ExtendedFloat{read_f32(particle, 0x48)});
+                const float difference = float(ExtendedFloat{particle.target_size} -
+                    ExtendedFloat{particle.size});
                 const float rate = float(ExtendedFloat{engine_absolute(difference)} / ExtendedFloat{duration});
-                command_float(particle, 0x9C, rate);
+                particle.size_rate = rate;
             }
             else
             {
-                command_word(particle, 0x48, read_u32(particle, 0xA0));
-                command_word(particle, 0x9C, 0);
+                particle.size = particle.target_size;
+                particle.size_rate = 0.f;
             }
             break;
         }
         case 0x1B6A:
             cursor = address + 0x10;
-            if (read_u32(command, 8) != 0)
+            if (get(command, face_command::faces) != 0)
             {
-                particle[0x56] |= 2;
+                particle.motion_flags |= 2;
             }
-            if (read_u32(command, 0xC) != 0)
+            if (get(command, face_command::faces_fully) != 0)
             {
-                particle[0x56] |= 8;
+                particle.motion_flags |= 8;
             }
             break;
         case 0x1B6B:
             cursor = address + 0xC;
-            particle[0x56] |= 1;
-            command_word(particle, 0x3C, read_u32(command, 8));
+            particle.motion_flags |= 1;
+            particle.collision_radius = get(command, value_command::value);
             break;
         case 0x1B6C:
             cursor = address + 0x3C;
-            configure_actor_effect_oscillation(particle, command_vector(command, 0x30), command_vector(command, 0x24),
-                command_vector(command, 8), command_vector(command, 0x14), i32(read_u32(command, 0x20)), random);
+            configure_actor_effect_oscillation(
+                particle, get(command, channels_command::rates), get(command, channels_command::start),
+                get(command, channels_command::lower), get(command, channels_command::upper),
+                i32(get(command, channels_command::random_start)), random);
             break;
         case 0x1B6D:
             cursor = address + 0xC;
-            if (read_u32(command, 8) == 0)
+            if (get(command, value_command::word) == 0)
             {
                 detach();
             }
-            else if (read_u32(command, 8) == 1)
+            else if (get(command, value_command::word) == 1)
             {
                 return false;
             }
             break;
         case 0x1B6E:
             cursor = address + 0x10;
-            if (read_f32(particle, 0xAC) == read_f32(command, 8)
-                && read_f32(particle, 0xB0) == read_f32(command, 0xC))
+            if (particle.duration_low == get(command, range_command::low)
+                && particle.duration_high == get(command, range_command::high))
             {
-                command_word(particle, 0x108, read_u32(particle, 0xB4));
+                particle.unk_108 = particle.duration;
             }
             else
             {
-                command_float(particle, 0x108, command_range(command, 8, 0xC, random));
+                particle.unk_108 =
+                    command_range(get(command, range_command::low), get(command, range_command::high), random);
             }
-            command_float(particle, 0xAC, -1.f);
-            command_word(particle, 0xB0, read_u32(particle, 0xAC));
-            command_word(particle, 0xB4, read_u32(particle, 0xAC));
+            particle.duration_low = -1.f;
+            particle.duration_high = particle.duration_low;
+            particle.duration = particle.duration_low;
             break;
         case 0x1B6F:
         {
             cursor = address + 0x20;
-            const float x = signed_command_range(read_f32(command, 8), read_f32(command, 0x14), random);
-            const float y = signed_command_range(read_f32(command, 0xC), read_f32(command, 0x18), random) * degrees;
-            const float z = signed_command_range(read_f32(command, 0x10), read_f32(command, 0x1C), random) * degrees;
-            command_float(particle, 0x24, x * degrees);
-            command_float(particle, 0x28, y);
-            command_float(particle, 0x2C, z);
+            const Vec3 lower = get(command, spin_range_command::lower);
+            const Vec3 upper = get(command, spin_range_command::upper);
+            const float x = signed_command_range(lower.x, upper.x, random);
+            const float y = signed_command_range(lower.y, upper.y, random) * degrees;
+            const float z = signed_command_range(lower.z, upper.z, random) * degrees;
+            particle.spin = Vec3{x * degrees, y, z};
             break;
         }
         case 0x1B70:
             cursor = address + 0x10;
-            command_word(particle, 0x40, read_u32(command, 8));
-            command_word(particle, 0x48, read_u32(command, 0xC));
+            particle.bounce = get(command, bounce_command::bounce);
+            particle.size = get(command, bounce_command::unk_0C);
             break;
         case 0x1B71:
             cursor = address + 8;
-            particle[0x56] |= 4;
+            particle.motion_flags |= 4;
             break;
         case 0x1B72:
             cursor = address + 0xC;
-            command_word(particle, 0x50, read_u32(command, 8));
+            particle.drag = get(command, value_command::value);
             break;
         case 0x1B73:
             cursor = address + 0x3C;
-            configure_actor_effect_bounded_channels(particle, command_vector(command, 8), command_vector(command, 0x14),
-                command_vector(command, 0x24), command_vector(command, 0x30), i32(read_u32(command, 0x20)), pal, override_pal, random);
+            configure_actor_effect_bounded_channels(
+                particle, get(command, channels_command::lower), get(command, channels_command::upper),
+                get(command, channels_command::start), get(command, channels_command::rates),
+                i32(get(command, channels_command::random_start)), pal, override_pal, random);
             break;
         case 0x1B74:
         case 0x1B75:
@@ -304,18 +304,18 @@ bool execute_actor_effect_commands(std::span<u8> particle, ActorEffectNode& owne
             case 0x1B7B: cursor = address + 0x18; break;
             case 0x1B7D: cursor = address + 0x9C; break;
             }
-            particle[0x56] |= opcode == 0x1B76 || opcode == 0x1B77 ? 0x11 : 1;
-            if (read_u32(command, 8) != 0)
+            particle.motion_flags |= opcode == 0x1B76 || opcode == 0x1B77 ? 0x11 : 1;
+            if (get(command, value_command::word) != 0)
             {
-                particle[0x56] |= 0x20;
+                particle.motion_flags |= 0x20;
             }
             break;
         }
         case 0x1B79:
             cursor = address + 0x98;
-            if (read_u32(command, 8) != 0)
+            if (get(command, value_command::word) != 0)
             {
-                particle[0x56] |= 0x20;
+                particle.motion_flags |= 0x20;
             }
             break;
         default:

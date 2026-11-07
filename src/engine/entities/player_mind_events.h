@@ -1,10 +1,46 @@
 #pragma once
+#include "mind_fields.h"
 #include "player_parent_lifecycle.h"
 #include "player_mind_goals.h"
 #include "actor_clock.h"
 
 namespace gbtg
 {
+// A mind event (0x0002A190): what the mind is engaged with, watching or was hit by, timed. DAT_003398C8 gives each
+// kind's size: kind 0 is 0x20 bytes, kinds 1 and 2 (contacts) 0x30, kinds 3 (the engaged actor) and 4 (the watched
+// target record) 0x24. A view must fit the event's kind, so the kinds' fields are separate records.
+struct MindEventRecord
+{
+    std::array<u8, 8> links{}; // +0, retail's list words; the host keeps LiveScript's
+    u16 kind = 0; // +8
+    u8 unk_0A = 0; // +0xA, cleared when the event is refreshed
+    u8 unk_0B = 0; // +0xB, never read or written
+    float time_left = 0.f; // +0xC
+    float duration = 0.f; // +0x10
+    float cooldown = 0.f; // +0x14, from the mind's unk_2C, counting down
+    float age = 0.f; // +0x18
+    float unk_1C = 0.f; // +0x1C, counts up; cleared when the event is refreshed
+};
+static_assert(sizeof(MindEventRecord) == 0x20);
+struct MindSubjectEvent
+{
+    MindEventRecord base{}; // +0
+    u32 subject = 0; // +0x20
+};
+static_assert(sizeof(MindSubjectEvent) == 0x24);
+struct MindContactEvent
+{
+    MindEventRecord base{}; // +0
+    u32 subject = 0; // +0x20
+    u32 other = 0; // +0x24
+    u32 count = 0; // +0x28
+    u32 payload = 0; // +0x2C
+};
+static_assert(sizeof(MindContactEvent) == 0x30);
+GBTG_MIND_VIEW(mind_event, MindEventRecord)
+GBTG_MIND_VIEW(mind_subject_event, MindSubjectEvent)
+GBTG_MIND_VIEW(mind_contact_event, MindContactEvent)
+
 struct RuntimeMindEvent : LiveScript
 {
     std::span<u8> bytes;

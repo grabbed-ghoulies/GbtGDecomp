@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "body_state_fields.h"
 
 #include "body_pickup_state.h"
 #include "body_hit_state.h"
@@ -31,38 +33,46 @@ constexpr RetailField<std::array<char, 0x80>, 0xA8> trail_effect{}; // the effec
 constexpr u32 kSize = 0x128;
 static_assert(retail_fits(kSize, trail_effect));
 } // namespace swing_state_parameter
-// The swing state's own fields at their retail offsets (0x1AC bytes), after the body-state base (body_state_field).
-namespace swing_state_field
+// The swing state's own fields at their retail offsets (0x1AC bytes), after the body-state base (BodyStateBase).
+// A trail effect on one of the weapon's shapes (0x00098F40).
+struct SwingEffectPair
 {
-// 1 the grab, 2 / 3 the lift, 4 / 5 the swing, 6 / 7 the drop (the positive side first), 8 done.
-constexpr RetailField<u32, 0x18> phase{};
-constexpr RetailField<Vec3, 0x1C> weapon_position{}; // the weapon's world position when it was taken
-constexpr RetailField<Vec3, 0x28> weapon_euler{}; // and its world euler
-constexpr RetailField<float, 0x34> trail_timer{}; // the weapon's trail clock (0x0013B030)
-constexpr RetailField<float, 0x38> spin_timer{}; // 1.5 s (DAT_0032B210) counted down by the swing
-constexpr RetailField<float, 0x3C> direction{}; // 1 or -1, the spin's sense
-constexpr RetailField<Vec3, 0x40> spin_euler{}; // the actor's euler when the swing started; +0x44 is its yaw
-constexpr RetailField<Vec3, 0x4C> start_position{}; // the actor's world position at the grab
-constexpr RetailField<Vec3, 0x58> start_euler{}; // and its euler
-// Four {DAT_00506930 slot, shape} pairs (0x00098F40): the trail effects on the weapon's shapes, -1 when unused.
-constexpr RetailField<i32, 0x64> effect_0{};
-constexpr RetailField<u32, 0x68> effect_shape_0{};
-constexpr RetailField<std::array<char, 0x80>, 0x84> trail_effect{};
-// Seven animation records (0x0003AAA0), in the parameters' order; set when the record was found.
-constexpr RetailField<u32, 0x104> grab{};
-constexpr RetailField<u32, 0x108> lift_positive{};
-constexpr RetailField<u32, 0x10C> lift_negative{};
-constexpr RetailField<u32, 0x110> swing_positive{};
-constexpr RetailField<u32, 0x114> swing_negative{};
-constexpr RetailField<u32, 0x118> drop_positive{};
-constexpr RetailField<u32, 0x11C> drop_negative{};
-constexpr RetailField<u8, 0x120> shape_mode{}; // body +0x244 at entry, restored by 0x0001FEB0 at the end
-constexpr RetailField<u32, 0x124> counted{}; // holds a body +0x258 count
-constexpr RetailField<std::array<char, 0x80>, 0x128> hit_sound{};
-constexpr RetailField<u32, 0x1A8> cutscene{}; // the bob cutscene 0x000993A0 started (its heap address), or 0
-constexpr u32 kSize = 0x1AC;
-static_assert(retail_fits(kSize, cutscene));
-} // namespace swing_state_field
+    i32 slot = 0; // +0, its DAT_00506930 slot, -1 when unused
+    u32 shape = 0; // +4, set when the shape was found
+};
+static_assert(sizeof(SwingEffectPair) == 8);
+struct SwingState
+{
+    BodyStateBase base{}; // +0
+    // +0x18: 1 the grab, 2 / 3 the lift, 4 / 5 the swing, 6 / 7 the drop (the positive side first), 8 done.
+    u32 phase = 0;
+    Vec3 weapon_position{}; // +0x1C, the weapon's world position when it was taken
+    Vec3 weapon_euler{}; // +0x28, and its world euler
+    float trail_timer = 0.f; // +0x34, the weapon's trail clock (0x0013B030)
+    float spin_timer = 0.f; // +0x38, 1.5 s (DAT_0032B210) counted down by the swing
+    float direction = 0.f; // +0x3C, 1 or -1, the spin's sense
+    Vec3 spin_euler{}; // +0x40, the actor's euler when the swing started; +0x44 is its yaw
+    Vec3 start_position{}; // +0x4C, the actor's world position at the grab
+    Vec3 start_euler{}; // +0x58, and its euler
+    // +0x64: Four {DAT_00506930 slot, shape} pairs (0x00098F40): the trail effects on the weapon's shapes, -1 when
+    // unused.
+    std::array<SwingEffectPair, 4> effects{};
+    std::array<char, 0x80> trail_effect{}; // +0x84
+    // +0x104: Seven animation records (0x0003AAA0), in the parameters' order; set when the record was found.
+    u32 grab = 0;
+    u32 lift_positive = 0; // +0x108
+    u32 lift_negative = 0; // +0x10C
+    u32 swing_positive = 0; // +0x110
+    u32 swing_negative = 0; // +0x114
+    u32 drop_positive = 0; // +0x118
+    u32 drop_negative = 0; // +0x11C
+    u8 shape_mode = 0; // +0x120, body +0x244 at entry, restored by 0x0001FEB0 at the end
+    std::array<u8, 3> unk_121{}; // +0x121, padding
+    u32 counted = 0; // +0x124, holds a body +0x258 count
+    std::array<char, 0x80> hit_sound{}; // +0x128
+    u32 cutscene = 0; // +0x1A8, the bob cutscene 0x000993A0 started (its heap address), or 0
+};
+static_assert(sizeof(SwingState) == 0x1AC);
 struct RuntimeSwingStateContext
 {
     // Body, actor, bits, animation, clock, the attachment views (0x0001B190, 0x0001B4C0), the mind, the weapon views
@@ -87,11 +97,11 @@ struct RuntimeSwingStateContext
     u32& random; // DAT_0054DD7C.
 };
 void swing_state_object_sizes(ObjectSizes& output); // Xbox 0x00097F90
-bool initialize_runtime_swing_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_swing_state(SwingState& state, std::span<const u8> parameters,
     RuntimeSwingStateContext& context); // Xbox 0x00098010
-void destroy_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& context); // Xbox 0x00098370
-void tick_runtime_swing_state(std::span<u8> state, RuntimeSwingStateContext& context); // Xbox 0x00098460
-void message_runtime_swing_state(std::span<u8> state, std::span<const u32> message,
+void destroy_runtime_swing_state(SwingState& state, RuntimeSwingStateContext& context); // Xbox 0x00098370
+void tick_runtime_swing_state(SwingState& state, RuntimeSwingStateContext& context); // Xbox 0x00098460
+void message_runtime_swing_state(SwingState& state, std::span<const u32> message,
     RuntimeSwingStateContext& context); // Xbox 0x00098620
 // Which side of the body's actor `other` stands on: 1 for a turn toward it above zero, otherwise -1; `ahead`, when
 // given, says whether the turn is under DAT_0032B4A8.

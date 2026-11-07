@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_clock.h"
 #include "../audio/event_voices.h"
 #include "gbtg/object_factory.h"
@@ -14,12 +16,12 @@ struct Actor;
 // carries the name) over the actor (type 2): the key a key-carrying ghouly drops ("misc_ghoulykey"). It rises and
 // spins, and its find-key ditty starts 0.4 s after it appears. Its message slot is the actor's (0x0006C9B0 jumps
 // to 0x0003EF70).
-namespace ghouly_key_field
+struct GhoulyKeyState
 {
-constexpr RetailField<float, 0x934> ditty_delay{}; // Seconds to the find-key ditty
-constexpr u32 kSize = 0x938;
-static_assert(retail_fits(kSize, ditty_delay));
-} // namespace ghouly_key_field
+    ActorBase base{}; // +0
+    float ditty_delay = 0.f; // +0x934, seconds to the find-key ditty
+};
+static_assert(sizeof(GhoulyKeyState) == 0x938);
 struct RuntimeGhoulyKey
 {
     std::span<u8> bytes;

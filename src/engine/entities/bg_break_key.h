@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_clock.h"
 #include "actor_base_messages.h"
 #include "player_state.h"
@@ -24,28 +26,29 @@ constexpr RetailField<std::array<char, 0x80>, 0x334> unk_334{};
 constexpr u32 kSize = 0x3B4;
 static_assert(retail_fits(kSize, unk_334));
 } // namespace bg_break_key_parameter
-namespace bg_break_key_field
+struct BgBreakKeyState
 {
-constexpr RetailField<std::array<char, 0x80>, 0x934> unk_934{};
-constexpr RetailField<u32, 0x9B4> background{}; // the background whose part hides the key
-constexpr RetailField<i32, 0x9B8> part{};
-constexpr RetailField<u32, 0x9BC> armed{}; // an event's start (0x81) had a kind 1 step
-constexpr RetailField<u32, 0x9C0> active{}; // the key is out
-constexpr RetailField<Vec3, 0x9C4> launch_euler{}; // the class 0x47 actor's euler
-constexpr RetailField<Vec3, 0x9D0> position{}; // the key's position
-constexpr RetailField<Vec3, 0x9DC> eye{}; // the display view's position when the key came out
-constexpr RetailField<Vec3, 0x9E8> velocity{};
-constexpr RetailField<float, 0x9F4> timer{};
-constexpr RetailField<u32, 0x9F8> key{}; // the key actor; its native view is the context's
-// +0x9FC..+0xA5B is the "breakkeycam" view (EntityCamNode); its native view is the context's.
-constexpr RetailField<float, 0xA5C> spin{};
-constexpr RetailField<i32, 0xA60> bounces{};
-constexpr RetailField<float, 0xA64> music_delay{};
-constexpr RetailField<u32, 0xA68> music_started{};
-constexpr RetailField<u32, 0xA6C> camera_linked{};
-constexpr u32 kSize = 0xA70;
-static_assert(retail_fits(kSize, camera_linked));
-} // namespace bg_break_key_field
+    ActorBase base{}; // +0
+    std::array<char, 0x80> unk_934{}; // +0x934
+    u32 background = 0; // +0x9B4, the background whose part hides the key
+    i32 part = 0; // +0x9B8
+    u32 armed = 0; // +0x9BC, an event's start (0x81) had a kind 1 step
+    u32 active = 0; // +0x9C0, the key is out
+    Vec3 launch_euler{}; // +0x9C4, the class 0x47 actor's euler
+    Vec3 position{}; // +0x9D0, the key's position
+    Vec3 eye{}; // +0x9DC, the display view's position when the key came out
+    Vec3 velocity{}; // +0x9E8
+    float timer = 0.f; // +0x9F4
+    u32 key = 0; // +0x9F8, the key actor; its native view is the context's
+    // +0x9FC: the "breakkeycam" view (EntityCamNode); its native view is the context's.
+    std::array<u8, 0x60> camera_bytes{};
+    float spin = 0.f; // +0xA5C
+    i32 bounces = 0; // +0xA60
+    float music_delay = 0.f; // +0xA64
+    u32 music_started = 0; // +0xA68
+    u32 camera_linked = 0; // +0xA6C
+};
+static_assert(sizeof(BgBreakKeyState) == 0xA70);
 struct RuntimeBgBreakKey
 {
     std::span<u8> bytes;

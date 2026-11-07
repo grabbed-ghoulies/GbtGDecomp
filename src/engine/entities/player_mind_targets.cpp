@@ -1,8 +1,12 @@
 #include "player_mind_targets.h"
+#include "weapon_fields.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
 #include "body_gaze.h"
 #include "body_message_helpers.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <cmath>
@@ -12,9 +16,9 @@ namespace gbtg
 // Xbox 0x00134650
 bool runtime_body_target_state_active(std::span<const u8> body)
 {
-    if (read_f32(body, 0x23C) != 0.f
-        && (read_u16(body, 0x94) <= 1 || read_f32(body, 0x174) > 0.f
-            || read_f32(body, 0x16C) == 0.f))
+    if (body_record(body).unk_23C != 0.f
+        && (body_record(body).energy <= 1 || body_record(body).unk_174 > 0.f
+            || body_record(body).stagger == 0.f))
     {
         return true;
     }
@@ -38,11 +42,11 @@ bool runtime_body_target_state_flagged(std::span<const u8> body, const EntityBit
 // Xbox 0x001413C0
 bool runtime_mind_target_requires_action(const RuntimeMindTarget& target, std::span<const u8> body)
 {
-    if ((target.bytes[0x16] & 8) != 0)
+    if ((mind_target_record(target.bytes).flags & 8) != 0)
     {
         return true;
     }
-    switch (target.bytes[0x14])
+    switch (mind_target_record(target.bytes).kind)
     {
     case 0:
     {
@@ -81,11 +85,11 @@ bool runtime_mind_target_requires_special_action(const RuntimeMindTarget& target
     {
         return true;
     }
-    if (read_u32(actor, 0xCE0) == 0)
+    if (player_record(actor).live == 0)
     {
         return false;
     }
-    if (read_u16(actor, 0xCDC) != 2 && read_u32(actor, 0x93C) == 0)
+    if (player_record(actor).mode != 2 && player_record(actor).case_link == 0)
     {
         return false;
     }
@@ -99,7 +103,7 @@ u32 runtime_player_target_search_mode(const RuntimePlayerAttachmentEligibility& 
     const auto* attached = body.attached;
     if (attached != nullptr)
     {
-        const u8 kind = attached->bytes[0x93D];
+        const u8 kind = weapon_base(attached->bytes).unk_93D;
         if (kind >= 2)
         {
             if (kind <= 3)
@@ -120,8 +124,8 @@ bool runtime_player_keeps_held_target(const RuntimeMindTarget* target,
     const RuntimePlayerAttachmentEligibility& body, const Actor& origin,
     float heading, float* angle, float angular_limit)
 {
-    if (target != nullptr && target->bytes[0x14] == 0 && target->body.energy != 0
-        && body.attached != nullptr && body.attached->bytes[0x93D] == 4)
+    if (target != nullptr && mind_target_record(target->bytes).kind == 0 && target->body.energy != 0
+        && body.attached != nullptr && weapon_base(body.attached->bytes).unk_93D == 4)
     {
         if (runtime_body_bit_set(body.flags, 0x2F))
         {
@@ -168,18 +172,20 @@ RuntimeMindTarget* search_runtime_player_target_windows(RuntimePlayerTargetSearc
             return nullptr;
         }
         u16 excluded = 0;
-        if (read_f32(context.actor_bytes, 0x978) > 0.f || context.actor_bytes[0x969] != 0)
+        if (player_record(context.actor_bytes).countdown_56 > 0.f ||
+            player_record(context.actor_bytes).provoked != 0)
         {
-            const u16 value = read_u16(context.actor_bytes, 0x97E);
+            const u16 value = player_record(context.actor_bytes).hostile_class_1;
             if (value > 1)
             {
                 excluded = value;
             }
         }
         u16 included = 0;
-        if (read_f32(context.actor_bytes, 0x978) > 0.f || context.actor_bytes[0x969] != 0)
+        if (player_record(context.actor_bytes).countdown_56 > 0.f ||
+            player_record(context.actor_bytes).provoked != 0)
         {
-            const u16 value = read_u16(context.actor_bytes, 0x97C);
+            const u16 value = player_record(context.actor_bytes).hostile_class_0;
             if (value > 1)
             {
                 included = value;
@@ -208,8 +214,8 @@ RuntimeMindTarget* search_runtime_player_target_categories(RuntimePlayerTargetSe
 {
     RuntimeMindTarget* fallback = nullptr;
     const auto* attached = context.body.attached;
-    const float scale = attached == nullptr || attached->bytes[0x93D] < 2
-        || attached->bytes[0x93D] > 3 ? 1.f : 3.f;
+    const float scale = attached == nullptr || weapon_base(attached->bytes).unk_93D < 2
+        || weapon_base(attached->bytes).unk_93D > 3 ? 1.f : 3.f;
     for (u32 index = 0; index < 4; ++index)
     {
         const u32 category = 1u << index;
@@ -220,7 +226,7 @@ RuntimeMindTarget* search_runtime_player_target_categories(RuntimePlayerTargetSe
             if (target != nullptr)
             {
                 attached = context.body.attached;
-                if (attached != nullptr && attached->bytes[0x93D] != 0)
+                if (attached != nullptr && weapon_base(attached->bytes).unk_93D != 0)
                 {
                     return target;
                 }
@@ -246,7 +252,7 @@ RuntimeMindTarget* select_runtime_player_shape_target(RuntimePlayerTargetSearch&
     u32 categories = read_u32(policy, 0x68);
     u32 predicate = read_u32(policy, 0x64);
     const auto* attached = context.body.attached;
-    const u8 kind = attached == nullptr ? 0 : attached->bytes[0x93D];
+    const u8 kind = attached == nullptr ? 0 : weapon_base(attached->bytes).unk_93D;
     switch (kind)
     {
     case 2:
@@ -322,12 +328,12 @@ RuntimeMindTarget* find_runtime_mind_target_in_angle(const Actor& source,
         if ((include_class == 0 || target->actor.class_key == include_class)
             && (exclude_class == 0 || target->actor.class_key != exclude_class)
             && &target->actor != &source
-            && (category_mask & (1u << (target->bytes[0x14] & 31))) != 0
+            && (category_mask & (1u << (mind_target_record(target->bytes).kind & 31))) != 0
             && runtime_mind_target_allowed(*target, predicate_flags))
         {
-            const float reach = read_f32(target->bytes, 0x38) + radius;
-            const Vec3 position{read_f32(target->bytes, 0x20),
-                read_f32(target->bytes, 0x24), read_f32(target->bytes, 0x28)};
+            const float reach = mind_target_record(target->bytes).shape.radius + radius;
+            const Vec3 position{mind_target_record(target->bytes).shape.position.x,
+                mind_target_record(target->bytes).shape.position.y, mind_target_record(target->bytes).shape.position.z};
             RuntimeMindTargetScore score;
             score_runtime_mind_target(origin, position, heading, half_angle, reach, score);
             if (reach > score.distance && half_angle > score.relative_angle
@@ -360,7 +366,7 @@ Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context)
 {
     Actor* target = context.target;
     Actor* const previous = target;
-    const u32 previous_mode = context.mind[0x20];
+    const u32 previous_mode = mind_record(context.mind).target_mode;
     u32 mode = previous_mode;
     bool restore_previous;
     bool search_near;
@@ -397,10 +403,10 @@ Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context)
     {
         const auto& body = *context.bodies.at(target);
         const float own_reach = context.body.body_actor.radius_xz
-            * read_f32(context.body.body, 0x888);
+            * body_record(context.body.body).radius_scale;
         const float target_radius = body.body_actor.radius_xz;
         const float margin = runtime_player_body_attachment_radius(body);
-        const float gap = distance - ((margin + read_f32(body.body, 0x888) * target_radius)
+        const float gap = distance - ((margin + body_record(body.body).radius_scale * target_radius)
             + own_reach);
         if (60.f > gap)
         {
@@ -442,14 +448,13 @@ Actor* update_runtime_player_mind_focus(RuntimePlayerMindFocus& context)
     }
     context.target = target;
     const u32 address = target == nullptr ? 0 : context.addresses.at(target);
-    std::memcpy(context.mind.data() + 0xC, &address, 4);
-    if (mode != context.mind[0x20]
-        && read_f32(context.mind, 0x38) > read_f32(context.mind, 0x34))
+    mind_record(context.mind).target = address;
+    if (mode != mind_record(context.mind).target_mode
+        && mind_record(context.mind).unk_38 > mind_record(context.mind).unk_34)
     {
-        const u32 timer = read_u32(context.mind, 0x38);
-        std::memcpy(context.mind.data() + 0x34, &timer, 4);
+        mind_record(context.mind).unk_34 = mind_record(context.mind).unk_38;
     }
-    context.mind[0x20] = u8(mode);
+    mind_record(context.mind).target_mode = u8(mode);
     return target;
 }
 
@@ -493,22 +498,22 @@ Actor* select_runtime_player_near_actor(Actor& requester, float& distance,
 // Xbox 0x001414C0
 bool runtime_mind_target_is_controlled_player(const RuntimeMindTarget& target)
 {
-    if (target.bytes[0x14] != 0)
+    if (mind_target_record(target.bytes).kind != 0)
     {
         return false;
     }
-    if (read_u16(target.actor_bytes, 0xCDC) == 2)
+    if (player_record(target.actor_bytes).mode == 2)
     {
         return true;
     }
-    return read_u32(target.actor_bytes, 0x93C) != 0;
+    return player_record(target.actor_bytes).case_link != 0;
 }
 
 // Xbox 0x0013A2A0
 bool runtime_player_mind_saved_path_clear(const Actor& actor, std::span<const u8> mind,
     const OccupancyRecord* occupancy, const OccupancyRecord* allowed, u16 owner_class)
 {
-    const Vec3 point{read_f32(mind, 0x70), read_f32(mind, 0x74), read_f32(mind, 0x78)};
+    const Vec3 point(mind_record(mind).goal_point);
     if (occupancy == nullptr)
     {
         const Vec3 position = actor_world_position(actor);
@@ -526,7 +531,7 @@ bool runtime_player_mind_saved_path_clear(const Actor& actor, std::span<const u8
 bool runtime_mind_target_occupancy_differs(const RuntimeMindTarget& target,
     u16 owner_class, const OccupancyRecord* allowed)
 {
-    if (target.bytes[0x14] == 0 && target.occupancy != nullptr
+    if (mind_target_record(target.bytes).kind == 0 && target.occupancy != nullptr
         && target.occupancy != allowed
         && (owner_class == 0 || target.occupancy->group == 0
             || u16(target.occupancy->group) == owner_class))
@@ -539,22 +544,23 @@ bool runtime_mind_target_occupancy_differs(const RuntimeMindTarget& target,
 // Xbox 0x00129920
 bool runtime_mind_target_allowed(const RuntimeMindTarget& target, u32 flags)
 {
-    if (target.bytes[0x18] != 0
-        || ((flags & 4) != 0 && (target.bytes[0x16] & 1) == 0)
-        || ((flags & 8) == 0 && target.bytes[0x15] != 0))
+    if (mind_target_record(target.bytes).unk_18 != 0
+        || ((flags & 4) != 0 && (mind_target_record(target.bytes).flags & 1) == 0)
+        || ((flags & 8) == 0 && mind_target_record(target.bytes).hold != 0))
     {
         return false;
     }
-    if ((flags & 0x10) != 0 && target.bytes[0x14] == 0 && script_actor_is_active(target.actor))
+    if ((flags & 0x10) != 0 && mind_target_record(target.bytes).kind == 0 && script_actor_is_active(target.actor))
     {
         return false;
     }
-    if (((flags & 0x200) != 0 && (target.bytes[0x16] & 4) != 0)
-        || ((flags & 0x400) != 0 && target.bytes[0x14] == 0 && read_u32(target.actor_bytes, 0x98C) != 0))
+    if (((flags & 0x200) != 0 && (mind_target_record(target.bytes).flags & 4) != 0) ||
+        ((flags & 0x400) != 0 && mind_target_record(target.bytes).kind == 0 &&
+         player_record(target.actor_bytes).goal_volume != 0))
     {
         return false;
     }
-    if ((flags & 0x800) != 0 && target.bytes[0x14] == 0 && script_mind_test_bit(target.body, 0x1B))
+    if ((flags & 0x800) != 0 && mind_target_record(target.bytes).kind == 0 && script_mind_test_bit(target.body, 0x1B))
     {
         return false;
     }
@@ -567,14 +573,16 @@ bool runtime_mind_target_reachable(const Actor& source, const OccupancyRecord* a
 {
     if ((flags & 0x20) != 0)
     {
-        Vec3 destination{read_f32(target.bytes, 0x20), read_f32(target.bytes, 0x24), read_f32(target.bytes, 0x28)};
+        Vec3 destination{mind_target_record(target.bytes).shape.position.x,
+            mind_target_record(target.bytes).shape.position.y, mind_target_record(target.bytes).shape.position.z};
         const Vec3 position = actor_world_position(source);
-        const Vec3 delta{read_f32(target.bytes, 0x20) - position.x,
-            read_f32(target.bytes, 0x24) - position.y, read_f32(target.bytes, 0x28) - position.z};
+        const Vec3 delta{mind_target_record(target.bytes).shape.position.x - position.x,
+            mind_target_record(target.bytes).shape.position.y - position.y,
+                mind_target_record(target.bytes).shape.position.z - position.z};
         float angle;
         runtime_direction_angle(delta, angle);
         angle = float(static_cast<long double>(angle) + std::bit_cast<float>(0x40490FDBu));
-        const float radius = read_f32(target.bytes, 0x38);
+        const float radius = mind_target_record(target.bytes).shape.radius;
         const float sine = float(retail_sin(angle));
         destination.x = sine * radius + destination.x;
         destination.z = float(retail_cos(angle) * static_cast<long double>(radius)
@@ -587,7 +595,7 @@ bool runtime_mind_target_reachable(const Actor& source, const OccupancyRecord* a
             return false;
         }
     }
-    if ((flags & 0x80) != 0 && target.bytes[0x14] == 0 && target.occupancy != nullptr
+    if ((flags & 0x80) != 0 && mind_target_record(target.bytes).kind == 0 && target.occupancy != nullptr
         && target.occupancy != allowed
         && (source.class_key == 0 || target.occupancy->group == 0 || u16(target.occupancy->group) == source.class_key))
     {
@@ -609,12 +617,12 @@ RuntimeMindTarget* find_runtime_mind_target(const Actor& source, const Occupancy
         if ((include_class == 0 || target->actor.class_key == include_class)
             && (exclude_class == 0 || target->actor.class_key != exclude_class)
             && &target->actor != &source
-            && (category_mask & (1u << (target->bytes[0x14] & 31))) != 0
+            && (category_mask & (1u << (mind_target_record(target->bytes).kind & 31))) != 0
             && runtime_mind_target_allowed(*target, predicate_flags))
         {
-            const float x = position.x - read_f32(target->bytes, 0x20);
-            const float y = position.y - read_f32(target->bytes, 0x24);
-            const float z = position.z - read_f32(target->bytes, 0x28);
+            const float x = position.x - mind_target_record(target->bytes).shape.position.x;
+            const float y = position.y - mind_target_record(target->bytes).shape.position.y;
+            const float z = position.z - mind_target_record(target->bytes).shape.position.z;
             const float squared = z * z + x * x + y * y;
             if ((chosen == nullptr || best > squared)
                 && runtime_mind_target_reachable(source, allowed, *target, predicate_flags))

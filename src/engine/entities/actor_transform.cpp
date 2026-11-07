@@ -81,8 +81,7 @@ Vec3 actor_world_position(const Actor& actor)
 }
 
 
-Vec3 actor_transform_origin{};
- // DAT_0050DD80
+Vec3 actor_transform_origin{}; // DAT_0050DD80
 
 Vec3 actor_world_euler(const Actor& actor)
 {

@@ -1,4 +1,5 @@
 #include "body_knockdown_state.h"
+#include <cstddef>
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
 #include "actor_shape_bounds.h"
@@ -16,6 +17,8 @@
 #include "../navigation/mind_navigation_angles.h"
 #include "../navigation/navigation.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
+#include "player_fields.h"
 
 #include <bit>
 #include <cstring>
@@ -24,15 +27,17 @@
 
 namespace gbtg
 {
+namespace parameter = knockdown_state_parameter;
+
 namespace
 {
-// The seven records the constructor finds (state +0x38..+0x50) live on the host; the state words say whether each
+// The seven records the constructor finds live on the host; the state's animations_found flags say whether each
 // was found.
 std::unordered_map<const u8*, std::array<const AnimationRecord*, 7>> knockdown_records;
 
-// The +0xCC pool (stride 0x20, grown by 4) of actors that pushed against the flying body: +0 the actor, +4 the
+// The contact_pool (stride 0x20, grown by 4) of actors that pushed against the flying body: +0 the actor, +4 the
 // direction away from it, +0x10 the contact point, +0x1C sent, +0x1D the flag, +0x1E the bone. The rows live on
-// the host; state +0xCC holds a nonzero marker while the pool exists.
+// the host; the state's contact_pool holds a nonzero marker while the pool exists.
 struct KnockdownContact
 {
     u32 actor;
@@ -44,21 +49,6 @@ struct KnockdownContact
 };
 std::unordered_map<const u8*, std::vector<KnockdownContact>> knockdown_contacts;
 constexpr u32 kContactPoolMarker = 1;
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_half(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
 
 void adjust_body_counters(std::span<u8> body, i32 step)
 {
@@ -81,22 +71,22 @@ Vec3 read_vec(std::span<const u8> bytes, size_t offset)
     return value;
 }
 
-void put_vec(std::span<u8> bytes, size_t offset, const Vec3& value)
+bool animation_found(const KnockdownState& state, size_t slot)
 {
-    std::memcpy(bytes.data() + offset, &value, 12);
+    return state.animations_found[slot] != 0;
 }
 
-const AnimationRecord* record_of(std::span<const u8> state, size_t slot)
+const AnimationRecord* record_of(const KnockdownState& state, size_t slot)
 {
-    if (read_u32(state, 0x38 + slot * 4) == 0)
+    if (!animation_found(state, slot))
     {
         return nullptr;
     }
-    return knockdown_records.at(state.data())[slot];
+    return knockdown_records.at(body_state_key(state))[slot];
 }
 
-// 0x0001AFA0 with ECX the record at state +0x38 + slot * 4 (ESI the body).
-void start_record(std::span<const u8> state, size_t slot, RuntimeKnockdownContext& context)
+// 0x0001AFA0 with ECX the record the slot's found flag stands for (ESI the body).
+void start_record(const KnockdownState& state, size_t slot, RuntimeKnockdownContext& context)
 {
     const AnimationRecord* record = record_of(state, slot);
     if (record == nullptr)
@@ -123,23 +113,23 @@ float slot_position(const ActorAnimationState& animation)
 }
 
 // The inline phase end: leaving phase 1 drops its callout tokens (0x0013B810).
-void leave_phase(std::span<u8> state, u32 phase, RuntimeKnockdownContext& context)
+void leave_phase(KnockdownState& state, u32 phase, RuntimeKnockdownContext& context)
 {
-    if (read_u32(state, 0x18) == 1)
+    if (state.phase == 1)
     {
-        clear_runtime_player_attachment_events(state.subspan(0x70, 36), context.lists);
+        clear_runtime_player_attachment_events(retail_bytes(state.callouts), context.lists);
     }
-    put_word(state, 0x18, phase);
-    put_float(state, 0x1C, 0.f);
+    state.phase = phase;
+    state.phase_time = 0.f;
 }
 
 // The inline release of the getting-up count: body +0x69 drops once while the body lives.
-void release_getting_up(std::span<u8> state, RuntimeKnockdownContext& context)
+void release_getting_up(KnockdownState& state, RuntimeKnockdownContext& context)
 {
-    if (read_u32(state, 0xE0) == 0 && read_u16(context.body, 0x94) != 0)
+    if (state.getting_up_released == 0 && body_record(context.body).energy != 0)
     {
-        context.body[0x69] = u8(context.body[0x69] - 1);
-        put_word(state, 0xE0, 1);
+        body_record(context.body).unk_69 = u8(body_record(context.body).unk_69 - 1);
+        state.getting_up_released = 1;
     }
 }
 
@@ -170,8 +160,8 @@ std::span<const u8> sphere_record(const RuntimeBodyCollisionSphere* sphere)
 // Xbox 0x0009C550
 void knockdown_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0xF4;
-    output.parameters = 0x50;
+    output.instance = sizeof(KnockdownState);
+    output.parameters = parameter::kSize;
 }
 
 // Xbox 0x00025FA0
@@ -179,29 +169,30 @@ void clear_runtime_body_contacts(RuntimeKnockdownContext& context)
 {
     if (context.spheres != nullptr)
     {
-        RuntimeBodyCollisionSphere* end = context.spheres + context.body[0x714];
+        RuntimeBodyCollisionSphere* end = context.spheres + body_record(context.body).sphere_count;
         for (RuntimeBodyCollisionSphere* sphere = context.spheres; sphere < end; ++sphere)
         {
             sphere->contact[0x26] = 0;
         }
     }
-    context.body[0x715] = 0;
-    context.body[0x716] = 0;
+    body_record(context.body).unk_715 = 0;
+    body_record(context.body).unk_716 = 0;
 }
 
 // Xbox 0x0009C150
-void aim_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& context)
+void aim_runtime_knockdown(KnockdownState& state, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
-    const Vec3 push{0.f - read_f32(body, 0x230), 0.f - read_f32(body, 0x234), 0.f - read_f32(body, 0x238)};
-    const u32 source = read_u32(body, 0x26C);
+    const Vec3 push{0.f - body_record(body).unk_230.x, 0.f - body_record(body).unk_230.y, 0.f
+        - body_record(body).unk_230.z};
+    const u32 source = body_record(body).unk_26C;
     float angle;
     if (runtime_direction_angle(push, angle))
     {
-        put_float(state, 0xA8, angle);
+        state.yaw = angle;
         const float unit = next_unit(context.random);
-        put_float(state, 0xA8, (unit * std::bit_cast<float>(0x3EB2B8C3u) + read_f32(state, 0xA8))
-            - std::bit_cast<float>(0x3E32B8C3u)); // DAT_0032B160, DAT_0032B508.
+        // DAT_0032B160, DAT_0032B508.
+        state.yaw = (unit * std::bit_cast<float>(0x3EB2B8C3u) + state.yaw) - std::bit_cast<float>(0x3E32B8C3u);
         return;
     }
     if (source != 0)
@@ -212,7 +203,7 @@ void aim_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& context
         const Vec3 toward{first.x - second.x, first.y - second.y, first.z - second.z};
         float aim;
         runtime_direction_angle(toward, aim);
-        put_float(state, 0xA8, aim);
+        state.yaw = aim;
     }
 }
 
@@ -238,22 +229,22 @@ void runtime_knockdown_launch(float angle, float height, float distance, float j
 }
 
 // Xbox 0x0009B350
-void launch_runtime_knockdown(std::span<u8> state, float distance, float height, float time, float pitch,
+void launch_runtime_knockdown(KnockdownState& state, float distance, float height, float time, float pitch,
     RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
-    put_word(state, 0xA0, read_u32(body, 0x324));
-    const float span = distance / float(i32(read_u16(body, 0x162)));
+    state.saved_gravity = body_record(body).gravity;
+    const float span = distance / float(i32(body_record(body).unk_162));
     Vec3 velocity;
     float gravity;
     float flight;
-    runtime_knockdown_launch(read_f32(state, 0xA8) + std::bit_cast<float>(0x40490FDBu), height, span, 0.1f, time,
+    runtime_knockdown_launch(state.yaw + std::bit_cast<float>(0x40490FDBu), height, span, 0.1f, time,
         0.1f, velocity, gravity, flight, context.random); // DAT_0032B148, DAT_0032B254.
-    put_float(body, 0x324, gravity);
-    put_float(state, 0xB0, flight);
-    put_float(state, 0xAC, pitch * std::bit_cast<float>(0x3C8EFA35u)); // DAT_0032B0FC.
+    body_record(body).gravity = gravity;
+    state.flight_time = flight;
+    state.pitch = pitch * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
     context.actor.anchor = velocity;
-    put_vec(body, 0x318, velocity);
+    body_record(body).velocity = velocity;
 }
 
 // Xbox 0x0009D810
@@ -268,24 +259,24 @@ void signal_runtime_knockdown(const Vec3& position, float first, float second, R
 }
 
 // Xbox 0x0009D150
-void enter_runtime_knockdown_phase(std::span<u8> state, u32 phase, RuntimeKnockdownContext& context)
+void enter_runtime_knockdown_phase(KnockdownState& state, u32 phase, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    if (read_u32(state, 0x18) == 1)
+    if (state.phase == 1)
     {
-        clear_runtime_player_attachment_events(state.subspan(0x70, 36), context.lists);
+        clear_runtime_player_attachment_events(retail_bytes(state.callouts), context.lists);
     }
-    put_word(state, 0x18, phase);
-    put_float(state, 0x1C, 0.f);
+    state.phase = phase;
+    state.phase_time = 0.f;
     u16 key;
     switch (phase)
     {
     case 1:
     {
-        put_word(state, 0x60, 0);
-        start_record(state, 0, context);
-        const float flight = read_f32(state, 0xB0);
+        state.swept = 0;
+        start_record(state, kKnockdownFlight, context);
+        const float flight = state.flight_time;
         AnimationController* controller = context.animation.controller.get();
         if (controller != nullptr)
         {
@@ -306,25 +297,25 @@ void enter_runtime_knockdown_phase(std::span<u8> state, u32 phase, RuntimeKnockd
             }
             controller->dirty = true;
         }
-        // 0x0013B7C0: callouts 0x4A record their tokens at state +0x70.
-        context.events.command_attachments = state.subspan(0x70, 36);
+        // 0x0013B7C0: callouts 0x4A record their tokens in the state's callout_tokens.
+        context.events.command_attachments = retail_bytes(state.callouts);
         request_runtime_player_attachment_events(context.callout_records, context.events, 0x4A,
-            context.address_of(state.data() + 0x70));
+            context.address_of(retail_bytes(state.callouts).data()));
         return;
     }
     case 2:
     {
         release_getting_up(state, context);
         context.bits.bytes[4] |= 0x20;
-        body[0x717] = 0;
+        body_record(body).collision_kind = 0;
         set_runtime_body_shape_mode(2, context.shape);
         actor.anchor = Vec3{actor.anchor.x * 0.7f, actor.anchor.y, actor.anchor.z * 0.7f}; // DAT_0032B264.
-        start_record(state, 1, context);
-        put_float(state, 0xB8, actor.euler.x); // Actor +0x14.
-        put_float(state, 0xB4, slot_position(context.animation));
+        start_record(state, kKnockdownBounceLanding, context);
+        state.start_pitch = actor.euler.x; // Actor +0x14.
+        state.pose_mark = slot_position(context.animation);
         notify_down(context);
-        signal_runtime_knockdown(read_vec(state, 0xD0), std::bit_cast<float>(0x3FC90FDBu), 0.f, context);
-        if (read_u16(body, 0x94) != 0)
+        signal_runtime_knockdown(state.landing_point, std::bit_cast<float>(0x3FC90FDBu), 0.f, context);
+        if (body_record(body).energy != 0)
         {
             return;
         }
@@ -335,14 +326,16 @@ void enter_runtime_knockdown_phase(std::span<u8> state, u32 phase, RuntimeKnockd
     {
         set_runtime_body_shape_mode(2, context.shape);
         actor.anchor = Vec3{0.f, 0.f, 0.f};
-        put_float(body, 0x324, 0.f);
-        start_record(state, read_u32(state, 0x44) != 0 ? 3 : 2, context);
-        put_float(state, 0xB8, actor.euler.x);
-        put_float(state, 0xBC, actor.euler.y);
-        put_float(state, 0xB4, slot_position(context.animation));
+        body_record(body).gravity = 0.f;
+        start_record(state,
+            animation_found(state, kKnockdownLandedVariant) ? kKnockdownLandedVariant : kKnockdownLanded,
+            context);
+        state.start_pitch = actor.euler.x;
+        state.start_yaw = actor.euler.y;
+        state.pose_mark = slot_position(context.animation);
         notify_down(context);
-        const Vec3 landing = read_vec(state, 0xD0);
-        signal_runtime_knockdown(landing, 0.f, read_f32(state, 0xA8), context);
+        const Vec3 landing = state.landing_point;
+        signal_runtime_knockdown(landing, 0.f, state.yaw, context);
         const std::array<u32, 5> notice{0x72, context.actor_address, std::bit_cast<u32>(landing.x),
             std::bit_cast<u32>(landing.y), std::bit_cast<u32>(landing.z)};
         broadcast_actor_pulse_message(reinterpret_cast<const i32*>(notice.data()));
@@ -350,137 +343,137 @@ void enter_runtime_knockdown_phase(std::span<u8> state, u32 phase, RuntimeKnockd
     }
     case 4:
         set_runtime_body_shape_mode(2, context.shape);
-        start_record(state, 4, context);
-        signal_runtime_knockdown(read_vec(state, 0xD0), 0.f, read_f32(state, 0xA8), context);
+        start_record(state, kKnockdownBounce, context);
+        signal_runtime_knockdown(state.landing_point, 0.f, state.yaw, context);
         return;
     case 5:
         release_getting_up(state, context);
         context.bits.bytes[4] |= 0x20;
-        body[0x717] = 0;
-        start_record(state, 5, context);
-        signal_runtime_knockdown(read_vec(state, 0xD0), std::bit_cast<float>(0x3FC90FDBu), 0.f, context);
+        body_record(body).collision_kind = 0;
+        start_record(state, kKnockdownBounceRecovery, context);
+        signal_runtime_knockdown(state.landing_point, std::bit_cast<float>(0x3FC90FDBu), 0.f, context);
         return;
     case 6:
-        put_word(state, 0x60, 0);
-        put_word(body, 0x324, read_u32(state, 0xA0));
+        state.swept = 0;
+        body_record(body).gravity = state.saved_gravity;
         return;
     case 7:
         release_getting_up(state, context);
         context.bits.bytes[4] |= 0x20;
-        body[0x717] = 1;
+        body_record(body).collision_kind = 1;
         set_runtime_body_shape_mode(2, context.shape);
-        start_record(state, 6, context);
+        start_record(state, kKnockdownGettingUp, context);
         notify_down(context);
-        put_vec(state, 0xD0, read_vec(body, 0x178));
-        if (read_u16(body, 0x94) != 0)
+        state.landing_point = body_record(body).ground_point;
+        if (body_record(body).energy != 0)
         {
             return;
         }
         key = 0x69;
         break;
     case 8:
-        if (read_u32(state, 0x2C) != 0)
+        if (state.contacts_raised != 0)
         {
             clear_runtime_body_contacts(context);
-            put_word(state, 0x2C, 0);
+            state.contacts_raised = 0;
         }
-        if (read_u16(body, 0x94) == 0)
+        if (body_record(body).energy == 0)
         {
-            const float end = read_f32(state, 0xE8);
-            put_float(state, 0x20, end < 0.f ? 1.f : end); // DAT_0032B0F8.
+            const float end = state.end_time;
+            state.end_timer = end < 0.f ? 1.f : end; // DAT_0032B0F8.
             return;
         }
-        put_float(state, 0x20, read_f32(body, 0x22C) / float(i32(read_u16(body, 0x160))));
+        state.end_timer = body_record(body).unk_22C / float(i32(body_record(body).unk_160));
         return;
     default:
         return;
     }
     if (has_action(context, key))
     {
-        put_half(state, 0x5C, key);
+        state.death_key = key;
     }
 }
 
 // Xbox 0x0009C5D0
-bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_knockdown_state(KnockdownState& state, std::span<const u8> parameters,
     RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    put_half(body, 0x30, u16(read_u16(body, 0x30) + 1));
+    body_record(body).move_holds = u16(body_record(body).move_holds + 1);
     adjust_body_counters(body, 1);
-    body[0x38] = 1;
-    body[0x39] = 1;
-    put_word(body, 0x164, 0);
-    put_float(body, 0x16C, 0.99f); // DAT_0032B228.
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+   body_record(body).unk_164 = 0;
+    body_record(body).stagger = 0.99f; // DAT_0032B228.
     // Each record on the actor's +0x8F4 list (actor +0x8F8 is the first) gains a +0x15 hold.
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
         live->hold = u8(live->hold + 1);
     }
-    body[0x6D] = u8(body[0x6D] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     context.bits.bytes[4] |= 0x10;
-    body[0x69] = u8(body[0x69] + 1);
-    if (body[0xA6] != 0)
+    body_record(body).unk_69 = u8(body_record(body).unk_69 + 1);
+    if (body_record(body).overlay_enabled != 0)
     {
-        put_float(body, 0xB4, 2.f); // DAT_0032B110.
+       body_record(body).overlay_hold_time = 2.f; // DAT_0032B110.
     }
     release_runtime_player_attachment(0, 0, context.attachment);
-    auto& records = knockdown_records[state.data()];
-    for (size_t slot = 0; slot < 7; ++slot)
+    auto& records = knockdown_records[body_state_key(state)];
+    for (size_t slot = 0; slot < kKnockdownAnimationCount; ++slot)
     {
         // 0x0003AAA0 with the attached actor's +0xDB0 variant, then without (0x0001AED0's pair).
-        const char* name = context.string_at(read_u32(parameters, 0xC + slot * 4));
+        const char* name = context.string_at(field_data(parameters, parameter::animations)[slot]);
         records[slot] = find_runtime_body_animation(name, context.actions);
-        put_word(state, 0x38 + slot * 4, records[slot] != nullptr ? 1 : 0);
+        state.animations_found[slot] = records[slot] != nullptr ? 1 : 0;
     }
-    put_half(state, 0x54, read_u16(parameters, 0x28));
-    put_half(state, 0x56, read_u16(parameters, 0x2A));
-    put_half(state, 0x5A, read_u16(parameters, 0x2C));
-    put_half(state, 0x58, read_u16(parameters, 0x2E));
-    put_word(state, 0xC8, read_u32(body, 0x270));
-    state[0xA4] = set_runtime_body_shape_mode(3, context.shape);
-    put_float(state, 0xC0, actor.radius_y * read_f32(parameters, 0x3C));
-    put_word(state, 0xC4, read_u32(parameters, 0x40));
-    put_word(state, 0xE8, read_u32(parameters, 0x38));
-    put_word(state, 0x34, read_u32(parameters, 0x30));
-    put_word(state, 0xEC, read_u32(parameters, 0x48));
-    put_word(state, 0xF0, read_u32(parameters, 0x4C));
-    body[0x715] = 1;
-    put_word(state, 0x2C, 1);
-    put_word(state, 0x30, body[0x717]);
-    body[0x717] = 0;
-    put_vec(state, 0x94, actor_world_position(actor));
+    state.getting_up_key = get(parameters, parameter::getting_up_key);
+    state.landing_key = get(parameters, parameter::landing_key);
+    state.bounce_key = get(parameters, parameter::bounce_key);
+    state.fallback_death_key = get(parameters, parameter::fallback_death_key);
+    state.attacker = body_record(body).attacker;
+    state.saved_shape_mode = set_runtime_body_shape_mode(3, context.shape);
+    state.rise_height = actor.radius_y * get(parameters, parameter::rise_height);
+    state.bounce_scale = get(parameters, parameter::bounce_scale);
+    state.end_time = get(parameters, parameter::end_time);
+    state.recovery_mode = get(parameters, parameter::recovery_mode);
+    state.body_bit = get(parameters, parameter::body_bit);
+    state.first_callout = get(parameters, parameter::first_callout);
+    body_record(body).unk_715 = 1;
+    state.contacts_raised = 1;
+    state.saved_717 = body_record(body).collision_kind;
+    body_record(body).collision_kind = 0;
+    state.start_point = actor_world_position(actor);
     aim_runtime_knockdown(state, context);
-    launch_runtime_knockdown(state, read_f32(body, 0x220), read_f32(body, 0x224), read_f32(body, 0x228),
-        read_f32(parameters, 0x34), context);
+    launch_runtime_knockdown(state, body_record(body).unk_220, body_record(body).unk_224, body_record(body).unk_228,
+        get(parameters, parameter::pitch), context);
     enter_runtime_knockdown_phase(state, 1, context);
-    const u32 bit = read_u32(state, 0xEC);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] |= u8(1u << (bit & 7));
     }
-    if (read_u16(body, 0x94) == 0 && read_u16(body, 0x96) != 0)
+    if (body_record(body).energy == 0 && body_record(body).max_energy != 0)
     {
         context.bits.bytes[3] |= 8;
         notify_runtime_body_death_once(body, context.actor_address, context.game);
     }
-    switch (read_u32(parameters, 0x44))
+    switch (get(parameters, parameter::latch_mode))
     {
     case 0:
-        put_word(state, 0xE4, 0);
+        state.holds_latches = 0;
         break;
     case 1:
-        put_word(state, 0xE4, 1);
+        state.holds_latches = 1;
         break;
     case 2:
-        put_word(state, 0xE4, read_u16(body, 0x94) == 0 ? 1 : 0);
+        state.holds_latches = body_record(body).energy == 0 ? 1 : 0;
         break;
     default:
         break;
     }
-    if (read_u32(state, 0xE4) != 0)
+    if (state.holds_latches != 0)
     {
         context.hold_latches(); // 0x00027BE0
     }
@@ -488,60 +481,60 @@ bool initialize_runtime_knockdown_state(std::span<u8> state, std::span<const u8>
 }
 
 // Xbox 0x0009CA80
-void destroy_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& context)
+void destroy_runtime_knockdown_state(KnockdownState& state, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
-    if (read_u32(state, 0xCC) != 0)
+    if (state.contact_pool != 0)
     {
-        knockdown_contacts.erase(state.data()); // 0x000663E0
-        put_word(state, 0xCC, 0);
+        knockdown_contacts.erase(body_state_key(state)); // 0x000663E0
+        state.contact_pool = 0;
     }
-    if (read_u32(state, 0x2C) != 0)
+    if (state.contacts_raised != 0)
     {
         clear_runtime_body_contacts(context);
-        put_word(state, 0x2C, 0);
+        state.contacts_raised = 0;
     }
-    body[0x717] = state[0x30];
-    put_half(body, 0x30, u16(read_u16(body, 0x30) - 1));
-    put_word(body, 0x324, read_u32(state, 0xA0));
+    body_record(body).collision_kind = u8(state.saved_717);
+    body_record(body).move_holds = u16(body_record(body).move_holds - 1);
+    body_record(body).gravity = state.saved_gravity;
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
          live = static_cast<ActorLiveAttachment*>(live->owner_link.next))
     {
         live->hold = u8(live->hold - 1);
     }
-    body[0x6D] = u8(body[0x6D] - 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
     adjust_body_counters(body, -1);
-    set_runtime_body_shape_mode(state[0xA4], context.shape);
+    set_runtime_body_shape_mode(state.saved_shape_mode, context.shape);
     context.bits.bytes[4] &= 0xEF;
     context.bits.bytes[4] &= 0xDF;
-    const i32 count = std::bit_cast<i32>(read_u32(state, 0x70));
+    const i32 count = std::bit_cast<i32>(state.callouts.count);
     for (i32 index = 0; index < count; ++index)
     {
-        remove_runtime_body_attachment(u16(read_u32(state, 0x74 + size_t(index) * 4)), context.lists);
+        remove_runtime_body_attachment(u16(state.callouts.ids[index]), context.lists);
     }
-    put_word(state, 0x70, 0);
-    if (read_u32(state, 0xE0) == 0)
+    state.callouts.count = 0;
+    if (state.getting_up_released == 0)
     {
-        body[0x69] = u8(body[0x69] - 1);
-        put_word(state, 0xE0, 1);
+        body_record(body).unk_69 = u8(body_record(body).unk_69 - 1);
+        state.getting_up_released = 1;
     }
-    const u32 bit = read_u32(state, 0xEC);
+    const u32 bit = state.body_bit;
     if (bit != 0)
     {
         context.bits.bytes[bit >> 3] &= u8(~(1u << (bit & 7)));
     }
-    if (read_u32(state, 0xE4) != 0)
+    if (state.holds_latches != 0)
     {
-        body[0x7E5] = u8(body[0x7E5] - 1);
+        body_record(body).unk_7E5 = u8(body_record(body).unk_7E5 - 1);
     }
-    knockdown_records.erase(state.data());
+    knockdown_records.erase(body_state_key(state));
 }
 
 // Xbox 0x0009B720
-void collide_runtime_knockdown(std::span<const u8> state, RuntimePlayerCollisionReply& reply,
+void collide_runtime_knockdown(const KnockdownState& state, RuntimePlayerCollisionReply& reply,
     RuntimeKnockdownContext& context)
 {
-    if (read_u32(state, 0x18) == 1 && read_u32(state, 0x40) != 0)
+    if (state.phase == 1 && animation_found(state, kKnockdownLanded))
     {
         reply.accepted = 1;
         const Vec3 velocity = context.actor.anchor;
@@ -553,7 +546,7 @@ void collide_runtime_knockdown(std::span<const u8> state, RuntimePlayerCollision
 }
 
 // Xbox 0x0009D0E0
-void message_runtime_knockdown_state(std::span<u8> state, RuntimePlayerCollisionReply& reply,
+void message_runtime_knockdown_state(KnockdownState& state, RuntimePlayerCollisionReply& reply,
     RuntimeKnockdownContext& context)
 {
     if (reply.id == 0x62)
@@ -566,18 +559,18 @@ void message_runtime_knockdown_state(std::span<u8> state, RuntimePlayerCollision
 }
 
 // Xbox 0x0009D0E0
-void message_runtime_knockdown_state(std::span<u8> state, std::span<const u8> message,
+void message_runtime_knockdown_state(KnockdownState& state, std::span<const u8> message,
     RuntimeKnockdownContext& context)
 {
     switch (read_u32(message, 0))
     {
     case 0xE:
-        if (read_u32(state, 0x18) == 1)
+        if (state.phase == 1)
         {
             // {0xE, actor, push, contact, bone} from the shape push (actor vtable +0x34).
             const Vec3 contact{read_f32(message, 0x14), read_f32(message, 0x18), read_f32(message, 0x1C)};
             record_runtime_knockdown_contact(state, read_u32(message, 4), contact,
-                read_u32(state, 0x40) == 0 ? 1 : 0, read_u16(message, 0x20), context);
+                animation_found(state, kKnockdownLanded) ? 0 : 1, read_u16(message, 0x20), context);
         }
         return;
     case 0x62:
@@ -591,19 +584,19 @@ void message_runtime_knockdown_state(std::span<u8> state, std::span<const u8> me
 }
 
 // Xbox 0x0009BB60
-void record_runtime_knockdown_contact(std::span<u8> state, u32 other, const Vec3& contact, u8 flag, u16 bone,
+void record_runtime_knockdown_contact(KnockdownState& state, u32 other, const Vec3& contact, u8 flag, u16 bone,
     RuntimeKnockdownContext& context)
 {
-    if (read_u32(state, 0xC8) == other)
+    if (state.attacker == other)
     {
         return;
     }
-    if (read_u32(state, 0xCC) == 0)
+    if (state.contact_pool == 0)
     {
-        knockdown_contacts[state.data()].reserve(4); // 0x000F72D0(0x90): 4 rows of 0x20.
-        put_word(state, 0xCC, kContactPoolMarker);
+        knockdown_contacts[body_state_key(state)].reserve(4); // 0x000F72D0(0x90): 4 rows of 0x20.
+        state.contact_pool = kContactPoolMarker;
     }
-    auto& rows = knockdown_contacts[state.data()];
+    auto& rows = knockdown_contacts[body_state_key(state)];
     for (const auto& row : rows)
     {
         if (row.actor == other)
@@ -640,13 +633,13 @@ void record_runtime_knockdown_contact(std::span<u8> state, u32 other, const Vec3
 }
 
 // Xbox 0x0009BEA0
-void forget_runtime_knockdown_contact(std::span<u8> state, u32 other)
+void forget_runtime_knockdown_contact(KnockdownState& state, u32 other)
 {
-    if (read_u32(state, 0xCC) == 0)
+    if (state.contact_pool == 0)
     {
         return;
     }
-    auto& rows = knockdown_contacts[state.data()];
+    auto& rows = knockdown_contacts[body_state_key(state)];
     for (auto row = rows.begin(); row != rows.end(); ++row)
     {
         if (row->actor == other)
@@ -658,36 +651,36 @@ void forget_runtime_knockdown_contact(std::span<u8> state, u32 other)
 }
 
 // Xbox 0x0009BEE0
-void sweep_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& context)
+void sweep_runtime_knockdown(KnockdownState& state, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    const u32 holder = read_u32(body, 0x274);
+    const u32 holder = body_record(body).unk_274;
     u32 player = 0;
     if (holder != 0)
     {
         const auto source = context.record_at(holder, 0xCF8);
-        player = read_u16(source, 0xCDC) == 2 ? 1 : (read_u32(source, 0x93C) != 0 ? 1 : 0);
+        player = player_record(source).mode == 2 ? 1 : (player_record(source).case_link != 0 ? 1 : 0);
     }
     Vec3 position = actor_world_position(actor);
     const float radius = float(static_cast<long double>(actor_model_sweep_radius(actor))
         * std::bit_cast<float>(0x3F2AAAABu)); // DAT_0032B204.
     const i32 found = entity_collect_contact_probes(position, radius, 0x140);
     i32 hits = found == 0 ? 0 : context.probe_messages(found, player, context.actor_address);
-    if (read_u32(state, 0x60) != 0)
+    if (state.swept != 0)
     {
-        Vec3 previous = read_vec(state, 0x64);
+        Vec3 previous = state.sweep_point;
         const i32 swept = entity_record_point_probe(position, previous, radius, 0x140);
         hits += swept == 0 ? 0 : context.probe_messages(swept, player, context.actor_address);
     }
-    put_vec(state, 0x64, position);
-    put_word(state, 0x60, 1);
+    state.sweep_point = position;
+    state.swept = 1;
     if (hits == 0)
     {
         return;
     }
     float damage = context.hit_damage[1];
-    const u16 tag = read_u16(context.actor_bytes, 0xCF4);
+    const u16 tag = player_record(context.actor_bytes).damage_class;
     if (tag != 0)
     {
         const float low = float(i32(context.hit_bands[0]));
@@ -711,9 +704,9 @@ void sweep_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& conte
     const i32 amount = i32(damage) * hits;
     if (0 < amount)
     {
-        const i32 left = i32(read_u16(body, 0x94)) - amount;
+        const i32 left = i32(body_record(body).energy) - amount;
         const u16 health = left < 1 ? 0 : u16(left);
-        put_half(body, 0x94, health);
+        body_record(body).energy = health;
         if (health == 0)
         {
             context.bits.bytes[3] |= 8;
@@ -727,9 +720,9 @@ void sweep_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& conte
 }
 
 // Xbox 0x0009C100
-u32 runtime_knockdown_contact_kind(std::span<const u8>, RuntimeKnockdownContext& context)
+u32 runtime_knockdown_contact_kind(const KnockdownState&, RuntimeKnockdownContext& context)
 {
-    if (context.body[0x716] == 0)
+    if (body_record(context.body).unk_716 == 0)
     {
         return 0;
     }
@@ -770,22 +763,22 @@ bool runtime_knockdown_hits_wall(std::span<const u8> record, const Vec3& velocit
 }
 
 // Xbox 0x0009B780
-void bounce_runtime_knockdown(std::span<u8> state, std::span<const u8> record, RuntimeKnockdownContext& context)
+void bounce_runtime_knockdown(KnockdownState& state, std::span<const u8> record, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
     const float nx = read_f32(record, 0xC);
     const float ny = read_f32(record, 0x10);
     const float nz = read_f32(record, 0x14);
-    put_vec(state, 0xD0, read_vec(record, 0));
-    body[0x254] = record[0x1E];
-    const bool dead = read_u16(body, 0x94) == 0;
+    state.landing_point = read_vec(record, 0);
+    body_record(body).unk_254 = record[0x1E];
+    const bool dead = body_record(body).energy == 0;
     bool bounce = false;
-    if (read_u32(state, 0x48) != 0)
+    if (animation_found(state, kKnockdownBounce))
     {
-        const bool late = read_f32(state, 0x1C) > 0.25f; // DAT_0032B104.
+        const bool late = state.phase_time > 0.25f; // DAT_0032B104.
         bool lucky = false;
-        if (read_u16(state, 0x5A) != 0)
+        if (state.bounce_key != 0)
         {
             lucky = !(next_unit(context.random) > 0.5f); // DAT_0032B0F4.
         }
@@ -807,24 +800,24 @@ void bounce_runtime_knockdown(std::span<u8> state, std::span<const u8> record, R
         const float vx = actor.anchor.x * -1.f; // DAT_0032B120.
         const float vz = actor.anchor.z * -1.f;
         const float dot = (vz * nz + vx * nx + ny * -0.f) * 2.f; // DAT_0032B4D4, DAT_0032B110.
-        const float scale = read_f32(state, 0xC4);
+        const float scale = state.bounce_scale;
         actor.anchor = Vec3{(dot * nx - vx) * scale, scale * (ny * dot), (nz * dot - vz) * scale};
         float angle;
         if (runtime_direction_angle(actor.anchor, angle))
         {
-            put_float(state, 0xA8, angle);
+            state.yaw = angle;
         }
         leave_phase(state, 4, context);
         set_runtime_body_shape_mode(2, context.shape);
-        start_record(state, 4, context);
-        signal_runtime_knockdown(read_vec(state, 0xD0), 0.f, read_f32(state, 0xA8), context);
+        start_record(state, kKnockdownBounce, context);
+        signal_runtime_knockdown(state.landing_point, 0.f, state.yaw, context);
     }
     else
     {
         float angle;
         if (runtime_direction_angle(Vec3{nx, ny, nz}, angle))
         {
-            put_float(state, 0xA8, angle);
+            state.yaw = angle;
         }
         enter_runtime_knockdown_phase(state, 3, context);
     }
@@ -832,31 +825,31 @@ void bounce_runtime_knockdown(std::span<u8> state, std::span<const u8> record, R
 }
 
 // Xbox 0x0009D5C0
-void end_runtime_knockdown(std::span<u8> state, u16 key, RuntimeKnockdownContext& context)
+void end_runtime_knockdown(KnockdownState& state, u16 key, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
     leave_phase(state, 8, context);
-    if (read_u32(state, 0x2C) != 0)
+    if (state.contacts_raised != 0)
     {
         clear_runtime_body_contacts(context);
-        put_word(state, 0x2C, 0);
+        state.contacts_raised = 0;
     }
     float end;
-    if (read_u16(body, 0x94) == 0)
+    if (body_record(body).energy == 0)
     {
         end = 1.f; // DAT_0032B0F8.
-        if (0.f <= read_f32(state, 0xE8))
+        if (0.f <= state.end_time)
         {
-            end = read_f32(state, 0xE8);
+            end = state.end_time;
         }
     }
     else
     {
-        end = read_f32(body, 0x22C) / float(i32(read_u16(body, 0x160)));
+        end = body_record(body).unk_22C / float(i32(body_record(body).unk_160));
     }
-    put_float(state, 0x20, end);
-    put_half(state, 0x5E, key);
-    if (read_u16(body, 0x94) == 0)
+    state.end_timer = end;
+    state.end_key = key;
+    if (body_record(body).energy == 0)
     {
         // The message is the key's own stack slot.
         const u32 message[]{0x35};
@@ -865,33 +858,33 @@ void end_runtime_knockdown(std::span<u8> state, u16 key, RuntimeKnockdownContext
 }
 
 // Xbox 0x0009D670
-void finish_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& context)
+void finish_runtime_knockdown(KnockdownState& state, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
-    if (read_u16(body, 0x94) != 0)
+    if (body_record(body).energy != 0)
     {
         if (context.table != nullptr) // Body +0x73C, held as its native view.
         {
-            const u16 key = read_u16(state, 0x5E);
+            const u16 key = state.end_key;
             u32 output;
             if (find_runtime_script_table_row(context.table, key, output) != nullptr)
             {
-                put_half(state, 0xC, key);
+                state.base.next_key = key;
             }
         }
         return;
     }
-    u16 key = read_u16(state, 0x5C);
+    u16 key = state.death_key;
     if (key == 0)
     {
-        key = read_u16(state, 0x58);
+        key = state.fallback_death_key;
         if (key == 0)
         {
             finish_runtime_body_death(1, context.scene_flags, context.restart_requested, context.death);
             return;
         }
     }
-    put_half(state, 0xC, key);
+    state.base.next_key = key;
 }
 
 // Xbox 0x0009D6D0
@@ -902,13 +895,13 @@ void slow_runtime_knockdown(RuntimeKnockdownContext& context)
 }
 
 // Xbox 0x0009D7D0
-void settle_runtime_knockdown(std::span<u8> state, RuntimeKnockdownContext& context)
+void settle_runtime_knockdown(KnockdownState& state, RuntimeKnockdownContext& context)
 {
     const Vec3& velocity = context.actor.anchor;
-    if (velocity.x == 0.f && velocity.z == 0.f && read_u32(state, 0x2C) != 0)
+    if (velocity.x == 0.f && velocity.z == 0.f && state.contacts_raised != 0)
     {
         clear_runtime_body_contacts(context);
-        put_word(state, 0x2C, 0);
+        state.contacts_raised = 0;
     }
 }
 
@@ -924,7 +917,7 @@ float runtime_floor_pitch(const Actor& actor, std::span<const u8> actor_bytes)
         float(static_cast<long double>(position.z) + retail_cos(behind) * reach)};
     Vec3 front{float(static_cast<long double>(position.x) + retail_sin(euler.y) * reach), position.y,
         float(static_cast<long double>(position.z) + retail_cos(euler.y) * reach)};
-    const i32 floor = i32(read_u32(actor_bytes, 0xCEC));
+    const i32 floor = i32(player_record(actor_bytes).floor);
     const i32 back_cell = entity_detail::navigation_cell_index(floor, back);
     const i32 front_cell = entity_detail::navigation_cell_index(floor, front);
     if (back_cell == -1 || front_cell == -1 || back_cell == front_cell)
@@ -957,7 +950,7 @@ float runtime_floor_pitch(const Actor& actor, std::span<const u8> actor_bytes)
 }
 
 // Xbox 0x0009C220
-void pose_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownContext& context)
+void pose_runtime_knockdown(KnockdownState& state, float timer, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
@@ -968,7 +961,7 @@ void pose_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCo
     const auto mark_fraction = [&]()
     {
         const float position = slot_position(context.animation);
-        const float mark = read_f32(state, 0xB4);
+        const float mark = state.pose_mark;
         const float end = mark + 0.2f; // DAT_0032B1AC.
         if (end == mark)
         {
@@ -981,24 +974,22 @@ void pose_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCo
         wrap_runtime_euler(euler, actor.euler);
         actor.xform_valid = 0;
         const Vec3 settled = actor_world_euler(actor);
-        put_vec(body, 0x72C, settled);
+        body_record(body).euler = settled;
     };
-    switch (read_u32(state, 0x18))
+    switch (state.phase)
     {
     case 1:
     {
-        const float flight = read_f32(state, 0xB0);
+        const float flight = state.flight_time;
         const float fraction = flight == 0.f ? 1.f : clamp(timer / flight);
-        put_float(body, 0x72C, interpolate_runtime_mind_angle(read_f32(state, 0xAC), 0.f, fraction));
-        put_float(body, 0x730, read_f32(state, 0xA8));
-        put_float(body, 0x734, 0.f);
+        body_record(body).euler = Vec3{interpolate_runtime_mind_angle(state.pitch, 0.f, fraction), state.yaw, 0.f};
         return;
     }
     case 2:
     {
         const float fraction = mark_fraction();
         const float pitch = interpolate_runtime_mind_angle(runtime_floor_pitch(actor, context.actor_bytes),
-            read_f32(state, 0xB8), fraction);
+            state.start_pitch, fraction);
         Vec3 euler = actor_world_euler(actor);
         euler.x = pitch;
         apply_euler(euler);
@@ -1007,9 +998,9 @@ void pose_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCo
     case 3:
     {
         const float first = mark_fraction();
-        const float pitch = interpolate_runtime_mind_angle(0.f, read_f32(state, 0xB8), first);
+        const float pitch = interpolate_runtime_mind_angle(0.f, state.start_pitch, first);
         const float second = mark_fraction();
-        const float yaw = interpolate_runtime_mind_angle(read_f32(state, 0xA8), read_f32(state, 0xBC), second);
+        const float yaw = interpolate_runtime_mind_angle(state.yaw, state.start_yaw, second);
         Vec3 euler = actor_world_euler(actor);
         euler.x = pitch;
         euler.y = yaw;
@@ -1021,23 +1012,21 @@ void pose_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCo
         {
             return;
         }
-        put_float(body, 0x72C, runtime_floor_pitch(actor, context.actor_bytes));
-        put_float(body, 0x730, read_f32(state, 0xA8));
-        put_float(body, 0x734, 0.f);
+        body_record(body).euler = Vec3{runtime_floor_pitch(actor, context.actor_bytes), state.yaw, 0.f};
         return;
     }
 }
 
 // Xbox 0x0009BD40
-void notify_runtime_knockdown_contacts(std::span<u8> state, RuntimeKnockdownContext& context)
+void notify_runtime_knockdown_contacts(KnockdownState& state, RuntimeKnockdownContext& context)
 {
-    if (read_u32(state, 0xCC) == 0)
+    if (state.contact_pool == 0)
     {
         return;
     }
     bool bounced = false;
     // Indexed: a reply can reach 0x0009BEA0 and shift the rows.
-    auto& rows = knockdown_contacts[state.data()];
+    auto& rows = knockdown_contacts[body_state_key(state)];
     for (size_t index = 0; index < rows.size(); ++index)
     {
         if (rows[index].sent != 0)
@@ -1075,7 +1064,7 @@ void notify_runtime_knockdown_contacts(std::span<u8> state, RuntimeKnockdownCont
 }
 
 // Xbox 0x0009B430
-void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownContext& context)
+void fly_runtime_knockdown(KnockdownState& state, float timer, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
     sweep_runtime_knockdown(state, context);
@@ -1104,10 +1093,10 @@ void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCon
         inside = !(box[0] > position.x) && position.x < box[3] && !(box[1] > position.y)
             && position.y < top + 1.f && !(box[2] > position.z) && position.z < box[5];
     }
-    if (inside && read_u16(body, 0x94) != 0 && read_u32(state, 0x34) == 1
-        && !(timer < read_f32(state, 0xB0) * 0.8f)) // DAT_0032B244.
+    if (inside && body_record(body).energy != 0 && state.recovery_mode == 1
+        && !(timer < state.flight_time * 0.8f)) // DAT_0032B244.
     {
-        end_runtime_knockdown(state, read_u16(state, 0x56), context);
+        end_runtime_knockdown(state, state.landing_key, context);
         finish_runtime_knockdown(state, context);
         return;
     }
@@ -1115,36 +1104,39 @@ void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCon
     {
         if ((context.bits.bytes[5] & 2) != 0)
         {
-            put_vec(state, 0xD0, read_vec(body, 0x178));
-            body[0x254] = entity_detail::navigation_surface_kind(i32(read_u32(context.actor_bytes, 0xCEC)),
-                read_vec(state, 0xD0));
+            state.landing_point = body_record(body).ground_point;
+            body_record(body).unk_254
+                = entity_detail::navigation_surface_kind(i32(player_record(context.actor_bytes).floor),
+                state.landing_point);
         }
         else if (against)
         {
             const std::span<const u8> record = sphere_record(
                 first_hit_runtime_body_sphere(body, context.spheres)); // 0x00025FE0
-            put_vec(state, 0xD0, read_vec(record, 0));
-            body[0x254] = entity_detail::navigation_surface_kind(i32(read_u32(context.actor_bytes, 0xCEC)),
-                read_vec(state, 0xD0)); // 0x001117A0
+            state.landing_point = read_vec(record, 0);
+            body_record(body).unk_254
+                = entity_detail::navigation_surface_kind(i32(player_record(context.actor_bytes).floor),
+                state.landing_point); // 0x001117A0
         }
         else
         {
-            put_vec(state, 0xD0, actor_world_position(context.actor));
+            state.landing_point = actor_world_position(context.actor);
         }
-        if ((read_u32(state, 0x34) != 1 || read_u16(body, 0x94) == 0) && read_u32(state, 0x3C) != 0)
+        if ((state.recovery_mode != 1 || body_record(body).energy == 0)
+            && animation_found(state, kKnockdownBounceLanding))
         {
             enter_runtime_knockdown_phase(state, 2, context);
             return;
         }
-        end_runtime_knockdown(state, read_u16(state, 0x56), context);
+        end_runtime_knockdown(state, state.landing_key, context);
         finish_runtime_knockdown(state, context);
         return;
     }
-    if (read_u32(state, 0x40) == 0)
+    if (!animation_found(state, kKnockdownLanded))
     {
         return;
     }
-    const std::span<const u8> last_contact = body.subspan(0x1CC, 0x20);
+    const std::span<const u8> last_contact = body.subspan(offsetof(BodyRecord, last_contact), 0x20);
     if ((context.bits.bytes[2] & 0x20) != 0
         && (runtime_knockdown_hits_wall(last_contact, velocity) || runtime_body_bit_set(context.bits, 0xD)))
     {
@@ -1163,21 +1155,22 @@ void fly_runtime_knockdown(std::span<u8> state, float timer, RuntimeKnockdownCon
 }
 
 // Xbox 0x0009CBE0
-void tick_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& context)
+void tick_runtime_knockdown_state(KnockdownState& state, RuntimeKnockdownContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    const float timer = read_f32(state, 0x10);
+    const float timer = state.base.elapsed;
     const float step = runtime_frame_step(context.clock);
-    put_float(state, 0x1C, runtime_actor_rate(actor) * step + read_f32(state, 0x1C));
-    put_float(state, 0x10, runtime_actor_rate(actor) * runtime_frame_step(context.clock) + read_f32(state, 0x10));
-    if (read_u32(state, 0x28) == 0 && runtime_actor_rate(actor) * runtime_frame_step(context.clock) > 0.f)
+    state.phase_time = runtime_actor_rate(actor) * step + state.phase_time;
+    state.base.elapsed = runtime_actor_rate(actor) * runtime_frame_step(context.clock) + state.base.elapsed;
+    if (state.first_callout_sent == 0 &&
+        runtime_actor_rate(actor) * runtime_frame_step(context.clock) > 0.f)
     {
-        const i32 id = std::bit_cast<i32>(read_u32(state, 0xF0));
+        const i32 id = std::bit_cast<i32>(state.first_callout);
         context.callouts(id < 1 ? 0x3B : u32(id), nullptr);
-        put_word(state, 0x28, 1);
+        state.first_callout_sent = 1;
     }
-    switch (read_u32(state, 0x18))
+    switch (state.phase)
     {
     case 1:
         fly_runtime_knockdown(state, timer, context);
@@ -1188,22 +1181,22 @@ void tick_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& 
         settle_runtime_knockdown(state, context);
         if (runtime_actor_animation_slot_complete(context.animation, 0))
         {
-            end_runtime_knockdown(state, read_u16(state, 0x56), context);
+            end_runtime_knockdown(state, state.landing_key, context);
         }
         break;
     case 3:
         if (runtime_actor_animation_slot_complete(context.animation, 0))
         {
-            if (read_u32(state, 0x34) == 1 && read_u16(body, 0x94) != 0)
+            if (state.recovery_mode == 1 && body_record(body).energy != 0)
             {
-                end_runtime_knockdown(state, read_u16(state, 0x56), context);
+                end_runtime_knockdown(state, state.landing_key, context);
                 finish_runtime_knockdown(state, context);
             }
             else
             {
                 leave_phase(state, 6, context);
-                put_word(state, 0x60, 0);
-                put_word(body, 0x324, read_u32(state, 0xA0));
+                state.swept = 0;
+                body_record(body).gravity = state.saved_gravity;
             }
         }
         break;
@@ -1213,9 +1206,9 @@ void tick_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& 
             leave_phase(state, 5, context);
             release_getting_up(state, context);
             context.bits.bytes[4] |= 0x20;
-            body[0x717] = 0;
-            start_record(state, 5, context);
-            signal_runtime_knockdown(read_vec(state, 0xD0), std::bit_cast<float>(0x3FC90FDBu), 0.f, context);
+            body_record(body).collision_kind = 0;
+            start_record(state, kKnockdownBounceRecovery, context);
+            signal_runtime_knockdown(state.landing_point, std::bit_cast<float>(0x3FC90FDBu), 0.f, context);
         }
         break;
     case 5:
@@ -1223,7 +1216,7 @@ void tick_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& 
         settle_runtime_knockdown(state, context);
         if (runtime_actor_animation_slot_complete(context.animation, 0))
         {
-            end_runtime_knockdown(state, read_u16(state, 0x5A), context);
+            end_runtime_knockdown(state, state.bounce_key, context);
         }
         break;
     case 6:
@@ -1231,33 +1224,33 @@ void tick_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& 
         sweep_runtime_knockdown(state, context);
         bool rise = false;
         // 0x0001F060: body +0x19E holds a floor height at +0x17C.
-        if (body[0x19E] != 0)
+        if (body_record(body).has_ground != 0)
         {
-            const float above = actor_world_position(actor).y - read_f32(body, 0x17C);
-            rise = read_f32(state, 0xC0) > above;
+            const float above = actor_world_position(actor).y - body_record(body).ground_point.y;
+            rise = state.rise_height > above;
         }
         if (!rise && runtime_knockdown_contact_kind(state, context) != 2 && (context.bits.bytes[1] & 0x10) == 0
             && !runtime_body_bit_set(context.bits, 0x29))
         {
             break;
         }
-        if (read_u32(state, 0x50) == 0)
+        if (!animation_found(state, kKnockdownGettingUp))
         {
-            end_runtime_knockdown(state, read_u16(state, 0x54), context);
+            end_runtime_knockdown(state, state.getting_up_key, context);
             finish_runtime_knockdown(state, context);
             break;
         }
         leave_phase(state, 7, context);
         release_getting_up(state, context);
         context.bits.bytes[4] |= 0x20;
-        body[0x717] = 1;
+        body_record(body).collision_kind = 1;
         set_runtime_body_shape_mode(2, context.shape);
-        start_record(state, 6, context);
+        start_record(state, kKnockdownGettingUp, context);
         notify_down(context);
-        put_vec(state, 0xD0, read_vec(body, 0x178));
-        if (read_u16(body, 0x94) == 0 && has_action(context, 0x69))
+        state.landing_point = body_record(body).ground_point;
+        if (body_record(body).energy == 0 && has_action(context, 0x69))
         {
-            put_half(state, 0x5C, 0x69);
+            state.death_key = 0x69;
         }
         break;
     }
@@ -1266,24 +1259,24 @@ void tick_runtime_knockdown_state(std::span<u8> state, RuntimeKnockdownContext& 
         settle_runtime_knockdown(state, context);
         if (runtime_actor_animation_slot_complete(context.animation, 0))
         {
-            end_runtime_knockdown(state, read_u16(state, 0x54), context);
+            end_runtime_knockdown(state, state.getting_up_key, context);
         }
         break;
     case 8:
     {
         slow_runtime_knockdown(context);
-        // 0x00042360 over state +0x20.
-        const float remaining = read_f32(state, 0x20);
+        // 0x00042360 over the end timer.
+        const float remaining = state.end_timer;
         if (0.f < remaining)
         {
             const float next = remaining - runtime_actor_rate(actor) * runtime_frame_step(context.clock);
-            put_float(state, 0x20, next);
+            state.end_timer = next;
             if (!(0.f < next))
             {
-                put_float(state, 0x20, 0.f);
+                state.end_timer = 0.f;
             }
         }
-        if (read_f32(state, 0x20) == 0.f)
+        if (state.end_timer == 0.f)
         {
             finish_runtime_knockdown(state, context);
         }

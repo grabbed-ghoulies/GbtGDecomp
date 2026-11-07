@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_base_messages.h"
 #include "actor_clock.h"
 #include "gbtg/anim.h"
@@ -37,32 +39,33 @@ constexpr RetailField<u32, 0x568> scare_word{};
 constexpr RetailField<float, 0x56C> facing{};
 constexpr RetailField<i32, 0x570> facing_states{};
 } // namespace scare_figure_parameter
-namespace scare_figure_field
+struct ScareFigureState
 {
-constexpr RetailField<Vec3, 0x934> trigger{}; // the point the player must come within +0x954 of
-constexpr RetailField<i32, 0x944> alpha{}; // 0..+0xB6C; 0xFF draws without the glow pass
-constexpr RetailField<u32, 0x948> paused{}; // slot 0's player held by 0x0006FB10
-constexpr RetailField<float, 0x94C> timer{}; // the current state's countdown
-constexpr RetailField<float, 0x950> delay{}; // state 0's wait
-constexpr RetailField<float, 0x954> reach{}; // zero or less needs no player near
-constexpr RetailField<u32, 0x958> unk_958{};
-constexpr RetailField<u32, 0x95C> unk_95C{};
-constexpr RetailField<i32, 0x960> state{};
-constexpr RetailField<i32, 0x964> facing_states{}; // states below this turn toward the player
-constexpr RetailRecord<0x968, 0x80> appear_animation{}; // an "aid_" name replaces the main animation in 1 and 3
-constexpr RetailRecord<0x9E8, 0x80> appear_events{};
-constexpr RetailRecord<0xA68, 0x80> animation{};
-constexpr RetailRecord<0xAE8, 0x80> play_events{}; // state 2's animation events
-constexpr RetailField<u32, 0xB68> fade_in_plays{}; // zero holds the main animation while it fades in
-constexpr RetailField<i32, 0xB6C> alpha_limit{};
-constexpr RetailField<float, 0xB70> fade_in{};
-constexpr RetailField<float, 0xB74> fade_out{}; // zero ends at state 2
-constexpr RetailField<u32, 0xB78> stays{}; // nonzero: drawn throughout and kept at the end
-constexpr RetailField<u32, 0xB7C> scare_word{}; // message 0xB2's third word to the players
-constexpr RetailField<float, 0xB80> facing{}; // at or above zero: the yaw added to the turn toward the player
-constexpr u32 kSize = 0xB84;
-static_assert(retail_fits(kSize, facing));
-} // namespace scare_figure_field
+    ActorBase base{}; // +0
+    Vec3 trigger{}; // +0x934, the point the player must come within +0x954 of
+    std::array<u8, 4> unk_940{}; // +0x940, never read or written by translated code
+    i32 alpha = 0; // +0x944, 0..+0xB6C; 0xFF draws without the glow pass
+    u32 paused = 0; // +0x948, slot 0's player held by 0x0006FB10
+    float timer = 0.f; // +0x94C, the current state's countdown
+    float delay = 0.f; // +0x950, state 0's wait
+    float reach = 0.f; // +0x954, zero or less needs no player near
+    u32 unk_958 = 0; // +0x958
+    u32 unk_95C = 0; // +0x95C
+    i32 state = 0; // +0x960
+    i32 facing_states = 0; // +0x964, states below this turn toward the player
+    std::array<char, 0x80> appear_animation{}; // +0x968, an "aid_" name replaces the main animation in 1 and 3
+    std::array<char, 0x80> appear_events{}; // +0x9E8
+    std::array<char, 0x80> animation{}; // +0xA68
+    std::array<char, 0x80> play_events{}; // +0xAE8, state 2's animation events
+    u32 fade_in_plays = 0; // +0xB68, zero holds the main animation while it fades in
+    i32 alpha_limit = 0; // +0xB6C
+    float fade_in = 0.f; // +0xB70
+    float fade_out = 0.f; // +0xB74, zero ends at state 2
+    u32 stays = 0; // +0xB78, nonzero: drawn throughout and kept at the end
+    u32 scare_word = 0; // +0xB7C, message 0xB2's third word to the players
+    float facing = 0.f; // +0xB80, at or above zero: the yaw added to the turn toward the player
+};
+static_assert(sizeof(ScareFigureState) == 0xB84);
 struct RuntimeScareFigure
 {
     std::span<u8> bytes;

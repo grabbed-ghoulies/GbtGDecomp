@@ -11,6 +11,15 @@ struct ActorMatrixSetup
     float progress = 0.f; // +0x29C
     u32 flags = 0; // +0x2A0
 };
+// The allocation's records (the base release 0x0003EBA0 frees the block itself).
+inline std::span<ActorMatrixRecord> actor_matrix_records(ActorMatrixSetup& setup)
+{
+    if (setup.allocation == nullptr)
+    {
+        return {};
+    }
+    return {reinterpret_cast<ActorMatrixRecord*>(setup.allocation), size_t(setup.matrices.count)};
+}
 using ActorMatrixBindings = std::unordered_map<const u8*, std::span<const u8>>;
 
 i32 runtime_matrix_array_count(std::span<const u8> node); // Xbox 0x00155FE0

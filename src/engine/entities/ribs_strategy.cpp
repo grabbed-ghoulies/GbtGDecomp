@@ -5,6 +5,7 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "gbtg/entity.h"
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -32,10 +33,6 @@ void change_state(u16 state, RuntimeRibsStrategy& context)
     change_runtime_player_strategy_state(goals_of(context).strategy, state, goals_of(context).setup); // 0x0002B8D0
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 }
 
 // Xbox 0x000BF7B0
@@ -49,7 +46,7 @@ bool initialize_runtime_ribs_strategy(RuntimeRibsStrategy& context)
 void update_runtime_ribs_strategy(RuntimeRibsStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u16 state = get(strategy_of(context), strategy_field::state);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     if (state == 0x401)
     {
@@ -81,7 +78,7 @@ void update_runtime_ribs_strategy(RuntimeRibsStrategy& context)
 void dispatch_runtime_ribs_message(std::span<const u32> message, RuntimeRibsStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 actor = read_u32(strategy_of(context), 8);
+    const u32 actor = strategy_base(strategy_of(context)).actor;
     if (react_runtime_strategy_message(message, context.checks) == 0 && message[0] == 0x6E) // 0x001384F0
     {
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
@@ -101,9 +98,9 @@ void enter_runtime_ribs_state(u16 state, u16 previous, RuntimeRibsStrategy& cont
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     std::span<u8> body = goals.entry.body; // Actor +0x95C.
-    body[0x328] = 2;
-    strategy[0x1A] = 0;
-    strategy[0x1B] = 0;
+    body_record(body).move_class = 2;
+    strategy_base(strategy).attacking = 0;
+    strategy_base(strategy).unk_1B = 0;
     if (state == 0x401)
     {
         load_runtime_mind_goal(context.goal_far, goals.entry.goals); // 0x0002A8E0
@@ -125,25 +122,25 @@ void enter_runtime_ribs_state(u16 state, u16 previous, RuntimeRibsStrategy& cont
     }
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest* request = allocate_runtime_mind_request(mind.anchor, 0xD, mind.sizes); // 0x00029D90
-    put_float(request->bytes, 0x10, 20.f); // DAT_0042888C.
-    put_float(request->bytes, 0x14, 25.f); // DAT_00428890.
-    put_float(request->bytes, 0x18, 60.f); // DAT_00428894.
-    put_float(request->bytes, 0x1C, 65.f); // DAT_00428898.
-    const u16 full = read_u16(body, 0x96);
+    set(request->bytes, escape_request::min_distance, 20.f); // DAT_0042888C.
+    set(request->bytes, escape_request::max_distance, 25.f); // DAT_00428890.
+    set(request->bytes, escape_request::safe_low, 60.f); // DAT_00428894.
+    set(request->bytes, escape_request::safe_high, 65.f); // DAT_00428898.
+    const u16 full = body_record(body).max_energy;
     if (full != 0)
     {
-        const float fraction = float(read_u16(body, 0x94)) / float(full);
+        const float fraction = float(body_record(body).energy) / float(full);
         if (fraction <= 0.75f) // DAT_0032B2AC.
         {
             if (fraction <= 0.5f) // DAT_0032B0F4.
             {
-                put_float(request->bytes, 0x20, fraction <= 0.25f ? 1.f : 0.8f); // DAT_0032B104, DAT_004288A8 / A4.
+                set(request->bytes, escape_request::speed, fraction <= 0.25f ? 1.f : 0.8f); // DAT_0032B104, DAT_004288A8 / A4.
                 return;
             }
-            put_float(request->bytes, 0x20, 0.6f); // DAT_004288A0.
+            set(request->bytes, escape_request::speed, 0.6f); // DAT_004288A0.
             return;
         }
     }
-    put_float(request->bytes, 0x20, 0.4f); // DAT_0042889C.
+    set(request->bytes, escape_request::speed, 0.4f); // DAT_0042889C.
 }
 }

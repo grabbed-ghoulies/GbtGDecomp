@@ -1,4 +1,6 @@
 #include "body_slam_smash_state.h"
+#include <cstddef>
+#include "mind_fields.h"
 #include "actor_render_registration.h"
 #include "actor_shape_bounds.h"
 #include "actor_transform.h"
@@ -10,6 +12,8 @@
 #include "gbtg/actor_runtime.h"
 #include "gbtg/anim.h"
 #include "gbtg/object_factory.h"
+#include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <cstring>
@@ -19,7 +23,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = slam_smash_state_field;
 namespace parameter = slam_smash_state_parameter;
 
 constexpr float kCrouchTime = 0.5f; // DAT_0032B0F4, also the drop's time.
@@ -30,17 +33,11 @@ constexpr float kLeapHeight = 200.f; // DAT_0032B330.
 constexpr float kAhead = 40.f; // DAT_0032B1B8.
 constexpr float kOne = 1.f; // DAT_0032B0F8.
 constexpr float kRetainForever = -1.f; // DAT_0032B120.
-constexpr u32 kAidPrefix = 0x5F646961u; // "aid_".
 
 std::function<RuntimeSlamSmashStateContext&(u32)> slam_smash_context_of;
 
 // The three animation records the state found (0x0003AAA0), held natively beside the state's +0x20 .. +0x28 flags.
 std::unordered_map<const u8*, std::array<const AnimationRecord*, 3>> slam_smash_records;
-
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -54,13 +51,13 @@ const AnimationRecord* find_animation(u32 name, RuntimeSlamSmashStateContext& co
 }
 
 // 0x0001AFA0 on one of the three records, when it was found.
-void start_animation(std::span<const u8> state, size_t index, size_t offset, RuntimeSlamSmashStateContext& context)
+void start_animation(const SlamSmashState& state, size_t index, u32 found_word, RuntimeSlamSmashStateContext& context)
 {
-    if (read_u32(state, offset) == 0)
+    if (found_word == 0)
     {
         return;
     }
-    const auto found = slam_smash_records.find(state.data());
+    const auto found = slam_smash_records.find(body_state_key(state));
     const AnimationRecord* record = found == slam_smash_records.end() ? nullptr : found->second[index];
     if (record == nullptr)
     {
@@ -93,9 +90,9 @@ void call_out(const Vec3& point, u32 id, RuntimeSlamSmashStateContext& context)
 // Xbox 0x000A0B50: the landing point is the mind's target (+0x10, its position +0x20 and floor +0x19), else 40
 // ahead of where the state began along the actor's yaw (actor +0x18) on the actor's floor (+0xCEC); a cell of that
 // floor under the point gives its height.
-void choose_landing(std::span<u8> state, RuntimeSlamSmashStateContext& context)
+void choose_landing(SlamSmashState& state, RuntimeSlamSmashStateContext& context)
 {
-    const u32 target = context.mind.empty() ? 0u : read_u32(context.mind, 0x10);
+    const u32 target = context.mind.empty() ? 0u : mind_record(context.mind).target_record;
     Vec3 landing{};
     u32 floor = 0;
     if (target != 0)
@@ -107,47 +104,47 @@ void choose_landing(std::span<u8> state, RuntimeSlamSmashStateContext& context)
     else
     {
         // 0x000412A0 writes the actor's position here first; the start overwrites it.
-        landing = get(state, field::start);
+        landing = state.start;
         const float yaw = context.actor.euler.y; // Actor +0x18.
         landing.x = float(retail_sin(yaw) * kAhead + landing.x); // 0x00153320
         landing.z = float(retail_cos(yaw) * kAhead + landing.z); // 0x00153230
-        floor = read_u32(context.actor_bytes, 0xCEC);
+        floor = player_record(context.actor_bytes).floor;
     }
     const i32 cell = entity_detail::navigation_cell_index(i32(floor), landing); // 0x00110EF0, EAX floor, EBX point
     if (cell != -1)
     {
         landing.y = float(entity_detail::g_nav_grids[floor]->cells.at(size_t(cell)).bottom); // DAT_0050E240
     }
-    set(state, field::landing, landing);
+    state.landing = landing;
 }
 
 // Xbox 0x000A09B0, ECX state, EAX phase
-void set_phase(std::span<u8> state, u32 phase, RuntimeSlamSmashStateContext& context)
+void set_phase(SlamSmashState& state, u32 phase, RuntimeSlamSmashStateContext& context)
 {
-    set(state, field::phase, phase);
+    state.phase = phase;
     switch (phase)
     {
     case 1:
-        start_animation(state, 0, field::take_off_animation.offset, context);
+        start_animation(state, 0, state.take_off_animation, context);
         return;
     case 2:
         choose_landing(state, context); // 0x000A0B50
-        start_animation(state, 1, field::crouch_animation.offset, context);
-        set(state, field::timer, kCrouchTime);
+        start_animation(state, 1, state.crouch_animation, context);
+        state.timer = kCrouchTime;
         return;
     case 3:
     {
         const Vec3 point = actor_world_position(context.actor); // 0x000412A0
         call_out(point, 0x3F, context); // 0x0013AD60, EAX point, ECX actor
-        set(state, field::timer, kLeapTime);
+        state.timer = kLeapTime;
         set_runtime_body_shape_mode(0, context.shape); // 0x0001FEB0, BL 0, EDI body
         return;
     }
     case 4:
     {
-        start_animation(state, 2, field::drop_animation.offset, context);
+        start_animation(state, 2, state.drop_animation, context);
         hold_animation(1, context);
-        set(state, field::paused, 1u);
+        state.paused = 1u;
         Actor& actor = context.actor;
         if (kDropRate != actor.scale_x || kDropRate != actor.radius_y || kDropRate != actor.radius_xz) // JP sets.
         {
@@ -160,15 +157,15 @@ void set_phase(std::span<u8> state, u32 phase, RuntimeSlamSmashStateContext& con
         unregister_actor_segment_probes(context.view.render); // 0x0003E850, EAX actor
         if (context.collision != nullptr)
         {
-            activate_runtime_body_contact_shapes(*context.collision, actor, get(state, field::shape_tag), 0xFF,
-                get(state, field::shape_scale)); // 0x0013F420, XMM4 +0x30
-            put_float(context.body, 0x2CC, 0.f);
+            activate_runtime_body_contact_shapes(*context.collision, actor, state.shape_tag, 0xFF,
+                state.shape_scale); // 0x0013F420, XMM4 +0x30
+            put_float(context.body, offsetof(BodyRecord, contact_count), 0.f);
         }
-        set(state, field::shapes_active, 1u);
-        set(state, field::timer, kCrouchTime);
-        Vec3 landing = get(state, field::landing);
+        state.shapes_active = 1u;
+        state.timer = kCrouchTime;
+        Vec3 landing = state.landing;
         landing.y = float(landing.y - actor_model_sweep_radius(actor)); // 0x0003D9A0, EDI actor
-        set(state, field::landing, landing);
+        state.landing = landing;
         return;
     }
     default:
@@ -189,21 +186,21 @@ float share(float timer, float rate)
 
 void place_body(const Vec3& point, RuntimeSlamSmashStateContext& context)
 {
-    put_float(context.body, 0x18, point.x);
-    put_float(context.body, 0x1C, point.y);
-    put_float(context.body, 0x20, point.z);
+   body_record(context.body).position.x = point.x;
+   body_record(context.body).position.y = point.y;
+   body_record(context.body).position.z = point.z;
 }
 
 bool construct_slam_smash_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_slam_smash_state(state, parameters, slam_smash_context_of(body_address_of(state)));
+    SlamSmashState& state = body_state_view<SlamSmashState>({object.bytes.get(), object.size});
+    return initialize_runtime_slam_smash_state(state, parameters, slam_smash_context_of(state.base.body));
 }
 
 void destroy_slam_smash_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_slam_smash_state(state, slam_smash_context_of(body_address_of(state)));
+    SlamSmashState& state = body_state_view<SlamSmashState>({object.bytes.get(), object.size});
+    destroy_runtime_slam_smash_state(state, slam_smash_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* slam_smash_state_lifecycle()
@@ -217,78 +214,77 @@ const ObjectFactoryVtable* slam_smash_state_lifecycle()
 // Xbox 0x000A03B0
 void slam_smash_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(SlamSmashState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x000A0430
-bool initialize_runtime_slam_smash_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_slam_smash_state(SlamSmashState& state, std::span<const u8> parameters,
     RuntimeSlamSmashStateContext& context)
 {
     const auto body = context.body;
-    auto& records = slam_smash_records[state.data()];
+    auto& records = slam_smash_records[body_state_key(state)];
     records[0] = find_animation(get(parameters, parameter::take_off_animation), context);
-    set(state, field::take_off_animation, records[0] != nullptr ? 1u : 0u);
+    state.take_off_animation = records[0] != nullptr ? 1u : 0u;
     records[1] = find_animation(get(parameters, parameter::crouch_animation), context);
-    set(state, field::crouch_animation, records[1] != nullptr ? 1u : 0u);
+    state.crouch_animation = records[1] != nullptr ? 1u : 0u;
     records[2] = find_animation(get(parameters, parameter::drop_animation), context);
-    set(state, field::drop_animation, records[2] != nullptr ? 1u : 0u);
-    set(state, field::shape_tag, get(parameters, parameter::shape_tag));
-    set(state, field::shape_scale, get(parameters, parameter::shape_scale));
+    state.drop_animation = records[2] != nullptr ? 1u : 0u;
+    state.shape_tag = get(parameters, parameter::shape_tag);
+    state.shape_scale = get(parameters, parameter::shape_scale);
     const auto source = get(parameters, parameter::effect);
     std::array<char, 0x80> effect{};
     std::strncpy(effect.data(), source.data(), effect.size() - 1); // The inlined strcpy.
-    set(state, field::effect, effect);
-    body[0x6A] = u8(body[0x6A] + 1);
-    body[0x38] = 1;
-    body[0x39] = 1;
-    set(state, field::shape_mode, u32(set_runtime_body_shape_mode(4, context.shape))); // 0x0001FEB0, BL 4
-    const u32 holds = read_u32(body, 0x258) + 1;
-    std::memcpy(body.data() + 0x258, &holds, 4);
-    set(state, field::start, actor_world_position(context.actor)); // 0x000412A0
-    set(state, field::phase, 1u);
-    start_animation(state, 0, field::take_off_animation.offset, context);
+    state.effect = effect;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    state.shape_mode = u32(set_runtime_body_shape_mode(4, context.shape)); // 0x0001FEB0, BL 4
+    const u32 holds = body_record(body).holds + 1;
+    body_record(body).holds = holds;
+    state.start = actor_world_position(context.actor); // 0x000412A0
+    state.phase = 1u;
+    start_animation(state, 0, state.take_off_animation, context);
     return true;
 }
 
 // Xbox 0x000A05A0
-void destroy_runtime_slam_smash_state(std::span<u8> state, RuntimeSlamSmashStateContext& context)
+void destroy_runtime_slam_smash_state(SlamSmashState& state, RuntimeSlamSmashStateContext& context)
 {
     const auto body = context.body;
-    body[0x6A] = u8(body[0x6A] - 1);
-    set_runtime_body_shape_mode(u8(get(state, field::shape_mode)), context.shape); // 0x0001FEB0, BL +0x3C
-    const u32 holds = read_u32(body, 0x258) - 1;
-    std::memcpy(body.data() + 0x258, &holds, 4);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
+    set_runtime_body_shape_mode(u8(state.shape_mode), context.shape); // 0x0001FEB0, BL +0x3C
+    const u32 holds = body_record(body).holds - 1;
+    body_record(body).holds = holds;
     if (holds == 0)
     {
         std::array<u32, 0x42> message{0x4A};
         context.body_message(message); // Body vtable +0xC.
     }
-    if (get(state, field::shapes_active) != 0)
+    if (state.shapes_active != 0)
     {
         if (context.collision != nullptr)
         {
-            deactivate_runtime_body_contact_shapes(*context.collision, get(state, field::shape_tag)); // 0x0013F4D0
+            deactivate_runtime_body_contact_shapes(*context.collision, state.shape_tag); // 0x0013F4D0
         }
-        set(state, field::shapes_active, 0u);
+        state.shapes_active = 0u;
     }
-    if (get(state, field::paused) != 0)
+    if (state.paused != 0)
     {
         hold_animation(-1, context);
-        set(state, field::paused, 0u);
+        state.paused = 0u;
     }
-    slam_smash_records.erase(state.data());
+    slam_smash_records.erase(body_state_key(state));
 }
 
 // Xbox 0x000A0630
-void tick_runtime_slam_smash_state(std::span<u8> state, RuntimeSlamSmashStateContext& context)
+void tick_runtime_slam_smash_state(SlamSmashState& state, RuntimeSlamSmashStateContext& context)
 {
     const float step = runtime_frame_step(context.clock);
     const float rate = runtime_actor_rate(context.actor);
-    set(state, body_state_field::elapsed, rate * step + get(state, body_state_field::elapsed));
-    put_float(context.body, 0x734, 0.f);
-    put_float(context.body, 0x72C, 0.f);
-    float timer = get(state, field::timer);
+    state.base.elapsed = rate * step + state.base.elapsed;
+    level_body_euler(context.body);
+    float timer = state.timer;
     if (0.f < timer)
     {
         timer = timer - rate * step;
@@ -296,11 +292,11 @@ void tick_runtime_slam_smash_state(std::span<u8> state, RuntimeSlamSmashStateCon
         {
             timer = 0.f;
         }
-        set(state, field::timer, timer);
+        state.timer = timer;
     }
-    const Vec3 start = get(state, field::start);
-    const Vec3 landing = get(state, field::landing);
-    switch (get(state, field::phase))
+    const Vec3 start = state.start;
+    const Vec3 landing = state.landing;
+    switch (state.phase)
     {
     case 1:
         if (runtime_actor_animation_slot_complete(context.animation, 0)) // 0x0003B290, ECX 0, EAX actor
@@ -309,19 +305,19 @@ void tick_runtime_slam_smash_state(std::span<u8> state, RuntimeSlamSmashStateCon
         }
         return;
     case 2:
-        if (get(state, field::timer) == 0.f) // UCOMISS; JP keeps the crouch.
+        if (state.timer == 0.f) // UCOMISS; JP keeps the crouch.
         {
             set_phase(state, 3, context); // The inlined 0x000A09B0, EAX 3.
         }
         return;
     case 3:
     {
-        const float t = share(get(state, field::timer), kLeapRate);
+        const float t = share(state.timer, kLeapRate);
         place_body(Vec3{(landing.x - start.x) * t + start.x,
                        t * t * t * ((landing.y + kLeapHeight) - start.y) + start.y,
                        (landing.z - start.z) * t + start.z},
             context);
-        if (get(state, field::timer) == 0.f)
+        if (state.timer == 0.f)
         {
             set_phase(state, 4, context); // 0x000A09B0, EAX 4, ECX state
         }
@@ -329,26 +325,26 @@ void tick_runtime_slam_smash_state(std::span<u8> state, RuntimeSlamSmashStateCon
     }
     case 4:
     {
-        const float t = share(get(state, field::timer), kDropRate);
+        const float t = share(state.timer, kDropRate);
         const float above = landing.y + kLeapHeight;
         place_body(Vec3{(landing.x - landing.x) * t + landing.x, (landing.y - above) * t + above,
                        (landing.z - landing.z) * t + landing.z},
             context);
-        if (get(state, field::timer) == 0.f)
+        if (state.timer == 0.f)
         {
-            set(state, field::phase, 5u);
+            state.phase = 5u;
         }
         return;
     }
     case 5:
     {
         const Vec3 point = actor_world_position(context.actor); // 0x000412A0
-        if (read_u32(state, field::effect.offset) == kAidPrefix)
+        if (std::memcmp(state.effect.data(), "aid_", 4) == 0)
         {
             RuntimeActorCreationOptions& options = g_actor_creation_options; // DAT_004E1C5C.
             options.position = point;
             options.flags = 1;
-            if (load_actor_effect_stream(field_data(state, field::effect), &options, context.effects) != 0) // 0x00053170
+            if (load_actor_effect_stream(state.effect.data(), &options, context.effects) != 0) // 0x00053170
             {
                 retain_last_actor_effect(kRetainForever); // 0x0013E750, XMM0 DAT_0032B120
             }

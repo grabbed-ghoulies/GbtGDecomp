@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -11,30 +12,58 @@ namespace gbtg
 {
 struct RuntimeBodyCollisionState;
 
+struct HunchbackRange
+{
+    float least;
+    float most;
+};
+
+// DAT_00428770, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct HunchbackParameters
+{
+    float attack_reach; // +0x0
+    float close_reach; // +0x4
+    float far_reach; // +0x8
+    HunchbackRange taunt_delay; // +0xC
+    i32 taunt_limit_least; // +0x14
+    i32 taunt_limit_most; // +0x18
+    float stun_time_healthy; // +0x1C, Health 3/4 and up.
+    float stun_time_three_quarters; // +0x20
+    float stun_time_half; // +0x24
+    float stun_time_quarter; // +0x28
+    HunchbackRange charge_time; // +0x2C
+    HunchbackRange special_time; // +0x34
+    float special_ease_rate; // +0x3C, The body's ease_rate during the special.
+    HunchbackRange recovery_time; // +0x40
+    float unk_48; // +0x48
+    float unk_4C; // +0x4C
+};
+static_assert(sizeof(HunchbackParameters) == 0x50);
+
 // entityStrategyHunchback (factory type 0x45, getter 0x000B3A90, vtable 0x00505E88) over the base strategy (type 8):
 // the hunchback. Idle (0x401) he steps out, taunts a few times and runs about; a target within the block's +4 sends him
 // evading (0x3FE), from which a target past +8 brings him back, and one within +0 makes him block (0x40C) or, on an
 // attack roll, charge his special attack (0x3EF: prepare, the armed charge with its hand shapes, a timed recovery,
 // the finish). A landed hit makes him dizzy (0x409) until his body recovers.
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace hunchback_strategy_field
+struct HunchbackStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_00428770
-constexpr RetailField<std::array<char, 0x80>, 0x3C> charge_effect{}; // parameters +0x18
-constexpr RetailField<float, 0xBC> taunt_delay{}; // seconds to the next taunt
-constexpr RetailField<u32, 0xC4> idle_phase{}; // 1 stepping out, 2 taunting, 3 running about
-constexpr RetailField<i32, 0xC8> taunts{}; // taunts made
-constexpr RetailField<i32, 0xCC> taunt_limit{}; // from the block's +0x14..+0x18
-constexpr RetailField<u32, 0xD0> dizzy_step{}; // 1 falling, 2 down, 3 pushed away
-constexpr RetailField<u32, 0xD4> special_phase{}; // 1 prepare, 3 armed, 4 charging, 5 recovering, 6 finish
-constexpr RetailField<float, 0xD8> special_time{};
-constexpr RetailField<u32, 0xDC> saved_334{}; // body +0x334 while armed
-constexpr RetailField<u32, 0xE0> armed{}; // the attack row and hand shapes are on (0x000B39D0 undoes them)
-constexpr RetailField<u32, 0xE4> effect{}; // the charge effect (0x0003DF40)
-constexpr RetailField<u32, 0xE8> interrupted{}; // message 100 during the special attack
-constexpr u32 kSize = 0xEC;
-static_assert(retail_fits(kSize, interrupted));
-} // namespace hunchback_strategy_field
+    StrategyBase base{}; // +0
+    u32 parameters = 0; // +0x38, DAT_00428770
+    std::array<char, 0x80> charge_effect{}; // +0x3C, parameters +0x18
+    float taunt_delay = 0.f; // +0xBC, seconds to the next taunt
+    std::array<u8, 4> unk_C0{}; // +0xC0, never read or written by translated code
+    u32 idle_phase = 0; // +0xC4, 1 stepping out, 2 taunting, 3 running about
+    i32 taunts = 0; // +0xC8, taunts made
+    i32 taunt_limit = 0; // +0xCC, from the block's +0x14..+0x18
+    u32 dizzy_step = 0; // +0xD0, 1 falling, 2 down, 3 pushed away
+    u32 special_phase = 0; // +0xD4, 1 prepare, 3 armed, 4 charging, 5 recovering, 6 finish
+    float special_time = 0.f; // +0xD8
+    u32 saved_334 = 0; // +0xDC, body +0x334 while armed
+    u32 armed = 0; // +0xE0, the attack row and hand shapes are on (0x000B39D0 undoes them)
+    u32 effect = 0; // +0xE4, the charge effect (0x0003DF40)
+    u32 interrupted = 0; // +0xE8, message 100 during the special attack
+};
+static_assert(sizeof(HunchbackStrategyState) == 0xEC);
 struct RuntimeHunchbackStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

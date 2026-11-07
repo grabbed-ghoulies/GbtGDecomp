@@ -38,11 +38,6 @@ char16_t* save_name(GameDeletionWidget& w)
     return w.save_name.data();
 }
 
-float exe_real(const GameSelectControlServices& s, u32 address)
-{
-    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
-}
-
 float frame_step(const GameSelectControlServices& s)
 {
     if (s.freeze <= 0.f)
@@ -135,10 +130,10 @@ void set_runtime_game_deletion_state(GameDeletionWidget& widget, i32 state, Game
     auto& prompt = w.prompt;
     if (previous == 1)
     {
-        const std::array<float, 2> anchor{s.hud.inner_left + exe_real(s, 0x0032B604),
-            s.hud.inner_bottom - exe_real(s, 0x0032B1F4)}; // DAT_00509740, DAT_0050974C
-        const std::array<float, 2> row_step{0.f, exe_real(s, 0x0032B600)};
-        const std::array<float, 2> origin{exe_real(s, 0x0032B234), exe_real(s, 0x0032B5FC)};
+        const std::array<float, 2> anchor{s.hud.inner_left + 75.f, // DAT_0032B604.
+            s.hud.inner_bottom - 16.f}; // DAT_00509740, DAT_0050974C, DAT_0032B1F4.
+        const std::array<float, 2> row_step{0.f, -32.f}; // DAT_0032B600.
+        const std::array<float, 2> origin{20.f, -16.f}; // DAT_0032B234, DAT_0032B5FC.
         title.record = text_record(w, title, 1.35f, s);
         prompt.record = text_record(w, prompt, 1.5f, s);
         if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
@@ -148,14 +143,14 @@ void set_runtime_game_deletion_state(GameDeletionWidget& widget, i32 state, Game
         create_dialogue_widget(w.prompts, 0, s.image.memory(kDeletionRows, 0x310).data(), anchor, row_step, origin,
             nullptr, 1.f, 0.75f, "gameselect", s.text, 0x400C0, s.widget_allocation); // 0x00141E20, EAX +0x590
         auto& prompts = *w.prompts;
-        const float fade = exe_real(s, 0x0032B1AC);
+        const float fade = 0.2f; // DAT_0032B1AC.
         prompts.duration = fade;
         if (prompts.progress > fade)
         {
             prompts.progress = fade;
         }
         prompts.pool->end_time = fade;
-        prompts.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+        prompts.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     }
     else if (previous == 2)
     {
@@ -221,20 +216,20 @@ void open_runtime_game_deletion(std::span<u8> owner, GameSelectControlState& con
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     allocate_dialogue_text_pool(w.pool, 0, 1, 0x40080, s.text_pools); // 0x0005F390, ESI +0x41C
-    w.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    w.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     auto& title = w.title;
     auto& prompt = w.prompt;
     copy_wide(title.text.data(), save_name(w));
-    title.x = exe_real(s, 0x0032B564);
-    title.y = exe_real(s, 0x0032B12C);
+    title.x = 320.f; // DAT_0032B564.
+    title.y = 100.f; // DAT_0032B12C.
     title.record = 0;
     if (s.text.data() != nullptr) // IsBadReadPtr(DAT_005462C4, 1)
     {
         lookup_borrowed_localtext(s.text, "gameselect", "gameslotdeletion_deleteprompt",
             prompt.text.data(), s.localtext); // 0x000FF120, EBX +0x210, EDI 0x00324D74
     }
-    prompt.x = exe_real(s, 0x0032B564);
-    prompt.y = exe_real(s, 0x0032B680);
+    prompt.x = 320.f; // DAT_0032B564.
+    prompt.y = 240.f; // DAT_0032B680.
     prompt.record = 0;
     set_runtime_game_deletion_state(w, 1, s); // 0x000DBDC0, EAX 1
 }

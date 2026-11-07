@@ -1,4 +1,10 @@
 #include "grim_reaper_strategy.h"
+#include "gbtg/retail_field.h"
+#include "weapon_fields.h"
+#include <cstddef>
+#include "strategy_fields.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_shape_push.h"
 #include "actor_transform.h"
 #include "body_animation_commands.h"
@@ -12,6 +18,8 @@
 #include "../scripts/script_actions.h"
 #include "gbtg/entity.h"
 #include "gbtg/sound_runtime.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -21,12 +29,16 @@ const u32* g_grim_reaper_dizzy = nullptr;
 
 namespace
 {
-namespace field = grim_reaper_strategy_field;
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
+GrimReaperStrategyState& fields_of(std::span<u8> strategy)
 {
-    std::memcpy(bytes.data() + offset, &value, 4);
+    return strategy_view<GrimReaperStrategyState>(strategy);
 }
+
+const GrimReaperStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<GrimReaperStrategyState>(strategy);
+}
+
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -75,9 +87,9 @@ EntityBitBlock& body_bits(RuntimeGrimReaperStrategy& context)
     return *bits;
 }
 
-float block(RuntimeGrimReaperStrategy& context, size_t offset)
+const GrimReaperParameters& parameters_of(RuntimeGrimReaperStrategy& context)
 {
-    return read_f32(context.parameters, offset);
+    return retail_view<GrimReaperParameters>(context.parameters);
 }
 
 AudioBankStreams& streams_of(RuntimeGrimReaperStrategy& context)
@@ -130,7 +142,7 @@ RuntimePlayerMindRequest& request(u16 kind, RuntimeGrimReaperStrategy& context)
 bool body_settled(RuntimeGrimReaperStrategy& context)
 {
     const std::span<const u8> body = body_of(context);
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f; // DAT_0032B100.
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f; // DAT_0032B100.
 }
 
 // The actor's step: the frame's (none while frozen) by its rate (none while +0x930 holds it).
@@ -140,20 +152,18 @@ float actor_step(RuntimeGrimReaperStrategy& context)
 }
 
 // A timer above zero counts down by the actor's step and stops at zero.
-template <u32 Offset>
-void count_down(RetailField<float, Offset> timer, RuntimeGrimReaperStrategy& context)
+void count_down(float& timer, RuntimeGrimReaperStrategy& context)
 {
-    const std::span<u8> strategy = strategy_of(context);
     const float step = runtime_frame_step(goals_of(context).clock);
     const float rate = runtime_actor_rate(actor_of(context));
-    const float left = get(strategy, timer);
+    const float left = timer;
     if (left > 0.f)
     {
         const float next = left - rate * step;
-        set(strategy, timer, next);
+        timer = next;
         if (!(0.f < next))
         {
-            set(strategy, timer, 0.f);
+            timer = 0.f;
         }
     }
 }
@@ -175,7 +185,7 @@ bool kind_running(RuntimeGrimReaperStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u32 kind = read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0 ? 1u : 0u;
+    const u32 kind = player_record(actor).mode == 2 || player_record(actor).case_link != 0 ? 1u : 0u;
     return goals.resume.references[kind] == 0 && goals.resume.decay_enabled[goals.resume.decay_index] != 0;
 }
 
@@ -193,14 +203,14 @@ u16 first_goal_kind(RuntimeGrimReaperStrategy& context)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeGrimReaperStrategy& context)
 {
-    const u32 target = read_u32(mind_of(context), 0x10);
+    const u32 target = mind_record(mind_of(context)).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
 // Xbox 0x000AE0A0, EAX strategy: he still has a target worth chasing.
 bool target_valid(RuntimeGrimReaperStrategy& context)
 {
-    if (get(strategy_of(context), field::fed) != 0)
+    if (fields_of(strategy_of(context)).fed != 0)
     {
         return false;
     }
@@ -236,10 +246,10 @@ void request_chase(RuntimeGrimReaperStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
     // Body +8 is his own actor; its +0x38 scales the body's +0x78 reach.
-    const float reach = actor_of(context).radius_xz * read_f32(body, 0x78);
+    const float reach = actor_of(context).radius_xz * body_record(body).reach;
     const RuntimeBodyAttachedActor* held = goals_of(context).actions.attached; // Body +0x48.
     float extra = 0.f;
-    if (held != nullptr && held->bytes[0x93D] == 1)
+    if (held != nullptr && weapon_base(held->bytes).unk_93D == 1)
     {
         if (held->actor == nullptr)
         {
@@ -255,12 +265,12 @@ void request_chase(RuntimeGrimReaperStrategy& context)
     put_float(chase.bytes, 0x10, kOne);
     put_float(chase.bytes, 0x14, kOne);
     put_float(chase.bytes, 0x18, extra + reach);
-    put_float(chase.bytes, 0x10, get(strategy, field::speed));
-    put_float(chase.bytes, 0x14, get(strategy, field::speed));
+    put_float(chase.bytes, 0x10, fields_of(strategy).speed);
+    put_float(chase.bytes, 0x14, fields_of(strategy).speed);
     put_float(chase.bytes, 0x1C, 0.f);
-    put_float(body, 0x71C, get(strategy, field::turn_speed));
-    put_float(body, 0x720, get(strategy, field::turn_speed));
-    put_float(body, 0x724, kOne);
+    put_float(body, offsetof(BodyRecord, turn_rates), fields_of(strategy).turn_speed);
+   body_record(body).turn_rates[1] = fields_of(strategy).turn_speed;
+   body_record(body).turn_rates[2] = kOne;
     RuntimePlayerMindRequest& wait = request(0x27, context);
     put_float(wait.bytes, 0x10, 5.f); // DAT_0032B184.
 }
@@ -273,7 +283,7 @@ bool target_within_reach(RuntimeMindTarget* target, RuntimeGrimReaperStrategy& c
         return false;
     }
     const long double distance = runtime_target_distance(actor_of(context), target->bytes); // 0x00041560
-    return static_cast<long double>(block(context, 0)) > distance;
+    return static_cast<long double>(parameters_of(context).reach) > distance;
 }
 
 // Xbox 0x000AD2D0, EBX target, ESI actor: the target has got beyond his reach.
@@ -284,10 +294,10 @@ bool target_escaped(RuntimeMindTarget* target, RuntimeGrimReaperStrategy& contex
         throw Error("0x000AD2D0 reads the point of a missing target (address zero)");
     }
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const long double dx = static_cast<long double>(position.x) - read_f32(target->bytes, 0x20);
-    const long double dy = static_cast<long double>(position.y) - read_f32(target->bytes, 0x24);
-    const long double dz = static_cast<long double>(position.z) - read_f32(target->bytes, 0x28);
-    return std::sqrt(dz * dz + (dy * dy + dx * dx)) > static_cast<long double>(block(context, 0));
+    const long double dx = static_cast<long double>(position.x) - mind_target_record(target->bytes).shape.position.x;
+    const long double dy = static_cast<long double>(position.y) - mind_target_record(target->bytes).shape.position.y;
+    const long double dz = static_cast<long double>(position.z) - mind_target_record(target->bytes).shape.position.z;
+    return std::sqrt(dz * dz + (dy * dy + dx * dx)) > static_cast<long double>(parameters_of(context).reach);
 }
 
 void set_model_flag(u8 value, RuntimeGrimReaperStrategy& context)
@@ -307,7 +317,7 @@ void set_model_flag(u8 value, RuntimeGrimReaperStrategy& context)
 void start_grab(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::grabbing) != 0)
+    if (fields_of(strategy).grabbing != 0)
     {
         return;
     }
@@ -320,40 +330,41 @@ void start_grab(RuntimeGrimReaperStrategy& context)
             *context.attack_tables.at(context.attack_resource.data()), 0xD2); // 0x0001C5A0, EBX 0xD2
         row = found == nullptr ? 0u : context.address_of(found);
     }
-    strategy[0x1A] = 1;
-    put_word(body, 0x84, row);
-    body[0x6A] = u8(body[0x6A] + 1);
+    strategy_base(strategy).attacking = 1;
+    body_record(body).hit_record = row;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + 1);
     if (context.collision != nullptr)
     {
         activate_runtime_body_contact_shapes(*context.collision, actor, 3, 1, kOne); // 0x0013F420
-        put_word(body, 0x2CC, 0);
+        body_record(body).contact_count = 0;
     }
     if (context.collision != nullptr)
     {
         activate_runtime_body_contact_shapes(*context.collision, actor, 0xD, 1, kOne);
-        put_word(body, 0x2CC, 0);
+        body_record(body).contact_count = 0;
     }
-    put_word(body, 0x74C, 1);
+   body_record(body).unk_74C = 1;
     set_model_flag(1, context);
     dispatch_actor_attachment_records(context.resource.resource.data(), 0x2E, record_runtime_body_attachment_event, nullptr,
-        context.callouts, context.address_of(strategy.data()) + field::events.offset); // 0x0003BE20, 0x0013B8B0
+        context.callouts, context.address_of(strategy.data()) + offsetof(GrimReaperStrategyState, events));
+        // 0x0003BE20, 0x0013B8B0
     goals_of(context).room = nullptr; // Actor +0x954 -> +8 -> +0xCA0.
-    set(strategy, field::grabbing, 1u);
+    fields_of(strategy).grabbing = 1u;
 }
 
 // Xbox 0x000AD200: the grab lets go.
 void end_grab(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::grabbing) == 0)
+    if (fields_of(strategy).grabbing == 0)
     {
         return;
     }
     const std::span<u8> body = body_of(context);
-    strategy[0x1A] = 0;
-    put_word(body, 0x84, 0);
-    put_word(body, 0x88, 0);
-    body[0x6A] = u8(body[0x6A] - 1);
+    strategy_base(strategy).attacking = 0;
+    body_record(body).hit_record = 0;
+   body_record(body).unk_88 = 0;
+    body_record(body).unk_6A = u8(body_record(body).unk_6A - 1);
     if (context.collision != nullptr)
     {
         deactivate_runtime_body_contact_shapes(*context.collision, 3); // 0x0013F4D0
@@ -362,17 +373,17 @@ void end_grab(RuntimeGrimReaperStrategy& context)
     {
         deactivate_runtime_body_contact_shapes(*context.collision, 0xD);
     }
-    put_word(body, 0x74C, 0);
-    clear_runtime_player_attachment_events(strategy.subspan(field::events.offset, 0x24), context.lists); // 0x0013B810
+   body_record(body).unk_74C = 0;
+    clear_runtime_player_attachment_events(retail_bytes(fields_of(strategy).events), context.lists); // 0x0013B810
     set_model_flag(0, context);
-    set(strategy, field::grabbing, 0u);
+    fields_of(strategy).grabbing = 0u;
 }
 
 // Xbox 0x000ACF10, ESI strategy: the swing winds up.
 void start_swing(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 swing = get(strategy, field::swing);
+    const u32 swing = fields_of(strategy).swing;
     if (swing == 1)
     {
         return;
@@ -381,15 +392,15 @@ void start_swing(RuntimeGrimReaperStrategy& context)
     {
         end_grab(context); // 0x000AD200
     }
-    set(strategy, field::swing, 1u);
-    set(strategy, field::wind_up, block(context, 0x34));
+    fields_of(strategy).swing = 1u;
+    fields_of(strategy).wind_up = parameters_of(context).wind_up_time;
 }
 
 // Xbox 0x000ACF40, ESI strategy: the swing ends.
 void end_swing(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 swing = get(strategy, field::swing);
+    const u32 swing = fields_of(strategy).swing;
     if (swing == 0)
     {
         return;
@@ -398,7 +409,7 @@ void end_swing(RuntimeGrimReaperStrategy& context)
     {
         end_grab(context); // 0x000AD200
     }
-    set(strategy, field::swing, 0u);
+    fields_of(strategy).swing = 0u;
 }
 
 // Xbox 0x000ADB90, ECX strategy, EDX actor: settled, the cue counts down; at zero it is drawn again and he points or
@@ -410,16 +421,16 @@ void cue_sound(RuntimeGrimReaperStrategy& context)
         return;
     }
     const std::span<u8> strategy = strategy_of(context);
-    const float low = block(context, 0x20);
-    const float high = block(context, 0x24);
+    const float low = parameters_of(context).cue_time_low;
+    const float high = parameters_of(context).cue_time_high;
     const float roll = random_unit(context);
-    const float left = get(strategy, field::cue) - actor_step(context);
-    set(strategy, field::cue, left);
+    const float left = fields_of(strategy).cue - actor_step(context);
+    fields_of(strategy).cue = left;
     if (0.f < left)
     {
         return;
     }
-    set(strategy, field::cue, (high - low) * roll + left + low);
+    fields_of(strategy).cue = (high - low) * roll + left + low;
     const float pick = random_unit(context);
     const char* sound = 0.66f < pick ? "XACT_SOUNDBANK_GGRIMREAPER_WOOFAK" // DAT_0032B550, 0x00302C38
         : "XACT_SOUNDBANK_GGRIMREAPER_POINT"; // 0x00302BB8
@@ -434,53 +445,53 @@ void tick_pace(RuntimeGrimReaperStrategy& context)
     EntityBitBlock& bits = body_bits(context);
     if ((bits.bytes[7] & 8) != 0)
     {
-        count_down(field::fly, context);
-        if (kEpsilon > get(strategy, field::fly))
+        count_down(fields_of(strategy).fly, context);
+        if (kEpsilon > fields_of(strategy).fly)
         {
             bits.bytes[7] = u8(bits.bytes[7] & 0xF7);
         }
     }
-    if (get(strategy, field::appearing) != 0)
+    if (fields_of(strategy).appearing != 0)
     {
         return;
     }
-    count_down(field::pace_time, context);
-    if (!(kEpsilon > get(strategy, field::pace_time)))
+    count_down(fields_of(strategy).pace_time, context);
+    if (!(kEpsilon > fields_of(strategy).pace_time))
     {
         return;
     }
-    set(strategy, field::pace_time, block(context, 0x2C));
-    if (kOne > get(strategy, field::speed))
+    fields_of(strategy).pace_time = parameters_of(context).pace_interval;
+    if (kOne > fields_of(strategy).speed)
     {
-        if (get(strategy, field::slowed) == 0)
+        if (fields_of(strategy).slowed == 0)
         {
-            const float speed = block(context, 8) + get(strategy, field::speed);
-            set(strategy, field::speed, speed);
+            const float speed = parameters_of(context).speed_step + fields_of(strategy).speed;
+            fields_of(strategy).speed = speed;
             if (speed > kOne)
             {
-                set(strategy, field::speed, kOne);
+                fields_of(strategy).speed = kOne;
             }
         }
         else
         {
-            const float held = get(strategy, field::held_speed) + block(context, 8);
-            set(strategy, field::held_speed, held);
+            const float held = fields_of(strategy).held_speed + parameters_of(context).speed_step;
+            fields_of(strategy).held_speed = held;
             if (held > kOne)
             {
-                set(strategy, field::held_speed, kOne);
+                fields_of(strategy).held_speed = kOne;
             }
-            set(strategy, field::slow, block(context, 0x30) * block(context, 8) + get(strategy, field::slow));
-            set(strategy, field::slow_length,
-                block(context, 0x30) * block(context, 8) + get(strategy, field::slow_length));
+            fields_of(strategy).slow = parameters_of(context).hit_slow * parameters_of(context).speed_step + fields_of(strategy).slow;
+            fields_of(strategy).slow_length = parameters_of(context).hit_slow * parameters_of(context).speed_step
+                + fields_of(strategy).slow_length;
         }
     }
-    if (block(context, 0x14) > get(strategy, field::turn_speed))
+    if (parameters_of(context).turn_speed_limit > fields_of(strategy).turn_speed)
     {
-        set(strategy, field::turn_speed, block(context, 0x10) + get(strategy, field::turn_speed));
+        fields_of(strategy).turn_speed = parameters_of(context).turn_speed_step + fields_of(strategy).turn_speed;
     }
     if (target_valid(context)) // 0x000AE0A0
     {
-        const u16 state = read_u16(strategy, 0xE);
+        const u16 state = strategy_base(strategy).state;
         if (state == 0x401 || state == 0x40C)
         {
             clear_requests(context); // 0x00029E80
@@ -493,32 +504,32 @@ void tick_pace(RuntimeGrimReaperStrategy& context)
 void recover_pace(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::slowed) == 0 || !body_settled(context))
+    if (fields_of(strategy).slowed == 0 || !body_settled(context))
     {
         return;
     }
     const float step = runtime_frame_step(goals_of(context).clock);
     const float rate = runtime_actor_rate(actor_of(context));
-    const float slow = get(strategy, field::slow);
+    const float slow = fields_of(strategy).slow;
     if (slow > 0.f)
     {
         const float left = slow - rate * step;
-        set(strategy, field::slow, left);
+        fields_of(strategy).slow = left;
         if (!(0.f < left))
         {
-            set(strategy, field::slow, 0.f);
-            set(strategy, field::speed, get(strategy, field::held_speed));
-            set(strategy, field::slowed, 0u);
+            fields_of(strategy).slow = 0.f;
+            fields_of(strategy).speed = fields_of(strategy).held_speed;
+            fields_of(strategy).slowed = 0u;
             return;
         }
     }
-    const float speed = (kOne - get(strategy, field::slow) / get(strategy, field::slow_length))
-        * get(strategy, field::held_speed);
-    set(strategy, field::speed, speed);
-    if (!(speed < get(strategy, field::held_speed)))
+    const float speed = (kOne - fields_of(strategy).slow / fields_of(strategy).slow_length)
+        * fields_of(strategy).held_speed;
+    fields_of(strategy).speed = speed;
+    if (!(speed < fields_of(strategy).held_speed))
     {
-        set(strategy, field::speed, get(strategy, field::held_speed));
-        set(strategy, field::slowed, 0u);
+        fields_of(strategy).speed = fields_of(strategy).held_speed;
+        fields_of(strategy).slowed = 0u;
     }
     clear_requests(context); // 0x00029E80
 }
@@ -538,11 +549,11 @@ void update_chase(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     RuntimeMindTarget* target = select_target(context);
-    if (get(strategy, field::appearing) != 0)
+    if (fields_of(strategy).appearing != 0)
     {
         if (!requests_pending(context))
         {
-            set(strategy, field::appearing, 0u);
+            fields_of(strategy).appearing = 0u;
         }
         return;
     }
@@ -591,19 +602,19 @@ void update_swing(RuntimeGrimReaperStrategy& context)
     {
         request_chase(context); // 0x000ADCC0
     }
-    const u32 swing = get(strategy, field::swing);
+    const u32 swing = fields_of(strategy).swing;
     if (swing == 1)
     {
-        float wind_up = get(strategy, field::wind_up);
+        float wind_up = fields_of(strategy).wind_up;
         const bool done = count_down_runtime_strategy_timer(wind_up, goals_of(context)); // 0x0002B9F0
-        set(strategy, field::wind_up, wind_up);
-        if (done && get(strategy, field::swing) != 2)
+        fields_of(strategy).wind_up = wind_up;
+        if (done && fields_of(strategy).swing != 2)
         {
-            if (get(strategy, field::swing) == 2)
+            if (fields_of(strategy).swing == 2)
             {
                 end_grab(context); // 0x000AD200
             }
-            set(strategy, field::swing, 2u);
+            fields_of(strategy).swing = 2u;
             start_grab(context); // 0x000AD0D0
         }
         return;
@@ -638,7 +649,7 @@ Vec3 shadow_point(RuntimeGrimReaperStrategy& context)
 // Xbox 0x000AD390
 void grim_reaper_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(GrimReaperStrategyState);
     output.parameters = 0x18;
 }
 
@@ -647,26 +658,26 @@ bool initialize_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
-    set(strategy, field::speed, 0.5f); // DAT_0032B0F4
-    set(strategy, field::fed, 0u);
-    set(strategy, field::parameters, context.parameters_address);
-    set(strategy, field::appearing, 1u);
-    set(strategy, field::turn_speed, kOne);
-    put_float(body, 0x334, 10.f); // DAT_0032B10C
-    set(strategy, field::grabbing, 0u);
+    fields_of(strategy).speed = 0.5f; // DAT_0032B0F4
+    fields_of(strategy).fed = 0u;
+    fields_of(strategy).parameters = context.parameters_address;
+    fields_of(strategy).appearing = 1u;
+    fields_of(strategy).turn_speed = kOne;
+    body_record(body).ease_rate = 10.f; // DAT_0032B10C
+    fields_of(strategy).grabbing = 0u;
     EntityBitBlock& bits = body_bits(context);
     bits.bytes[0] = u8(bits.bytes[0] | 0x80);
-    set(strategy, field::fly, block(context, 0x28));
-    set(strategy, field::pace_time, block(context, 0x2C));
+    fields_of(strategy).fly = parameters_of(context).fly_time;
+    fields_of(strategy).pace_time = parameters_of(context).pace_interval;
     bits.bytes[7] = u8(bits.bytes[7] | 8);
-    const float low = block(context, 0x20);
-    const float high = block(context, 0x24);
+    const float low = parameters_of(context).cue_time_low;
+    const float high = parameters_of(context).cue_time_high;
     const float roll = random_unit(context);
     g_flags_ea9c |= 0x10u; // DAT_0050EA9C: no more time limits while he is out.
-    set(strategy, field::cue, (high - low) * roll + low);
+    fields_of(strategy).cue = (high - low) * roll + low;
     acquire_tracked_audio_bank(kStream, 5, streams_of(context)); // 0x00038910, EAX name
-    set(strategy, field::shadow,
-        register_runtime_blob_shadow(shadow_point(context), 110.f, 140.f, shadows_of(context))); // 0x00119A60
+    fields_of(strategy).shadow = register_runtime_blob_shadow(shadow_point(context), 110.f, 140.f,
+        shadows_of(context)); // 0x00119A60
     return true;
 }
 
@@ -675,7 +686,7 @@ void destroy_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
 {
     release_tracked_audio_bank(kStream, streams_of(context)); // The inlined 0x00038970.
     const std::span<u8> strategy = strategy_of(context);
-    const i32 slot = get(strategy, field::shadow);
+    const i32 slot = fields_of(strategy).shadow;
     if (slot < 0)
     {
         return;
@@ -687,15 +698,15 @@ void destroy_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
     {
         shadows.next_free = slot;
     }
-    set(strategy, field::shadow, -1);
+    fields_of(strategy).shadow = -1;
 }
 
 // Xbox 0x000AD600
 void update_runtime_grim_reaper_strategy(RuntimeGrimReaperStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
-    const i32 slot = get(strategy, field::shadow);
+    const u16 state = strategy_base(strategy).state;
+    const i32 slot = fields_of(strategy).shadow;
     if (slot >= 0)
     {
         shadows_of(context).entries[size_t(slot)].position = shadow_point(context);
@@ -748,11 +759,11 @@ void dispatch_runtime_grim_reaper_message(std::span<const u32> message, RuntimeG
 {
     const std::span<u8> strategy = strategy_of(context);
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 self = read_u32(strategy, 8);
+    const u32 self = strategy_base(strategy).actor;
     switch (message[0])
     {
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x3F2)
+        if (strategy_base(strategy).state == 0x3F2)
         {
             return;
         }
@@ -761,9 +772,9 @@ void dispatch_runtime_grim_reaper_message(std::span<const u32> message, RuntimeG
     {
         // A death: his target's, or one whose body (+0x95C, its +0x270) he holds, feeds him.
         RuntimeMindTarget* target = mind_target(context);
-        if (target != nullptr && read_u32(target->bytes, 0x10) == message[1])
+        if (target != nullptr && mind_target_record(target->bytes).actor == message[1])
         {
-            set(strategy, field::fed, 1u);
+            fields_of(strategy).fed = 1u;
         }
         else
         {
@@ -793,16 +804,16 @@ void dispatch_runtime_grim_reaper_message(std::span<const u32> message, RuntimeG
         }
         if (message[1] == self)
         {
-            if (get(strategy, field::slowed) == 0)
+            if (fields_of(strategy).slowed == 0)
             {
-                set(strategy, field::slowed, 1u);
-                set(strategy, field::held_speed, get(strategy, field::speed));
+                fields_of(strategy).slowed = 1u;
+                fields_of(strategy).held_speed = fields_of(strategy).speed;
             }
-            set(strategy, field::speed, kEpsilon);
-            const float slow = block(context, 0x30) * get(strategy, field::held_speed);
-            set(strategy, field::slow, slow);
-            set(strategy, field::slow_length, slow);
-            if (strategy[0x1C] == 0 && kind_running(context)
+            fields_of(strategy).speed = kEpsilon;
+            const float slow = parameters_of(context).hit_slow * fields_of(strategy).held_speed;
+            fields_of(strategy).slow = slow;
+            fields_of(strategy).slow_length = slow;
+            if (strategy_base(strategy).pause_count == 0 && kind_running(context)
                 && (goals.entry.ring == nullptr || first_goal_kind(context) == 0))
             {
                 change_state(0x401, context);
@@ -853,7 +864,7 @@ void enter_runtime_grim_reaper_state(u16 state, u16 previous, RuntimeGrimReaperS
         return;
     case 0x401:
         // 0x000ACD00, EAX strategy: appearing, he waits 5 s first.
-        if (get(strategy_of(context), field::appearing) != 0)
+        if (fields_of(strategy_of(context)).appearing != 0)
         {
             put_float(request(0x27, context).bytes, 0x10, 5.f); // DAT_0032B184
         }
@@ -893,7 +904,7 @@ void leave_runtime_grim_reaper_state(u16 state, u16 next, RuntimeGrimReaperStrat
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            strategy[0x1C] = u8(strategy[0x1C] - 1);
+            --strategy_base(strategy).pause_count;
         }
         return;
     }

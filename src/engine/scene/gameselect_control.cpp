@@ -296,7 +296,8 @@ void destroy_runtime_gameselect_control(std::span<u8> state, GameSelectControlSt
 void tick_runtime_gameselect_control(std::span<u8> state, GameSelectControlState& control,
     GameSelectControlServices& services)
 {
-    set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + frame_step(services));
+    SceneControlBase& base = scene_control_view<SceneControlBase>(state);
+    base.elapsed = base.elapsed + frame_step(services);
     refresh_runtime_input_device(services.frontend_input, services.frame, services.input, services.input_release);
     if (control.start_ready != 0)
     {

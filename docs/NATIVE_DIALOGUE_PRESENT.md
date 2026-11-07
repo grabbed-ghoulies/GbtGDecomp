@@ -252,7 +252,7 @@ correct: about 48 px wide, directly above the A icon. Its combiner is
   - `RuntimeDialogueDrawContext::override_count` binds to
     `State::light_override`.
   - `SceneAmbientContext::override_count` is a separate value, initialised to
-    0 in `scene_actor_services.cpp`, around `ambient_context = ...`.
+    0 in `scene_actor_services_bindings.cpp`, around `ambient_context = ...`.
   - So the dialogue's `++override_count` never makes
     `configure_runtime_scene_environment` (0xFD2A0) pick
     `override_base_color` (DAT_0042A570), or makes the ambient sampler pick

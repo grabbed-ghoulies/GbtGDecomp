@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -13,19 +14,18 @@ namespace gbtg
 // ("randomwander"); a target she can queue on sends her knocking it down (0x3EE, "knockdown", repeated by chance while
 // it has energy, each time a second longer), after which she waits ("wake", 0x40D) out the knockdown time before
 // holding again. A hit on her that lands while she may react sends her back to holding.
-// Strategy bytes: +0x1A knocking down, +0x1C pause count, +0x20 target queue link.
-namespace ghoulie_girl_strategy_field
+struct GhoulieGirlStrategyState
 {
-constexpr RetailField<u32, 0x38> record{}; // 0x00302B68 (ghoulie_girl_record)
-constexpr RetailField<u32, 0x3C> mode{}; // 0 none, 1 waking (object made), 2 wandering (0x000ABE80)
-constexpr RetailField<u32, 0x40> woken{}; // the first wake has run out
-constexpr RetailField<float, 0x44> timer{}; // the wake, then the wait after a knockdown
-constexpr RetailField<float, 0x48> knockdown_time{}; // the record's +8, one more per repeated knockdown
-constexpr RetailField<u32, 0x4C> object{}; // the object made for the wake (0x00107520)
-constexpr RetailField<std::array<char, 0x80>, 0x50> object_name{}; // parameters +0x18
-constexpr u32 kSize = 0xD0;
-static_assert(retail_fits(kSize, object_name));
-} // namespace ghoulie_girl_strategy_field
+    StrategyBase base{}; // +0
+    u32 record = 0; // +0x38, 0x00302B68 (ghoulie_girl_record)
+    u32 mode = 0; // +0x3C, 0 none, 1 waking (object made), 2 wandering (0x000ABE80)
+    u32 woken = 0; // +0x40, the first wake has run out
+    float timer = 0.f; // +0x44, the wake, then the wait after a knockdown
+    float knockdown_time = 0.f; // +0x48, the record's +8, one more per repeated knockdown
+    u32 object = 0; // +0x4C, the object made for the wake (0x00107520)
+    std::array<char, 0x80> object_name{}; // +0x50, parameters +0x18
+};
+static_assert(sizeof(GhoulieGirlStrategyState) == 0xD0);
 namespace ghoulie_girl_strategy_parameter
 {
 constexpr RetailField<std::array<char, 0x80>, 0x18> object_name{};

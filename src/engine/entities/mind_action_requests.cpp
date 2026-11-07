@@ -2,6 +2,8 @@
 #include "actor_transform.h"
 #include "actor_live_attachments.h"
 #include "../scripts/script_vm.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -19,11 +21,11 @@ void put(std::span<u8> bytes, size_t offset, u32 value)
 bool request_runtime_mind_boost(RuntimeMindBoost& context)
 {
     auto body = context.attachment.body;
-    if (read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0)
+    if (player_record(context.actor_bytes).mode == 2 || player_record(context.actor_bytes).case_link != 0)
     {
         if ((runtime_player_can_resume_strategy(context.actor_bytes, context.resume) != 0
                 || (context.story_word & 0x80) != 0)
-            && read_u16(body, 0x94) != 0 && (context.flags.bytes[7] & 2) == 0
+            && body_record(body).energy != 0 && (context.flags.bytes[7] & 2) == 0
             && (context.flags.bytes[7] & 4) == 0)
         {
             const u16 key = context.range_action_key();
@@ -52,10 +54,10 @@ bool request_runtime_mind_boost(RuntimeMindBoost& context)
                     {
                         select_runtime_body_action(body, key, context.attachment.actions);
                     }
-                    ++body[0x309];
-                    ++body[0x30A];
-                    ++body[0x30B];
-                    ++body[0x30C];
+                    ++body_record(body).unk_309;
+                    ++body_record(body).unk_30A;
+                    ++body_record(body).unk_30B;
+                    ++body_record(body).unk_30C;
                     const std::array<i32, 2> message{0x77, i32(context.actor_address)};
                     broadcast_actor_pulse_message(message.data());
                     return true;
@@ -77,12 +79,12 @@ bool request_runtime_mind_boost(RuntimeMindBoost& context)
 bool request_runtime_mind_turn(RuntimeMindBoost& context, const Vec3& point)
 {
     auto body = context.attachment.body;
-    if ((read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0)
+    if ((player_record(context.actor_bytes).mode == 2 || player_record(context.actor_bytes).case_link != 0)
         && !(read_f32(context.boost, 4) > 0.f)
         && (context.flags.bytes[7] & 2) == 0 && (context.flags.bytes[7] & 4) == 0
-        && read_u16(body, 0x94) != 0)
+        && body_record(body).energy != 0)
     {
-        if (runtime_body_timer_is_idle(body) && body[0x6A] == 0)
+        if (runtime_body_timer_is_idle(body) && body_record(body).unk_6A == 0)
         {
             const u16 key = context.contact_action_key();
             if (!runtime_body_has_action_id(context.attachment.actions.table, key))

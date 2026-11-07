@@ -1,4 +1,5 @@
 #include "physical_mesh_queries.h"
+#include "gbtg/model_nodes.h"
 #include "gbtg/anim.h"
 #include "contact_sweep.h"
 #include "mesh_sphere_geometry.h"
@@ -24,36 +25,40 @@ void runtime_mesh_pose_matrices(const ModelPoseBuffer* pose, i32 joint,
     std::memcpy(output_world, world, 48);
 }
 
+namespace
+{
+// A grid mesh's header and its cell table, sized from its cell bounds.
+std::span<const u8> resolve_grid_mesh(u32 address, const std::function<std::span<const u8>(u32, size_t)>& resolve)
+{
+    const auto header = resolve(address, model_grid_mesh_field::cells.offset);
+    const auto low = get(header, model_grid_mesh_field::cell_min);
+    const auto high = get(header, model_grid_mesh_field::cell_max);
+    const u32 x = u32(i32(std::bit_cast<i16>(high[0])) - std::bit_cast<i16>(low[0]));
+    const u32 y = u32(i32(std::bit_cast<i16>(high[1])) - std::bit_cast<i16>(low[1]));
+    const u32 z = u32(i32(std::bit_cast<i16>(high[2])) - std::bit_cast<i16>(low[2]));
+    const u32 cells = z * get(header, model_grid_mesh_field::plane_stride) +
+        y * get(header, model_grid_mesh_field::row_stride) + x + 1;
+    return resolve(address, model_grid_mesh_field::cells.offset + size_t(cells) * model_grid_mesh_field::cells.stride);
+}
+}
+
 void bind_runtime_physical_mesh_methods(
     std::unordered_map<u32, std::function<u32(RuntimeCollisionShapeCall&)>>& methods,
     std::function<std::span<const u8>(u32, size_t)> resolve)
 {
     methods[0x53720] = [resolve](RuntimeCollisionShapeCall& call)
     {
-        const auto header = resolve(call.shape_address, 0x2C);
-        const u32 x = u32(i32(std::bit_cast<i16>(read_u16(header, 0x16))) - std::bit_cast<i16>(read_u16(header, 0x10)));
-        const u32 y = u32(i32(std::bit_cast<i16>(read_u16(header, 0x18))) - std::bit_cast<i16>(read_u16(header, 0x12)));
-        const u32 z = u32(i32(std::bit_cast<i16>(read_u16(header, 0x1A))) - std::bit_cast<i16>(read_u16(header, 0x14)));
-        const u32 cells = z * read_u16(header, 0x1E) + y * read_u16(header, 0x1C) + x + 1;
-        return u32(collide_runtime_physical_mesh_segment(call, resolve(call.shape_address, 0x2C + size_t(cells) * 8), resolve));
+        return u32(collide_runtime_physical_mesh_segment(call, resolve_grid_mesh(call.shape_address, resolve),
+            resolve));
     };
     methods[0x53AA0] = [resolve](RuntimeCollisionShapeCall& call)
     {
-        const auto header = resolve(call.shape_address, 0x2C);
-        const u32 x = u32(i32(std::bit_cast<i16>(read_u16(header, 0x16))) - std::bit_cast<i16>(read_u16(header, 0x10)));
-        const u32 y = u32(i32(std::bit_cast<i16>(read_u16(header, 0x18))) - std::bit_cast<i16>(read_u16(header, 0x12)));
-        const u32 z = u32(i32(std::bit_cast<i16>(read_u16(header, 0x1A))) - std::bit_cast<i16>(read_u16(header, 0x14)));
-        const u32 cells = z * read_u16(header, 0x1E) + y * read_u16(header, 0x1C) + x + 1;
-        return u32(collide_runtime_physical_mesh_sweep(call, resolve(call.shape_address, 0x2C + size_t(cells) * 8), resolve));
+        return u32(collide_runtime_physical_mesh_sweep(call, resolve_grid_mesh(call.shape_address, resolve), resolve));
     };
     methods[0x53F20] = [resolve](RuntimeCollisionShapeCall& call)
     {
-        const auto header = resolve(call.shape_address, 0x2C);
-        const u32 x = u32(i32(std::bit_cast<i16>(read_u16(header, 0x16))) - std::bit_cast<i16>(read_u16(header, 0x10)));
-        const u32 y = u32(i32(std::bit_cast<i16>(read_u16(header, 0x18))) - std::bit_cast<i16>(read_u16(header, 0x12)));
-        const u32 z = u32(i32(std::bit_cast<i16>(read_u16(header, 0x1A))) - std::bit_cast<i16>(read_u16(header, 0x14)));
-        const u32 cells = z * read_u16(header, 0x1E) + y * read_u16(header, 0x1C) + x + 1;
-        return u32(collect_runtime_physical_mesh_contacts(call, resolve(call.shape_address, 0x2C + size_t(cells) * 8), resolve));
+        return u32(collect_runtime_physical_mesh_contacts(call, resolve_grid_mesh(call.shape_address, resolve),
+            resolve));
     };
     const auto pose_of = [](const RuntimeCollisionShapeCall& call)
     {
@@ -129,11 +134,13 @@ bool collide_runtime_physical_mesh_segment(RuntimeCollisionShapeCall& call,
         {
             for (i32 x = lower[0]; x <= upper[0]; ++x)
             {
-                const u32 index = u32(read_u16(shape, 0x1E)) * u32(z)
-                    + u32(read_u16(shape, 0x1C)) * u32(y) + u32(x);
-                const u32 count = read_u32(shape, 0x2C + size_t(index) * 8);
-                const u32 address = read_u32(shape, 0x30 + size_t(index) * 8);
-                const auto rows = resolve(address, size_t(count) * 0x14);
+                const u32 index = u32(get(shape, model_grid_mesh_field::plane_stride)) * u32(z)
+                    + u32(get(shape, model_grid_mesh_field::row_stride)) * u32(y) + u32(x);
+                const size_t stride = model_grid_mesh_field::cells.stride;
+                const auto cell = shape.subspan(model_grid_mesh_field::cells.offset + size_t(index) * stride, stride);
+                const u32 count = get(cell, model_grid_cell_field::triangle_count);
+                const u32 address = get(cell, model_grid_cell_field::triangles);
+                const auto rows = resolve(address, size_t(count) * model_mesh_triangle_field::kSize);
                 const u8* hit = select_runtime_mesh_segment_triangle(rows, vertices, begin, movement,
                     normal, call.mask, u32(call.mode), fraction);
                 if (hit != nullptr)
@@ -158,8 +165,8 @@ bool collide_runtime_physical_mesh_segment(RuntimeCollisionShapeCall& call,
             ((w[10] * contact.z + w[9] * contact.y) + w[8] * contact.x) + w[11]};
         if (call.record.data() != nullptr)
         {
-            write_runtime_mesh_triangle_contact(call.record, {selected, 0x14}, selected_address,
-                vertices, normal, contact, 0.f, w);
+            write_runtime_mesh_triangle_contact(call.record, {selected, model_mesh_triangle_field::kSize},
+                selected_address, vertices, normal, contact, 0.f, w);
         }
         return true;
     }
@@ -172,15 +179,16 @@ const u8* select_runtime_mesh_swept_triangle(std::span<const u8> triangles,
     Vec3& normal, u32 mask, u32 excluded, float& fraction, const Vec3& stationary)
 {
     const u8* selected = nullptr;
-    for (size_t offset = 0; offset < triangles.size(); offset += 0x14)
+    for (size_t offset = 0; offset < triangles.size(); offset += model_mesh_triangle_field::kSize)
     {
-        const auto row = triangles.subspan(offset, 0x14);
-        const u32 flags = read_u32(row, 0xC);
+        const auto row = triangles.subspan(offset, model_mesh_triangle_field::kSize);
+        const u32 flags = get(row, model_mesh_triangle_field::flags);
+        const auto corners = get(row, model_mesh_triangle_field::vertices);
         if ((mask & flags) != 0 && ((excluded & 0xFFF3BFFFu) == 0 || (excluded & flags) == 0)
             && ((flags & 0xC4000) == 0 || (~excluded & flags & 0xC4000) != 0))
         {
-            if (sweep_runtime_collision_triangle(vertices[read_u32(row, 0)], vertices[read_u32(row, 4)],
-                vertices[read_u32(row, 8)], origin, movement, radius, normal, fraction, stationary))
+            if (sweep_runtime_collision_triangle(vertices[corners[0]], vertices[corners[1]], vertices[corners[2]],
+                origin, movement, radius, normal, fraction, stationary))
             {
                 movement = {movement.x * fraction, movement.y * fraction, movement.z * fraction};
                 selected = row.data();
@@ -225,11 +233,13 @@ bool collide_runtime_physical_mesh_sweep(RuntimeCollisionShapeCall& call,
         {
             for (i32 x = lower[0]; x <= upper[0]; ++x)
             {
-                const u32 index = u32(read_u16(shape, 0x1E)) * u32(z)
-                    + u32(read_u16(shape, 0x1C)) * u32(y) + u32(x);
-                const u32 count = read_u32(shape, 0x2C + size_t(index) * 8);
-                const u32 address = read_u32(shape, 0x30 + size_t(index) * 8);
-                const auto rows = resolve(address, size_t(count) * 0x14);
+                const u32 index = u32(get(shape, model_grid_mesh_field::plane_stride)) * u32(z)
+                    + u32(get(shape, model_grid_mesh_field::row_stride)) * u32(y) + u32(x);
+                const size_t stride = model_grid_mesh_field::cells.stride;
+                const auto cell = shape.subspan(model_grid_mesh_field::cells.offset + size_t(index) * stride, stride);
+                const u32 count = get(cell, model_grid_cell_field::triangle_count);
+                const u32 address = get(cell, model_grid_cell_field::triangles);
+                const auto rows = resolve(address, size_t(count) * model_mesh_triangle_field::kSize);
                 const u8* hit = select_runtime_mesh_swept_triangle(rows, vertices, begin, movement, radius,
                     normal, call.mask, u32(call.mode), fraction, call.stationary);
                 if (hit != nullptr)
@@ -254,8 +264,8 @@ bool collide_runtime_physical_mesh_sweep(RuntimeCollisionShapeCall& call,
             ((w[10] * contact.z + w[9] * contact.y) + w[8] * contact.x) + w[11]};
         if (call.record.data() != nullptr)
         {
-            write_runtime_mesh_triangle_contact(call.record, {selected, 0x14}, selected_address,
-                vertices, normal, contact, radius, w);
+            write_runtime_mesh_triangle_contact(call.record, {selected, model_mesh_triangle_field::kSize},
+                selected_address, vertices, normal, contact, radius, w);
         }
         return true;
     }
@@ -329,15 +339,16 @@ bool collect_runtime_mesh_triangle_contacts(std::span<const u8> triangles,
     float radius, u32 mask, u32 excluded, GhoulySpawnPool** pool, const Vec3& stationary)
 {
     bool result = false;
-    for (size_t offset = 0; offset < triangles.size(); offset += 0x14)
+    for (size_t offset = 0; offset < triangles.size(); offset += model_mesh_triangle_field::kSize)
     {
-        const auto row = triangles.subspan(offset, 0x14);
-        const u32 flags = read_u32(row, 0xC);
+        const auto row = triangles.subspan(offset, model_mesh_triangle_field::kSize);
+        const u32 flags = get(row, model_mesh_triangle_field::flags);
+        const auto corners = get(row, model_mesh_triangle_field::vertices);
         if ((mask & flags) != 0 && ((excluded & 0xFFF3BFFFu) == 0 || (excluded & flags) == 0)
             && ((flags & 0xC4000) == 0 || (~excluded & flags & 0xC4000) != 0))
         {
-            if (runtime_sphere_intersects_triangle(point, radius, vertices[read_u32(row, 0)],
-                vertices[read_u32(row, 4)], vertices[read_u32(row, 8)]))
+            if (runtime_sphere_intersects_triangle(point, radius, vertices[corners[0]], vertices[corners[1]],
+                vertices[corners[2]]))
             {
                 if (pool != nullptr)
                 {
@@ -381,12 +392,15 @@ bool collect_runtime_physical_mesh_contacts(RuntimeCollisionShapeCall& call,
         {
             for (i32 x = lower[0]; x <= upper[0]; ++x)
             {
-                const u32 index = u32(read_u16(shape, 0x1E)) * u32(z)
-                    + u32(read_u16(shape, 0x1C)) * u32(y) + u32(x);
-                const u32 count = read_u32(shape, 0x2C + size_t(index) * 8);
-                const u32 address = read_u32(shape, 0x30 + size_t(index) * 8);
-                if (collect_runtime_mesh_triangle_contacts(resolve(address, size_t(count) * 0x14), address, vertices,
-                    call.world, point, radius, call.mask, u32(call.mode), call.pool, call.stationary))
+                const u32 index = u32(get(shape, model_grid_mesh_field::plane_stride)) * u32(z)
+                    + u32(get(shape, model_grid_mesh_field::row_stride)) * u32(y) + u32(x);
+                const size_t stride = model_grid_mesh_field::cells.stride;
+                const auto cell = shape.subspan(model_grid_mesh_field::cells.offset + size_t(index) * stride, stride);
+                const u32 count = get(cell, model_grid_cell_field::triangle_count);
+                const u32 address = get(cell, model_grid_cell_field::triangles);
+                if (collect_runtime_mesh_triangle_contacts(
+                        resolve(address, size_t(count) * model_mesh_triangle_field::kSize), address, vertices,
+                        call.world, point, radius, call.mask, u32(call.mode), call.pool, call.stationary))
                 {
                     result = true;
                 }
@@ -401,7 +415,8 @@ bool collide_runtime_posed_mesh_segment(RuntimeCollisionShapeCall& call, const M
     std::span<const u8> shape, const std::function<std::span<const u8>(u32, size_t)>& resolve)
 {
     float world[12], inverse[12];
-    runtime_mesh_pose_matrices(pose, std::bit_cast<i32>(read_u32(shape, 0x18)), call.world, call.inverse, world, inverse);
+    runtime_mesh_pose_matrices(pose, get(shape, model_posed_mesh_field::joint), call.world, call.inverse, world,
+        inverse);
     const Vec3& p = call.candidate;
     const Vec3& q = call.kept;
     const float* m = inverse;
@@ -414,8 +429,9 @@ bool collide_runtime_posed_mesh_segment(RuntimeCollisionShapeCall& call, const M
     Vec3 movement{finish.x - begin.x, finish.y - begin.y, finish.z - begin.z};
     Vec3 normal;
     float fraction;
-    const u32 address = read_u32(shape, 0x14);
-    const auto triangles = resolve(address, size_t(read_u32(shape, 0x10)) * 0x14);
+    const u32 address = get(shape, model_posed_mesh_field::triangles);
+    const auto triangles =
+        resolve(address, size_t(get(shape, model_posed_mesh_field::triangle_count)) * model_mesh_triangle_field::kSize);
     const Vec3* vertices = reinterpret_cast<const Vec3*>(resolve(call.data_address, 12).data());
     const u8* hit = select_runtime_mesh_segment_triangle(triangles, vertices, begin, movement, normal,
         call.mask, u32(call.mode), fraction);
@@ -427,8 +443,8 @@ bool collide_runtime_posed_mesh_segment(RuntimeCollisionShapeCall& call, const M
             ((world[10] * contact.z + world[9] * contact.y) + world[8] * contact.x) + world[11]};
         if (call.record.data() != nullptr)
         {
-            write_runtime_posed_mesh_contact(call.record, {hit, 0x14}, address + u32(hit - triangles.data()),
-                vertices, normal, contact, 0.f, world, nullptr);
+            write_runtime_posed_mesh_contact(call.record, {hit, model_mesh_triangle_field::kSize},
+                address + u32(hit - triangles.data()), vertices, normal, contact, 0.f, world, nullptr);
         }
         return true;
     }
@@ -440,7 +456,8 @@ bool collide_runtime_posed_mesh_sweep(RuntimeCollisionShapeCall& call, const Mod
     std::span<const u8> shape, const std::function<std::span<const u8>(u32, size_t)>& resolve)
 {
     float world[12], inverse[12];
-    runtime_mesh_pose_matrices(pose, std::bit_cast<i32>(read_u32(shape, 0x18)), call.world, call.inverse, world, inverse);
+    runtime_mesh_pose_matrices(pose, get(shape, model_posed_mesh_field::joint), call.world, call.inverse, world,
+        inverse);
     const Vec3& p = call.candidate;
     const Vec3& q = call.kept;
     const float* m = inverse;
@@ -456,8 +473,9 @@ bool collide_runtime_posed_mesh_sweep(RuntimeCollisionShapeCall& call, const Mod
     Vec3 movement{finish.x - begin.x, finish.y - begin.y, finish.z - begin.z};
     Vec3 normal;
     float fraction;
-    const u32 address = read_u32(shape, 0x14);
-    const auto triangles = resolve(address, size_t(read_u32(shape, 0x10)) * 0x14);
+    const u32 address = get(shape, model_posed_mesh_field::triangles);
+    const auto triangles =
+        resolve(address, size_t(get(shape, model_posed_mesh_field::triangle_count)) * model_mesh_triangle_field::kSize);
     const Vec3* vertices = reinterpret_cast<const Vec3*>(resolve(call.data_address, 12).data());
     const u8* hit = select_runtime_mesh_swept_triangle(triangles, vertices, begin, movement, radius,
         normal, call.mask, u32(call.mode), fraction, call.stationary);
@@ -469,8 +487,8 @@ bool collide_runtime_posed_mesh_sweep(RuntimeCollisionShapeCall& call, const Mod
             ((world[10] * contact.z + world[9] * contact.y) + world[8] * contact.x) + world[11]};
         if (call.record.data() != nullptr)
         {
-            write_runtime_posed_mesh_contact(call.record, {hit, 0x14}, address + u32(hit - triangles.data()),
-                vertices, normal, contact, radius, world, nullptr);
+            write_runtime_posed_mesh_contact(call.record, {hit, model_mesh_triangle_field::kSize},
+                address + u32(hit - triangles.data()), vertices, normal, contact, radius, world, nullptr);
         }
         return true;
     }
@@ -482,7 +500,8 @@ bool collect_runtime_posed_mesh_contacts(RuntimeCollisionShapeCall& call, const 
     std::span<const u8> shape, const std::function<std::span<const u8>(u32, size_t)>& resolve)
 {
     float world[12], inverse[12];
-    runtime_mesh_pose_matrices(pose, std::bit_cast<i32>(read_u32(shape, 0x18)), call.world, call.inverse, world, inverse);
+    runtime_mesh_pose_matrices(pose, get(shape, model_posed_mesh_field::joint), call.world, call.inverse, world,
+        inverse);
     const float* m = inverse;
     const Vec3& p = call.candidate;
     const Vec3 point{((p.y * m[1] + p.z * m[2]) + p.x * m[0]) + m[3],
@@ -490,8 +509,9 @@ bool collect_runtime_posed_mesh_contacts(RuntimeCollisionShapeCall& call, const 
         ((p.y * m[9] + p.z * m[10]) + p.x * m[8]) + m[11]};
     const float square = (m[8] * m[8] + m[4] * m[4]) + m[0] * m[0];
     const float scale = square != 0.f ? float(retail_square_root(square)) : 0.f;
-    const u32 address = read_u32(shape, 0x14);
-    const auto triangles = resolve(address, size_t(read_u32(shape, 0x10)) * 0x14);
+    const u32 address = get(shape, model_posed_mesh_field::triangles);
+    const auto triangles =
+        resolve(address, size_t(get(shape, model_posed_mesh_field::triangle_count)) * model_mesh_triangle_field::kSize);
     const Vec3* vertices = reinterpret_cast<const Vec3*>(resolve(call.data_address, 12).data());
     return collect_runtime_mesh_triangle_contacts(triangles, address, vertices, world, point,
         scale * call.radius, call.mask, u32(call.mode), call.pool, call.stationary);
@@ -517,14 +537,14 @@ void runtime_mesh_query_cell_bounds(std::span<const u8> shape, const Vec3& first
             low = truncate(start[axis]);
             high = truncate(end[axis]);
         }
-        const i32 origin = std::bit_cast<i16>(read_u16(shape, 0x24 + axis * 2));
+        const i32 origin = std::bit_cast<i16>(get(shape, model_grid_mesh_field::origin)[axis]);
         low = wrap_sub(wrap_sub(low, origin), margin);
         high = wrap_add(high, wrap_sub(margin, origin));
-        const i32 step = read_u16(shape, 0x22);
+        const i32 step = get(shape, model_grid_mesh_field::cell_size);
         const i32 low_cell = low < 0 ? wrap_sub(low / step, 1) : low / step;
         const i32 high_cell = high < 0 ? wrap_sub(high / step, 1) : high / step;
-        const i32 minimum = std::bit_cast<i16>(read_u16(shape, 0x10 + axis * 2));
-        const i32 maximum = std::bit_cast<i16>(read_u16(shape, 0x16 + axis * 2));
+        const i32 minimum = std::bit_cast<i16>(get(shape, model_grid_mesh_field::cell_min)[axis]);
+        const i32 maximum = std::bit_cast<i16>(get(shape, model_grid_mesh_field::cell_max)[axis]);
         lower[axis] = low_cell;
         upper[axis] = high_cell;
         if (lower[axis] < minimum)
@@ -591,16 +611,17 @@ const u8* select_runtime_mesh_segment_triangle(std::span<const u8> triangles,
     u32 mask, u32 excluded, float& fraction)
 {
     const u8* selected = nullptr;
-    for (size_t offset = 0; offset < triangles.size(); offset += 0x14)
+    for (size_t offset = 0; offset < triangles.size(); offset += model_mesh_triangle_field::kSize)
     {
-        const auto row = triangles.subspan(offset, 0x14);
-        const u32 flags = read_u32(row, 0xC);
+        const auto row = triangles.subspan(offset, model_mesh_triangle_field::kSize);
+        const u32 flags = get(row, model_mesh_triangle_field::flags);
+        const auto corners = get(row, model_mesh_triangle_field::vertices);
         if ((mask & flags) != 0 && ((excluded & 0xFFF3BFFFu) == 0 || (excluded & flags) == 0)
             && ((flags & 0xC4000) == 0 || (~excluded & flags & 0xC4000) != 0))
         {
-            const Vec3& first = vertices[read_u32(row, 0)];
-            const Vec3& second = vertices[read_u32(row, 4)];
-            const Vec3& third = vertices[read_u32(row, 8)];
+            const Vec3& first = vertices[corners[0]];
+            const Vec3& second = vertices[corners[1]];
+            const Vec3& third = vertices[corners[2]];
             if (intersect_runtime_mesh_triangle(movement, second, third, first, origin, fraction))
             {
                 movement = {movement.x * fraction, movement.y * fraction, movement.z * fraction};

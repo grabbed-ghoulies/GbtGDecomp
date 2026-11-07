@@ -1,4 +1,10 @@
 #include "weapon_actor.h"
+#include "mind_fields.h"
+#include "gbtg/model_nodes.h"
+#include "actor_fields.h"
+#include "weapon_fields.h"
+#include "player_fields.h"
+#include <cstddef>
 #include "powerup_flags.h"
 #include "thrown_projectile.h"
 #include "homing_projectile.h"
@@ -44,6 +50,7 @@
 #include "../scene/ambient.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
+#include "body_fields.h"
 
 #include <bit>
 #include <cmath>
@@ -58,6 +65,11 @@ using namespace weapon_detail;
 
 namespace
 {
+ChairWeaponState& chair_of(std::span<u8> bytes)
+{
+    return actor_record_view<ChairWeaponState>(bytes);
+}
+
 // The retail byte loops copy a C string with its terminator into a fixed field.
 void copy_string(std::span<u8> bytes, size_t offset, size_t capacity, const char* text)
 {
@@ -94,17 +106,17 @@ std::span<const u8> acquire_resource(RuntimeWeaponActor& weapon, const char* nam
 void set_spawn_blocked(RuntimeWeaponActor& weapon, i32 value)
 {
     weapon.actor.spawn_blocked = value;
-    store32(weapon.bytes, 0xAD0, u32(value));
+    weapon_base(weapon.bytes).spawn_blocked = u32(value);
 }
 
 // Xbox 0x00144A80, EAX actor
 void copy_runtime_weapon_classes(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
-    const i32 count = i32(read_u32(parameters, 0x458));
-    store16(weapon.bytes, 0x944, read_u16(parameters, 0x458));
-    store16(weapon.bytes, 0x946, 0);
-    weapon.actor.accepted_class_count = i16(read_u16(parameters, 0x458));
-    weapon.actor.accepted_classes = reinterpret_cast<const ActorAcceptedClass*>(weapon.bytes.data() + 0x948);
+    const i32 count = i32(get(parameters, weapon_parameter::accepted_class_count));
+    weapon_base(weapon.bytes).accepted_class_count = u16(get(parameters, weapon_parameter::accepted_class_count));
+    weapon_base(weapon.bytes).accepted_class_row = 0;
+    weapon.actor.accepted_class_count = i16(u16(get(parameters, weapon_parameter::accepted_class_count)));
+    weapon.actor.accepted_classes = reinterpret_cast<const ActorAcceptedClass*>(weapon_base(weapon.bytes).accepted_classes.data());
     if (count <= 0)
     {
         return;
@@ -113,7 +125,7 @@ void copy_runtime_weapon_classes(RuntimeWeaponActor& weapon, std::span<const u8>
     {
         throw Error("weapon accepted class rows overflow actor +0x948");
     }
-    const auto rows = weapon.executable(read_u32(parameters, 0x45C), size_t(count) * 0x8C);
+    const auto rows = weapon.executable(get(parameters, weapon_parameter::accepted_classes), size_t(count) * 0x8C);
     for (i32 index = 0; index < count; ++index)
     {
         const auto source = rows.subspan(size_t(index) * 0x8C, 0x8C);
@@ -134,11 +146,13 @@ void copy_runtime_weapon_classes(RuntimeWeaponActor& weapon, std::span<const u8>
 // Xbox 0x00145150, ESI actor, EDI parameters
 void initialize_runtime_weapon_names(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
-    copy_string(weapon.bytes, 0x9A8, 0x80, parameter_string(parameters, 0x474, 0x80));
-    copy_string(weapon.bytes, 0xA28, 0x80, parameter_string(parameters, 0x4F4, 0x80));
-    store16(weapon.bytes, 0xAA8, 1);
-    store32(weapon.bytes, 0xD9C, 0);
-    store32(weapon.bytes, 0x9A4, read_u32(parameters, 0x464) == 0 ? 1u : 0u);
+    copy_string(weapon.bytes, offsetof(WeaponBase, name_9A8), sizeof(WeaponBase::name_9A8),
+                parameter_string(parameters, weapon_parameter::name_9A8.offset, 0x80));
+    copy_string(weapon.bytes, offsetof(WeaponBase, name_A28), sizeof(WeaponBase::name_A28),
+                parameter_string(parameters, weapon_parameter::name_A28.offset, 0x80));
+    weapon_base(weapon.bytes).break_category = 1;
+    weapon_base(weapon.bytes).unk_D9C = 0;
+    weapon_base(weapon.bytes).unk_9A4 = get(parameters, weapon_parameter::awards_points) == 0 ? 1u : 0u;
     weapon.pieces.clear(); // +0x2A4 = 0.
     build_actor_model_pieces(weapon.actor, weapon.pieces, weapon.random); // 0x0003F170
 }
@@ -147,12 +161,12 @@ void initialize_runtime_weapon_names(RuntimeWeaponActor& weapon, std::span<const
 void collect_runtime_weapon_grab_shapes(RuntimeWeaponActor& weapon)
 {
     const Actor& actor = weapon.actor;
-    store32(weapon.bytes, 0xAB0, std::bit_cast<u32>(0.7f)); // DAT_0032B264.
+    weapon_base(weapon.bytes).prompt_pulse = 0.7f; // DAT_0032B264.
     weapon.hand_texture = acquire_resource(weapon, "aid_texture_ghoulies_weapon_interacthand");
-    store16(weapon.bytes, 0xADC, 0);
-    store8(weapon.bytes, 0xADE, 0);
+    weapon_base(weapon.bytes).prompt_phase = 0;
+    weapon_base(weapon.bytes).prompt_alpha = 0;
     weapon.grab_shapes.clear();
-    store32(weapon.bytes, 0xAB4, 0);
+    weapon_base(weapon.bytes).grab_shape_count = 0;
     // Block 2 holds a count and 0x34-byte records; each pass resumes after the record it kept.
     const u8* cursor = nullptr;
     while (true)
@@ -196,7 +210,7 @@ void collect_runtime_weapon_grab_shapes(RuntimeWeaponActor& weapon)
             throw Error("weapon grab shapes overflow actor +0xAB8");
         }
         weapon.grab_shapes.push_back(cursor);
-        store32(weapon.bytes, 0xAB4, u32(weapon.grab_shapes.size()));
+        weapon_base(weapon.bytes).grab_shape_count = u32(weapon.grab_shapes.size());
     }
     weapon.spawn_points.clear();
     for (const u8* record = find_runtime_actor_shape(actor, 0x400, 0, -1); record != nullptr;
@@ -206,7 +220,7 @@ void collect_runtime_weapon_grab_shapes(RuntimeWeaponActor& weapon)
     }
     weapon.actor.spawn_points = weapon.spawn_points.data();
     weapon.actor.spawn_point_count = i32(weapon.spawn_points.size());
-    store32(weapon.bytes, 0xAC4, u32(weapon.spawn_points.size()));
+    weapon_base(weapon.bytes).spawn_point_count = u32(weapon.spawn_points.size());
     const EntityBonePose* pose = nullptr;
     if (actor.model != nullptr)
     {
@@ -252,7 +266,7 @@ void collect_runtime_weapon_grab_shapes(RuntimeWeaponActor& weapon)
         {
             kept = u8(nearest);
         }
-        store8(weapon.bytes, 0xAC0 + index, kept);
+        weapon_base(weapon.bytes).kept_spawn_points.at(size_t(index)) = kept;
     }
 }
 
@@ -265,7 +279,7 @@ void collect_runtime_weapon_flagged_markers(RuntimeWeaponActor& weapon)
         return;
     }
     const u8* first = block + 8;
-    u16 count = read_u16(weapon.bytes, 0xAE6);
+    u16 count = weapon_base(weapon.bytes).flagged_marker_count;
     for (const u8* record = first; record != nullptr; record += record[1])
     {
         if ((record[4] & 0x10) != 0 && record[0] == 0)
@@ -277,7 +291,7 @@ void collect_runtime_weapon_flagged_markers(RuntimeWeaponActor& weapon)
             break;
         }
     }
-    store16(weapon.bytes, 0xAE6, count);
+    weapon_base(weapon.bytes).flagged_marker_count = count;
     if (count != 0)
     {
         weapon.flagged_markers.assign(count, nullptr); // 0x000F72D0, cleared.
@@ -298,17 +312,19 @@ void collect_runtime_weapon_flagged_markers(RuntimeWeaponActor& weapon)
 void pick_runtime_weapon_variant(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     const float roll = next_unit(weapon.random) - 1.f; // DAT_0032B0F8.
-    if (roll <= read_f32(parameters, 0x340))
+    if (roll <= get(parameters, weapon_parameter::variant_chance))
     {
-        copy_string(weapon.bytes, 0xAEC, 0x80, parameter_string(parameters, 0x354, 0x80));
-        copy_string(weapon.bytes, 0xB6C, 0x80, parameter_string(parameters, 0x3D4, 0x80));
-        store32(weapon.bytes, 0xBF0, read_u32(parameters, 0x344));
-        store32(weapon.bytes, 0xBF4, read_u32(parameters, 0x348));
-        store32(weapon.bytes, 0xBF8, read_u32(parameters, 0x34C));
+        copy_string(weapon.bytes, offsetof(WeaponBase, variant_name), sizeof(WeaponBase::variant_name),
+                    parameter_string(parameters, weapon_parameter::variant_name.offset, 0x80));
+        copy_string(weapon.bytes, offsetof(WeaponBase, variant_attributes), sizeof(WeaponBase::variant_attributes),
+                    parameter_string(parameters, weapon_parameter::variant_attributes.offset, 0x80));
+        weapon_base(weapon.bytes).trigger_radius = get(parameters, weapon_parameter::trigger_radius);
+        weapon_base(weapon.bytes).trigger_chance = get(parameters, weapon_parameter::trigger_chance);
+        weapon_base(weapon.bytes).unk_BF8 = get(parameters, weapon_parameter::unk_BF8);
     }
-    store32(weapon.bytes, 0xBEC, read_u32(parameters, 0x454));
-    store32(weapon.bytes, 0xBFC, read_u32(parameters, 0x350));
-    store32(weapon.bytes, 0xC00, 0);
+    weapon_base(weapon.bytes).spawn_group = get(parameters, weapon_parameter::spawn_group);
+    weapon_base(weapon.bytes).unk_BFC = get(parameters, weapon_parameter::unk_BFC);
+    weapon_base(weapon.bytes).unk_C00 = 0;
 }
 
 }
@@ -471,7 +487,7 @@ void enter_state(RuntimeWeaponActor& weapon, u16 state, u16 previous)
 // Actor +0x99C, the class's contact test: the chair sets 0x000CF5F0.
 RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
 {
-    if (read_u32(weapon.bytes, 0x99C) == 0x000CF5F0)
+    if (weapon_base(weapon.bytes).contact_test == 0x000CF5F0)
     {
         return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
@@ -479,7 +495,7 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             return test_runtime_chair_contact(weapon, object, point, contacts, velocity, word); // 0x000CF5F0
         };
     }
-    if (read_u32(weapon.bytes, 0x99C) == 0x000CB040)
+    if (weapon_base(weapon.bytes).contact_test == 0x000CB040)
     {
         return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
@@ -487,7 +503,7 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             return test_runtime_gun_contact(weapon, object, point, contacts, velocity, word); // 0x000CB040
         };
     }
-    if (read_u32(weapon.bytes, 0x99C) == 0x000C6F10)
+    if (weapon_base(weapon.bytes).contact_test == 0x000C6F10)
     {
         return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
@@ -495,7 +511,7 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             return test_runtime_candle_contact(weapon, object, point, contacts, velocity, word); // 0x000C6F10
         };
     }
-    if (read_u32(weapon.bytes, 0x99C) == 0x000C61D0)
+    if (weapon_base(weapon.bytes).contact_test == 0x000C61D0)
     {
         return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
@@ -503,7 +519,7 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             return test_runtime_bob_contact(weapon, object, point, contacts, velocity, word); // 0x000C61D0
         };
     }
-    if (read_u32(weapon.bytes, 0x99C) == 0x000CE5D0)
+    if (weapon_base(weapon.bytes).contact_test == 0x000CE5D0)
     {
         return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
@@ -511,7 +527,7 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             return test_runtime_projectile_contact(weapon, object, point, contacts, velocity, word); // 0x000CE5D0
         };
     }
-    if (read_u32(weapon.bytes, 0x99C) == 0x000CD1B0)
+    if (weapon_base(weapon.bytes).contact_test == 0x000CD1B0)
     {
         return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
@@ -519,7 +535,7 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             return test_runtime_homing_projectile_contact(weapon, object, point, contacts, velocity, word); // 0x000CD1B0
         };
     }
-    if (read_u32(weapon.bytes, 0x99C) == 0x000CBF80)
+    if (weapon_base(weapon.bytes).contact_test == 0x000CBF80)
     {
         return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
@@ -527,7 +543,7 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             return test_runtime_thrown_projectile_contact(weapon, object, point, contacts, velocity, word); // 0x000CBF80
         };
     }
-    if (read_u32(weapon.bytes, 0x99C) == 0x000CB040)
+    if (weapon_base(weapon.bytes).contact_test == 0x000CB040)
     {
         return [&weapon](Actor&, RuntimeSegmentContactActor& object, const Vec3& point, GhoulySpawnPool* contacts,
             const RuntimeSegmentContactRecord&, const Vec3& velocity, u16 word) -> u32
@@ -535,7 +551,7 @@ RuntimeBodyContactCallback contact_test(RuntimeWeaponActor& weapon)
             return test_runtime_gun_contact(weapon, object, point, contacts, velocity, word); // 0x000CB040
         };
     }
-    throw Error("weapon contact test +0x99C holds " + std::to_string(read_u32(weapon.bytes, 0x99C))
+    throw Error("weapon contact test +0x99C holds " + std::to_string(weapon_base(weapon.bytes).contact_test)
         + ", which no weapon class sets");
 }
 }
@@ -557,16 +573,16 @@ void chair_weapon_object_sizes(ObjectSizes& sizes)
 // Xbox 0x00146230, ESI actor, EAX value
 void set_runtime_weapon_mask(RuntimeWeaponActor& weapon, u8 value)
 {
-    store8(weapon.bytes, 0x93C, value);
+    weapon_base(weapon.bytes).mask = value;
     weapon.actor.mask_flag = i32((u32(weapon.actor.mask_flag) & ~0xFFu) | value);
-    if (value == 0 && weapon.bytes[0xD08] != 0)
+    if (value == 0 && weapon_base(weapon.bytes).voice_name.data()[0] != 0)
     {
-        store8(weapon.bytes, 0xD08, 0);
-        const u16 voice = read_u16(weapon.bytes, 0xD88);
+        weapon_base(weapon.bytes).voice_name.data()[0] = 0;
+        const u16 voice = weapon_base(weapon.bytes).voice;
         if (voice != 0xFFFF)
         {
             stop_actor_sound_voice(i16(voice), weapon.services.sounds); // 0x00039690
-            store16(weapon.bytes, 0xD88, 0xFFFF);
+            weapon_base(weapon.bytes).voice = 0xFFFF;
         }
     }
 }
@@ -585,13 +601,15 @@ void register_runtime_weapon_cells(RuntimeWeaponActor& weapon)
             std::memcpy(&center, attachment->shape.data() + 4, 12);
             float radius;
             std::memcpy(&radius, attachment->shape.data() + 0x1C, 4);
-            entity_detail::register_navigation_cells(weapon.cells, center, i32(read_u32(weapon.bytes, 0xD00)), radius,
-                0); // 0x001104E0
+            entity_detail::register_navigation_cells(weapon.cells, center, i32(weapon_base(weapon.bytes).floor),
+                                                     radius,
+                                                     0); // 0x001104E0
             return;
         }
         if (weapon.cells != nullptr)
         {
-            entity_detail::release_navigation_cell_registration(weapon.cells, read_u32(weapon.bytes, 0xD00)); // 0x001108B0
+            entity_detail::release_navigation_cell_registration(weapon.cells,
+                                                                weapon_base(weapon.bytes).floor); // 0x001108B0
         }
     }
 }
@@ -599,9 +617,9 @@ void register_runtime_weapon_cells(RuntimeWeaponActor& weapon)
 // Xbox 0x00144D00, ESI actor
 void start_runtime_weapon_idle(RuntimeWeaponActor& weapon)
 {
-    if (read_u32(weapon.bytes, 0xDD0) == kAidPrefix)
+    if (read_u32(weapon.bytes, offsetof(WeaponBase, animation)) == kAidPrefix)
     {
-        start_runtime_weapon_animation(weapon, reinterpret_cast<const char*>(weapon.bytes.data() + 0xDD0));
+        start_runtime_weapon_animation(weapon, weapon_base(weapon.bytes).animation.data());
         return;
     }
     // 0x0003AAA0 finds "initial" in the actor's table; 0x0003A9E0 plays it.
@@ -681,25 +699,25 @@ void attach_runtime_weapon_volume(RuntimeWeaponActor& weapon)
     std::memcpy(shape.data() + 0x14, &height, 4);
     std::memcpy(shape.data() + 0x1C, &radius, 4);
     allocate_actor_live_attachment(actor, weapon.view.live_attachments, weapon.global_attachments, 2,
-        u8(read_u32(weapon.bytes, 0xD00)), 0, shape.data(), actor_transform_origin); // 0x0012AFE0
-    store32(weapon.bytes, 0xAAC, 1);
+        u8(weapon_base(weapon.bytes).floor), 0, shape.data(), actor_transform_origin); // 0x0012AFE0
+    weapon_base(weapon.bytes).was_held = 1;
 }
 
 // Xbox 0x0014A290, ESI actor, EDI state
 void change_runtime_weapon_state(RuntimeWeaponActor& weapon, u16 state)
 {
-    store16(weapon.bytes, 0xC0E, 0);
-    leave_state(weapon, read_u16(weapon.bytes, 0xC0C), state); // Vtable +0x40.
-    const u16 previous = read_u16(weapon.bytes, 0xC0C);
-    store16(weapon.bytes, 0xC0C, state);
-    store32(weapon.bytes, 0xC14, 0);
+    weapon_base(weapon.bytes).next_state = 0;
+    leave_state(weapon, weapon_base(weapon.bytes).state, state); // Vtable +0x40.
+    const u16 previous = weapon_base(weapon.bytes).state;
+    weapon_base(weapon.bytes).state = state;
+    weapon_base(weapon.bytes).state_time = 0.f;
     enter_state(weapon, state, previous); // Vtable +0x3C.
 }
 
 // Xbox 0x00144FD0, EAX actor
 void start_runtime_weapon_scene(RuntimeWeaponActor& weapon)
 {
-    if (read_u32(weapon.bytes, 0xC18) == 0)
+    if (weapon_base(weapon.bytes).starts_scene == 0)
     {
         return;
     }
@@ -709,14 +727,14 @@ void start_runtime_weapon_scene(RuntimeWeaponActor& weapon)
         throw Error("weapon scene start 0x00144FD0: the background list for 0x0013B980 is not bound");
     }
     const std::vector<BackgroundListEntry> backgrounds = weapon.services.backgrounds();
-    u32 background = read_u32(weapon.bytes, 0xC1C);
-    i32 part = i32(read_u32(weapon.bytes, 0xC20));
+    u32 background = weapon_base(weapon.bytes).scene_background;
+    i32 part = i32(weapon_base(weapon.bytes).scene_part);
     const bool found = find_background_part_near(position, backgrounds, background, part); // 0x0013B980, EBX position
-    store32(weapon.bytes, 0xC1C, background);
-    store32(weapon.bytes, 0xC20, u32(part));
+    weapon_base(weapon.bytes).scene_background = background;
+    weapon_base(weapon.bytes).scene_part = u32(part);
     if (!found)
     {
-        store32(weapon.bytes, 0xC18, 0);
+        weapon_base(weapon.bytes).starts_scene = 0;
         return;
     }
     // Vtable +0xC with {2}; words 1..3 are the position's stack slots.
@@ -731,7 +749,7 @@ void start_runtime_weapon_scene(RuntimeWeaponActor& weapon)
 // Xbox 0x00148600, ESI actor
 void bind_runtime_weapon_group(RuntimeWeaponActor& weapon)
 {
-    const u16 group = read_u16(weapon.bytes, 0x1FE);
+    const u16 group = actor_marker_next(weapon.bytes);
     if (group == 0)
     {
         return;
@@ -740,13 +758,13 @@ void bind_runtime_weapon_group(RuntimeWeaponActor& weapon)
     for (const auto* node = entity_detail::g_world.latch; node != nullptr; node = node->next) // DAT_00511AA4.
     {
         const u32 address = weapon.latch_owner(*node);
-        if (read_u16(weapon.bytes_at(address), 0x1FC) == group)
+        if (actor_marker_id(weapon.bytes_at(address)) == group)
         {
             owner = address;
             break;
         }
     }
-    store32(weapon.bytes, 0xC08, owner);
+    weapon_base(weapon.bytes).group_owner = owner;
 }
 
 // Xbox 0x001462B0, ESI weapon, EAX actor
@@ -759,24 +777,24 @@ void release_runtime_weapon_holder(RuntimeWeaponActor& weapon, u32 actor)
     if (weapon.actor.spawn_owner != nullptr && weapon.services.actor_address(*weapon.actor.spawn_owner) == actor)
     {
         weapon.actor.spawn_owner = nullptr; // +0xD8C's native view.
-        store32(weapon.bytes, 0xD8C, 0);
+        weapon_base(weapon.bytes).spawn_owner = 0;
     }
-    if (read_u32(weapon.bytes, 0xC08) == actor)
+    if (weapon_base(weapon.bytes).group_owner == actor)
     {
-        store32(weapon.bytes, 0xC08, 0);
+        weapon_base(weapon.bytes).group_owner = 0;
     }
 }
 
 // Xbox 0x0014A0D0, ESI actor
 void reset_runtime_weapon_state(RuntimeWeaponActor& weapon)
 {
-    store16(weapon.bytes, 0xC0E, 0);
-    leave_state(weapon, read_u16(weapon.bytes, 0xC0C), 0); // Vtable +0x40.
-    const u16 previous = read_u16(weapon.bytes, 0xC0C);
-    store16(weapon.bytes, 0xC0C, 0);
-    store32(weapon.bytes, 0xC14, 0);
+    weapon_base(weapon.bytes).next_state = 0;
+    leave_state(weapon, weapon_base(weapon.bytes).state, 0); // Vtable +0x40.
+    const u16 previous = weapon_base(weapon.bytes).state;
+    weapon_base(weapon.bytes).state = 0;
+    weapon_base(weapon.bytes).state_time = 0.f;
     enter_state(weapon, 0, previous); // Vtable +0x3C.
-    store16(weapon.bytes, 0xC0E, 0);
+    weapon_base(weapon.bytes).next_state = 0;
 }
 
 // Xbox 0x00145E80
@@ -822,9 +840,9 @@ void destroy_runtime_weapon_actor(RuntimeWeaponActor& weapon)
     if (!weapon.flagged_markers.empty())
     {
         weapon.flagged_markers.clear(); // 0x000663E0.
-        store16(weapon.bytes, 0xAE6, 0);
+        weapon_base(weapon.bytes).flagged_marker_count = 0;
     }
-    if (read_u32(weapon.bytes, 0xD9C) != 0)
+    if (weapon_base(weapon.bytes).unk_D9C != 0)
     {
         // Every retail write of +0xD9C (0x00145150, 0x00145820, 0x00145E80) stores zero, so 0x001450A0's piece
         // blocks never exist.
@@ -833,14 +851,15 @@ void destroy_runtime_weapon_actor(RuntimeWeaponActor& weapon)
     weapon.pieces.clear(); // +0x2A4, 0x000663E0.
     if (weapon.cells != nullptr)
     {
-        entity_detail::release_navigation_cell_registration(weapon.cells, read_u32(weapon.bytes, 0xD00)); // 0x001108B0
+        entity_detail::release_navigation_cell_registration(weapon.cells,
+                                                            weapon_base(weapon.bytes).floor); // 0x001108B0
     }
-    if (read_u16(weapon.bytes, 0xD88) != 0xFFFF)
+    if (weapon_base(weapon.bytes).voice != 0xFFFF)
     {
-        stop_actor_sound_voice(i16(read_u16(weapon.bytes, 0xD88)), weapon.services.sounds); // 0x00039690
-        store16(weapon.bytes, 0xD88, 0xFFFF);
+        stop_actor_sound_voice(i16(weapon_base(weapon.bytes).voice), weapon.services.sounds); // 0x00039690
+        weapon_base(weapon.bytes).voice = 0xFFFF;
     }
-    if (read_u32(weapon.bytes, 0xD98) != 0)
+    if (weapon_base(weapon.bytes).unk_D98 != 0)
     {
         // Every retail write of +0xD98 (0x00145820, 0x00145C80, 0x00145E80) stores zero, so there is never an
         // effect node for 0x000ED2E0 to release.
@@ -857,24 +876,24 @@ void break_runtime_weapon_by_player(RuntimeWeaponActor& weapon, std::span<u32> m
     {
         return;
     }
-    store16(bytes, 0xAA8, 0);
+    weapon_base(bytes).break_category = 0;
     if (message[4] != 0)
     {
         // The player's body +0x270 / +0x274 name its two partners; a live one picks the category.
         const auto body = weapon.services.body_of(message[4]);
-        const Actor* first = weapon.actor_or_null(read_u32(body, 0x270));
-        const Actor* second = weapon.actor_or_null(read_u32(body, 0x274));
+        const Actor* first = weapon.actor_or_null(body_record(body).attacker);
+        const Actor* second = weapon.actor_or_null(body_record(body).unk_274);
         if (first != nullptr && (first->mask_mode == 2 || first->mask_flag != 0))
         {
-            store16(bytes, 0xAA8, 2);
+            weapon_base(bytes).break_category = 2;
         }
         else if (second != nullptr && (second->mask_mode == 2 || second->mask_flag != 0))
         {
-            store16(bytes, 0xAA8, 3);
+            weapon_base(bytes).break_category = 3;
         }
         else
         {
-            store16(bytes, 0xAA8, 0);
+            weapon_base(bytes).break_category = 0;
         }
     }
     break_runtime_weapon(weapon); // 0x001454F0
@@ -892,11 +911,11 @@ u32 break_runtime_weapon_by_attacker(RuntimeWeaponActor& weapon, Actor* attacker
     }
     if (attacker != nullptr && (attacker->mask_mode == 2 || attacker->mask_flag != 0))
     {
-        store16(bytes, 0xAA8, category);
+        weapon_base(bytes).break_category = category;
     }
     else
     {
-        store16(bytes, 0xAA8, 0);
+        weapon_base(bytes).break_category = 0;
     }
     break_runtime_weapon(weapon); // 0x001454F0
     change_runtime_weapon_state(weapon, 9); // As 0x0014A290.
@@ -925,7 +944,7 @@ void drop_runtime_weapon(RuntimeWeaponActor& weapon)
     {
         Actor& owner = *actor.spawn_owner;
         position = actor_world_position(owner); // 0x000412A0
-        floor = i32(read_u32(weapon.bytes_at(weapon.services.actor_address(owner)), 0xCEC));
+        floor = i32(player_record(weapon.bytes_at(weapon.services.actor_address(owner))).floor);
         // Message 0x59 asks the owner for the drop: +0x10 set gives the radii (+0xC / +0x10), a turn (+0x14)
         // and the lift (+0x18).
         std::array<u32, 0x42> query{};
@@ -971,7 +990,7 @@ void settle_runtime_weapon(RuntimeWeaponActor& weapon)
     {
         throw Error("0x001463D0 case 0x9B reads the floor of an owner at +0xD8C that is not set");
     }
-    const i32 floor = i32(read_u32(weapon.bytes_at(weapon.services.actor_address(*actor.spawn_owner)), 0xCEC));
+    const i32 floor = i32(player_record(weapon.bytes_at(weapon.services.actor_address(*actor.spawn_owner))).floor);
     float height = 0.f;
     if (!entity_detail::navigation_cell_height(floor, position, height)) // 0x00110BB0
     {
@@ -1034,7 +1053,7 @@ u32 spawn_runtime_weapon_body(RuntimeWeaponActor& weapon, const char* name, cons
         return 0;
     }
     const u32 body_address = weapon.object_address(*body);
-    const u32 group = read_u32(weapon.bytes, 0xBEC);
+    const u32 group = weapon_base(weapon.bytes).spawn_group;
     if (group != 0)
     {
         // 0xA6 asks the group's owner (+0xC08) for the pose; 0x4D gives it to the new body.
@@ -1042,7 +1061,7 @@ u32 spawn_runtime_weapon_body(RuntimeWeaponActor& weapon, const char* name, cons
         ask[0] = 0xA6;
         std::memcpy(ask.data() + 1, &position, 12);
         std::memcpy(ask.data() + 4, &euler, 12);
-        const u32 owner = read_u32(weapon.bytes, 0xC08);
+        const u32 owner = weapon_base(weapon.bytes).group_owner;
         if (owner != 0)
         {
             weapon.send(owner, ask); // Vtable +0xC.
@@ -1128,7 +1147,7 @@ void animate_runtime_weapon_with_holder(RuntimeWeaponActor& weapon, std::span<co
 {
     // The holder row (+0x946) of the +0x948 class rows: its +8 is the weapon's animation table, which native keeps
     // in accepted_resources.
-    const u16 row = read_u16(weapon.bytes, 0x946);
+    const u16 row = weapon_base(weapon.bytes).accepted_class_row;
     const std::span<const u8> resource = weapon.accepted_resources.at(row);
     if (resource.data() == nullptr)
     {
@@ -1191,7 +1210,7 @@ void dispatch_runtime_weapon_message(RuntimeWeaponActor& weapon, std::span<u32> 
     case 0x13:
         if (actor_has_spawn_model(weapon.actor)) // 0x00145470
         {
-            store16(weapon.bytes, 0xAA8, 0);
+            weapon_base(weapon.bytes).break_category = 0;
             break_runtime_weapon(weapon); // 0x001454F0
             change_runtime_weapon_state(weapon, 9); // 0x0014A290
         }
@@ -1242,7 +1261,7 @@ void dispatch_runtime_weapon_message(RuntimeWeaponActor& weapon, std::span<u32> 
             clear_actor_model_anchors(weapon.view.anchors); // 0x0003EF40
         }
         const Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
-        store32(weapon.bytes, 0xD00, u32(entity_detail::navigation_floor_index(position, -1, 0))); // 0x00110BF0
+        weapon_base(weapon.bytes).floor = u32(entity_detail::navigation_floor_index(position, -1, 0)); // 0x00110BF0
         return;
     }
     case 0x28:
@@ -1263,13 +1282,13 @@ void dispatch_runtime_weapon_message(RuntimeWeaponActor& weapon, std::span<u32> 
         return;
     case 0x8D:
         // 0x001462F0: the holder record at +0xE50 leaves when it names message +4.
-        if (read_u32(weapon.bytes, 0xE50) == message[1])
+        if (weapon_base(weapon.bytes).target_record == message[1])
         {
-            store32(weapon.bytes, 0xE50, 0);
+            weapon_base(weapon.bytes).target_record = 0;
         }
         return;
     case 0x93:
-        store16(weapon.bytes, 0xC0E, 9);
+        weapon_base(weapon.bytes).next_state = 9;
         return;
     case 0x96:
     {
@@ -1302,7 +1321,7 @@ void dispatch_runtime_weapon_message(RuntimeWeaponActor& weapon, std::span<u32> 
             return reinterpret_cast<const char*>(message.data() + word);
         };
         message[0x81] = spawn_runtime_weapon_body(weapon, text(1), text(0x41), text(0x21), text(0x61),
-            read_u32(weapon.bytes, 0xC00) == 0) != 0 ? 1u : 0u; // 0x00147FC0
+            weapon_base(weapon.bytes).unk_C00 == 0) != 0 ? 1u : 0u; // 0x00147FC0
         return;
     }
     case 0xA8:
@@ -1320,8 +1339,9 @@ void dispatch_runtime_weapon_message(RuntimeWeaponActor& weapon, std::span<u32> 
     case 0xAB:
         // 0x00145030: the scene-start wait at +0xC18 ends when +0xC1C / +0xC20 match; the weapon takes message 1
         // and the actor at message +0xC is told 6.
-        if (read_u32(weapon.bytes, 0xC18) != 0 && read_u32(weapon.bytes, 0xC1C) == message[1] &&
-            read_u32(weapon.bytes, 0xC20) == message[2])
+        if (weapon_base(weapon.bytes).starts_scene != 0 &&
+            weapon_base(weapon.bytes).scene_background == message[1] &&
+            weapon_base(weapon.bytes).scene_part == message[2])
         {
             std::array<u32, 0x42> start{};
             start[0] = 1;
@@ -1436,8 +1456,8 @@ u32 report_runtime_projectile_contact(RuntimeWeaponActor& weapon, Actor* holder,
         report[7] = contacts != nullptr ? services.bind_address(contacts, sizeof(GhoulySpawnPool)) : 0;
         std::memcpy(report.data() + 8, &point, 12);
         report[0xB] = notice.reply;
-        report[0xC] = notice.unused_14;
-        report[0xD] = notice.unused_18;
+        report[0xC] = notice.result;
+        report[0xD] = notice.standing;
         const u32 holder_address = services.actor_address(*holder);
         weapon.send(holder_address, report); // The holder's vtable +0xC.
         weapon.message(report); // This weapon's.
@@ -1464,12 +1484,14 @@ u32 test_runtime_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSegmentCo
 {
     auto bytes = weapon.bytes;
     if (report_runtime_projectile_contact(weapon, weapon_holder(weapon.actor), object, point, contacts, velocity, word,
-            bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], read_u32(bytes, 0xE88) == 0, 0) != 0) // 0x00141A30
+                                          weapon_base(bytes).hit_kind, weapon_base(bytes).hit_strength,
+                                          weapon_base(bytes).hit_style, actor_record_view<LargeProjectileState>(bytes).hits == 0,
+                                          0) != 0) // 0x00141A30
     {
-        store32(bytes, 0xE88, read_u32(bytes, 0xE88) + 1);
+        actor_record_view<LargeProjectileState>(bytes).hits = actor_record_view<LargeProjectileState>(bytes).hits + 1;
     }
     insert_runtime_body_contact_override(weapon.collision_overrides, object, 0, weapon.players); // 0x0013EBE0, +0xE7C
-    return bytes[0x93C] == 0 ? 1u : 0u;
+    return weapon_base(bytes).mask == 0 ? 1u : 0u;
 }
 
 // Xbox 0x000CF5F0
@@ -1478,8 +1500,9 @@ u32 test_runtime_chair_contact(RuntimeWeaponActor& weapon, RuntimeSegmentContact
 {
     auto bytes = weapon.bytes;
     report_runtime_weapon_contact(weapon, weapon_holder(weapon.actor), object, point, contacts, velocity, word,
-        bytes[0xDAC], bytes[0xDAD], bytes[0xDAE], read_u32(bytes, 0xE64) == 0); // 0x00141890
-    return bytes[0x93C] == 0 ? 1u : 0u;
+                                  weapon_base(bytes).hit_kind, weapon_base(bytes).hit_strength,
+                                  weapon_base(bytes).hit_style, chair_of(bytes).struck == 0); // 0x00141890
+    return weapon_base(bytes).mask == 0 ? 1u : 0u;
 }
 
 // Xbox 0x001451C0, ECX direction, EDX actor, EAX velocity
@@ -1497,12 +1520,12 @@ void chip_runtime_weapon(RuntimeWeaponActor& weapon, const Vec3& direction, cons
             return 0;
         }
         const auto cpu = actor.model->cpu;
-        const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+        const u32 header = runtime_model_piece_header(cpu);
         return header == 0 ? 0u : cpu[header];
     };
     const auto remaining = [&]()
     {
-        return 1.f - float(i32(read_u32(bytes, 0xD90))) / float(i32(groups()) - 1); // DAT_0032B0F8.
+        return 1.f - float(i32(weapon_base(bytes).broken_groups)) / float(i32(groups()) - 1); // DAT_0032B0F8.
     };
     if (weapon.matrices.matrices.count != 0 && i32(groups()) > 1)
     {
@@ -1517,17 +1540,16 @@ void chip_runtime_weapon(RuntimeWeaponActor& weapon, const Vec3& direction, cons
         while (remaining() > fraction)
         {
             const auto cpu = actor.model->cpu;
-            const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
-            const u32 group = read_u32(bytes, 0xD90);
+            const u32 header = runtime_model_piece_header(cpu);
+            const u32 group = weapon_base(bytes).broken_groups;
             bytes[0x298] = 0;
-            RuntimeActorMatrixSampling sampling{{weapon.matrices.allocation,
-                size_t(weapon.matrices.matrices.count) * 0x48}, weapon.matrices.matrices.node,
+            RuntimeActorMatrixSampling sampling{actor_matrix_records(weapon.matrices), weapon.matrices.matrices.node,
                 weapon.services.sampling_scratch, weapon.services.sampling_active, actor_transform_origin,
                 weapon.model_source};
             launch_actor_model_piece_group(actor, i32(group), weapon.pieces, weapon.matrices, sampling,
                 weapon.model_source, weapon.random); // 0x0003F820
-            store32(bytes, 0xD94, read_u32(bytes, 0xD94) + cpu[header + 0x16 + group * 0xC]);
-            store32(bytes, 0xD90, group + 1);
+            weapon_base(bytes).broken_pieces = weapon_base(bytes).broken_pieces + cpu[header + 0x16 + group * 0xC];
+            weapon_base(bytes).broken_groups = group + 1;
         }
     }
     set_runtime_weapon_piece_pairs(weapon, fraction); // 0x001457A0
@@ -1546,22 +1568,22 @@ void drop_runtime_chair_weapon(RuntimeWeaponActor& weapon)
         message[1] = 0;
         weapon.message(message); // Vtable +0xC.
     }
-    bytes[0x93C] = 0;
+    weapon_base(bytes).mask = 0;
     actor.mask_flag = i32(u32(actor.mask_flag) & ~0xFFu);
-    if (bytes[0xD08] != 0)
+    if (weapon_base(bytes).voice_name.data()[0] != 0)
     {
-        const u16 voice = read_u16(bytes, 0xD88);
-        bytes[0xD08] = 0;
+        const u16 voice = weapon_base(bytes).voice;
+        weapon_base(bytes).voice_name.data()[0] = 0;
         if (voice != 0xFFFF)
         {
             stop_actor_sound_voice(i16(voice), weapon.services.sounds); // 0x00039690
-            store16(bytes, 0xD88, 0xFFFF);
+            weapon_base(bytes).voice = 0xFFFF;
         }
     }
     actor.model_mode = 0; // +0x118.
     register_actor_shape_probe(actor, weapon.view.shape); // 0x0003C770
     const Actor* owner = actor.spawn_owner; // +0xD8C.
-    store16(bytes, 0xAA8, owner != nullptr && (owner->mask_mode == 2 || owner->mask_flag != 0) ? 1 : 0);
+    weapon_base(bytes).break_category = owner != nullptr && (owner->mask_mode == 2 || owner->mask_flag != 0) ? 1 : 0;
     break_runtime_weapon(weapon); // 0x001454F0
 }
 
@@ -1586,7 +1608,8 @@ bool start_runtime_weapon_prewait(RuntimeWeaponActor& weapon)
 void push_runtime_weapon_holder(RuntimeWeaponActor& weapon, Actor& holder)
 {
     Actor& actor = weapon.actor;
-    if (read_u16(weapon.bytes, 0xAE4) != 0 || read_u16(weapon.bytes, 0xAE6) == 0)
+    if (weapon_base(weapon.bytes).pickup_count != 0 ||
+        weapon_base(weapon.bytes).flagged_marker_count == 0)
     {
         return;
     }
@@ -1653,7 +1676,7 @@ void push_runtime_weapon_marker(RuntimeWeaponActor& weapon, Actor& holder, std::
     auto contacts = entity_merge_contact_records(); // 0x00122310
     Vec3 eye = actor_world_position(holder); // 0x000412A0
     const auto body = weapon.services.body_of(weapon.services.actor_address(holder)); // Holder +0x95C.
-    eye.y = holder.radius_y * read_f32(body, 0x884) * 0.5f + eye.y; // DAT_0032B0F4.
+    eye.y = holder.radius_y * body_record(body).height_scale * 0.5f + eye.y; // DAT_0032B0F4.
     cull_back_facing_segment_contacts(contacts, eye); // 0x000FC840
     // Without rows 0x000FC3F0 does not run and the push gains nothing here.
     Vec3 separated = probe;
@@ -1692,7 +1715,7 @@ void update_runtime_weapon_cells(RuntimeWeaponActor& weapon, i32 preferred)
         return;
     }
     const Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
-    auto& floor = *reinterpret_cast<i32*>(weapon.bytes.data() + 0xD00);
+    auto& floor = weapon_base(weapon.bytes).floor;
     entity_detail::update_navigation_floor(position, floor, weapon.cells, weapon.path_search, preferred, 1); // 0x00110C90
 }
 
@@ -1727,9 +1750,9 @@ void dispatch_runtime_chair_weapon_message(RuntimeWeaponActor& weapon, std::span
     switch (message[0])
     {
     case 0x14:
-        if (read_u32(bytes, 0xE6C) == message[1])
+        if (chair_of(bytes).effect == message[1])
         {
-            store32(bytes, 0xE6C, 0);
+            chair_of(bytes).effect = 0;
         }
         break;
     case 0x5A:
@@ -1744,21 +1767,21 @@ void dispatch_runtime_chair_weapon_message(RuntimeWeaponActor& weapon, std::span
         {
             break;
         }
-        if (read_u32(bytes, 0xE64) != 0)
+        if (chair_of(bytes).struck != 0)
         {
             break;
         }
-        store32(bytes, 0xE64, 1);
-        i32 uses = i32(read_u32(bytes, 0xE5C));
+        chair_of(bytes).struck = 1;
+        i32 uses = i32(chair_of(bytes).uses);
         if (uses <= 0)
         {
             break;
         }
         --uses;
-        store32(bytes, 0xE5C, u32(uses));
+        chair_of(bytes).uses = u32(uses);
         if (uses < 1)
         {
-            store32(bytes, 0xE68, 1);
+            chair_of(bytes).spent = 1;
             break;
         }
         auto* contacts = static_cast<GhoulySpawnPool*>(weapon.services.bound_at(message[7]));
@@ -1773,7 +1796,7 @@ void dispatch_runtime_chair_weapon_message(RuntimeWeaponActor& weapon, std::span
         Vec3 velocity;
         std::memcpy(&velocity, message.data() + 3, 12);
         chip_runtime_weapon(weapon, direction, velocity,
-            float(i32(read_u32(bytes, 0xE5C))) / float(i32(read_u32(bytes, 0xE60)))); // 0x001451C0
+            float(i32(chair_of(bytes).uses)) / float(i32(chair_of(bytes).total_uses))); // 0x001451C0
         break;
     }
     case 0x91:
@@ -1782,19 +1805,19 @@ void dispatch_runtime_chair_weapon_message(RuntimeWeaponActor& weapon, std::span
         // Picked up: a player gets the second use count.
         const Actor* taker = weapon.actor_or_null(message[1]);
         const u32 uses = taker != nullptr && runtime_actor_is_player(*taker) // 0x00028D00
-            ? read_u32(bytes, 0xE58) : read_u32(bytes, 0xE54);
-        store32(bytes, 0xE5C, uses);
-        store32(bytes, 0xE60, uses);
+            ? chair_of(bytes).player_uses : chair_of(bytes).taker_uses;
+        chair_of(bytes).uses = uses;
+        chair_of(bytes).total_uses = uses;
         break;
     }
     case 0x92:
     {
         if (message[1] != 0)
         {
-            store32(bytes, 0xE64, 0);
+            chair_of(bytes).struck = 0;
             break;
         }
-        if (read_u32(bytes, 0xE68) == 0)
+        if (chair_of(bytes).spent == 0)
         {
             break;
         }
@@ -1814,7 +1837,7 @@ void dispatch_runtime_chair_weapon_message(RuntimeWeaponActor& weapon, std::span
         {
             Actor* owner = weapon.actor.spawn_owner; // +0xD8C.
             if (owner != nullptr && runtime_actor_is_live_player(*owner,
-                read_u32(weapon.bytes_at(weapon.services.actor_address(*owner)), 0xCE0))) // 0x00028D20
+                player_record(weapon.bytes_at(weapon.services.actor_address(*owner))).live)) // 0x00028D20
             {
                 // The scoreboard's weapon-only counter.
                 auto& hud = weapon.services.scoreboard;
@@ -1914,48 +1937,40 @@ void tick_actor_model_pieces(const Actor& actor, std::span<u8> actor_bytes, std:
         throw Error("0x0003FB80 reads the animation header of an actor without a model");
     }
     const auto cpu = actor.model->cpu;
-    const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
-    const auto put = [&](size_t offset, float value)
-    {
-        std::memcpy(pieces.data() + offset, &value, 4);
-    };
-    const auto get = [&](size_t offset)
-    {
-        return read_f32(pieces, offset);
-    };
+    const u32 header = runtime_model_piece_header(cpu);
     u32 row = 0;
     for (u32 group = 0; group < cpu[header]; ++group)
     {
-        const u8 count = cpu[header + 0x16 + group * 0xC];
-        const u32 list = header + read_u16(cpu, header + 0x14 + group * 0xC);
+        const u8 count = runtime_model_piece_group_size(cpu, header, group);
+        const u32 list = runtime_model_piece_group_list(cpu, header, group);
         for (u32 piece = 0; piece < count; ++piece)
         {
-            const size_t offset = size_t(row) * 0xB0;
-            if (read_u32(pieces, offset + 0x8C) == 0)
+            ActorModelPiece& part = actor_model_piece(pieces, row);
+            if (part.active == 0)
             {
                 ++row;
                 continue;
             }
-            put(offset + 0xA8, get(offset + 0xA8) + step);
-            if (get(offset + 0xA8) > 6.f) // DAT_0032B218.
+            part.age = part.age + step;
+            if (part.age > 6.f) // DAT_0032B218.
             {
                 // The expired piece stops; retail keeps the same row for the group's next piece.
-                const u32 zero = 0;
-                std::memcpy(pieces.data() + offset + 0x8C, &zero, 4);
+                part.active = 0;
                 continue;
             }
             // The piece flies by its velocity (+0) from its position (+0x30), as a sphere of its radius (+0x48).
-            Vec3 next{get(offset + 0x30) + get(offset), get(offset + 0x34) + get(offset + 4),
-                get(offset + 0x38) + get(offset + 8)};
-            Vec3 start{get(offset + 0x30), get(offset + 0x34), get(offset + 0x38)};
-            if (entity_record_sphere_probe(next, start, get(offset + 0x48), -1, 0) != 0) // 0x001225A0
+            Vec3 next{part.position.x + part.velocity.x, part.position.y + part.velocity.y,
+                part.position.z + part.velocity.z};
+            Vec3 start{part.position.x, part.position.y, part.position.z};
+            if (entity_record_sphere_probe(next, start, part.radius, -1, 0) != 0) // 0x001225A0
             {
                 const u8* record = entity_detail::g_segment_slots[0].pool.begin; // DAT_00511A20 + 4.
                 if (record != nullptr)
                 {
-                    float nx = read_f32({record, 0x54}, 0xC);
-                    float ny = read_f32({record, 0x54}, 0x10);
-                    float nz = read_f32({record, 0x54}, 0x14);
+                    const Vec3 contact_normal = segment_contact_normal({record, 0x54});
+                    float nx = contact_normal.x;
+                    float ny = contact_normal.y;
+                    float nz = contact_normal.z;
                     const float length = (nz * nz + ny * ny) + nx * nx;
                     if (length != 0.f)
                     {
@@ -1965,60 +1980,57 @@ void tick_actor_model_pieces(const Actor& actor, std::span<u8> actor_bytes, std:
                         nz = float(nz * scale);
                     }
                     // The velocity bounces off the surface, then halves.
-                    const float bounce = (get(offset + 4) * ny * -2.f - get(offset + 8) * nz * 2.f) -
-                        get(offset) * nx * 2.f; // DAT_0032B14C, DAT_0032B110.
-                    put(offset + 8, nz * bounce + get(offset + 8));
-                    put(offset + 4, ny * bounce + get(offset + 4));
-                    put(offset, get(offset) + bounce * nx);
-                    put(offset, get(offset) * 0.5f); // DAT_0032B0F4.
-                    put(offset + 4, get(offset + 4) * 0.5f);
-                    put(offset + 8, get(offset + 8) * 0.5f);
-                    const long double vx = get(offset);
-                    const long double vy = get(offset + 4);
-                    const long double vz = get(offset + 8);
+                    const float bounce = (part.velocity.y * ny * -2.f - part.velocity.z * nz * 2.f) -
+                        part.velocity.x * nx * 2.f; // DAT_0032B14C, DAT_0032B110.
+                    part.velocity.z = nz * bounce + part.velocity.z;
+                    part.velocity.y = ny * bounce + part.velocity.y;
+                    part.velocity.x = part.velocity.x + bounce * nx;
+                    part.velocity.x = part.velocity.x * 0.5f; // DAT_0032B0F4.
+                    part.velocity.y = part.velocity.y * 0.5f;
+                    part.velocity.z = part.velocity.z * 0.5f;
+                    const long double vx = part.velocity.x;
+                    const long double vy = part.velocity.y;
+                    const long double vz = part.velocity.z;
                     const long double speed = std::sqrt((vx * vx + vy * vy) + vz * vz);
                     u32 surface;
                     std::memcpy(&surface, record + 0x20, 4);
                     if (static_cast<long double>(std::bit_cast<float>(0x3DCCCCCDu)) > speed && // DAT_0032B254.
-                        get(offset + 0xA8) > 3.f && (surface & 8) != 0) // DAT_0032B260.
+                        part.age > 3.f && (surface & 8) != 0) // DAT_0032B260.
                     {
-                        const u32 zero = 0;
-                        std::memcpy(pieces.data() + offset + 0x8C, &zero, 4);
+                        part.active = 0;
                     }
                 }
             }
             else
             {
-                put(offset + 4, get(offset + 4) - std::bit_cast<float>(0x3D4CCCCDu)); // DAT_0032B250 gravity.
+                part.velocity.y = part.velocity.y - std::bit_cast<float>(0x3D4CCCCDu); // DAT_0032B250 gravity.
             }
-            put(offset + 0x30, next.x);
-            put(offset + 0x34, next.y);
-            put(offset + 0x38, next.z);
+            part.position.x = next.x;
+            part.position.y = next.y;
+            part.position.z = next.z;
             constexpr float damping = std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
-            put(offset + 0xC, get(offset + 0xC) * damping);
-            put(offset + 0x10, get(offset + 0x10) * damping);
-            put(offset + 0x14, get(offset + 0x14) * damping);
-            put(offset + 0x3C, get(offset + 0x18) + get(offset + 0xC));
-            put(offset + 0x40, get(offset + 0x1C) + get(offset + 0x10));
-            put(offset + 0x44, get(offset + 0x20) + get(offset + 0x14));
+            part.spin.x = part.spin.x * damping;
+            part.spin.y = part.spin.y * damping;
+            part.spin.z = part.spin.z * damping;
+            part.euler.x = part.turn.x + part.spin.x;
+            part.euler.y = part.turn.y + part.spin.y;
+            part.euler.z = part.turn.z + part.spin.z;
             // The piece's matrix record (+0x288 by its node) takes the position, lowered by the radius past the
             // extent, and the wrapped euler; it redraws.
-            u8* matrix = matrices.allocation + size_t(cpu[list + piece]) * 0x48;
-            const float x = get(offset + 0x30);
-            const float z = get(offset + 0x38);
-            const float y = get(offset + 0x34) - (get(offset + 0x48) - get(offset + 0xAC));
-            std::memcpy(matrix + 4, &x, 4);
-            std::memcpy(matrix + 0xC, &z, 4);
-            std::memcpy(matrix + 8, &y, 4);
-            std::memcpy(matrix + 0x10, pieces.data() + offset + 0x3C, 12);
-            Vec3 euler;
-            std::memcpy(&euler, matrix + 0x10, 12);
+            ActorMatrixRecord& matrix = actor_matrix_records(matrices)[size_t(cpu[list + piece])];
+            const float x = part.position.x;
+            const float z = part.position.z;
+            const float y = part.position.y - (part.radius - part.extent);
+            matrix.translation.x = x;
+            matrix.translation.z = z;
+            matrix.translation.y = y;
+            matrix.euler = part.euler;
+            Vec3 euler = matrix.euler;
             wrap_runtime_euler_angles(euler); // 0x001059B0
-            std::memcpy(matrix + 0x10, &euler, 12);
+            matrix.euler = euler;
             matrices.progress = 0.f; // +0x29C.
             matrices.flags = 0; // +0x2A0.
-            const u32 one = 1;
-            std::memcpy(matrix + 0x44, &one, 4);
+            matrix.active = 1;
             ++row;
         }
     }
@@ -2036,14 +2048,14 @@ bool actor_model_pieces_settled(const Actor& actor, const std::vector<u8>& piece
         throw Error("0x00040040 reads the animation header of an actor without a model");
     }
     const auto cpu = actor.model->cpu;
-    const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+    const u32 header = runtime_model_piece_header(cpu);
     u32 row = 0;
     for (u32 group = 0; group < cpu[header]; ++group)
     {
-        const u8 count = cpu[header + 0x16 + group * 0xC];
+        const u8 count = runtime_model_piece_group_size(cpu, header, group);
         for (u32 piece = 0; piece < count; ++piece)
         {
-            if (read_u32(pieces, size_t(row) * 0xB0 + 0x8C) != 0)
+            if (actor_model_piece(pieces, row).active != 0)
             {
                 return false;
             }
@@ -2066,8 +2078,8 @@ void notify_runtime_marks_in_cylinder(RuntimeWeaponActor& weapon, std::span<u32>
         // The node's +0x28 is the body; body +8 is the actor it scales.
         const Actor& actor = *mark.actor;
         const Vec3 position = actor_world_position(actor); // 0x000412A0
-        const float top_extent = actor.radius_y * read_f32(mark.body, 0x884);
-        float radius = actor.radius_xz * read_f32(mark.body, 0x888);
+        const float top_extent = actor.radius_y * body_record(mark.body).height_scale;
+        float radius = actor.radius_xz * body_record(mark.body).radius_scale;
         if (position.y > high)
         {
             continue;
@@ -2160,7 +2172,7 @@ void notify_runtime_weapon_grab_points(RuntimeWeaponActor& weapon)
     Actor& actor = weapon.actor;
     if (actor.spawn_blocked != 0) // +0xAD0.
     {
-        store32(weapon.bytes, 0xAD4, 0);
+        weapon_base(weapon.bytes).prompt_wanted = 0;
         return;
     }
     const Vec3 position = actor_world_position(actor); // 0x000412A0
@@ -2196,7 +2208,7 @@ void notify_runtime_weapon_grab_points(RuntimeWeaponActor& weapon)
         const Vec3 point{center.x, position.y, center.z};
         notify_runtime_marks_in_cylinder(weapon, message, point, height, 0.f - height, height); // 0x00122E20
     }
-    store32(weapon.bytes, 0xAD4, 1);
+    weapon_base(weapon.bytes).prompt_wanted = 1;
 }
 
 // Xbox 0x0014A220
@@ -2227,10 +2239,10 @@ void update_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state)
     // 0x000CF750: a chair a live player holds shows its uses on the HUD (0x0012DC80).
     if (const Actor* holder = weapon_holder(weapon.actor))
     {
-        if (read_u32(weapon.bytes_at(weapon.services.actor_address(*holder)), 0xCE0) != 0 &&
-            (holder->mask_mode == 2 || holder->mask_flag != 0) && read_u32(weapon.bytes, 0xE60) != 0)
+        if (player_record(weapon.bytes_at(weapon.services.actor_address(*holder))).live != 0 &&
+            (holder->mask_mode == 2 || holder->mask_flag != 0) && chair_of(weapon.bytes).total_uses != 0)
         {
-            show_runtime_weapon_uses(weapon, i32(read_u32(weapon.bytes, 0xE5C)), 7); // 0x0012DC80
+            show_runtime_weapon_uses(weapon, i32(chair_of(weapon.bytes).uses), 7); // 0x0012DC80
         }
     }
     switch (state)
@@ -2241,12 +2253,12 @@ void update_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state)
     case 0xC:
         return;
     case 7:
-        store16(weapon.bytes, 0xC0E, 0x10);
+        weapon_base(weapon.bytes).next_state = 0x10;
         return;
     case 0xD:
         if (actor_animation_completed(weapon.view.animation, 0)) // 0x0003B290
         {
-            store16(weapon.bytes, 0xC0E, 0x10);
+            weapon_base(weapon.bytes).next_state = 0x10;
         }
         return;
     case 0x10:
@@ -2263,7 +2275,7 @@ void update_runtime_weapon_bounds(RuntimeWeaponActor& weapon)
 {
     Actor& actor = weapon.actor;
     const u32 held = weapon_holder(actor) != nullptr ? 1u : 0u;
-    if (read_u32(weapon.bytes, 0xAAC) == 0 && held == 0)
+    if (weapon_base(weapon.bytes).was_held == 0 && held == 0)
     {
         return;
     }
@@ -2274,10 +2286,11 @@ void update_runtime_weapon_bounds(RuntimeWeaponActor& weapon)
     const float scale_xz = actor.radius_xz;
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float inverse = 1.f / scale_y;
-    const float bottom = read_f32(bound, 8);
+    const MindTargetShape& shape = mind_target_shape(std::span<const u8>(bound));
+    const float bottom = shape.position.y;
     const float low = (bottom - position.y) * inverse;
-    const float high = ((read_f32(bound, 0x14) + bottom) - position.y) * inverse;
-    const float radius = read_f32(bound, 0x1C) / scale_xz;
+    const float high = ((shape.height + bottom) - position.y) * inverse;
+    const float radius = shape.radius / scale_xz;
     actor.model_size_y = high; // +0x1C8
     actor.model_size_z = low; // +0x1CC
     actor.model_size_x = radius; // +0x1C4
@@ -2287,13 +2300,13 @@ void update_runtime_weapon_bounds(RuntimeWeaponActor& weapon)
     if (attachment != nullptr)
     {
         build_runtime_actor_bound(actor, bound.data(), 0x100, true, shapes); // 0x000426F0
-        const u8 floor = u8(read_u32(weapon.bytes, 0xD00));
+        const u8 floor = u8(weapon_base(weapon.bytes).floor);
         copy_actor_shape(attachment->shape.data(), bound.data()); // 0x0010AA60
         copy_actor_shape(attachment->secondary_shape.data(), bound.data());
         attachment->origin = actor_transform_origin; // DAT_0050DD80.
         attachment->flag = floor;
     }
-    store32(weapon.bytes, 0xAAC, held);
+    weapon_base(weapon.bytes).was_held = held;
     if (held == 0)
     {
         register_runtime_weapon_cells(weapon); // 0x00145BC0
@@ -2330,26 +2343,27 @@ void update_runtime_weapon_variant(RuntimeWeaponActor& weapon)
     auto bytes = weapon.bytes;
     const Actor& actor = weapon.actor;
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    if (read_u32(bytes, 0xC00) != 0)
+    if (weapon_base(bytes).unk_C00 != 0)
     {
-        if (weapon_holder(actor) != nullptr || bytes[0x93C] == 0 || actor.spawn_blocked != 0 ||
+        if (weapon_holder(actor) != nullptr || weapon_base(bytes).mask == 0 || actor.spawn_blocked != 0 ||
             actor.spawn_point_count == 0)
         {
-            store32(bytes, 0xBF0, 0);
+            weapon_base(bytes).trigger_radius = 0.f;
         }
     }
-    if (bytes[0x93C] != 0)
+    if (weapon_base(bytes).mask != 0)
     {
-        const i32 result = check_ghouly_spawn_trigger(position, read_f32(bytes, 0xBF0), read_f32(bytes, 0xBF4),
-            weapon.random); // 0x0013E980
+        const i32 result = check_ghouly_spawn_trigger(position, weapon_base(bytes).trigger_radius,
+                                                      weapon_base(bytes).trigger_chance,
+                                                      weapon.random); // 0x0013E980
         if (result == 1)
         {
-            request_runtime_weapon_variant(weapon, reinterpret_cast<const char*>(bytes.data() + 0xAEC),
-                reinterpret_cast<const char*>(bytes.data() + 0xB6C)); // 0x00148430
+            request_runtime_weapon_variant(weapon, weapon_base(bytes).variant_name.data(),
+                weapon_base(bytes).variant_attributes.data()); // 0x00148430
         }
-        else if (result == -1 && read_u32(bytes, 0xBF8) != 0)
+        else if (result == -1 && weapon_base(bytes).unk_BF8 != 0)
         {
-            store32(bytes, 0xBF0, 0);
+            weapon_base(bytes).trigger_radius = 0.f;
         }
     }
     if (weapon.spawn_record != nullptr && weapon.spawn_record->remaining_c == 0) // +0xC04, its +0xC.
@@ -2363,7 +2377,7 @@ void update_runtime_weapon_variant(RuntimeWeaponActor& weapon)
 void finish_runtime_weapon_pieces(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    if (read_u32(bytes, 0xDA0) != 0)
+    if (weapon_base(bytes).fades_out != 0)
     {
         // 0x00107720 / 0x00107520: the fade-out with +8 this actor and +0x10 one.
         weapon.create_object("aid_objparams_ghoulies_fx_fadeout", [](std::span<u8> parameters)
@@ -2371,14 +2385,14 @@ void finish_runtime_weapon_pieces(RuntimeWeaponActor& weapon)
             const u32 one = 1;
             std::memcpy(parameters.data() + 0x10, &one, 4);
         });
-        store8(bytes, 0xDAF, 1);
+        weapon_base(bytes).pieces_finished = 1;
         return;
     }
-    if (read_u32(bytes, 0xD98) != 0)
+    if (weapon_base(bytes).unk_D98 != 0)
     {
         throw Error("weapon piece finish 0x00145820 finds +0xD98 set, which no retail writer does"); // 0x000ED2E0
     }
-    if (read_u32(bytes, 0xD9C) != 0)
+    if (weapon_base(bytes).unk_D9C != 0)
     {
         throw Error("weapon piece finish 0x00145820 finds +0xD9C set, which no retail writer does"); // 0x001450A0
     }
@@ -2391,13 +2405,13 @@ void finish_runtime_weapon_pieces(RuntimeWeaponActor& weapon)
 // Xbox 0x00145740, ESI actor
 void update_runtime_weapon_pieces(RuntimeWeaponActor& weapon)
 {
-    if (weapon.bytes[0xDAF] != 0)
+    if (weapon_base(weapon.bytes).pieces_finished != 0)
     {
         return;
     }
     tick_actor_model_pieces(weapon.actor, weapon.bytes, weapon.pieces, weapon.matrices, frame_step(weapon.frame)); // 0x0003FB80
     if (actor_model_pieces_settled(weapon.actor, weapon.pieces) && // 0x00040040
-        read_u32(weapon.bytes, 0xD94) == u32(weapon.matrices.matrices.count)) // +0x28C.
+        weapon_base(weapon.bytes).broken_pieces == u32(weapon.matrices.matrices.count)) // +0x28C.
     {
         finish_runtime_weapon_pieces(weapon); // 0x00145820
     }
@@ -2434,24 +2448,24 @@ void update_runtime_weapon_prompt(RuntimeWeaponActor& weapon)
     Actor& actor = weapon.actor;
     const float step = frame_step(weapon.frame);
     const float rate = frame_rate(actor);
-    float pulse = read_f32(bytes, 0xAB0) - rate * step;
-    std::memcpy(bytes.data() + 0xAB0, &pulse, 4);
+    float pulse = weapon_base(bytes).prompt_pulse - rate * step;
+    weapon_base(bytes).prompt_pulse = pulse;
     if (!(0.f < pulse))
     {
         pulse = pulse + std::bit_cast<float>(0x3F333333u); // DAT_0032B264.
-        std::memcpy(bytes.data() + 0xAB0, &pulse, 4);
+        weapon_base(bytes).prompt_pulse = pulse;
     }
     constexpr float opaque = 192.f; // DAT_0032B454.
-    float& fade = *reinterpret_cast<float*>(bytes.data() + 0xAE0);
+    float& fade = weapon_base(bytes).prompt_fade;
     const auto set_state = [&](u16 value, float time)
     {
-        store16(bytes, 0xADC, value);
-        std::memcpy(bytes.data() + 0xAE0, &time, 4);
+        weapon_base(bytes).prompt_phase = value;
+        weapon_base(bytes).prompt_fade = time;
     };
-    switch (i16(read_u16(bytes, 0xADC)))
+    switch (i16(weapon_base(bytes).prompt_phase))
     {
     case 0:
-        if (read_u32(bytes, 0xAD4) != 0 && runtime_prompt_gate(weapon.frame)) // 0x00117560
+        if (weapon_base(bytes).prompt_wanted != 0 && runtime_prompt_gate(weapon.frame)) // 0x00117560
         {
             float distance = 0.f;
             Actor* player = find_nearest_runtime_case_actor(nullptr, actor, 0x1A000, &distance,
@@ -2488,16 +2502,16 @@ void update_runtime_weapon_prompt(RuntimeWeaponActor& weapon)
         {
             clamped = level;
         }
-        bytes[0xADE] = u8(i32(clamped)); // 0x001673D8.
+        weapon_base(bytes).prompt_alpha = u8(i32(clamped)); // 0x001673D8.
         if (runtime_frame_timer_elapsed(fade, actor, weapon.frame)) // 0x00042360
         {
-            store16(bytes, 0xADC, 2);
+            weapon_base(bytes).prompt_phase = 2;
         }
         break;
     }
     case 2:
     {
-        bytes[0xADE] = 0xC0;
+        weapon_base(bytes).prompt_alpha = 0xC0;
         float distance = 0.f;
         Actor* player = find_nearest_runtime_case_actor(nullptr, actor, 0x1A000, &distance, weapon.case_actors(),
             weapon.query); // 0x001292F0
@@ -2509,7 +2523,8 @@ void update_runtime_weapon_prompt(RuntimeWeaponActor& weapon)
             float radius = distance;
             nearest_runtime_weapon_grab_point(weapon, position, nearest, radius); // 0x001478B0
             const long double gap = runtime_point_distance(position, nearest) - radius; // 0x00146CE0
-            if (!(gap > 55.L) && read_u32(bytes, 0xAD4) != 0 && runtime_prompt_gate(weapon.frame)) // DAT_0032B528.
+            if (!(gap > 55.L) && weapon_base(bytes).prompt_wanted != 0 &&
+                runtime_prompt_gate(weapon.frame)) // DAT_0032B528.
             {
                 break;
             }
@@ -2533,35 +2548,35 @@ void update_runtime_weapon_prompt(RuntimeWeaponActor& weapon)
         {
             clamped = level;
         }
-        bytes[0xADE] = u8(i32(clamped)); // 0x001673D8.
+        weapon_base(bytes).prompt_alpha = u8(i32(clamped)); // 0x001673D8.
         if (runtime_frame_timer_elapsed(fade, actor, weapon.frame)) // 0x00042360
         {
-            store16(bytes, 0xADC, 0);
-            bytes[0xADE] = 0;
+            weapon_base(bytes).prompt_phase = 0;
+            weapon_base(bytes).prompt_alpha = 0;
         }
         break;
     }
     default:
         break;
     }
-    bytes[0xADF] = bytes[0xADE] != 0 ? 1 : 0;
-    store32(bytes, 0xAD4, 0);
+    weapon_base(bytes).prompt_visible = weapon_base(bytes).prompt_alpha != 0 ? 1 : 0;
+    weapon_base(bytes).prompt_wanted = 0;
 }
 
 // Xbox 0x0014A770, EAX actor
 void update_runtime_weapon_voice(RuntimeWeaponActor& weapon)
 {
     auto bytes = weapon.bytes;
-    if (bytes[0xD08] == 0)
+    if (weapon_base(bytes).voice_name.data()[0] == 0)
     {
         return;
     }
     AudioEventVoices& voices = weapon.services.voices;
-    if (read_u16(bytes, 0xD88) == 0xFFFF)
+    if (weapon_base(bytes).voice == 0xFFFF)
     {
         // The carried sound (+0xD08) starts at the weapon.
         const i16 voice = allocate_audio_event_voice(1, voices); // 0x00039830, EBX 1
-        store16(bytes, 0xD88, u16(voice));
+        weapon_base(bytes).voice = u16(voice);
         if (voice == -1)
         {
             return;
@@ -2572,12 +2587,12 @@ void update_runtime_weapon_voice(RuntimeWeaponActor& weapon)
         {
             set_audio_core_source_position(*source, position, voices.core.sources); // 0x0015C800
         }
-        prepare_audio_event_voice(voice, reinterpret_cast<const char*>(bytes.data() + 0xD08), voices); // 0x00039A20
+        prepare_audio_event_voice(voice, weapon_base(bytes).voice_name.data(), voices); // 0x00039A20
         return;
     }
     // The playing sound follows the weapon.
     const Vec3 position = actor_world_position(weapon.actor); // 0x000412A0
-    const i16 voice = i16(read_u16(bytes, 0xD88));
+    const i16 voice = i16(weapon_base(bytes).voice);
     if (AudioCoreSource* source = voices.voices[size_t(voice)].source)
     {
         set_audio_core_source_position(*source, position, voices.core.sources); // 0x0015C800
@@ -2592,9 +2607,9 @@ void update_runtime_weapon_actor(RuntimeWeaponActor& weapon)
     ActorFrameContext& context = weapon.frame;
     float step = frame_step(context);
     float rate = frame_rate(actor);
-    const float time = rate * step + read_f32(weapon.bytes, 0xC14);
-    std::memcpy(weapon.bytes.data() + 0xC14, &time, 4);
-    update_state(weapon, read_u16(weapon.bytes, 0xC0C)); // Vtable +0x44.
+    const float time = rate * step + weapon_base(weapon.bytes).state_time;
+    weapon_base(weapon.bytes).state_time = time;
+    update_state(weapon, weapon_base(weapon.bytes).state); // Vtable +0x44.
     if (Actor* holder = weapon_holder(actor))
     {
         // The held weapon's animation runs at the holder's slot 0 duration (+0x20).
@@ -2661,14 +2676,14 @@ void update_runtime_weapon_actor(RuntimeWeaponActor& weapon)
     {
         actor.animation_rate = 1.f; // DAT_0032B0F8.
     }
-    late_update_state(weapon, read_u16(weapon.bytes, 0xC0C)); // Vtable +0x48.
+    late_update_state(weapon, weapon_base(weapon.bytes).state); // Vtable +0x48.
     update_runtime_weapon_bounds(weapon); // 0x00145A40
     update_runtime_weapon_markers(weapon); // 0x00144E30
     if (Actor* holder = weapon_holder(actor))
     {
         push_runtime_weapon_holder(weapon, *holder); // 0x00147B30
     }
-    const u16 pending = read_u16(weapon.bytes, 0xC0E);
+    const u16 pending = weapon_base(weapon.bytes).next_state;
     if (pending != 0)
     {
         change_runtime_weapon_state(weapon, pending); // As 0x0014A290.
@@ -2711,7 +2726,7 @@ bool runtime_weapon_draw_hidden(const RuntimeWeaponActor& weapon)
         return false;
     }
     // Hidden while a live player holds it and DAT_0050EA9C bit 2 is set.
-    if (read_u32(weapon.bytes_at(weapon.services.actor_address(*holder)), 0xCE0) == 0)
+    if (player_record(weapon.bytes_at(weapon.services.actor_address(*holder))).live == 0)
     {
         return false;
     }
@@ -2725,14 +2740,16 @@ bool runtime_weapon_draw_hidden(const RuntimeWeaponActor& weapon)
 // Xbox 0x00147560, EAX pass, EBX actor
 void draw_runtime_weapon_prompt(RuntimeWeaponActor& weapon, i32 pass)
 {
-    if (pass != 2 || weapon.bytes[0xADF] == 0)
+    if (pass != 2 || weapon_base(weapon.bytes).prompt_visible == 0)
     {
         return;
     }
     const Actor& actor = weapon.actor;
     const ModelPoseBuffer* pose = weapon_shape_pose(actor);
     const float frames = float(i32(weapon.hand_texture[0x11]));
-    const float level = read_f32(weapon.bytes, 0xAB0) * std::bit_cast<float>(0x3FB6DB6Eu) * (0.f - frames) + frames; // DAT_0032B2E0.
+    const float level =
+        weapon_base(weapon.bytes).prompt_pulse * std::bit_cast<float>(0x3FB6DB6Eu) * (0.f - frames) +
+        frames; // DAT_0032B2E0.
     float clamped;
     if (0.f > frames)
     {
@@ -2765,7 +2782,7 @@ void draw_runtime_weapon_prompt(RuntimeWeaponActor& weapon, i32 pass)
         }
     }
     const u32 frame = u8(i32(clamped)); // 0x001673D8.
-    const u32 color = (u32(weapon.bytes[0xADE]) << 24) | 0xFFFFFFu;
+    const u32 color = (u32(weapon_base(weapon.bytes).prompt_alpha) << 24) | 0xFFFFFFu;
     const float size[2]{2.5f, 2.5f}; // DAT_0032B20C.
     AnimationMatrix world;
     std::memcpy(world.data(), actor.xform, 48);
@@ -2804,17 +2821,17 @@ bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon, std::span<const
 {
     auto bytes = weapon.bytes;
     Actor& actor = weapon.actor;
-    store8(bytes, 0x93C, 1);
+    weapon_base(bytes).mask = 1;
     actor.mask_flag = i32((u32(actor.mask_flag) & ~0xFFu) | 1u);
-    store8(bytes, 0x93F, parameters[0x336]);
-    store8(bytes, 0x93D, parameters[0x337]);
-    actor.mask_flag = i32(read_u32(bytes, 0x93C)); // Native alias of the +0x93C dword (0x001460C0 reads +0x93F).
-    store32(bytes, 0xDA0, read_u32(parameters, 0x460));
-    store32(bytes, 0xDA4, read_u32(parameters, 0x464));
-    store8(bytes, 0xDAC, parameters[0x338]);
-    store8(bytes, 0xDAD, parameters[0x339]);
-    store8(bytes, 0xDAE, parameters[0x33A]);
-    store32(bytes, 0xDA8, read_u32(parameters, 0x46C));
+    weapon_base(bytes).unk_93F = get(parameters, weapon_parameter::unk_93F);
+    weapon_base(bytes).unk_93D = get(parameters, weapon_parameter::unk_93D);
+    actor.mask_flag = i32(read_u32(bytes, offsetof(WeaponBase, mask))); // Native alias of the +0x93C dword (0x001460C0 reads +0x93F).
+    weapon_base(bytes).fades_out = get(parameters, weapon_parameter::fades_out);
+    weapon_base(bytes).awards_points = get(parameters, weapon_parameter::awards_points);
+    weapon_base(bytes).hit_kind = get(parameters, weapon_parameter::hit_kind);
+    weapon_base(bytes).hit_strength = get(parameters, weapon_parameter::hit_strength);
+    weapon_base(bytes).hit_style = get(parameters, weapon_parameter::hit_style);
+    weapon_base(bytes).unk_DA8 = get(parameters, weapon_parameter::unk_DA8);
     copy_runtime_weapon_classes(weapon, parameters); // 0x00144A80
     weapon.model_nodes.clear();
     if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
@@ -2830,19 +2847,19 @@ bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon, std::span<const
     const RuntimeBodyModelNodes nodes{weapon.model_nodes};
     weapon.markers = create_runtime_body_collision_state(actor.model != nullptr && actor.model->cpu.data() != nullptr
         ? &nodes : nullptr); // 0x0013F150 into +0x998
-    store32(bytes, 0xC18, read_u32(parameters, 0x574));
+    weapon_base(bytes).starts_scene = get(parameters, weapon_parameter::starts_scene);
     initialize_runtime_weapon_names(weapon, parameters); // 0x00145150
     collect_runtime_weapon_grab_shapes(weapon); // 0x00146D10
     collect_runtime_weapon_flagged_markers(weapon); // 0x00147E10
     pick_runtime_weapon_variant(weapon, parameters); // 0x00147F00
-    store16(bytes, 0xC10, read_u16(parameters, 0x334));
-    store32(bytes, 0xAAC, 1);
-    store32(bytes, 0xD90, 0);
-    store32(bytes, 0xD94, 0);
-    store32(bytes, 0xD98, 0);
-    store8(bytes, 0xDAF, 0);
-    store16(bytes, 0xD88, 0xFFFF);
-    const u32 name = read_u32(parameters, 0x33C);
+    weapon_base(bytes).initial_state = get(parameters, weapon_parameter::initial_state);
+    weapon_base(bytes).was_held = 1;
+    weapon_base(bytes).broken_groups = 0;
+    weapon_base(bytes).broken_pieces = 0;
+    weapon_base(bytes).unk_D98 = 0;
+    weapon_base(bytes).pieces_finished = 0;
+    weapon_base(bytes).voice = 0xFFFF;
+    const u32 name = get(parameters, weapon_parameter::name);
     if (name != 0)
     {
         const auto text = weapon.executable(name, 0);
@@ -2850,28 +2867,31 @@ bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon, std::span<const
         {
             throw Error("weapon parameter +0x33C name has no terminator");
         }
-        copy_string(bytes, 0xDB0, 0x20, reinterpret_cast<const char*>(text.data()));
+        copy_string(bytes, offsetof(WeaponBase, name), sizeof(WeaponBase::name),
+                    reinterpret_cast<const char*>(text.data()));
     }
-    copy_string(bytes, 0xDD0, 0x80, parameter_string(parameters, 0xA8, 0x80));
+    copy_string(bytes, offsetof(WeaponBase, animation), sizeof(WeaponBase::animation),
+                parameter_string(parameters, actor_parameter_field::animation.offset, 0x80));
     initialize_actor_model_matrices(actor, weapon.matrices, weapon.model_types,
         weapon.matrix_bindings(actor)); // 0x000400D0
-    if (read_u32(parameters, 0x468) != 0)
+    if (get(parameters, weapon_parameter::blocks_spawn) != 0)
     {
         block_runtime_weapon_spawn(weapon); // 0x00147860
     }
-    if (parameters[0x578] != 0)
+    if (field_data(parameters, weapon_parameter::voice_name)[0] != 0)
     {
-        copy_string(bytes, 0xD08, 0x80, parameter_string(parameters, 0x578, 0x80));
+        copy_string(bytes, offsetof(WeaponBase, voice_name), sizeof(WeaponBase::voice_name),
+                    parameter_string(parameters, weapon_parameter::voice_name.offset, 0x80));
     }
     actor.shape_mode = 4; // +0x120.
-    const u16 state = read_u16(bytes, 0xC10);
-    store16(bytes, 0xC0E, 0);
-    leave_state(weapon, read_u16(bytes, 0xC0C), state); // Vtable +0x40.
-    const u16 previous = read_u16(bytes, 0xC0C);
-    store16(bytes, 0xC0C, state);
-    store32(bytes, 0xC14, 0);
+    const u16 state = weapon_base(bytes).initial_state;
+    weapon_base(bytes).next_state = 0;
+    leave_state(weapon, weapon_base(bytes).state, state); // Vtable +0x40.
+    const u16 previous = weapon_base(bytes).state;
+    weapon_base(bytes).state = state;
+    weapon_base(bytes).state_time = 0.f;
     enter_state(weapon, state, previous); // Vtable +0x3C.
-    const u32 key = read_u32(parameters, 0x470);
+    const u32 key = get(parameters, weapon_parameter::controller_key);
     if (key != 0)
     {
         if (g_ghouly_controllers.size() == g_ghouly_controllers.capacity())
@@ -2889,18 +2909,19 @@ bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon, std::span<const
 bool initialize_runtime_chair_weapon(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {
     auto bytes = weapon.bytes;
-    store32(bytes, 0x99C, 0x000CF5F0); // The chair's grab test, called through +0x99C.
-    store32(bytes, 0xE54, read_u32(parameters, 0x5F8));
-    store32(bytes, 0xE58, read_u32(parameters, 0x5FC));
-    if (read_u32(parameters, 0x600) != 0)
+    weapon_base(bytes).contact_test = 0x000CF5F0; // The chair's grab test, called through +0x99C.
+    chair_of(bytes).taker_uses = get(parameters, chair_weapon_parameter::taker_uses);
+    chair_of(bytes).player_uses = get(parameters, chair_weapon_parameter::player_uses);
+    if (get(parameters, chair_weapon_parameter::unk_600) != 0)
     {
-        store8(bytes, 0x942, 1);
+        weapon_base(bytes).unk_942 = 1;
     }
-    if (read_u32(bytes, 0xE58) == 0)
+    if (chair_of(bytes).player_uses == 0)
     {
-        store8(bytes, 0x941, 1);
+        weapon_base(bytes).unk_941 = 1;
     }
-    copy_string(bytes, 0xE70, 0x80, parameter_string(parameters, 0x604, 0x80));
+    copy_string(bytes, offsetof(ChairWeaponState, effect_name), sizeof(ChairWeaponState::effect_name),
+        parameter_string(parameters, 0x604, 0x80));
     return true;
 }
 
@@ -2978,14 +2999,13 @@ void enter_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16
         register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770
         weapon.actor.model_flags |= 0x100u;
         start_runtime_weapon_idle(weapon); // 0x00144D00
-        if (read_u32(weapon.bytes, 0xDA8) == 0)
+        if (weapon_base(weapon.bytes).unk_DA8 == 0)
         {
             attach_runtime_weapon_volume(weapon); // 0x00146310
         }
-        if (read_u32(weapon.bytes, 0xE70) == kAidPrefix)
+        if (read_u32(retail_bytes(chair_of(weapon.bytes).effect_name), 0) == kAidPrefix)
         {
-            store32(weapon.bytes, 0xE6C, weapon.create_object(reinterpret_cast<const char*>(
-                weapon.bytes.data() + 0xE70), {})); // 0x0003DF40
+            chair_of(weapon.bytes).effect = weapon.create_object(chair_of(weapon.bytes).effect_name.data(), {}); // 0x0003DF40
         }
         return;
     default:
@@ -3003,7 +3023,7 @@ void leave_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16
         if (state == 0xC)
         {
             auto* controller = weapon.view.animation.controller.get(); // +0x50.
-            if (read_u32(bytes, 0xDD0) == kAidPrefix && controller != nullptr)
+            if (read_u32(bytes, offsetof(WeaponBase, animation)) == kAidPrefix && controller != nullptr)
             {
                 if (!controller->slots.empty() && controller->slots[0].player != nullptr)
                 {
@@ -3023,7 +3043,7 @@ void leave_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16
             leave_runtime_weapon_state(weapon, state, next); // 0x0014A180
             return;
         }
-        if (read_u32(bytes, 0xDD0) == kAidPrefix)
+        if (read_u32(bytes, offsetof(WeaponBase, animation)) == kAidPrefix)
         {
             // 0x0003B340 on slot 0: the slot's player resumes and the controller is marked dirty.
             auto* controller = weapon.view.animation.controller.get();
@@ -3038,15 +3058,16 @@ void leave_runtime_chair_weapon_state(RuntimeWeaponActor& weapon, u16 state, u16
         }
         weapon.actor.model_flags &= ~0x100u;
         clear_actor_live_attachments(weapon.view.live_attachments); // 0x00042040
-        if (read_u32(bytes, 0xE6C) != 0)
+        if (chair_of(bytes).effect != 0)
         {
-            release_runtime_actor_frame_object(weapon, read_u32(bytes, 0xE6C)); // 0x0003DE30
-            store32(bytes, 0xE6C, 0);
+            release_runtime_actor_frame_object(weapon, chair_of(bytes).effect); // 0x0003DE30
+            chair_of(bytes).effect = 0;
         }
     }
     if (weapon.cells != nullptr)
     {
-        entity_detail::release_navigation_cell_registration(weapon.cells, read_u32(bytes, 0xD00)); // 0x001108B0
+        entity_detail::release_navigation_cell_registration(weapon.cells,
+                                                            weapon_base(bytes).floor); // 0x001108B0
     }
     weapon.actor.model_mode &= ~4;
     register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "body_state_actions.h"
 #include "actor_clock.h"
@@ -48,33 +49,34 @@ constexpr RetailField<u32, 0x28> settle_turn{};
 constexpr u32 kSize = 0x2C;
 static_assert(retail_fits(kSize, settle_turn));
 } // namespace throw_state_parameter
-// The throw state's own fields at their retail offsets (0x68 bytes), after the body-state base (body_state_field).
-namespace throw_state_field
+// The throw state's own fields at their retail offsets (0x68 bytes), after the body-state base (BodyStateBase).
+struct ThrowState
 {
-constexpr RetailField<Vec3, 0x18> entry_euler{}; // the actor's euler at entry (0x00041820)
-constexpr RetailField<Vec3, 0x24> aim{};
-constexpr RetailField<Vec3, 0x30> launch{}; // eased toward aim while smooth_launch is set
-constexpr RetailField<u32, 0x3C> launch_seeded{}; // set once launch has been copied from aim
-constexpr RetailField<float, 0x40> near_range{};
-constexpr RetailField<u32, 0x44> thrown{};
-constexpr RetailField<u32, 0x48> turn_to_aim{};
-constexpr RetailField<u32, 0x4C> smooth_launch{};
-constexpr RetailField<u32, 0x50> settle_turn{};
-constexpr RetailField<float, 0x54> aim_angle{}; // radians, added to the actor's yaw
-// 0..2 at the target's height, 3 along the right stick, 4 at the weapon's height.
-constexpr RetailField<u32, 0x58> aim_mode{};
-constexpr RetailField<float, 0x5C> spread{}; // the launch point's sideways spread (0x000A3FE0)
-constexpr RetailField<u16, 0x60> end_key{}; // next_key when the throw ends; 0 for body slot 0x20's
-constexpr RetailField<u32, 0x64> ended{}; // set when the animation has ended
-constexpr u32 kSize = 0x68;
-static_assert(retail_fits(kSize, ended));
-} // namespace throw_state_field
+    BodyStateBase base{}; // +0
+    Vec3 entry_euler{}; // +0x18, the actor's euler at entry (0x00041820)
+    Vec3 aim{}; // +0x24
+    Vec3 launch{}; // +0x30, eased toward aim while smooth_launch is set
+    u32 launch_seeded = 0; // +0x3C, set once launch has been copied from aim
+    float near_range = 0.f; // +0x40
+    u32 thrown = 0; // +0x44
+    u32 turn_to_aim = 0; // +0x48
+    u32 smooth_launch = 0; // +0x4C
+    u32 settle_turn = 0; // +0x50
+    float aim_angle = 0.f; // +0x54, radians, added to the actor's yaw
+    // +0x58: 0..2 at the target's height, 3 along the right stick, 4 at the weapon's height.
+    u32 aim_mode = 0;
+    float spread = 0.f; // +0x5C, the launch point's sideways spread (0x000A3FE0)
+    u16 end_key = 0; // +0x60, next_key when the throw ends; 0 for body slot 0x20's
+    std::array<u8, 2> unk_62{}; // +0x62, padding
+    u32 ended = 0; // +0x64, set when the animation has ended
+};
+static_assert(sizeof(ThrowState) == 0x68);
 void throw_state_object_sizes(ObjectSizes& output); // Xbox 0x000A37D0
-bool initialize_runtime_throw_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_throw_state(ThrowState& state, std::span<const u8> parameters,
     RuntimeThrowStateContext& context); // Xbox 0x000A3850
-void destroy_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& context); // Xbox 0x000A3910
+void destroy_runtime_throw_state(ThrowState& state, RuntimeThrowStateContext& context); // Xbox 0x000A3910
 // Turns the actor toward the launch point, easing +0x30 toward +0x24 when +0x4C is set (EAX state).
-void turn_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& context); // Xbox 0x000A3D50
+void turn_runtime_throw_state(ThrowState& state, RuntimeThrowStateContext& context); // Xbox 0x000A3D50
 // The aim 20 ahead of the actor along the right stick, or along its yaw (ECX actor, EAX body, EBX the aim).
 void aim_runtime_throw_by_stick(Vec3& aim, RuntimeThrowStateContext& context); // Xbox 0x000A3E80
 // Spreads the launch point sideways by a random amount within +-`spread` (ECX actor).
@@ -84,7 +86,7 @@ void spread_runtime_throw(float spread, Vec3& point, const Actor& actor, u32& ra
 void lead_runtime_throw_target(Vec3& aim, RuntimeThrowStateContext& context); // Xbox 0x000A4100
 // The horizontal distance from the actor to `point` (ESI actor, EBX point).
 long double runtime_actor_flat_distance(const Actor& actor, const Vec3& point); // Xbox 0x000413F0
-void tick_runtime_throw_state(std::span<u8> state, RuntimeThrowStateContext& context); // Xbox 0x000A3990
-void message_runtime_throw_state(std::span<const u8> state, std::span<const u8> message,
+void tick_runtime_throw_state(ThrowState& state, RuntimeThrowStateContext& context); // Xbox 0x000A3990
+void message_runtime_throw_state(const ThrowState& state, std::span<const u8> message,
     RuntimeThrowStateContext& context); // Xbox 0x000A3D20
 }

@@ -65,7 +65,7 @@ void check_animation_and_attribute_helpers()
     require(controller.slots[1].fade_mode == 0 && fade_runtime_player_animation_slot(nullptr, message) == 0,
         "other event kinds and a missing controller do nothing");
 
-    std::vector<u8> bytes(0xE00);
+    std::vector<u8> bytes(0xF00);
     Messages sent;
     RuntimeBodyAttachedActor actor{bytes, 0x1000, recorder(sent)};
     bytes[0x96F] = 3;
@@ -94,7 +94,7 @@ void check_contact_and_spawn_messages()
     relay_runtime_player_contact(contact, 0x1000);
     require(received == Messages{{0xF, 0x1000, 1, 2, 3, 4, 5, 6, 0xBEEF}}, "contact relays six words and the zero-extended +0x20 word");
     received.clear();
-    std::vector<u8> bytes(0xE00);
+    std::vector<u8> bytes(0xF00);
     Messages self_messages;
     RuntimeBodyAttachedActor actor{bytes, 0x1000, recorder(self_messages)};
     acknowledge_runtime_player_contact(actor, contact);
@@ -132,7 +132,7 @@ void check_contact_and_spawn_messages()
 
 void check_pause_and_strategy()
 {
-    std::vector<u8> bytes(0xE00);
+    std::vector<u8> bytes(0xF00);
     std::array<u32, 2> references{0, 0};
     std::array<u8, 4> decay{0, 1, 0, 0};
     u32 decay_index = 1;
@@ -181,7 +181,7 @@ void check_pause_and_strategy()
     Messages sent;
     RuntimeBodyAttachedActor self{bytes, 0x1000, recorder(sent)};
     RuntimePlayerGoalRing*& ring = actor.goal_ring; // Actor +0x980.
-    std::vector<u8> body(0x300);
+    std::vector<u8> body(0x950);
     std::span<u8> body_view = body;
     entity_detail::LatchNode* latch = nullptr;
     std::array<u8, 2> zero{};
@@ -222,8 +222,8 @@ void check_activation_and_navigation()
     const i32 saved_count = g_nav_count;
     const i32 saved_x = g_nav_origin_x;
     const i32 saved_z = g_nav_origin_z;
-    void* saved_pool = g_512344;
-    const i32 saved_mask = g_512348;
+    void* saved_pool = g_occupancy_pool;
+    const i32 saved_mask = g_occupancy_mask;
     NavGrid grid;
     grid.width = 3;
     grid.depth = 3;
@@ -255,8 +255,8 @@ void check_activation_and_navigation()
     release_navigation_cell_registration(records, 0);
     require(records == nullptr && grid.cells[4].value_6 == 0 && grid.cells[1].value_6 == 0, "release returns every counter");
 
-    std::vector<u8> bytes(0xE00);
-    std::vector<u8> body(0x900);
+    std::vector<u8> bytes(0xF00);
+    std::vector<u8> body(0x950);
     Actor actor;
     actor.radius_xz = 2.0f;
     put_float(body, 0x888, 3.0f);
@@ -284,8 +284,8 @@ void check_activation_and_navigation()
     sphere.center = Vec3{15.0f, 0.0f, 15.0f};
     sphere.extent_x = 4.0f;
     OccupancyPool pool{0x38, 4, &sphere, &sphere + 1, &sphere + 1};
-    g_512344 = &pool;
-    g_512348 = 6;
+    g_occupancy_pool = &pool;
+    g_occupancy_mask = 6;
     const OccupancyRecord* room = nullptr;
     const OccupancyRecord* allowed = nullptr;
     RuntimePlayerGoalRing* ring = nullptr;
@@ -317,7 +317,7 @@ void check_activation_and_navigation()
     require(bytes[0x96D] == 1 && sent == Messages{{0x55}} && read_u32(bytes, 0x930) == 0 && read_u32(bytes, 0xCEC) == 0,
         "an excluded tag resets the attribute timer and the floor is stored");
 
-    std::vector<u8> second_bytes(0xE00);
+    std::vector<u8> second_bytes(0xF00);
     Actor second_actor;
     second_actor.position = Vec3{15.0f, 0.0f, 15.0f};
     RuntimeBodyAttachedActor second{second_bytes, 0x1100, recorder(sent), nullptr, &second_actor};
@@ -337,8 +337,8 @@ void check_activation_and_navigation()
     require(second_bytes[0x98B] == 1 && sent.size() == before, "an active goal defers script override restoration");
     engine_heap_free(ring);
 
-    g_512344 = saved_pool;
-    g_512348 = saved_mask;
+    g_occupancy_pool = saved_pool;
+    g_occupancy_mask = saved_mask;
     for (size_t index = 0; index < 4; ++index)
     {
         g_nav_grids[index] = saved_grids[index];
@@ -378,7 +378,7 @@ void check_player_overlay()
     queue_billboard(queue, digits[1], 0, 0, Vec3{}, std::array<float, 2>{1.0f, 1.0f}.data(), 0.0f);
     require(queue.count == 0x800, "a full billboard queue drops new sprites");
 
-    std::vector<u8> body(0x100);
+    std::vector<u8> body(0x950);
     body[0x96] = 100;
     body[0x94] = 24;
     require(runtime_body_health_color(body) == 0xFF2020FF, "health below a quarter is red");
@@ -389,7 +389,7 @@ void check_player_overlay()
     body[0x96] = 0;
     require(runtime_body_health_color(body) == 0xFF00FF00, "no maximum uses the full colour");
 
-    std::vector<u8> owner_bytes(0xA00);
+    std::vector<u8> owner_bytes(0xF00);
     std::vector<u8> attributes(0xC0);
     require(runtime_player_uses_alternate_overlay(owner_bytes, {}) == 0, "no timer and no flag keeps the health sprite");
     owner_bytes[0x969] = 1;
@@ -404,7 +404,7 @@ void check_player_overlay()
     owner.model_size_z = 1.0f;
     std::array<u8, 0x20> counter{};
     std::array<u8, 0x20> unused{};
-    body.assign(0x100, 0);
+    body.assign(0x950, 0);
     put(body, 0xE0, 1);
     put_float(body, 0xDC, 7.9f);
     queue.count = 0;

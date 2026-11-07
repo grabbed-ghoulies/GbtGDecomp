@@ -240,18 +240,14 @@ bool runtime_texture_format_drawable(std::span<const u8> texture)
 
 namespace
 {
-float image_real(const GameSelectControlServices& s, u32 address)
-{
-    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
-}
 }
 
 // Xbox 0x001080B0, ESI the direction: an axis inside (DAT_0032B274, DAT_0032B1AC) is dropped; the larger axis
 // gives up (1), down (2), left (4) or right (8).
 u16 gameselect_direction_code(std::array<float, 2> direction, const GameSelectControlServices& s)
 {
-    const float dead = image_real(s, 0x0032B1AC);
-    const float low = image_real(s, 0x0032B274);
+    const float dead = 0.2f; // DAT_0032B1AC.
+    const float low = -0.2f; // DAT_0032B274.
     if (dead > direction[0] && direction[0] > low)
     {
         direction[0] = 0.f;
@@ -266,8 +262,8 @@ u16 gameselect_direction_code(std::array<float, 2> direction, const GameSelectCo
     }
     if (std::fabs(direction[0]) < std::fabs(direction[1])) // 0x00152BB0
     {
-        return direction[1] > image_real(s, 0x0032B100) ? 1 : 2;
+        return direction[1] > 0.f ? 1 : 2; // DAT_0032B100.
     }
-    return direction[0] > image_real(s, 0x0032B100) ? 8 : 4;
+    return direction[0] > 0.f ? 8 : 4; // DAT_0032B100.
 }
 }

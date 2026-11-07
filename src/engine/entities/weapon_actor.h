@@ -1,5 +1,6 @@
 #pragma once
 
+#include "weapon_fields.h"
 #include "actor_factory_owner.h"
 #include "actor_matrix_setup.h"
 #include "actor_base_messages.h"
@@ -127,8 +128,8 @@ struct RuntimeProjectileHitNotice
     u32 strength = 0; // +8, weapon +0xDAD.
     u32 style = 0; // +0xC, weapon +0xDAE.
     u32 reply = 0; // +0x10.
-    u32 unused_14 = 0;
-    u32 unused_18 = 0;
+    u32 result = 0;
+    u32 standing = 0;
     Actor* weapon = nullptr; // +0x1C.
     Vec3 velocity{}; // +0x20.
     GhoulySpawnPool* contacts = nullptr; // +0x2C.
@@ -137,6 +138,30 @@ struct RuntimeProjectileHitNotice
 };
 
 // One weapon instance: the retail-layout bytes, its actor, and native storage behind the pointer fields.
+// The chair (factory type 0xAA, 0xF08 bytes), the one class weapon_actor.cpp keeps to itself.
+// The chair's parameters after the weapon's (0x000CEFE0).
+namespace chair_weapon_parameter
+{
+constexpr RetailField<u32, 0x5F8> taker_uses{};
+constexpr RetailField<u32, 0x5FC> player_uses{};
+constexpr RetailField<u32, 0x600> unk_600{}; // set: the weapon's unk_942 is 1
+} // namespace chair_weapon_parameter
+struct ChairWeaponState
+{
+    WeaponBase base{}; // +0
+    u32 taker_uses = 0; // +0xE54, parameters +0x5F8: a taker that is no player gets these
+    u32 player_uses = 0; // +0xE58, parameters +0x5FC: a player gets these; 0 sets unk_941
+    u32 uses = 0; // +0xE5C, left; a landed swing takes one
+    u32 total_uses = 0; // +0xE60, taken at the pick-up (message 0x91)
+    // +0xE64: this swing has counted (message 0x5A); message 0x92 clears it, and the contact needs it clear.
+    u32 struck = 0;
+    u32 spent = 0; // +0xE68, no uses left, and the next message 0x92 drops it
+    u32 effect = 0; // +0xE6C, the object made from effect_name, by address
+    std::array<char, 0x80> effect_name{}; // +0xE70, parameters +0x604
+    std::array<u8, 0x18> unk_EF0{}; // +0xEF0, never read or written by translated code
+};
+static_assert(sizeof(ChairWeaponState) == 0xF08);
+
 struct RuntimeWeaponActor
 {
     std::span<u8> bytes;

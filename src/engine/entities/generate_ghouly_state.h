@@ -1,4 +1,5 @@
 #pragma once
+#include "body_state_fields.h"
 
 #include "actor_clock.h"
 #include "actor_live_attachments.h"
@@ -39,51 +40,51 @@ constexpr RetailField<std::array<char, 0x80>, 0x298> spark_texture{};
 constexpr u32 kSize = 0x318;
 static_assert(retail_fits(kSize, spark_texture));
 } // namespace generate_ghouly_parameter
-namespace generate_ghouly_field
+// A bolt row. The pool and the shape record live on the host, so their words are 1 while set.
+struct GhoulyBoltRow
 {
-constexpr RetailField<u16, 0x0C> next_key{}; // body vtable +0x20 once the end animation is done
-constexpr RetailField<float, 0x10> seconds{};
-constexpr RetailField<u32, 0x18> phase{}; // 1 intro, 2 release, 3 end
-constexpr RetailField<float, 0x1C> grow{}; // phase 2's seconds left (DAT_0032B0F4)
-constexpr RetailField<u32, 0x20> intro_animation{}; // set when 0x0003AAA0 found the record
-constexpr RetailField<u32, 0x24> release_animation{};
-constexpr RetailField<u32, 0x28> end_animation{};
-constexpr RetailField<std::array<char, 0x80>, 0x2C> release_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0xAC> intro_sound{}; // cleared when slot 4 already plays a voice
-constexpr RetailField<std::array<char, 0x80>, 0x12C> beam_model{};
-constexpr RetailField<std::array<char, 0x80>, 0x1AC> release_effect{};
-constexpr RetailField<std::array<char, 0x80>, 0x22C> bolt_texture_name{};
-constexpr RetailField<std::array<char, 0x80>, 0x2AC> spark_texture_name{};
-// Two bolt rows of {point pool, shape record, angle off the actor's heading (UNK_003028C8)}; the pools and records
-// live on the host, so the words are 1 while set.
-constexpr RetailField<u32, 0x32C> first_pool{};
-constexpr RetailField<u32, 0x330> first_shape{};
-constexpr RetailField<float, 0x334> first_angle{};
-constexpr RetailField<u32, 0x338> second_pool{};
-constexpr RetailField<u32, 0x33C> second_shape{};
-constexpr RetailField<float, 0x340> second_angle{};
-constexpr RetailField<u32, 0x344> bolts{}; // set while the bolts have points to draw
-constexpr RetailField<u32, 0x348> bolt_texture{}; // host texture views, 1 while set
-constexpr RetailField<u32, 0x34C> spark_texture{};
-constexpr RetailField<std::array<char, 0x80>, 0x350> ghouly_name{}; // 0x000286B0 from actor +0xBA0
-constexpr RetailField<std::array<char, 0x80>, 0x3D0> ghouly_variant{}; // and +0xC20
-constexpr RetailField<i32, 0x450> ghouly_kind{}; // actor +0xB9C: 0 a template clone, 1 or 2 0x00112C50
-constexpr RetailField<u32, 0x454> ghouly{};
-constexpr RetailField<u32, 0x458> attached{}; // the ghouly's body +0x48 actor
-constexpr RetailField<u32, 0x45C> released{};
-constexpr RetailField<u32, 0x460> goals_drained{};
-constexpr RetailField<Vec3, 0x464> ghouly_scale{};
-constexpr RetailField<Vec3, 0x470> attached_scale{}; // retail stores the ghouly's scale here too
-constexpr RetailField<u32, 0x47C> beam{};
-constexpr RetailField<Vec3, 0x480> spawn_point{};
-constexpr RetailField<float, 0x48C> beam_radius{};
-constexpr RetailField<float, 0x490> beam_height{};
-constexpr RetailField<u8, 0x494> light{}; // DAT_00509B7C slot, 0xFF for none
-constexpr RetailField<u32, 0x498> beam_on{};
-constexpr RetailField<u32, 0x49C> spawn_found{};
-constexpr u32 kSize = 0x4A0;
-static_assert(retail_fits(kSize, spawn_found));
-} // namespace generate_ghouly_field
+    u32 pool = 0; // +0
+    u32 shape = 0; // +4
+    float angle = 0.f; // +8, off the actor's heading (UNK_003028C8)
+};
+static_assert(sizeof(GhoulyBoltRow) == 0xC);
+struct GenerateGhoulyState
+{
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 1 intro, 2 release, 3 end
+    float grow = 0.f; // +0x1C, phase 2's seconds left (DAT_0032B0F4)
+    u32 intro_animation = 0; // +0x20, set when 0x0003AAA0 found the record
+    u32 release_animation = 0; // +0x24
+    u32 end_animation = 0; // +0x28
+    std::array<char, 0x80> release_sound{}; // +0x2C
+    std::array<char, 0x80> intro_sound{}; // +0xAC, cleared when slot 4 already plays a voice
+    std::array<char, 0x80> beam_model{}; // +0x12C
+    std::array<char, 0x80> release_effect{}; // +0x1AC
+    std::array<char, 0x80> bolt_texture_name{}; // +0x22C
+    std::array<char, 0x80> spark_texture_name{}; // +0x2AC
+    std::array<GhoulyBoltRow, 2> bolt_rows{}; // +0x32C
+    u32 bolts = 0; // +0x344, set while the bolts have points to draw
+    u32 bolt_texture = 0; // +0x348, host texture views, 1 while set
+    u32 spark_texture = 0; // +0x34C
+    std::array<char, 0x80> ghouly_name{}; // +0x350, 0x000286B0 from actor +0xBA0
+    std::array<char, 0x80> ghouly_variant{}; // +0x3D0, and +0xC20
+    i32 ghouly_kind = 0; // +0x450, actor +0xB9C: 0 a template clone, 1 or 2 0x00112C50
+    u32 ghouly = 0; // +0x454
+    u32 attached = 0; // +0x458, the ghouly's body +0x48 actor
+    u32 released = 0; // +0x45C
+    u32 goals_drained = 0; // +0x460
+    Vec3 ghouly_scale{}; // +0x464
+    Vec3 attached_scale{}; // +0x470, retail stores the ghouly's scale here too
+    u32 beam = 0; // +0x47C
+    Vec3 spawn_point{}; // +0x480
+    float beam_radius = 0.f; // +0x48C
+    float beam_height = 0.f; // +0x490
+    u8 light = 0; // +0x494, DAT_00509B7C slot, 0xFF for none
+    std::array<u8, 3> unk_495{}; // +0x495, padding
+    u32 beam_on = 0; // +0x498
+    u32 spawn_found = 0; // +0x49C
+};
+static_assert(sizeof(GenerateGhoulyState) == 0x4A0);
 // Scene views every generator shares.
 struct RuntimeGenerateGhoulyScene
 {
@@ -129,13 +130,14 @@ struct RuntimeGenerateGhoulyContext
     std::function<u16(u32 slot)> body_slot_key; // Body vtable +0x20.
 };
 void generate_ghouly_state_object_sizes(ObjectSizes& output); // Xbox 0x00093B40
-bool initialize_runtime_generate_ghouly_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_generate_ghouly_state(GenerateGhoulyState& state, std::span<const u8> parameters,
     RuntimeGenerateGhoulyContext& context); // Xbox 0x00093BC0
-void destroy_runtime_generate_ghouly_state(std::span<u8> state,
+void destroy_runtime_generate_ghouly_state(GenerateGhoulyState& state,
     RuntimeGenerateGhoulyContext& context); // Xbox 0x00093DF0
-void tick_runtime_generate_ghouly_state(std::span<u8> state, RuntimeGenerateGhoulyContext& context); // Xbox 0x00093EC0
-void message_runtime_generate_ghouly_state(std::span<u8> state, std::span<const u32> message); // Xbox 0x00094150
-void draw_runtime_generate_ghouly_state(std::span<u8> state, i32 kind,
+void tick_runtime_generate_ghouly_state(GenerateGhoulyState& state,
+    RuntimeGenerateGhoulyContext& context); // Xbox 0x00093EC0
+void message_runtime_generate_ghouly_state(GenerateGhoulyState& state, std::span<const u32> message); // Xbox 0x00094150
+void draw_runtime_generate_ghouly_state(GenerateGhoulyState& state, i32 kind,
     RuntimeGenerateGhoulyContext& context); // Xbox 0x00094130
 // Type 0x6F (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_generate_ghouly_state_class(std::span<ObjectFactoryType> types,

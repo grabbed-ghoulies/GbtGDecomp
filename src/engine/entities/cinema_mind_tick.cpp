@@ -1,6 +1,9 @@
 #include "cinema_mind_tick.h"
+#include "body_fields.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -35,11 +38,11 @@ void update_runtime_cinema_mind_avoidance(RuntimeCinemaMindAvoidance& context)
     }
     const float step = runtime_frame_step(base.clock);
     const float rate = runtime_actor_rate(base.actor);
-    const float timer = read_f32(mind, 0xCC) - rate * step;
-    value(mind, 0xCC, timer);
+    const float timer = cinema_mind_record(mind).unk_CC - rate * step;
+    cinema_mind_record(mind).unk_CC = timer;
     if (timer <= 0.f)
     {
-        value(mind, 0xCC, timer + 1.f);
+        cinema_mind_record(mind).unk_CC = timer + 1.f;
         clear_runtime_player_mind_requests(base.requests);
     }
     if (base.requests.first == nullptr) // Native pointer view of mind +0x58.
@@ -71,7 +74,7 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
     auto& parent = messages.parent;
     auto mind = base.events.mind;
     auto body = base.body;
-    if (read_f32(mind, 0x98) > 0.f)
+    if (cinema_mind_record(mind).avoidance_time > 0.f)
     {
         update_runtime_cinema_mind_avoidance(context.avoidance);
     }
@@ -80,16 +83,16 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
     update_runtime_mind_events(base);
     const float step = runtime_frame_step(base.clock);
     const float rate = runtime_actor_rate(base.actor);
-    value(mind, 0x34, rate * step + read_f32(mind, 0x34));
+    mind_record(mind).unk_34 = rate * step + mind_record(mind).unk_34;
     update_runtime_mind_alert(base);
     update_runtime_player_mind_gaze(context.gaze, 0, 20.f, 80.f);
-    if (read_u32(mind, 0xC) == 0)
+    if (mind_record(mind).target == 0)
     {
-        if (mind[0x20] != 0 && read_f32(mind, 0x38) > read_f32(mind, 0x34))
+        if (mind_record(mind).target_mode != 0 && mind_record(mind).unk_38 > mind_record(mind).unk_34)
         {
-            word(mind, 0x34, read_u32(mind, 0x38));
+            mind_record(mind).unk_34 = mind_record(mind).unk_38;
         }
-        mind[0x20] = 0;
+        mind_record(mind).target_mode = 0;
     }
     else
     {
@@ -99,66 +102,66 @@ void tick_runtime_cinema_mind(RuntimeCinemaMindTick& context)
         const float y = first.y - second.y;
         const float z = first.z - second.z;
         const float distance = (z * z + y * y) + x * x;
-        if (mind[0x20] == 0)
+        if (mind_record(mind).target_mode == 0)
         {
-            const float radius = read_f32(mind, 0x7C);
+            const float radius = cinema_mind_record(mind).roam_radius;
             if (!(radius > 0.f))
             {
-                if (read_f32(mind, 0x38) > read_f32(mind, 0x34))
+                if (mind_record(mind).unk_38 > mind_record(mind).unk_34)
                 {
-                    word(mind, 0x34, read_u32(mind, 0x38));
+                    mind_record(mind).unk_34 = mind_record(mind).unk_38;
                 }
-                mind[0x20] = 1;
+                mind_record(mind).target_mode = 1;
             }
             else
             {
                 const bool active = radius * radius > distance;
-                if (active && read_f32(mind, 0x38) > read_f32(mind, 0x34))
+                if (active && mind_record(mind).unk_38 > mind_record(mind).unk_34)
                 {
-                    word(mind, 0x34, read_u32(mind, 0x38));
+                    mind_record(mind).unk_34 = mind_record(mind).unk_38;
                 }
-                mind[0x20] = u8(active);
+                mind_record(mind).target_mode = u8(active);
             }
         }
         else
         {
-            const float radius = read_f32(mind, 0x80);
+            const float radius = cinema_mind_record(mind).target_radius;
             if (radius > 0.f)
             {
                 const u8 active = u8(radius * radius > distance);
-                if (active != mind[0x20] && read_f32(mind, 0x38) > read_f32(mind, 0x34))
+                if (active != mind_record(mind).target_mode && mind_record(mind).unk_38 > mind_record(mind).unk_34)
                 {
-                    word(mind, 0x34, read_u32(mind, 0x38));
+                    mind_record(mind).unk_34 = mind_record(mind).unk_38;
                 }
-                mind[0x20] = active;
+                mind_record(mind).target_mode = active;
             }
         }
     }
-    const u32 target_address = read_u32(mind, 0x10);
-    if (target_address != 0 && body[0x6A] != 0)
+    const u32 target_address = mind_record(mind).target_record;
+    if (target_address != 0 && body_record(body).unk_6A != 0)
     {
         const float angle = runtime_actor_bound_angle(messages.target_at(target_address).bytes, base.actor);
         const std::array<float, 2> axes{float(retail_sin(angle)), float(retail_cos(angle))};
         set_runtime_input_secondary_axes(context.writable, axes, context.keyboard);
     }
-    if (body[0x6A] == 0)
+    if (body_record(body).unk_6A == 0)
     {
-        word(body, 0x88, 0);
-        word(mind, 0x14, 0);
+        body_record(body).unk_88 = 0;
+        mind_record(mind).action_record = 0;
     }
-    body[0xAA] = 0;
-    if (target_address != 0 && (read_f32(messages.actor_bytes, 0x978) > 0.f
+    body_record(body).overlay_second_flashes = 0;
+    if (target_address != 0 && (player_record(messages.actor_bytes).countdown_56 > 0.f
         || messages.actor_bytes[0x969] != 0)
         && !runtime_mind_target_is_eligible(mind, messages.actor_bytes, base.actor,
             messages.actor_address, messages.target_at(target_address), true))
     {
-        body[0xAA] = 1;
+        body_record(body).overlay_second_flashes = 1;
     }
     update_runtime_player_boost_timer(messages.boost, context.control, nullptr, 1.f);
-    const i32 notices = i32(read_u32(mind, 0x90));
+    const i32 notices = cinema_mind_record(mind).notices;
     if (notices > 0)
     {
-        word(mind, 0x90, u32(notices - 1));
+        cinema_mind_record(mind).notices = u32(notices - 1);
     }
 }
 }

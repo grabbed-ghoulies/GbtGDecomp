@@ -13,18 +13,13 @@
 
 namespace gbtg
 {
-extern i32 g_4dea24; // DAT_004DEA24, scene_transitions.cpp.
+extern i32 g_transition_pause_count; // DAT_004DEA24, scene_transitions.cpp.
 
 namespace
 {
 GameStreamWaitWidget& stream_wait(GameSelectWidget& widget)
 {
     return static_cast<GameStreamWaitWidget&>(widget);
-}
-
-float exe_real(const GameSelectControlServices& s, u32 address)
-{
-    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
 }
 
 float frame_step(const GameSelectControlServices& s)
@@ -60,7 +55,7 @@ void set_stream_wait_state(GameStreamWaitWidget& w, i32 state, GameSelectControl
     {
         w.line.record = line_record(w, s);
         w.shown = 1;
-        w.blink = exe_real(s, 0x0032B0F8);
+        w.blink = 1.f; // DAT_0032B0F8.
         w.remaining = w.wait;
     }
 }
@@ -101,12 +96,12 @@ void open_runtime_game_stream_wait(std::span<u8> owner, GameSelectControlState& 
     {
         resource_error(s.error, 2); // 0x00032700(2)
     }
-    w.picture.color = read_u32(s.image.memory(0x00314F48, 4), 0);
+    w.picture.color = 0xFFFFFFFFu; // DAT_00314F48.
     w.picture.position = {s.hud.center_x, s.hud.center_y}; // DAT_00509730, DAT_00509734
-    const float one = exe_real(s, 0x0032B0F8);
+    const float one = 1.f; // DAT_0032B0F8.
     w.picture.scale = {one, one};
     allocate_dialogue_text_pool(w.pool, 0, 1, 0x1C0, s.text_pools); // 0x0005F390, ESI +0x228
-    w.pool->origin = {exe_real(s, 0x0032B260), exe_real(s, 0x0032B264), std::bit_cast<float>(3u)};
+    w.pool->origin = {3.f, 0.7f, std::bit_cast<float>(3u)}; // DAT_0032B260, DAT_0032B264.
     if (s.text.data() != nullptr) // IsBadReadPtr(DAT_005462C4, 1)
     {
         lookup_borrowed_localtext(s.text, "gameselect", "loading", w.line.text.data(),
@@ -115,13 +110,13 @@ void open_runtime_game_stream_wait(std::span<u8> owner, GameSelectControlState& 
     w.line.record = 0;
     w.line.x = s.hud.center_x;
     w.line.y = s.hud.center_y;
-    w.line.y = s.hud.inner_bottom * exe_real(s, 0x0032B2AC); // DAT_0050974C * 0.75
+    w.line.y = s.hud.inner_bottom * 0.75f; // DAT_0050974C * 0.75, DAT_0032B2AC.
     w.saved_plate_flag_0 = s.plate_flags[0];
     w.saved_plate_flag_1 = s.plate_flags[1];
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     stop_pause_ditty(s.ditty, s.streams); // 0x000E5B70
-    ++g_4dea24; // DAT_004DEA24
+    ++g_transition_pause_count; // DAT_004DEA24
     set_stream_wait_state(w, 1, s); // 0x000E0AD0(1)
 }
 
@@ -130,7 +125,7 @@ void close_runtime_game_stream_wait(GameSelectWidget& widget, GameSelectControlS
 {
     auto& s = services;
     auto& w = stream_wait(widget);
-    --g_4dea24; // DAT_004DEA24
+    --g_transition_pause_count; // DAT_004DEA24
     if (w.saved_row != 0)
     {
         start_pause_ditty(s.ditty, s.streams); // 0x00038910(1) while DAT_00429BB8 is clear
@@ -175,7 +170,7 @@ void tick_runtime_game_stream_wait(GameSelectWidget& widget, GameSelectControlSe
                 end_dialogue_text_record(*w.pool, w.line.record, s.fonts, s.fallback_texture, s.random); // 0x0005F7E0
                 w.shown = 0;
             }
-            w.blink = exe_real(s, 0x0032B0F8);
+            w.blink = 1.f; // DAT_0032B0F8.
         }
     }
     auto& open = *s.frontend.stream_wait_widget; // DAT_005065C8

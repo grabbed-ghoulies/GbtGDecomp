@@ -23,13 +23,14 @@ constexpr RetailField<std::array<char, 0x80>, 0x0C> sound{}; // queued on slot 4
 constexpr u32 kSize = 0x8C;
 static_assert(retail_fits(kSize, sound));
 } // namespace stunned_state_parameter
-namespace stunned_state_field
+struct StunnedState
 {
-constexpr RetailField<u8, 0x18> shape_mode{}; // the shape mode 0x0001FEB0 replaced, restored on release
-constexpr RetailField<float, 0x1C> wait{}; // seconds left after message 0x43 (DAT_0032B0F4)
-constexpr u32 kSize = 0x20;
-static_assert(retail_fits(kSize, wait));
-} // namespace stunned_state_field
+    BodyStateBase base{}; // +0
+    u8 shape_mode = 0; // +0x18, the shape mode 0x0001FEB0 replaced, restored on release
+    std::array<u8, 3> unk_19{}; // +0x19, padding
+    float wait = 0.f; // +0x1C, seconds left after message 0x43 (DAT_0032B0F4)
+};
+static_assert(sizeof(StunnedState) == 0x20);
 struct RuntimeStunnedStateContext
 {
     std::span<u8> body;
@@ -45,11 +46,11 @@ struct RuntimeStunnedStateContext
     RuntimeBodyActionMessages& actions; // 0x00024B20's views, for 0x00023890.
 };
 void stunned_state_object_sizes(ObjectSizes& output); // Xbox 0x000A3180
-bool initialize_runtime_stunned_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_stunned_state(StunnedState& state, std::span<const u8> parameters,
     RuntimeStunnedStateContext& context); // Xbox 0x000A3200
-void destroy_runtime_stunned_state(std::span<u8> state, RuntimeStunnedStateContext& context); // Xbox 0x000A3300
-void tick_runtime_stunned_state(std::span<u8> state, RuntimeStunnedStateContext& context); // Xbox 0x000A3380
-void message_runtime_stunned_state(std::span<u8> state, std::span<u8> message,
+void destroy_runtime_stunned_state(StunnedState& state, RuntimeStunnedStateContext& context); // Xbox 0x000A3300
+void tick_runtime_stunned_state(StunnedState& state, RuntimeStunnedStateContext& context); // Xbox 0x000A3380
+void message_runtime_stunned_state(StunnedState& state, std::span<u8> message,
     RuntimeStunnedStateContext& context); // Xbox 0x000A3460
 // Type 0x89 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_stunned_state_class(std::span<ObjectFactoryType> types,

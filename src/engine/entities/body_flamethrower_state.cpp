@@ -1,4 +1,6 @@
 #include "body_flamethrower_state.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_shape_bounds.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
@@ -10,6 +12,7 @@
 #include "segment_records.h"
 #include "../graphics/actor_effect_nodes.h"
 #include "gbtg/actor_runtime.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -19,7 +22,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = flamethrower_state_field;
 namespace parameter = flamethrower_state_parameter;
 
 std::function<RuntimeFlamethrowerStateContext&(u32)> flamethrower_context_of;
@@ -28,11 +30,6 @@ std::unordered_map<const u8*, GhoulySpawnPool*> flamethrower_overrides;
 
 constexpr float kAimOffset = 1.0471975803375244f; // DAT_0032B484, 60 degrees.
 constexpr float kQuarterTurn = 1.5707963705062866f; // DAT_0032B140.
-
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
 
 void put_float(std::span<u8> bytes, size_t offset, float value)
 {
@@ -44,22 +41,22 @@ void put_vec3(std::span<u8> bytes, size_t offset, const Vec3& value)
     std::memcpy(bytes.data() + offset, &value, sizeof(value));
 }
 
-GhoulySpawnPool*& overrides_of(std::span<const u8> state)
+GhoulySpawnPool*& overrides_of(const FlamethrowerState& state)
 {
-    return flamethrower_overrides[state.data()];
+    return flamethrower_overrides[body_state_key(state)];
 }
 
-void sync_overrides(std::span<u8> state)
+void sync_overrides(FlamethrowerState& state)
 {
-    set(state, field::overrides, overrides_of(state) != nullptr ? 1u : 0u);
+    state.overrides = overrides_of(state) != nullptr ? 1u : 0u;
 }
 
 // Body +0x72C..+0x734: the euler the body turns its actor to.
 void set_body_turn(std::span<u8> body, float pitch, float yaw, float roll)
 {
-    put_float(body, 0x72C, pitch);
-    put_float(body, 0x730, yaw);
-    put_float(body, 0x734, roll);
+   body_record(body).euler.x = pitch;
+   body_record(body).euler.y = yaw;
+   body_record(body).euler.z = roll;
 }
 
 // The inlined 0x00042360 over a state timer.
@@ -78,11 +75,11 @@ bool count_down(float& timer, RuntimeFlamethrowerStateContext& context)
     return false;
 }
 
-bool count_down_timer(std::span<u8> state, RuntimeFlamethrowerStateContext& context)
+bool count_down_timer(FlamethrowerState& state, RuntimeFlamethrowerStateContext& context)
 {
-    float timer = get(state, field::timer);
+    float timer = state.timer;
     const bool elapsed = count_down(timer, context);
-    set(state, field::timer, timer);
+    state.timer = timer;
     return elapsed;
 }
 
@@ -105,10 +102,9 @@ Vec3 flame_euler(const Actor& actor)
 }
 
 // The inlined string copy.
-template <typename To, typename From>
-void copy_name(std::span<u8> state, To to, std::span<const u8> parameters, From from)
+template <typename From>
+void copy_name(char* target, std::span<const u8> parameters, From from)
 {
-    char* target = field_data(state, to);
     const char* source = field_data(parameters, from);
     size_t index = 0;
     do
@@ -120,15 +116,15 @@ void copy_name(std::span<u8> state, To to, std::span<const u8> parameters, From 
 
 bool construct_flamethrower_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_flamethrower_state(state, parameters, flamethrower_context_of(body_address_of(state)));
+    FlamethrowerState& state = body_state_view<FlamethrowerState>({object.bytes.get(), object.size});
+    return initialize_runtime_flamethrower_state(state, parameters, flamethrower_context_of(state.base.body));
 }
 
 void destroy_flamethrower_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_flamethrower_state(state, flamethrower_context_of(body_address_of(state)));
-    flamethrower_overrides.erase(state.data());
+    FlamethrowerState& state = body_state_view<FlamethrowerState>({object.bytes.get(), object.size});
+    destroy_runtime_flamethrower_state(state, flamethrower_context_of(state.base.body));
+    flamethrower_overrides.erase(body_state_key(state));
 }
 
 const ObjectFactoryVtable* flamethrower_state_lifecycle()
@@ -142,34 +138,34 @@ const ObjectFactoryVtable* flamethrower_state_lifecycle()
 // Xbox 0x0008F6D0
 void flamethrower_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(FlamethrowerState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0008F750
-bool initialize_runtime_flamethrower_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_flamethrower_state(FlamethrowerState& state, std::span<const u8> parameters,
     RuntimeFlamethrowerStateContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    set(state, field::effect_slot, -1);
-    set(state, field::effect_joint, 0xFFFFFFFFu);
-    copy_name(state, field::sound, parameters, parameter::sound);
-    copy_name(state, field::effect, parameters, parameter::effect);
-    body[0x38] = 1;
-    body[0x39] = 1;
-    ++body[0x309];
-    ++body[0x30A];
-    ++body[0x30B];
-    ++body[0x30C];
-    ++body[0x6A];
-    set(state, field::timer, 1.25f); // DAT_0032B114.
-    set(state, field::yaw, actor.euler.y);
-    set(state, field::phase, 0u);
-    set(state, field::reach, 0.01f); // DAT_0032B124.
+    state.effect_slot = -1;
+    state.effect_joint = 0xFFFFFFFFu;
+    copy_name(state.sound.data(), parameters, parameter::sound);
+    copy_name(state.effect.data(), parameters, parameter::effect);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    ++body_record(body).unk_309;
+    ++body_record(body).unk_30A;
+    ++body_record(body).unk_30B;
+    ++body_record(body).unk_30C;
+    ++body_record(body).unk_6A;
+    state.timer = 1.25f; // DAT_0032B114.
+    state.yaw = actor.euler.y;
+    state.phase = 0u;
+    state.reach = 0.01f; // DAT_0032B124.
     overrides_of(state) = nullptr;
     sync_overrides(state);
-    const char* sound = field_data(state, field::sound);
+    const char* sound = state.sound.data();
     if (sound[0] != 0)
     {
         queue_actor_sound(actor.sound_slots[4], 0, &actor, 4, nullptr, nullptr, 1.f, sound,
@@ -180,15 +176,15 @@ bool initialize_runtime_flamethrower_state(std::span<u8> state, std::span<const 
 }
 
 // Xbox 0x0008F850
-void destroy_runtime_flamethrower_state(std::span<u8> state, RuntimeFlamethrowerStateContext& context)
+void destroy_runtime_flamethrower_state(FlamethrowerState& state, RuntimeFlamethrowerStateContext& context)
 {
     const auto body = context.body;
-    --body[0x309];
-    --body[0x30A];
-    --body[0x30B];
-    --body[0x30C];
-    --body[0x6A];
-    if (field_data(state, field::sound)[0] != 0)
+    --body_record(body).unk_309;
+    --body_record(body).unk_30A;
+    --body_record(body).unk_30B;
+    --body_record(body).unk_30C;
+    --body_record(body).unk_6A;
+    if (state.sound.data()[0] != 0)
     {
         release_actor_sound(context.actor.sound_slots[4], context.sounds); // 0x0012A3D0, ESI actor +0x614
     }
@@ -200,27 +196,26 @@ void destroy_runtime_flamethrower_state(std::span<u8> state, RuntimeFlamethrower
         overrides = nullptr;
         sync_overrides(state);
     }
-    const i32 slot = get(state, field::effect_slot);
+    const i32 slot = state.effect_slot;
     if (slot != -1)
     {
         ActorEffectNode& effect = effect_node(slot);
         effect.bytes[0x18] |= 8;
         put_float(effect.bytes, 8, -1.f); // DAT_0032B120.
-        set(state, field::effect_slot, -1);
-        set(state, field::effect_joint, 0xFFFFFFFFu);
+        state.effect_slot = -1;
+        state.effect_joint = 0xFFFFFFFFu;
     }
 }
 
 // Xbox 0x0008F8F0
-void tick_runtime_flamethrower_state(std::span<u8> state, RuntimeFlamethrowerStateContext& context)
+void tick_runtime_flamethrower_state(FlamethrowerState& state, RuntimeFlamethrowerStateContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    set(state, body_state_field::elapsed, runtime_actor_step(actor, context.clock)
-        + get(state, body_state_field::elapsed));
+    state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
     constexpr float kSwayRate = 2.6179938316345215f; // DAT_0032B510, 150 degrees a second.
     bool next = false;
-    switch (get(state, field::phase))
+    switch (state.phase)
     {
     case 0:
     {
@@ -228,31 +223,31 @@ void tick_runtime_flamethrower_state(std::span<u8> state, RuntimeFlamethrowerSta
         set_body_turn(body, runtime_flamethrower_aim_pitch(context), yaw, 0.f); // 0x0008FC20
         if (count_down_timer(state, context)) // 0x00042360
         {
-            set(state, field::phase, 1u);
-            set(state, field::timer, 3.7f); // DAT_0032B514.
+            state.phase = 1u;
+            state.timer = 3.7f; // DAT_0032B514.
         }
         break;
     }
     case 1:
     {
-        const float sway = runtime_actor_step(actor, context.clock) * kSwayRate + get(state, field::sway);
-        set(state, field::sway, sway);
+        const float sway = runtime_actor_step(actor, context.clock) * kSwayRate + state.sway;
+        state.sway = sway;
         const float pitch = runtime_flamethrower_aim_pitch(context); // 0x0008FC20
-        const float yaw = float(retail_sin(get(state, field::sway)) * kQuarterTurn + get(state, field::yaw));
+        const float yaw = float(retail_sin(state.sway) * kQuarterTurn + state.yaw);
         set_body_turn(body, pitch, yaw, 0.f); // 0x00153320
         next = true;
         break;
     }
     case 2:
     {
-        set(state, field::sway, runtime_actor_step(actor, context.clock) * kSwayRate + get(state, field::sway));
+        state.sway = runtime_actor_step(actor, context.clock) * kSwayRate + state.sway;
         const Vec3 euler = actor_world_euler(actor); // 0x00041820
         // The aim's pitch is stored for both the pitch and the yaw, and the turn tested is the pitch's.
         const float pitch = runtime_flamethrower_aim_pitch(context); // 0x0008FC20
         set_body_turn(body, pitch, pitch, euler.z);
-        if (runtime_relative_angle(pitch, get(state, field::yaw)) > kQuarterTurn) // 0x00100E40
+        if (runtime_relative_angle(pitch, state.yaw) > kQuarterTurn) // 0x00100E40
         {
-            set(state, field::phase, 3u);
+            state.phase = 3u;
         }
         next = true;
         break;
@@ -262,9 +257,9 @@ void tick_runtime_flamethrower_state(std::span<u8> state, RuntimeFlamethrowerSta
         const Vec3 euler = actor_world_euler(actor); // 0x00041820
         const float yaw = euler.y - runtime_actor_step(actor, context.clock) * kSwayRate;
         set_body_turn(body, runtime_flamethrower_aim_pitch(context), yaw, euler.z); // 0x0008FC20
-        if (-kQuarterTurn > runtime_relative_angle(yaw, get(state, field::yaw))) // 0x00100E40, DAT_0032B13C
+        if (-kQuarterTurn > runtime_relative_angle(yaw, state.yaw)) // 0x00100E40, DAT_0032B13C
         {
-            set(state, field::phase, 2u);
+            state.phase = 2u;
         }
         next = true;
         break;
@@ -274,7 +269,7 @@ void tick_runtime_flamethrower_state(std::span<u8> state, RuntimeFlamethrowerSta
     }
     if (next && count_down_timer(state, context)) // 0x00042360
     {
-        set(state, body_state_field::next_key, context.next_key()); // Body vtable +0x20.
+        state.base.next_key = context.next_key(); // Body vtable +0x20.
     }
     if (overrides_of(state) != nullptr)
     {
@@ -285,7 +280,7 @@ void tick_runtime_flamethrower_state(std::span<u8> state, RuntimeFlamethrowerSta
 }
 
 // Xbox 0x0008FBF0
-void message_runtime_flamethrower_state(std::span<u8> state, std::span<const u32> message,
+void message_runtime_flamethrower_state(FlamethrowerState& state, std::span<const u32> message,
     RuntimeFlamethrowerStateContext& context)
 {
     if (message[0] != 0x7C)
@@ -313,7 +308,7 @@ float runtime_flamethrower_aim_pitch(RuntimeFlamethrowerStateContext& context)
     {
         return 0.f;
     }
-    const u32 address = read_u32(mind, 0x14);
+    const u32 address = mind_record(mind).action_record;
     if (address == 0)
     {
         return 0.f;
@@ -321,19 +316,20 @@ float runtime_flamethrower_aim_pitch(RuntimeFlamethrowerStateContext& context)
     const auto target = context.target_at(address);
     const Actor& actor = context.actor;
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const float eye = read_f32(context.body, 0x884) * actor.radius_y + position.y;
-    const Vec3 direction{read_f32(target, 0x20) - position.x,
-        (read_f32(target, 0x30) * 0.25f + read_f32(target, 0x24)) - eye, // DAT_0032B104.
-        read_f32(target, 0x28) - position.z};
+    const float eye = body_record(context.body).height_scale * actor.radius_y + position.y;
+    const Vec3 direction{mind_target_record(target).shape.position.x - position.x,
+        // DAT_0032B104.
+        (mind_target_record(target).shape.height * 0.25f + mind_target_record(target).shape.position.y) - eye,
+        mind_target_record(target).shape.position.z - position.z};
     float pitch = 0.f;
     runtime_direction_pitch(direction, pitch); // 0x00106000
     return pitch - kAimOffset;
 }
 
 // Xbox 0x0008FCD0
-void start_runtime_flamethrower_effect(std::span<u8> state, RuntimeFlamethrowerStateContext& context)
+void start_runtime_flamethrower_effect(FlamethrowerState& state, RuntimeFlamethrowerStateContext& context)
 {
-    const char* name = field_data(state, field::effect);
+    const char* name = state.effect.data();
     if (std::memcmp(name, "aid_", 4) != 0)
     {
         return;
@@ -366,14 +362,14 @@ void start_runtime_flamethrower_effect(std::span<u8> state, RuntimeFlamethrowerS
     {
         return;
     }
-    set(state, field::effect_slot, slot);
-    set(state, field::effect_joint, joint);
+    state.effect_slot = slot;
+    state.effect_joint = joint;
 }
 
 // Xbox 0x0008FE10
-void move_runtime_flamethrower_effect(std::span<const u8> state, RuntimeFlamethrowerStateContext& context)
+void move_runtime_flamethrower_effect(const FlamethrowerState& state, RuntimeFlamethrowerStateContext& context)
 {
-    const i32 slot = get(state, field::effect_slot);
+    const i32 slot = state.effect_slot;
     if (slot == -1)
     {
         return;
@@ -381,7 +377,7 @@ void move_runtime_flamethrower_effect(std::span<const u8> state, RuntimeFlamethr
     const Actor& actor = context.actor;
     const Vec3 euler = flame_euler(actor);
     Vec3 point;
-    actor_transform_joint_point(actor, u16(get(state, field::effect_joint)), actor_transform_origin,
+    actor_transform_joint_point(actor, u16(state.effect_joint), actor_transform_origin,
         point); // 0x0003AEB0
     ActorEffectNode& effect = effect_node(slot);
     put_vec3(effect.bytes, 0x1C, point);
@@ -389,35 +385,34 @@ void move_runtime_flamethrower_effect(std::span<const u8> state, RuntimeFlamethr
 }
 
 // Xbox 0x0008FEC0
-void sweep_runtime_flamethrower(std::span<u8> state, RuntimeFlamethrowerStateContext& context)
+void sweep_runtime_flamethrower(FlamethrowerState& state, RuntimeFlamethrowerStateContext& context)
 {
-    if (get(state, field::effect_slot) == -1)
+    if (state.effect_slot == -1)
     {
         return;
     }
     Actor& actor = context.actor;
     const Vec3 euler = flame_euler(actor);
-    if (get(state, field::aimed) == 0)
+    if (state.aimed == 0)
     {
-        set(state, field::flame_pitch, euler.x);
-        set(state, field::flame_yaw, euler.y);
-        set(state, field::aimed, 1u);
+        state.flame_pitch = euler.x;
+        state.flame_yaw = euler.y;
+        state.aimed = 1u;
     }
     const float step = runtime_actor_step(actor, context.clock);
     const float turn = step * 1.7453292608261108f; // DAT_0032B50C, 100 degrees a second.
-    set(state, field::flame_pitch, step_runtime_damage_angle(get(state, field::flame_pitch), euler.x,
-        turn)); // 0x00100FE0
-    set(state, field::flame_yaw, step_runtime_damage_angle(get(state, field::flame_yaw), euler.y, turn));
-    const float reach = step * 1.9800000190734863f + get(state, field::reach); // DAT_0032B460.
-    set(state, field::reach, reach);
+    state.flame_pitch = step_runtime_damage_angle(state.flame_pitch, euler.x, turn); // 0x00100FE0
+    state.flame_yaw = step_runtime_damage_angle(state.flame_yaw, euler.y, turn);
+    const float reach = step * 1.9800000190734863f + state.reach; // DAT_0032B460.
+    state.reach = reach;
     if (reach > 1.f) // DAT_0032B0F8.
     {
-        set(state, field::reach, 1.f);
+        state.reach = 1.f;
     }
     Vec3 direction{};
-    add_sound_direction(direction, get(state, field::flame_pitch), get(state, field::flame_yaw), 1.f); // 0x00106220
+    add_sound_direction(direction, state.flame_pitch, state.flame_yaw, 1.f); // 0x00106220
     Vec3 point;
-    actor_transform_joint_point(actor, u16(get(state, field::effect_joint)), actor_transform_origin,
+    actor_transform_joint_point(actor, u16(state.effect_joint), actor_transform_origin,
         point); // 0x0003AEB0
     GhoulySpawnPool*& overrides = overrides_of(state);
     // Each segment probe's actor (DAT_00511AF4, probe - 0x1E0) whose shapes carry 0x800 stays out of the sweep.
@@ -450,7 +445,7 @@ void sweep_runtime_flamethrower(std::span<u8> state, RuntimeFlamethrowerStateCon
                 factor = scale;
             }
         }
-        const float radius = get(state, field::reach) * factor;
+        const float radius = state.reach * factor;
         const float distance = radius + previous;
         Vec3 center{direction.x * distance + point.x, direction.y * distance + point.y,
             direction.z * distance + point.z};
@@ -483,7 +478,7 @@ void sweep_runtime_flamethrower(std::span<u8> state, RuntimeFlamethrowerStateCon
 }
 
 // Xbox 0x000902A0, EAX state, ECX direction, ESI point, EDI object
-void report_runtime_flamethrower_contact(std::span<u8> state, RuntimeSegmentContactActor& object,
+void report_runtime_flamethrower_contact(FlamethrowerState& state, RuntimeSegmentContactActor& object,
     const Vec3& direction, const Vec3& point, GhoulySpawnPool* contacts, RuntimeFlamethrowerStateContext& context)
 {
     insert_runtime_body_contact_override(overrides_of(state), object, 1, context.players); // 0x0013EBE0

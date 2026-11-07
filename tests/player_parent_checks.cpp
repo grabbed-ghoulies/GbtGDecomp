@@ -59,7 +59,7 @@ struct PlayerConstructionFactoryFixture
 PlayerConstructionFactoryFixture* construction_factory_fixture = nullptr;
 void player_fixture_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = 0xE00;
+    sizes.instance = 0xF00;
     sizes.parameters = 0xE00;
 }
 bool player_fixture_construct(FactoryObject& object, std::span<const u8> parameters)
@@ -115,8 +115,8 @@ void first_motion_callback(float*, const float*, float*, u16 joint, void* data, 
 void check_body_dependencies(SceneExecutableResources& executable)
 {
     {
-        std::array<u8, 0xE00> actor_bytes{};
-        std::array<u8, 0x900> body_bytes{};
+        std::array<u8, 0xF00> actor_bytes{};
+        std::array<u8, 0x950> body_bytes{};
         std::span<u8> body = body_bytes;
         Actor native_actor;
         RuntimeBodyAttachedActor actor{actor_bytes, 0x12345678, {}};
@@ -245,10 +245,10 @@ void check_body_dependencies(SceneExecutableResources& executable)
         entity_detail::release_navigation_cell_registration(registration, 0xFFFFFFFF);
     }
     {
-        std::array<u8, 0x900> body{};
-        std::array<u8, 0xE00> host_bytes{};
-        std::array<u8, 0xE00> attached_bytes{};
-        std::array<u8, 0xE00> secondary_bytes{};
+        std::array<u8, 0x950> body{};
+        std::array<u8, 0xF00> host_bytes{};
+        std::array<u8, 0xF00> attached_bytes{};
+        std::array<u8, 0xF00> secondary_bytes{};
         Actor host_actor;
         Actor attached_actor;
         actor_refresh_transform(host_actor);
@@ -403,8 +403,8 @@ void check_body_dependencies(SceneExecutableResources& executable)
         require(std::strcmp(reinterpret_cast<const char*>(body.data() + 0x288), "variant_-12_0000abcd") == 0,
             "body formatter must forward real varargs to reconstructed CRT output");
 
-        std::array<u8, 0xE00> body_template{};
-        std::array<u8, 0xE00> attachment_template{};
+        std::array<u8, 0xF00> body_template{};
+        std::array<u8, 0xF00> attachment_template{};
         put(body_template, 0, 0xE00);
         put(body_template, 4, 1);
         put(attachment_template, 0, 0xE00);
@@ -568,7 +568,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         engine_heap_free(flags);
     }
     {
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 0x7C8> parameters{};
         std::array<u8, 8> first_bytes{};
         std::array<u8, 16> second_bytes{};
@@ -646,7 +646,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         const u16 secondary_token = 2;
         std::memcpy(secondary->bytes.data() + 0x18, &secondary_token, 2);
         put(secondary->bytes, 8, 0);
-        std::array<u8, 32> timed{};
+        std::array<u8, 0x390> timed{};
         ActorEffectNode timed_effect{std::span<u8>(timed), {}, {}, nullptr, 0};
         std::array<ActorEffectNode*, 1> timed_rows{&timed_effect};
         auto* first_head = &first_list.sentinel;
@@ -669,7 +669,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         u32 actor_address = 0x1111;
         auto* flags = allocate_runtime_body_bits(0x41);
         flags->bytes[4] = 0xFF;
-        std::array<u8, 0xE00> attached_bytes{};
+        std::array<u8, 0xF00> attached_bytes{};
         attached_bytes[0x93D] = 3;
         std::vector<u32> messages;
         RuntimeBodyAttachedActor attached{attached_bytes, 0x2222,
@@ -706,7 +706,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         std::span<const u8> attributes, actions;
         RuntimeBodyShapeStorage shapes{};
         shapes.special = static_cast<RuntimeBodyCollisionSphere*>(engine_heap_allocate(sizeof(RuntimeBodyCollisionSphere)));
-        std::array<u8, 0xD00> health_actor{};
+        std::array<u8, 0xF00> health_actor{};
         std::array<u8, 12> curve{};
         std::array<u8, 1> tags{};
         std::array<std::span<const u8>, 4> textures{};
@@ -786,7 +786,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         destroy_runtime_parent_body(body, cleanup);
     }
     {
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 0x108> row{};
         row[0] = 7;
         const RuntimeScriptLookupTable action_table{1, row.data()};
@@ -894,7 +894,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         RuntimeBodyAnimationSetup setup{resource, sequences, groups, group_count, bits,
             cache, cache_count, registry, error};
         std::array<u8, 0x200> parameters{};
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 8> actor{};
         actor[6] = 5;
         std::array<u8, 16> classes{};
@@ -945,8 +945,8 @@ void check_body_dependencies(SceneExecutableResources& executable)
             "model-kind count must use node two and 0x34-byte records");
     }
     {
-        std::array<u8, 0x900> body{};
-        std::array<u8, 0xD00> actor{};
+        std::array<u8, 0x950> body{};
+        std::array<u8, 0xF00> actor{};
         std::array<u8, 0x200> parameters{};
         std::array<u8, 12> curve{};
         std::array<u8, 0x87> tags{};
@@ -1292,7 +1292,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         relay_runtime_player_body(target_body, 0x1234, action, attachment, targets);
         require(relay_order == std::vector<u32>{1, 2} && target_bits[4] == 0xA5,
             "body relay rereads the attachment after action and runs targeting after both children");
-        std::array<u8, 0xD00> action_actor{};
+        std::array<u8, 0xF00> action_actor{};
         std::array<u8, 2> address_zero{};
         EntityBitBlock action_bits{target_bits.data()};
         target_bits.fill(0);
@@ -1354,7 +1354,7 @@ void check_body_dependencies(SceneExecutableResources& executable)
         u32 block = 0, decay_index = 0;
         std::array<u8, 1> decay{1};
         RuntimeActorClock clock{freeze, dt, scale, block, decay, decay_index};
-        std::array<u8, 0x738> rotation_body{};
+        std::array<u8, 0x950> rotation_body{};
         put(rotation_body, 0x720, std::bit_cast<u32>(2.f));
         put(rotation_body, 0x724, std::bit_cast<u32>(1.f));
         put(rotation_body, 0x72C, std::bit_cast<u32>(1.f));
@@ -1390,9 +1390,9 @@ void check_body_dependencies(SceneExecutableResources& executable)
     const auto preserved = matrix;
     adjust_runtime_body_yaw(matrix.data(), -2.f, 0.f);
     require(matrix == preserved, "zero yaw adjustment weight preserves the matrix");
-    std::array<u8, 0x900> body{};
+    std::array<u8, 0x950> body{};
     std::array<u8, 0x1B0> parameters{};
-    std::array<u8, 0xD00> actor{};
+    std::array<u8, 0xF00> actor{};
     std::array<u8, 12> curve{};
     std::array<u8, 0x87> tags{};
     std::array<std::span<const u8>, 4> textures{};
@@ -1443,10 +1443,10 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
         Actor second_actor;
         first_actor.class_key = 7;
         second_actor.class_key = 9;
-        std::array<u8, 0x40> first_bytes{};
-        std::array<u8, 0x40> second_bytes{};
-        std::array<u8, 0xDB4> first_actor_bytes{};
-        std::array<u8, 0xDB4> second_actor_bytes{};
+        std::array<u8, 0x68> first_bytes{};
+        std::array<u8, 0x68> second_bytes{};
+        std::array<u8, 0xF00> first_actor_bytes{};
+        std::array<u8, 0xF00> second_actor_bytes{};
         std::array<u8, 8> bit_bytes{};
         EntityBitBlock bits{bit_bytes.data()};
         RuntimeScriptMindQuery body_query{};
@@ -1554,8 +1554,8 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
         put(first_bytes, 0x28, std::bit_cast<u32>(4.f));
 
         std::array<u8, 0x38> strategy{};
-        std::array<u8, 0xDB4> actor_bytes{};
-        std::array<u8, 0x900> body{};
+        std::array<u8, 0xF00> actor_bytes{};
+        std::array<u8, 0x950> body{};
         std::array<u8, 0x7C> mind{};
         std::array<u8, 0x20> goal_row{};
         std::array<u8, 0x20> zero{};
@@ -1752,8 +1752,8 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
             "direction angle must call retail atan2 with x and z");
     }
     {
-        std::array<u8, 0xDB4> child_bytes{};
-        std::array<u8, 0xDB4> host_bytes{};
+        std::array<u8, 0xF00> child_bytes{};
+        std::array<u8, 0xF00> host_bytes{};
         put(child_bytes, 0x944, 2);
         put(child_bytes, 0x948, 0xFFFE0007);
         put(child_bytes, 0x958, 0x00050009);
@@ -1892,7 +1892,7 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
         activate_runtime_body_action(body, 0xFF, 2, action);
         require(action_messages == 2 && read_u32(body, 0x754) == 1 && read_u32(body, 0x758) == 0,
             "active action receives message but preserves existing mode and value");
-        std::array<u8, 0xD00> actor0{}, actor1{};
+        std::array<u8, 0xF00> actor0{}, actor1{};
         const u16 class_two = 2;
         std::memcpy(actor1.data() + 0xCDC, &class_two, 2);
         std::vector<u32> messages;
@@ -2152,7 +2152,7 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
     std::strcpy(reinterpret_cast<char*>(attributes.data() + 0x38), tag_views[3]);
     std::strcpy(reinterpret_cast<char*>(attributes.data() + 0x78), "missing");
     std::span<const u8> attribute_view = attributes;
-    std::array<u8, 0xD00> actor;
+    std::array<u8, 0xF00> actor;
     actor.fill(0xA6);
     std::array<u8, 0x63C> player_parameters{};
     RuntimePlayerAttributes attribute_context{attribute_view, registry, error, random, tag_views.data(), attributes};
@@ -2283,8 +2283,8 @@ void check_player_parent_lifecycle(gbtg::SceneExecutableResources& executable)
         goals.table = &strategy_table;
         Actor actor;
         std::array<u8, 0x38> strategy_bytes{};
-        std::array<u8, 0xDB4> actor_bytes{};
-        std::array<u8, 0x900> body_bytes{};
+        std::array<u8, 0xF00> actor_bytes{};
+        std::array<u8, 0x950> body_bytes{};
         std::array<u8, 0x7C> mind_bytes{};
         std::array<u8, 0x20> ring_bytes{};
         std::array<u8, 0x20> zero{};

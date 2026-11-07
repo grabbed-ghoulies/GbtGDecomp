@@ -43,18 +43,18 @@ void calculate_runtime_model_matrix_array(u32 node, const ModelPoseBuffer* pose,
 {
     const auto& image = context.tree.image;
     i32 index = 0;
-    if (i32(image.word(node, 0x24)) > 0)
+    if (image.get(node, matrix_array_node::row_count) > 0)
     {
         do
         {
-            const u32 row = image.word(node, 0x20) + u32(index) * 8;
+            const u32 row = image.get(node, matrix_array_node::rows) + u32(index) * 8;
             const u8 flags = image.byte(row, 5);
             const u8 dynamic_index = image.byte(row, 6);
             auto& output = context.scratch.matrices[index];
             if ((flags & 1) != 0)
             {
-                const u32 base = image.word(node, 0xC) + 4;
-                const u32 flag_offset = base + image.word(node, 0x30) * 0x40 + dynamic_index;
+                const u32 base = image.get(node, model_node_field::instance_offset) + 4;
+                const u32 flag_offset = base + image.get(node, matrix_array_node::matrix_count) * 0x40 + dynamic_index;
                 if ((storage[flag_offset] & 1) != 0)
                 {
                     const auto matrix = storage_matrix(storage, base + u32(dynamic_index) * 0x40);
@@ -62,7 +62,8 @@ void calculate_runtime_model_matrix_array(u32 node, const ModelPoseBuffer* pose,
                 }
                 else
                 {
-                    const auto matrix = matrix_at(image, image.word(node, 0x2C) + u32(dynamic_index) * 0x40);
+                    const auto matrix =
+                        matrix_at(image, image.get(node, matrix_array_node::matrices) + u32(dynamic_index) * 0x40);
                     multiply_runtime_matrix(output, matrix, combined);
                 }
             }
@@ -72,8 +73,8 @@ void calculate_runtime_model_matrix_array(u32 node, const ModelPoseBuffer* pose,
             }
             else
             {
-                const u32 base = image.word(node, 0xC) + 4;
-                const u32 flag_offset = base + image.word(node, 0x30) * 0x40 + dynamic_index;
+                const u32 base = image.get(node, model_node_field::instance_offset) + 4;
+                const u32 flag_offset = base + image.get(node, matrix_array_node::matrix_count) * 0x40 + dynamic_index;
                 if ((storage[flag_offset] & 1) != 0)
                 {
                     const auto matrix = storage_matrix(storage, base + u32(dynamic_index) * 0x40);
@@ -82,14 +83,15 @@ void calculate_runtime_model_matrix_array(u32 node, const ModelPoseBuffer* pose,
                 else
                 {
                     multiply_runtime_matrix(output, pose->packed_matrices[image.half(row)], combined);
-                    const u8 static_index = image.byte(image.word(node, 0x20) + u32(index) * 8, 6);
-                    const auto matrix = matrix_at(image, image.word(node, 0x2C) + u32(static_index) * 0x40);
+                    const u8 static_index = image.byte(image.get(node, matrix_array_node::rows) + u32(index) * 8, 6);
+                    const auto matrix =
+                        matrix_at(image, image.get(node, matrix_array_node::matrices) + u32(static_index) * 0x40);
                     multiply_runtime_matrix(output, matrix, output);
                 }
             }
             ++index;
         }
-        while (index < i32(image.word(node, 0x24)));
+        while (index < image.get(node, matrix_array_node::row_count));
     }
     runtime_render_state(context.tree.renderer);
     context.published = context.scratch.matrices;
@@ -116,17 +118,17 @@ void dispatch_runtime_model_rigid_skin(u32 node, void* storage,
     runtime_render_frame(tree.renderer);
     context.constants(0x74, context.projection.data(), 4);
     u32 index = 0;
-    if (tree.image.word(node, 0x24) != 0)
+    if (tree.image.get(node, rigid_skin_node::index_count) != 0)
     {
         do
         {
-            const u8 matrix_index = tree.image.byte(tree.image.word(node, 0x20), index);
+            const u8 matrix_index = tree.image.byte(tree.image.get(node, rigid_skin_node::indices), index);
             RuntimeShaderMatrix transpose;
             context.boundaries.transpose(transpose, context.matrices.published[matrix_index]);
             context.constants(0x78 + index * 3, transpose.data(), 3);
             ++index;
         }
-        while (index < tree.image.word(node, 0x24));
+        while (index < tree.image.get(node, rigid_skin_node::index_count));
     }
     queue_runtime_model_group(node, tree);
 }

@@ -632,7 +632,7 @@ void register_runtime_model_shaders(u8* shader_storage, RuntimeShaderRegistratio
                 {
                     index = -1;
                 }
-                record[0x66] |= 1;
+                light_record(record).flags |= 1;
                 state.records.data()[index] = record;
                 ++state.count;
                 record += 0x98;

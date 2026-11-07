@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -9,12 +10,13 @@ namespace gbtg
 // keeps the skeleton's sizes (0x000A9FC0, 0x40 bytes), the shared constructor 0x000CFFD0 and the empty destructor
 // 0x001628B0, and shares its leave slot 0x000B5AF0. A spider flanks its target 30 units out, then bites, or spits
 // sticky web once it is near; a hit on it holds the web 5 s (+0x38).
-// Strategy bytes: +0x1A biting, +0x1B spitting, +0x1C pause count, +0x20 target queue link.
-namespace spider_strategy_field
+struct SpiderStrategyState
 {
-constexpr RetailField<float, 0x38> web_delay{}; // DAT_0032B184 after a hit on itself; no web while it runs
-constexpr RetailField<u32, 0x3C> reached{}; // 0x000C0620's result in states 0x3ED and 0x3EF
-} // namespace spider_strategy_field
+    StrategyBase base{}; // +0
+    float web_delay = 0.f; // +0x38, DAT_0032B184 after a hit on itself; no web while it runs
+    u32 reached = 0; // +0x3C, 0x000C0620's result in states 0x3ED and 0x3EF
+};
+static_assert(sizeof(SpiderStrategyState) == 0x40);
 struct RuntimeSpiderStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

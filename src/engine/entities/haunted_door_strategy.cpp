@@ -1,4 +1,7 @@
 #include "haunted_door_strategy.h"
+#include "strategy_fields.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "actor_transform.h"
 #include "player_children.h"
@@ -12,6 +15,7 @@
 #include "../navigation/navigation.h"
 #include "../scripts/script_vm.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -21,7 +25,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = haunted_door_strategy_field;
+HauntedDoorStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<HauntedDoorStrategyState>(strategy);
+}
+
+const HauntedDoorStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<HauntedDoorStrategyState>(strategy);
+}
+
 namespace parameter = haunted_door_parameter;
 
 // The host halves of the strategy's resource words: the overlay's record (+0x4C) and the timeline (+0x5C), by the
@@ -97,26 +110,11 @@ bool join_queue(RuntimeMindTarget* target, RuntimeHauntedDoorStrategy& context)
         &actor_of(context), context.queue); // 0x0002B910
 }
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
-void step_byte(std::span<u8> bytes, size_t offset, i32 step)
-{
-    bytes[offset] = u8(bytes[offset] + step);
-}
-
 // Body +0x30 clear and +0x34 zero: nothing moves the body.
 bool body_settled(RuntimeHauntedDoorStrategy& context)
 {
     const std::span<const u8> body = body_of(context);
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
 }
 
 const AnimationRecord& overlay_record(RuntimeHauntedDoorStrategy& context, const char* reader)
@@ -143,7 +141,7 @@ void adjust_live_holds(i32 step, RuntimeHauntedDoorStrategy& context)
 // Xbox 0x000AFD10
 void haunted_door_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(HauntedDoorStrategyState);
     output.parameters = parameter::kSize;
 }
 
@@ -155,7 +153,7 @@ bool initialize_runtime_haunted_door_strategy(std::span<const u8> parameters, Ru
     HauntedDoorResources& resources = resources_of(context);
     resources = HauntedDoorResources{};
     resources.overlay = find_runtime_body_animation(context.overlay_name, context.actions);
-    set(strategy, field::overlay, resources.overlay != nullptr ? 1u : 0u);
+    fields_of(strategy).overlay = resources.overlay != nullptr ? 1u : 0u;
     const char* name = field_data(parameters, parameter::timeline);
     u32 prefix;
     std::memcpy(&prefix, name, 4);
@@ -168,13 +166,13 @@ bool initialize_runtime_haunted_door_strategy(std::span<const u8> parameters, Ru
         }
     }
     const u32 timeline = resources.timeline.data() == nullptr ? 0u : context.address_of(resources.timeline.data());
-    set(strategy, field::timeline, timeline);
+    fields_of(strategy).timeline = timeline;
     if (timeline != 0)
     {
         const u32 size = runtime_body_resource_size(resources.timeline.data(), context.registry.records,
             context.loaded_sizes); // 0x00035D90
-        set(strategy, field::timeline_end, timeline + (size >> 2) * 4);
-        set(strategy, field::timeline_row, timeline);
+        fields_of(strategy).timeline_end = timeline + (size >> 2) * 4;
+        fields_of(strategy).timeline_row = timeline;
     }
     return true;
 }
@@ -184,30 +182,30 @@ void destroy_runtime_haunted_door_strategy(RuntimeHauntedDoorStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     end_runtime_haunted_door_attack(context); // 0x000AFB90, EBX strategy
-    set(strategy, field::overlay_on, 0u);
-    set(strategy, field::overlay_wanted, 0u);
-    if (get(strategy, field::timeline) != 0)
+    fields_of(strategy).overlay_on = 0u;
+    fields_of(strategy).overlay_wanted = 0u;
+    if (fields_of(strategy).timeline != 0)
     {
         HauntedDoorResources& resources = resources_of(context);
         release_animation_resource(context.registry, resources.timeline); // 0x00035C00
         resources.timeline = {};
     }
-    set(strategy, field::timeline, 0u);
-    set(strategy, field::timeline_end, 0u);
-    set(strategy, field::timeline_row, 0u);
+    fields_of(strategy).timeline = 0u;
+    fields_of(strategy).timeline_end = 0u;
+    fields_of(strategy).timeline_row = 0u;
 }
 
 // Xbox 0x000AF9D0, EAX strategy
 void drive_runtime_haunted_door_overlay(RuntimeHauntedDoorStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::overlay_on) != 0)
+    if (fields_of(strategy).overlay_on != 0)
     {
         if (!body_settled(context))
         {
             end_runtime_haunted_door_attack(context); // 0x000AFB90, EBX strategy
-            set(strategy, field::overlay_on, 0u);
-            set(strategy, field::overlay_wanted, 1u);
+            fields_of(strategy).overlay_on = 0u;
+            fields_of(strategy).overlay_wanted = 1u;
             return;
         }
         const AnimationRecord& record = overlay_record(context, "0x000AF9D0");
@@ -222,7 +220,7 @@ void drive_runtime_haunted_door_overlay(RuntimeHauntedDoorStrategy& context)
         start_runtime_body_animation_record(record, context.actions); // 0x0001AFA0, ESI body
         return;
     }
-    if (get(strategy, field::overlay_wanted) == 0 || !body_settled(context))
+    if (fields_of(strategy).overlay_wanted == 0 || !body_settled(context))
     {
         return;
     }
@@ -233,16 +231,16 @@ void drive_runtime_haunted_door_overlay(RuntimeHauntedDoorStrategy& context)
 void start_runtime_haunted_door_overlay(RuntimeHauntedDoorStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::overlay_on) != 0)
+    if (fields_of(strategy).overlay_on != 0)
     {
         return;
     }
-    set(strategy, field::overlay_wanted, 1u);
+    fields_of(strategy).overlay_wanted = 1u;
     if (!body_settled(context))
     {
         return;
     }
-    set(strategy, field::overlay_on, 1u);
+    fields_of(strategy).overlay_on = 1u;
     begin_runtime_haunted_door_attack(context); // 0x000AFB20, EDI strategy
 }
 
@@ -266,7 +264,7 @@ void call_out_runtime_haunted_door_hit(std::span<const u32> message, RuntimeHaun
 void begin_runtime_haunted_door_attack(RuntimeHauntedDoorStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::attacking) != 0)
+    if (fields_of(strategy).attacking != 0)
     {
         return;
     }
@@ -280,28 +278,28 @@ void begin_runtime_haunted_door_attack(RuntimeHauntedDoorStrategy& context)
             row = find_runtime_attachment_second_request(tables, 0xCF); // 0x0001C5A0, EBX 0xCF
         }
     }
-    put_word(body, 0x84, row == nullptr ? 0u : context.address_of(row));
-    put_word(body, 0x88, 0);
-    step_byte(body, 0x6A, 1);
+    body_record(body).hit_record = row == nullptr ? 0u : context.address_of(row);
+   body_record(body).unk_88 = 0;
+    ++body_record(body).unk_6A;
     start_runtime_body_animation_record(overlay_record(context, "0x000AFB20"), context.actions); // 0x0001AFA0
-    put_word(body, 0x74C, 1);
-    set(strategy, field::timeline_row, get(strategy, field::timeline));
-    set(strategy, field::row_time, 0.f);
-    set(strategy, field::attacking, 1u);
+   body_record(body).unk_74C = 1;
+    fields_of(strategy).timeline_row = fields_of(strategy).timeline;
+    fields_of(strategy).row_time = 0.f;
+    fields_of(strategy).attacking = 1u;
 }
 
 // Xbox 0x000AFB90, EBX strategy
 void end_runtime_haunted_door_attack(RuntimeHauntedDoorStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::attacking) == 0)
+    if (fields_of(strategy).attacking == 0)
     {
         return;
     }
     const std::span<u8> body = body_of(context);
-    put_word(body, 0x84, 0);
-    put_word(body, 0x88, 0);
-    step_byte(body, 0x6A, -1);
+    body_record(body).hit_record = 0;
+   body_record(body).unk_88 = 0;
+    --body_record(body).unk_6A;
     const i32 slot = i32(overlay_record(context, "0x000AFB90").slot);
     AnimationController* controller = context.actions.animation.controller.get(); // Actor +0x50.
     if (controller != nullptr && slot != 0)
@@ -312,8 +310,8 @@ void end_runtime_haunted_door_attack(RuntimeHauntedDoorStrategy& context)
         }
         controller->dirty = true; // +0x5C.
     }
-    put_word(body, 0x74C, 0);
-    set(strategy, field::attacking, 0u);
+   body_record(body).unk_74C = 0;
+    fields_of(strategy).attacking = 0u;
 }
 
 // Xbox 0x000AFC00, EAX strategy
@@ -321,12 +319,13 @@ bool runtime_haunted_door_sees_target(RuntimeHauntedDoorStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> mind = goals.entry.events.mind; // Actor +0x958.
-    if (mind.data() == nullptr || read_u32(mind, 0x10) == 0)
+    if (mind.data() == nullptr || mind_record(mind).target_record == 0)
     {
         return true;
     }
-    const std::span<const u8> target = goals.target_at(read_u32(mind, 0x10))->bytes;
-    const Vec3 point{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+    const std::span<const u8> target = goals.target_at(mind_record(mind).target_record)->bytes;
+    const Vec3 point{mind_target_record(target).shape.position.x, mind_target_record(target).shape.position.y,
+        mind_target_record(target).shape.position.z};
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
     i32 last_cell = 0;
     return navigation_path_clear(position, point, 0, 0, 0, 0, nullptr, &last_cell,
@@ -338,27 +337,27 @@ bool step_runtime_haunted_door_timeline(RuntimeHauntedDoorStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     const std::span<const u8> timeline = resources_of(context).timeline;
-    const u32 row = get(strategy, field::timeline_row);
+    const u32 row = fields_of(strategy).timeline_row;
     if (timeline.data() == nullptr)
     {
         throw Error("0x000AFC80 reads the haunted door's timeline through address zero");
     }
-    const float wait = read_f32(timeline, row - get(strategy, field::timeline));
+    const float wait = read_f32(timeline, row - fields_of(strategy).timeline);
     // DAT_0032B398 (0.6) raised to the hits taken (0x00167CB8), times the row's wait.
     const float limit = float(std::pow(static_cast<long double>(0.6000000238418579),
-        static_cast<long double>(get(strategy, field::hits))) * wait);
+        static_cast<long double>(fields_of(strategy).hits)) * wait);
     const float time = runtime_actor_rate(actor_of(context)) * runtime_frame_step(goals_of(context).clock)
-        + get(strategy, field::row_time);
-    set(strategy, field::row_time, time);
+        + fields_of(strategy).row_time;
+    fields_of(strategy).row_time = time;
     if (time < limit)
     {
         return false;
     }
-    set(strategy, field::row_time, 0.f);
-    set(strategy, field::timeline_row, row + 4);
-    if (!(row + 4 < get(strategy, field::timeline_end)))
+    fields_of(strategy).row_time = 0.f;
+    fields_of(strategy).timeline_row = row + 4;
+    if (!(row + 4 < fields_of(strategy).timeline_end))
     {
-        set(strategy, field::timeline_row, get(strategy, field::timeline));
+        fields_of(strategy).timeline_row = fields_of(strategy).timeline;
     }
     return true;
 }
@@ -379,7 +378,7 @@ void update_runtime_haunted_door_strategy(RuntimeHauntedDoorStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     drive_runtime_haunted_door_overlay(context); // 0x000AF9D0, EAX strategy
     bool found = false;
@@ -460,7 +459,7 @@ void update_runtime_haunted_door_strategy(RuntimeHauntedDoorStrategy& context)
     case 0x40A:
     {
         RuntimeMindTarget* target = select_target(found, context);
-        if (get(strategy, field::close_in) != 0
+        if (fields_of(strategy).close_in != 0
             && !(40.f < context.surface_distance(target_bytes(target, "0x000AFF98")))) // 0x0013A5B0
         {
             change_state(0x3EF, context);
@@ -503,10 +502,10 @@ void update_runtime_haunted_door_strategy(RuntimeHauntedDoorStrategy& context)
     case 0x416:
     {
         RuntimeMindTarget* target = select_target(found, context);
-        float wait = get(strategy, field::wait);
+        float wait = fields_of(strategy).wait;
         count_down_runtime_strategy_timer(wait, goals); // 0x0002B9F0, ECX +0x44
-        set(strategy, field::wait, wait);
-        if (target != nullptr && get(strategy, field::wait) == 0.f)
+        fields_of(strategy).wait = wait;
+        if (target != nullptr && fields_of(strategy).wait == 0.f)
         {
             choose_runtime_haunted_door_attack(context); // 0x000B05B0
         }
@@ -532,19 +531,19 @@ void dispatch_runtime_haunted_door_message(std::span<const u32> message, Runtime
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     switch (message[0])
     {
     case 0x26:
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x413 || read_u16(strategy, 0xE) == 0x417)
+        if (strategy_base(strategy).state == 0x413 || strategy_base(strategy).state == 0x417)
         {
             return;
         }
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
         return;
     case 0x31:
-        if (get(strategy, field::awake) != 0)
+        if (fields_of(strategy).awake != 0)
         {
             react_runtime_strategy_watched_actor(message, context.checks, context.views); // 0x001397B0
         }
@@ -554,7 +553,7 @@ void dispatch_runtime_haunted_door_message(std::span<const u32> message, Runtime
         return;
     case 0x6E:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
-        if (check_runtime_player_knockout(goals) != 0 || get(strategy, field::awake) == 0) // 0x0013A490
+        if (check_runtime_player_knockout(goals) != 0 || fields_of(strategy).awake == 0) // 0x0013A490
         {
             return;
         }
@@ -566,7 +565,7 @@ void dispatch_runtime_haunted_door_message(std::span<const u32> message, Runtime
             }
             if (runtime_message_lands_on_actor(message, actor)) // 0x001408A0
             {
-                set(strategy, field::hits, get(strategy, field::hits) + 1);
+                fields_of(strategy).hits = fields_of(strategy).hits + 1;
                 change_state(0x409, context);
             }
             return;
@@ -581,7 +580,7 @@ void dispatch_runtime_haunted_door_message(std::span<const u32> message, Runtime
         return;
     case 0x70:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
-        if (read_u16(strategy, 0xE) == 0x413
+        if (strategy_base(strategy).state == 0x413
             && adopt_runtime_strategy_message_attacker(message, 1, context.checks, context.views) != 0) // 0x00139550
         {
             goals.room = nullptr; // Actor +0xCA0.
@@ -592,7 +591,7 @@ void dispatch_runtime_haunted_door_message(std::span<const u32> message, Runtime
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
         increment_runtime_body_latches(body_of(context), actor_of(context), context.latches); // 0x0001FC40
         adjust_live_holds(1, context); // 0x00042090
-        set(strategy, field::latched, 1u);
+        fields_of(strategy).latched = 1u;
         return;
     default:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
@@ -608,24 +607,24 @@ void enter_runtime_haunted_door_state(u16 state, u16 previous, RuntimeHauntedDoo
     const std::span<u8> body = body_of(context);
     RuntimeMindGoalContext& mind = goals.entry.goals;
     (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
-    body[0x328] = 2;
-    strategy[0x1A] = 0;
-    strategy[0x1B] = 0;
+    body_record(body).move_class = 2;
+    strategy_base(strategy).attacking = 0;
+    strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3EC:
-        body[0x328] = 3;
+        body_record(body).move_class = 3;
         append_runtime_range_request(mind.anchor, mind.sizes, 40.f); // 0x00136AC0, EAX mind
         return;
     case 0x3EE:
-        body[0x328] = 5;
-        strategy[0x1A] = 1;
+        body_record(body).move_class = 5;
+        strategy_base(strategy).attacking = 1;
         start_runtime_haunted_door_overlay(context); // 0x000AFA80
         load_goal(context.goal_knockdown, context);
         return;
     case 0x3EF:
-        body[0x328] = 6;
-        strategy[0x1A] = 1;
+        body_record(body).move_class = 6;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack_special, context);
         return;
     case 0x409:
@@ -633,25 +632,25 @@ void enter_runtime_haunted_door_state(u16 state, u16 previous, RuntimeHauntedDoo
         return;
     case 0x40A:
         load_goal(context.goal_knocked_down_wait, context);
-        set(strategy, field::close_in, actor_event_chance(goals.random, 0.5f) ? 1u : 0u); // 0x00019200
+        fields_of(strategy).close_in = actor_event_chance(goals.random, 0.5f) ? 1u : 0u; // 0x00019200
         return;
     case 0x40D:
         allocate_runtime_mind_request(mind.anchor, 0x17, mind.sizes); // 0x00029D90, EBX 0x17
         return;
     case 0x413:
         load_goal(context.goal_sleep, context);
-        step_byte(strategy, 0x1C, 1);
+        ++strategy_base(strategy).pause_count;
         return;
     case 0x416:
-        set(strategy, field::wait, 1.f); // DAT_0032B0F8.
+        fields_of(strategy).wait = 1.f; // DAT_0032B0F8.
         return;
     case 0x417:
     {
-        set(strategy, field::awake, 1u);
-        put_u16(strategy, 0x18, 0x416);
+        fields_of(strategy).awake = 1u;
+        strategy_base(strategy).unk_18 = 0x416;
         load_goal(context.goal_wakeup, context);
-        step_byte(strategy, 0x1C, 1);
-        strategy[0x1B] = 1;
+        ++strategy_base(strategy).pause_count;
+        strategy_base(strategy).unk_1B = 1;
         // 0x0013A400, EAX strategy: the script hears {0xB4, the actor's tag}.
         const std::array<u32, 2> event{0xB4, read_u16(goals.entry.actor_bytes, 6)};
         script_queue_event(goals.game, {reinterpret_cast<const u8*>(event.data()), sizeof(event)}); // 0x00116810
@@ -672,25 +671,25 @@ void leave_runtime_haunted_door_state(u16 state, RuntimeHauntedDoorStrategy& con
     {
     case 0x3EE:
         end_runtime_haunted_door_attack(context); // 0x000AFB90, EBX strategy
-        set(strategy, field::overlay_on, 0u);
-        set(strategy, field::overlay_wanted, 0u);
+        fields_of(strategy).overlay_on = 0u;
+        fields_of(strategy).overlay_wanted = 0u;
         detach_runtime_strategy_link(context.base.link); // The tail jump to 0x00112A20, EAX strategy +0x20.
         return;
     case 0x417:
-        step_byte(strategy, 0x1C, -1);
-        if (get(strategy, field::latched) == 0)
+        --strategy_base(strategy).pause_count;
+        if (fields_of(strategy).latched == 0)
         {
             return;
         }
         decrement_runtime_body_latches(body_of(context), actor_of(context), context.latches); // 0x0001FD20
         adjust_live_holds(-1, context); // 0x000420B0
-        set(strategy, field::latched, 0u);
+        fields_of(strategy).latched = 0u;
         return;
     case 0x413:
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        step_byte(strategy, 0x1C, -1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

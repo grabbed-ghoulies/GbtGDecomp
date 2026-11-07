@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "strategy_fields.h"
 #include "spider_strategy.h"
 #include "body_action_selection.h"
 #include "body_contacts.h"
@@ -9,42 +11,67 @@
 
 namespace gbtg
 {
+// DAT_004287F0, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct MedusaParameters
+{
+    float target_reach; // +0x0
+    float gaze_time_low; // +0x4
+    float gaze_time_high; // +0x8
+    float spin_delay; // +0xC, 0x000B9D60 passes it as both ends of its range.
+    float unk_10; // +0x10
+    float face_delay; // +0x14
+    float attack_lead; // +0x18, How far out the attack's facing point lies.
+    float attack_delay; // +0x1C
+    float eye_pitch_offset; // +0x20, In degrees.
+    float eye_yaw_offset; // +0x24, In degrees.
+    float gaze_near; // +0x28, Also the gaze probe's radius.
+    float gaze_far; // +0x2C
+    float cone_pitch; // +0x30, In degrees; the two light cones'.
+    float cone_yaw; // +0x34, In degrees; the second cone negates it.
+    float cone_spread; // +0x38
+    float cone_length; // +0x3C
+    float cone_fade; // +0x40
+    float cone_spot_offset; // +0x44
+    std::array<float, 3> turn_rates; // +0x48, The body's turn_rates.
+    float unk_54; // +0x54
+};
+static_assert(sizeof(MedusaParameters) == 0x58);
+
 // entityStrategyMedusa (factory type 0x4B, getter 0x000BB1D0, vtable 0x00505F30; the factory table's row 0x4A
 // carries the name) over the base strategy (type 8): the Medusa. She walks at random (0x401) until her
 // special-attack timer (+0x150, drawn from the attributes' first two floats) runs out, then gazes (0x3EF): two light
 // cones leave her eyes (joints 7 and 6) and, while the body's bit 0x2D is set, a ray along the gaze that reaches her
 // target starts the Super Scary challenge (0x000873A0) and hits it (message 0x15). Close to a target she attacks
 // ("attack", walk mode 2); a dizzy spell (0x409) and the shock camera messages (0x8E) come from outside.
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace medusa_strategy_field
+struct MedusaStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_004287F0
-constexpr RetailField<std::array<char, 0x80>, 0x3C> challenge_first{}; // parameters +0x18
-constexpr RetailField<std::array<char, 0x80>, 0xBC> challenge_second{}; // parameters +0x98
-constexpr RetailField<u32, 0x13C> walk_mode{}; // 1 walking at random, 2 attacking
-constexpr RetailField<float, 0x140> attack_delay{}; // seconds before another attack (parameters +0x1C)
-constexpr RetailField<u32, 0x144> gaze_phase{}; // 1 starting, 2 facing, 3 walking, 4 spinning, 5 over
-constexpr RetailField<float, 0x148> spin_delay{}; // parameters +0xC
-constexpr RetailField<float, 0x14C> face_delay{}; // parameters +0x14
-constexpr RetailField<float, 0x150> special_delay{}; // seconds to the next gaze
-constexpr RetailField<float, 0x154> gaze_time{}; // the gaze's length, parameters +4..+8
-constexpr RetailField<u32, 0x158> gazed{}; // set by the gaze's start; 0x3F0 ends it
-constexpr RetailField<u32, 0x15C> gaze_hit{}; // the ray reached the target
-constexpr RetailField<u32, 0x160> rattle_sound{}; // actor +0x614's sound plays
-constexpr RetailField<u32, 0x164> unk_164{}; // actor +0x83C's sound plays
-constexpr RetailField<u32, 0x168> always_special{}; // the attributes' +8 is 1
-constexpr RetailField<u32, 0x16C> gaze_toggle{}; // flips each ray test
-constexpr RetailField<i32, 0x170> first_cone{}; // the joint 7 cone, or -1
-constexpr RetailField<i32, 0x174> second_cone{}; // the joint 6 cone, or -1
-constexpr RetailField<u32, 0x178> shocked{}; // message 0x8E's shock camera holds bit 0x3E and latch mask 0x3F
-constexpr RetailField<u32, 0x17C> unk_17C{};
-constexpr RetailField<u32, 0x180> unk_180{};
-constexpr RetailField<u32, 0x184> dizzy_step{}; // state 0x409: 1 waits for body bit 0x30, 2 recovering
-constexpr RetailField<u32, 0x188> attack_request{}; // body +0x84 holds the 0xF8 attack row (0x000BA010)
-constexpr RetailField<u32, 0x18C> shock_won{}; // message 0x8E's word 7 sets it, 8 clears it
-constexpr u32 kSize = 0x190;
-static_assert(retail_fits(kSize, shock_won));
-} // namespace medusa_strategy_field
+    StrategyBase base{}; // +0
+    u32 parameters = 0; // +0x38, DAT_004287F0
+    std::array<char, 0x80> challenge_first{}; // +0x3C, parameters +0x18
+    std::array<char, 0x80> challenge_second{}; // +0xBC, parameters +0x98
+    u32 walk_mode = 0; // +0x13C, 1 walking at random, 2 attacking
+    float attack_delay = 0.f; // +0x140, seconds before another attack (parameters +0x1C)
+    u32 gaze_phase = 0; // +0x144, 1 starting, 2 facing, 3 walking, 4 spinning, 5 over
+    float spin_delay = 0.f; // +0x148, parameters +0xC
+    float face_delay = 0.f; // +0x14C, parameters +0x14
+    float special_delay = 0.f; // +0x150, seconds to the next gaze
+    float gaze_time = 0.f; // +0x154, the gaze's length, parameters +4..+8
+    u32 gazed = 0; // +0x158, set by the gaze's start; 0x3F0 ends it
+    u32 gaze_hit = 0; // +0x15C, the ray reached the target
+    u32 rattle_sound = 0; // +0x160, actor +0x614's sound plays
+    u32 unk_164 = 0; // +0x164, actor +0x83C's sound plays
+    u32 always_special = 0; // +0x168, the attributes' +8 is 1
+    u32 gaze_toggle = 0; // +0x16C, flips each ray test
+    i32 first_cone = 0; // +0x170, the joint 7 cone, or -1
+    i32 second_cone = 0; // +0x174, the joint 6 cone, or -1
+    u32 shocked = 0; // +0x178, message 0x8E's shock camera holds bit 0x3E and latch mask 0x3F
+    u32 unk_17C = 0; // +0x17C
+    u32 unk_180 = 0; // +0x180
+    u32 dizzy_step = 0; // +0x184, state 0x409: 1 waits for body bit 0x30, 2 recovering
+    u32 attack_request = 0; // +0x188, body +0x84 holds the 0xF8 attack row (0x000BA010)
+    u32 shock_won = 0; // +0x18C, message 0x8E's word 7 sets it, 8 clears it
+};
+static_assert(sizeof(MedusaStrategyState) == 0x190);
 struct RuntimeMedusaStrategy
 {
     // The instance's spider views over the same strategy: base goals, target checks, queue and actor views.

@@ -1,4 +1,5 @@
 #include "player_mind_owner.h"
+#include "mind_fields.h"
 #include "player_mind_control.h"
 #include "cinema_mind_slots.h"
 #include "cinema_mind_requests.h"
@@ -141,8 +142,8 @@ void NativePlayerMindOwner::message(FactoryObject& mind, const void* message)
     const std::span<const u32> words(static_cast<const u32*>(message), 0xC);
     std::span<const u8> target;
     // The parent slot dereferences message +4 only on 0x8D's matching-target branch.
-    if (words[0] == 0x8D && read_u32(slots.mind, 0x10) == words[1]
-        && words[2] != 0 && read_u32(slots.mind, 0xC) != 0)
+    if (words[0] == 0x8D && mind_record(slots.mind).target_record == words[1]
+        && words[2] != 0 && mind_record(slots.mind).target != 0)
     {
         target = slots.object_at(words[1]);
     }

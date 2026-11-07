@@ -5,6 +5,15 @@
 #include "../entities/actor_trail_requests.h"
 #include "gbtg/actor_spawn_factory.h"
 #include "../navigation/navigation.h"
+#include "gbtg/object_factory.h"
+#include "../entities/trigger_actor.h"
+#include "../entities/ghouly_bg_break_setup.h"
+#include "../entities/ghouly_cutscene_setup.h"
+#include "../entities/ghouly_swap_setup.h"
+#include "../entities/bg_break_key.h"
+#include "scene_fx_control.h"
+#include "../entities/super_scary_shock.h"
+#include "../entities/weapon_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -36,7 +45,7 @@ RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarker
     };
     handlers.handlers[0xE] = [&bindings](u8* record)
     {
-        create_runtime_marker_named(record, bindings.objects);
+        create_runtime_marker_bg_break_key(record, bindings.objects);
     };
     handlers.handlers[8] = [&bindings](u8* record)
     {
@@ -78,19 +87,19 @@ RuntimeSceneMarkerHandlers bind_runtime_scene_marker_handlers(RuntimeSceneMarker
     };
     handlers.handlers[0xD] = [&bindings](u8* record)
     {
-        create_runtime_marker_effect(record, bindings.objects);
+        create_runtime_marker_bg_break_setup(record, bindings.objects);
     };
     handlers.handlers[0xF] = [&bindings](u8* record)
     {
-        create_runtime_marker_switch(record, bindings.objects);
+        create_runtime_marker_cutscene_setup(record, bindings.objects);
     };
     handlers.handlers[0x11] = [&bindings](u8* record)
     {
-        create_runtime_marker_named_trigger(record, bindings.objects);
+        create_runtime_marker_swap_setup(record, bindings.objects);
     };
     handlers.handlers[0x15] = [&bindings](u8* record)
     {
-        create_runtime_marker_multi_name(record, bindings.objects);
+        create_runtime_marker_super_scary_shock(record, bindings.objects);
     };
     handlers.handlers[0x16] = [&bindings](u8* record)
     {
@@ -163,7 +172,7 @@ const u8* chain_row(const u8* records, std::span<const u8> address_zero, u16 id)
 OccupancyRecord& add_runtime_occupancy_record(u16 kind, u8 value, u16 id, u32 first, u32 second, u32 third,
     u32 fourth, u32 mask, u16 group)
 {
-    auto* pool = static_cast<GhoulySpawnPool*>(g_512344);
+    auto* pool = static_cast<GhoulySpawnPool*>(g_occupancy_pool);
     if (pool == nullptr)
     {
         pool = static_cast<GhoulySpawnPool*>(engine_heap_allocate(i32(sizeof(GhoulySpawnPool)) + 6 * 0x38));
@@ -172,12 +181,12 @@ OccupancyRecord& add_runtime_occupancy_record(u16 kind, u8 value, u16 id, u32 fi
         pool->stride = 0x38;
         pool->grow = 6;
         pool->limit = pool->begin + 6 * 0x38;
-        g_512344 = pool;
+        g_occupancy_pool = pool;
     }
     if (pool->cursor == pool->limit)
     {
         pool = grow_runtime_shape_pool(pool);
-        g_512344 = pool;
+        g_occupancy_pool = pool;
     }
     auto* record = reinterpret_cast<OccupancyRecord*>(pool->cursor);
     pool->cursor += pool->stride;
@@ -190,7 +199,7 @@ OccupancyRecord& add_runtime_occupancy_record(u16 kind, u8 value, u16 id, u32 fi
     std::memcpy(record->values_a + 0xA, &third, 4);
     std::memcpy(record->values_a + 0xE, &fourth, 4);
     record->group = group < 2 ? 0 : i16(group);
-    g_512348 = i32(u32(g_512348) | mask);
+    g_occupancy_mask = i32(u32(g_occupancy_mask) | mask);
     return *record;
 }
 
@@ -392,21 +401,21 @@ void create_runtime_marker_prop(const u8* record, RuntimeMarkerObjects& context)
     std::array<u8, 0x334> parameters{};
     initialize_actor_effect_parameters(parameters.data(), context.default_name);
     put_word(parameters, 8, word_at(record, 0xC));
-    put_half(parameters, 0x2AA, half_at(record, 6));
-    put_half(parameters, 0x2AC, half_at(record, 8));
+    set(parameters, actor_parameter_field::marker_id, half_at(record, 6));
+    set(parameters, actor_parameter_field::next_marker, half_at(record, 8));
     for (size_t offset = 0x10; offset <= 0x24; offset += 4)
     {
         put_word(parameters, offset - 4, word_at(record, offset));
     }
-    put_half(parameters, 4, 2);
+    set(parameters, object_parameter_field::type, 2);
     if (is_aid(record + 0x28))
     {
-        copy_text(parameters, 0x28, reinterpret_cast<const char*>(record + 0x28));
+        copy_text(parameters, actor_parameter_field::model.offset, reinterpret_cast<const char*>(record + 0x28));
     }
     const char* name = reinterpret_cast<const char*>(record + 0xA8);
     if (is_aid(record + 0xA8))
     {
-        copy_text(parameters, 0xA8, name);
+        copy_text(parameters, actor_parameter_field::animation.offset, name);
     }
     FactoryObject* actor = keep(create_factory_object(context.factory, parameters), context);
     if (actor != nullptr && is_aid(record + 0x128))
@@ -523,8 +532,8 @@ void create_runtime_marker_template(const u8* record, RuntimeMarkerObjects& cont
     {
         put_word(parameters, offset - 4, word_at(record, offset));
     }
-    put_half(parameters, 0x2AA, half_at(record, 6));
-    put_half(parameters, 0x2AC, half_at(record, 8));
+    set(parameters, actor_parameter_field::marker_id, half_at(record, 6));
+    set(parameters, actor_parameter_field::next_marker, half_at(record, 8));
     keep(create_factory_object(context.factory, parameters), context);
     clone.bytes.reset(); // 0x000663E0.
 }
@@ -563,22 +572,19 @@ void create_runtime_marker_camera(const u8* record, RuntimeMarkerObjects& contex
     if (is_aid(record + 0x28))
     {
         std::array<u8, 0xC8> parameters{};
-        put_half(parameters, 0, 0xC8);
+        set(parameters, object_parameter_field::size, u16(scene_fx_parameter::kSize));
         put_half(parameters, 2, 0);
-        put_half(parameters, 4, 0x97);
-        copy_text(parameters, 0x2C, reinterpret_cast<const char*>(record + 0x28));
-        put_word(parameters, 0xAC, word_at(record, 0xB0));
-        put_word(parameters, 0xB0, word_at(record, 0xB4));
-        put_word(parameters, 0xB4, word_at(record, 0xB8));
-        put_word(parameters, 0xB8, word_at(record, 0xBC));
-        put_word(parameters, 0x28, word_at(record, 0xAC));
-        put_vector(parameters, 8, vector_at(record, 0xC));
-        put_vector(parameters, 0x14, vector_at(record, 0x18));
-        put_word(parameters, 0x24, word_at(record, 0xA8));
-        put_word(parameters, 0x20, word_at(record, 0x24));
-        put_word(parameters, 0xBC, word_at(record, 0xC0));
-        put_word(parameters, 0xC0, word_at(record, 0xC4));
-        put_word(parameters, 0xC4, word_at(record, 0xC8));
+        set(parameters, object_parameter_field::type, 0x97);
+        copy_text(parameters, scene_fx_parameter::effect.offset, reinterpret_cast<const char*>(record + 0x28));
+        set(parameters, scene_fx_parameter::on_time, {float_at(record, 0xB0), float_at(record, 0xB4)});
+        set(parameters, scene_fx_parameter::off_time, {float_at(record, 0xB8), float_at(record, 0xBC)});
+        set(parameters, scene_fx_parameter::count, i32(word_at(record, 0xAC)));
+        set(parameters, scene_fx_parameter::position, vector_at(record, 0xC));
+        set(parameters, scene_fx_parameter::euler, vector_at(record, 0x18));
+        set(parameters, scene_fx_parameter::radius, float_at(record, 0xA8));
+        set(parameters, scene_fx_parameter::scale, float_at(record, 0x24));
+        set(parameters, scene_fx_parameter::rate, {float_at(record, 0xC0), float_at(record, 0xC4)});
+        set(parameters, scene_fx_parameter::prerun, float_at(record, 0xC8));
         keep(create_factory_object(context.factory, parameters), context);
     }
 }
@@ -604,9 +610,9 @@ void create_runtime_marker_scare(const u8* record, RuntimeMarkerObjects& objects
     put_word(parameters, 0x340, word_at(record, 0x38));
     put_word(parameters, 0x344, std::bit_cast<u32>(float_at(record, 0x3C) * std::bit_cast<float>(0x3F4CCCCDu)));
     put_vector(parameters, 0x348, goal);
-    put_vector(parameters, 8, vector_at(record, 0xC));
-    put_vector(parameters, 0x14, vector_at(record, 0x18));
-    put_word(parameters, 0x20, word_at(record, 0x24));
+    set(parameters, actor_parameter_field::position, vector_at(record, 0xC));
+    set(parameters, actor_parameter_field::euler, vector_at(record, 0x18));
+    set(parameters, actor_parameter_field::scale, float_at(record, 0x24));
     keep(create_factory_object(objects.factory, parameters), objects);
     clone.bytes.reset(); // Heap free sequence inlined at 0x00100460.
 }
@@ -629,8 +635,8 @@ void create_runtime_marker_dropper(const u8* record, RuntimeMarkerObjects& objec
         }
         auto clone = clone_executable_resource(objects.resources, reinterpret_cast<const char*>(context.dropper_templates));
         std::span<u8> parameters{clone.bytes.get(), clone.size};
-        put_vector(parameters, 8, vector_at(record, 0xC));
-        put_vector(parameters, 0x14, vector_at(record, 0x18));
+        set(parameters, actor_parameter_field::position, vector_at(record, 0xC));
+        set(parameters, actor_parameter_field::euler, vector_at(record, 0x18));
         put_word(parameters, 0x33C, word_at(record, 0x34));
         put_word(parameters, 0x334, word_at(record, 0x2C));
         put_word(parameters, 0x338, word_at(record, 0x30));
@@ -643,8 +649,8 @@ void create_runtime_marker_dropper(const u8* record, RuntimeMarkerObjects& objec
         auto clone = clone_executable_resource(objects.resources,
             reinterpret_cast<const char*>(context.dropper_templates + (u32(kind) << 7)));
         std::span<u8> parameters{clone.bytes.get(), clone.size};
-        put_vector(parameters, 8, vector_at(record, 0xC));
-        put_vector(parameters, 0x14, vector_at(record, 0x18));
+        set(parameters, actor_parameter_field::position, vector_at(record, 0xC));
+        set(parameters, actor_parameter_field::euler, vector_at(record, 0x18));
         put_word(parameters, 0x334, word_at(record, 0x2C));
         put_word(parameters, 0x338, word_at(record, 0x30));
         put_word(parameters, 0x33C, word_at(record, 0x34));
@@ -675,35 +681,35 @@ void attach_runtime_marker_player_shape(const u8* record, RuntimeMarkerPlayerSha
 }
 
 // Xbox 0x0006AF70
-void build_runtime_marker_effect_parameters(std::span<u8, 0x460> parameters, const Vec3& position,
+void build_runtime_marker_bg_break_parameters(std::span<u8, 0x460> parameters, const Vec3& position,
     const Vec3& euler, u16 id, u16 next, u32 value, const char* first, const char* second, u16 key,
     std::span<const u32, 9> values, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AA, id);
-    put_word(parameters, 0x334, value);
-    put_half(parameters, 0x2AC, next);
-    put_half(parameters, 0, 0x460);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x24);
-    copy_text(parameters, 0x338, first);
-    copy_text(parameters, 0x3B8, second);
-    put_word(parameters, 0x458, values[7]);
-    put_half(parameters, 0x438, key);
-    put_word(parameters, 0x450, values[5]);
-    put_word(parameters, 0x43C, values[0]);
-    put_word(parameters, 0x454, values[6]);
-    put_word(parameters, 0x448, values[3]);
-    put_word(parameters, 0x440, values[1]);
-    put_word(parameters, 0x444, values[2]);
-    put_word(parameters, 0x44C, values[4]);
-    put_word(parameters, 0x45C, values[8]);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::marker_id, id);
+    set(parameters, ghouly_bg_break_parameter::controller_key, value);
+    set(parameters, actor_parameter_field::next_marker, next);
+    set(parameters, object_parameter_field::size, u16(ghouly_bg_break_parameter::kSize));
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x24);
+    copy_text(parameters, ghouly_bg_break_parameter::box.offset, first);
+    copy_text(parameters, ghouly_bg_break_parameter::attributes.offset, second);
+    set(parameters, ghouly_bg_break_parameter::unk_458, values[7]);
+    set(parameters, ghouly_bg_break_parameter::spawn_tag, key);
+    set(parameters, ghouly_bg_break_parameter::hold_part, values[5]);
+    set(parameters, ghouly_bg_break_parameter::box_chance, std::bit_cast<float>(values[0]));
+    set(parameters, ghouly_bg_break_parameter::unk_454, values[6]);
+    set(parameters, ghouly_bg_break_parameter::grouped, values[3]);
+    set(parameters, ghouly_bg_break_parameter::radius, std::bit_cast<float>(values[1]));
+    set(parameters, ghouly_bg_break_parameter::chance, std::bit_cast<float>(values[2]));
+    set(parameters, ghouly_bg_break_parameter::group, values[4]);
+    set(parameters, ghouly_bg_break_parameter::spawn_slots, values[8]);
 }
 
 // Xbox 0x000FFC00
-void create_runtime_marker_effect(u8* record, RuntimeMarkerObjects& context)
+void create_runtime_marker_bg_break_setup(u8* record, RuntimeMarkerObjects& context)
 {
     const float percent = std::bit_cast<float>(0x3C23D70Au);
     const std::array<u32, 9> values{
@@ -712,7 +718,7 @@ void create_runtime_marker_effect(u8* record, RuntimeMarkerObjects& context)
         word_at(record, 0x140), word_at(record, 0x14C), word_at(record, 0x150),
         word_at(record, 0x154), word_at(record, 0x158)};
     std::array<u8, 0x460> parameters{};
-    build_runtime_marker_effect_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+    build_runtime_marker_bg_break_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
         half_at(record, 6), half_at(record, 8), word_at(record, 0x28),
         reinterpret_cast<const char*>(record + 0x2C), reinterpret_cast<const char*>(record + 0xAC),
         half_at(record, 0x12C), values, context.default_name);
@@ -721,100 +727,101 @@ void create_runtime_marker_effect(u8* record, RuntimeMarkerObjects& context)
 }
 
 // Xbox 0x0006BA70
-void build_runtime_marker_switch_parameters(std::span<u8, 0x3C4> parameters, const Vec3& position,
+void build_runtime_marker_cutscene_setup_parameters(std::span<u8, 0x3C4> parameters, const Vec3& position,
     const Vec3& euler, u16 id, u16 next, u32 value, u16 key, const char* name,
     u32 first, u32 second, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AA, id);
-    put_half(parameters, 0x2AC, next);
-    put_word(parameters, 0x334, value);
-    put_half(parameters, 0, 0x3C4);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x25);
-    put_half(parameters, 0x338, key);
-    copy_text(parameters, 0x33A, name);
-    put_word(parameters, 0x3BC, first);
-    put_word(parameters, 0x3C0, second);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::marker_id, id);
+    set(parameters, actor_parameter_field::next_marker, next);
+    set(parameters, ghouly_cutscene_parameter::controller_key, value);
+    set(parameters, object_parameter_field::size, u16(ghouly_cutscene_parameter::kSize));
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x25);
+    set(parameters, ghouly_cutscene_parameter::spawn_tag, key);
+    copy_text(parameters, ghouly_cutscene_parameter::cutscene.offset, name);
+    set(parameters, ghouly_cutscene_parameter::hold_last_frame, first);
+    set(parameters, ghouly_cutscene_parameter::camera_mode, second);
 }
 
 // Xbox 0x000FFCD0
-void create_runtime_marker_switch(const u8* record, RuntimeMarkerObjects& context)
+void create_runtime_marker_cutscene_setup(const u8* record, RuntimeMarkerObjects& context)
 {
     std::array<u8, 0x3C4> parameters{};
-    build_runtime_marker_switch_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+    build_runtime_marker_cutscene_setup_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
         half_at(record, 6), half_at(record, 8), word_at(record, 0x28), half_at(record, 0x2C),
         reinterpret_cast<const char*>(record + 0x30), word_at(record, 0xB0), word_at(record, 0xB4), context.default_name);
     keep(create_factory_object(context.factory, parameters), context);
 }
 
 // Xbox 0x0006C170
-void build_runtime_marker_named_trigger_parameters(std::span<u8, 0x4C8> parameters, const Vec3& position,
+void build_runtime_marker_swap_setup_parameters(std::span<u8, 0x4C8> parameters, const Vec3& position,
     const Vec3& euler, u16 id, u16 next, u32 value, const char* first, const char* second,
     std::span<const u32, 4> values, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AA, id);
-    put_word(parameters, 0x334, value);
-    put_half(parameters, 0x2AC, next);
-    put_half(parameters, 0, 0x4C8);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x26);
-    copy_text(parameters, 0x338, first);
-    copy_text(parameters, 0x3B8, second);
-    put_word(parameters, 0x438, values[0]);
-    put_word(parameters, 0x43C, values[1]);
-    put_word(parameters, 0x440, values[2]);
-    put_word(parameters, 0x444, values[3]);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::marker_id, id);
+    set(parameters, ghouly_swap_parameter::controller_key, value);
+    set(parameters, actor_parameter_field::next_marker, next);
+    set(parameters, object_parameter_field::size, u16(ghouly_swap_parameter::kSize));
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x26);
+    copy_text(parameters, ghouly_swap_parameter::box.offset, first);
+    copy_text(parameters, ghouly_swap_parameter::attributes.offset, second);
+    set(parameters, ghouly_swap_parameter::box_chance, std::bit_cast<float>(values[0]));
+    set(parameters, ghouly_swap_parameter::radius, std::bit_cast<float>(values[1]));
+    set(parameters, ghouly_swap_parameter::chance, std::bit_cast<float>(values[2]));
+    set(parameters, ghouly_swap_parameter::unk_444, values[3]);
 }
 
 // Xbox 0x000FFD30
-void create_runtime_marker_named_trigger(const u8* record, RuntimeMarkerObjects& context)
+void create_runtime_marker_swap_setup(const u8* record, RuntimeMarkerObjects& context)
 {
     const float percent = std::bit_cast<float>(0x3C23D70Au);
     const std::array<u32, 4> values{
         std::bit_cast<u32>(float(i32(word_at(record, 0x12C))) * percent), word_at(record, 0x130),
         std::bit_cast<u32>(float(i32(word_at(record, 0x134))) * percent), word_at(record, 0x138)};
     std::array<u8, 0x4C8> parameters{};
-    build_runtime_marker_named_trigger_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+    build_runtime_marker_swap_setup_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
         half_at(record, 6), half_at(record, 8), word_at(record, 0x28),
         reinterpret_cast<const char*>(record + 0x2C), reinterpret_cast<const char*>(record + 0xAC), values, context.default_name);
     keep(create_factory_object(context.factory, parameters), context);
 }
 
 // Xbox 0x000725E0
-void build_runtime_marker_multi_name_parameters(std::span<u8, 0x754> parameters, const Vec3& position,
+void build_runtime_marker_super_scary_shock_parameters(std::span<u8, 0x754> parameters, const Vec3& position,
     const Vec3& euler, std::span<const u32, 5> values, std::span<const char* const, 8> names,
     const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_word(parameters, 0x340, values[0]);
-    put_word(parameters, 0x344, values[1]);
-    put_word(parameters, 0x448, values[2]);
-    put_word(parameters, 0x750, values[4]);
-    put_half(parameters, 0, 0x754);
-    put_half(parameters, 2, 0x6A);
-    put_half(parameters, 4, 0x22);
-    put_word(parameters, 0x44C, values[3]);
-    copy_text(parameters, 0x348, names[0]);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, super_scary_shock_parameter::reach, std::bit_cast<float>(values[0]));
+    set(parameters, super_scary_shock_parameter::chance, std::bit_cast<float>(values[1]));
+    set(parameters, super_scary_shock_parameter::clip_time, std::bit_cast<float>(values[2]));
+    set(parameters, super_scary_shock_parameter::challenge_word, values[4]);
+    set(parameters, object_parameter_field::size, u16(super_scary_shock_parameter::kSize));
+    set(parameters, object_parameter_field::unk_2, 0x6A);
+    set(parameters, object_parameter_field::type, 0x22);
+    set(parameters, super_scary_shock_parameter::clip_time_range, std::bit_cast<float>(values[3]));
+    copy_text(parameters, super_scary_shock_parameter::ghouly_name.offset, names[0]);
     const u8* second = reinterpret_cast<const u8*>(names[1]);
-    copy_text(parameters, 0x3C8, is_aid(second) ? names[1] : "aid_objparams_ghoulies_misc_prop");
-    copy_text(parameters, 0x450, names[2]);
-    copy_text(parameters, 0x4D0, names[3]);
-    copy_text(parameters, 0x550, names[4]);
-    copy_text(parameters, 0x5D0, names[5]);
-    copy_text(parameters, 0x650, names[6]);
-    copy_text(parameters, 0x6D0, names[7]);
+    copy_text(parameters, super_scary_shock_parameter::ghouly_template.offset,
+              is_aid(second) ? names[1] : "aid_objparams_ghoulies_misc_prop");
+    copy_text(parameters, super_scary_shock_parameter::first_clip.offset, names[2]);
+    copy_text(parameters, super_scary_shock_parameter::attack_animation.offset, names[3]);
+    copy_text(parameters, super_scary_shock_parameter::attack_events.offset, names[4]);
+    copy_text(parameters, super_scary_shock_parameter::second_clip.offset, names[5]);
+    copy_text(parameters, super_scary_shock_parameter::end_animation.offset, names[6]);
+    copy_text(parameters, super_scary_shock_parameter::end_events.offset, names[7]);
 }
 
 // Xbox 0x00100570
-void create_runtime_marker_multi_name(const u8* record, RuntimeMarkerObjects& context)
+void create_runtime_marker_super_scary_shock(const u8* record, RuntimeMarkerObjects& context)
 {
     const std::array<u32, 5> values{word_at(record, 0x28), word_at(record, 0x2C),
         word_at(record, 0x130), word_at(record, 0x134), word_at(record, 0x438)};
@@ -824,31 +831,31 @@ void create_runtime_marker_multi_name(const u8* record, RuntimeMarkerObjects& co
         reinterpret_cast<const char*>(record + 0x238), reinterpret_cast<const char*>(record + 0x2B8),
         reinterpret_cast<const char*>(record + 0x338), reinterpret_cast<const char*>(record + 0x3B8)};
     std::array<u8, 0x754> parameters{};
-    build_runtime_marker_multi_name_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+    build_runtime_marker_super_scary_shock_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
         values, names, context.default_name);
     keep(create_factory_object(context.factory, parameters), context);
 }
 
 // Xbox 0x0006D410
-void build_runtime_marker_named_parameters(std::span<u8, 0x3B4> parameters, const Vec3& position,
+void build_runtime_marker_bg_break_key_parameters(std::span<u8, 0x3B4> parameters, const Vec3& position,
     const Vec3& euler, u16 id, u16 next, const char* name, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AC, next);
-    put_half(parameters, 0x2AA, id);
-    put_half(parameters, 0, 0x3B4);
-    put_half(parameters, 2, 0x47);
-    put_half(parameters, 4, 0x1E);
-    copy_text(parameters, 0x334, name);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::next_marker, next);
+    set(parameters, actor_parameter_field::marker_id, id);
+    set(parameters, object_parameter_field::size, u16(bg_break_key_parameter::kSize));
+    set(parameters, object_parameter_field::unk_2, 0x47);
+    set(parameters, object_parameter_field::type, 0x1E);
+    copy_text(parameters, bg_break_key_parameter::unk_334.offset, name);
 }
 
 // Xbox 0x000FF830
-void create_runtime_marker_named(const u8* record, RuntimeMarkerObjects& context)
+void create_runtime_marker_bg_break_key(const u8* record, RuntimeMarkerObjects& context)
 {
     std::array<u8, 0x3B4> parameters{};
-    build_runtime_marker_named_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
+    build_runtime_marker_bg_break_key_parameters(parameters, vector_at(record, 0xC), vector_at(record, 0x18),
         half_at(record, 6), half_at(record, 8), reinterpret_cast<const char*>(record + 0x28), context.default_name);
     keep(create_factory_object(context.factory, parameters), context);
 }
@@ -859,25 +866,25 @@ void create_runtime_marker_companion(const char* name, const Vec3& position, con
 {
     std::array<u8, 0x334> parameters{};
     initialize_actor_effect_parameters(parameters.data(), context.default_name);
-    copy_text(parameters, 0x28, name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_word(parameters, 0x20, std::bit_cast<u32>(scale));
+    copy_text(parameters, actor_parameter_field::model.offset, name);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::scale, scale);
     keep(create_factory_object(context.factory, parameters), context);
 }
 
 // Xbox 0x00146C80
 void set_runtime_marker_template_names(std::span<u8> parameters, const char* first, const char* second, u32 value)
 {
-    copy_text(parameters, 0x354, first);
-    copy_text(parameters, 0x3D4, second);
-    put_word(parameters, 0x454, value);
+    copy_text(parameters, weapon_parameter::variant_name.offset, first);
+    copy_text(parameters, weapon_parameter::variant_attributes.offset, second);
+    set(parameters, weapon_parameter::spawn_group, value);
 }
 
 // Xbox 0x00146CC0
 void set_runtime_marker_template_chain_name(std::span<u8> parameters, const char* name)
 {
-    copy_text(parameters, 0x578, name);
+    copy_text(parameters, weapon_parameter::voice_name.offset, name);
 }
 
 // Xbox 0x001007F0
@@ -890,11 +897,11 @@ void create_runtime_marker_modified_template(const u8* record, RuntimeMarkerObje
     }
     std::span<u8> parameters{clone.bytes.get(), clone.size};
     const float scale = float_at(record, 0x24) * float_at(parameters.data(), 0x20);
-    put_vector(parameters, 8, vector_at(record, 0xC));
-    put_vector(parameters, 0x14, vector_at(record, 0x18));
-    put_word(parameters, 0x20, std::bit_cast<u32>(scale));
-    put_half(parameters, 0x2AA, half_at(record, 6));
-    put_half(parameters, 0x2AC, half_at(record, 8));
+    set(parameters, actor_parameter_field::position, vector_at(record, 0xC));
+    set(parameters, actor_parameter_field::euler, vector_at(record, 0x18));
+    set(parameters, actor_parameter_field::scale, scale);
+    set(parameters, actor_parameter_field::marker_id, half_at(record, 6));
+    set(parameters, actor_parameter_field::next_marker, half_at(record, 8));
     if (is_aid(record + 0x1A8))
     {
         create_runtime_marker_companion(reinterpret_cast<const char*>(record + 0x1A8),
@@ -906,15 +913,15 @@ void create_runtime_marker_modified_template(const u8* record, RuntimeMarkerObje
             reinterpret_cast<const char*>(record + 0x128), word_at(record, 0x228));
     }
     const float percent = std::bit_cast<float>(0x3C23D70Au); // DAT_0032B124.
-    put_word(parameters, 0x344, word_at(record, 0x234));
-    put_word(parameters, 0x34C, word_at(record, 0x23C));
-    put_word(parameters, 0x350, word_at(record, 0x248));
-    put_word(parameters, 0x348, std::bit_cast<u32>(float(i32(word_at(record, 0x238))) * percent));
-    put_word(parameters, 0x340, std::bit_cast<u32>(float(i32(word_at(record, 0x230))) * percent));
-    put_word(parameters, 0x468, word_at(record, 0x240));
-    put_word(parameters, 0x46C, word_at(record, 0x244));
-    put_word(parameters, 0x574, word_at(record, 0x254));
-    put_word(parameters, 0x470, word_at(record, 0x22C));
+    set(parameters, weapon_parameter::trigger_radius, float_at(record, 0x234));
+    set(parameters, weapon_parameter::unk_BF8, word_at(record, 0x23C));
+    set(parameters, weapon_parameter::unk_BFC, word_at(record, 0x248));
+    set(parameters, weapon_parameter::trigger_chance, float(i32(word_at(record, 0x238))) * percent);
+    set(parameters, weapon_parameter::variant_chance, float(i32(word_at(record, 0x230))) * percent);
+    set(parameters, weapon_parameter::blocks_spawn, word_at(record, 0x240));
+    set(parameters, weapon_parameter::unk_DA8, word_at(record, 0x244));
+    set(parameters, weapon_parameter::starts_scene, word_at(record, 0x254));
+    set(parameters, weapon_parameter::controller_key, word_at(record, 0x22C));
     if (half_at(record, 8) != 0)
     {
         const u8* next = find_runtime_marker(context.records, i16(half_at(record, 8)));
@@ -933,26 +940,26 @@ void build_runtime_marker_trigger_parameters(std::span<u8, 0x65C> parameters, co
     const char* second_name, float a11, u32 a12, float a13, u32 a14, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AC, next);
-    put_half(parameters, 0x2AA, id);
-    put_word(parameters, 0x544, a7);
-    put_word(parameters, 0x334, a2);
-    put_word(parameters, 0x338, a3);
-    put_half(parameters, 0x340, a5);
-    put_half(parameters, 0, 0x65C);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x23);
-    put_word(parameters, 0x33C, a4);
-    put_word(parameters, 0x548, a8);
-    copy_text(parameters, 0x54C, first_name);
-    copy_text(parameters, 0x5CC, second_name);
-    put_word(parameters, 0x64C, std::bit_cast<u32>(a11));
-    put_word(parameters, 0x650, a12);
-    put_word(parameters, 0x654, std::bit_cast<u32>(a13));
-    std::memcpy(parameters.data() + 0x342, block, 0x200);
-    put_word(parameters, 0x658, a14);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::next_marker, next);
+    set(parameters, actor_parameter_field::marker_id, id);
+    set(parameters, trigger_parameter::facing, a7);
+    set(parameters, trigger_parameter::controller_key, a2);
+    set(parameters, trigger_parameter::min_radius, std::bit_cast<float>(a3));
+    set(parameters, trigger_parameter::goal, a5);
+    set(parameters, object_parameter_field::size, u16(trigger_parameter::kSize));
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x23);
+    set(parameters, trigger_parameter::max_radius, std::bit_cast<float>(a4));
+    set(parameters, trigger_parameter::unk_548, a8);
+    copy_text(parameters, trigger_parameter::box_name.offset, first_name);
+    copy_text(parameters, trigger_parameter::box_attributes.offset, second_name);
+    set(parameters, trigger_parameter::box_chance, a11);
+    set(parameters, trigger_parameter::trigger_radius, std::bit_cast<float>(a12));
+    set(parameters, trigger_parameter::trigger_chance, a13);
+    std::memcpy(field_data(parameters, trigger_parameter::goal_names), block, trigger_parameter::goal_names.size);
+    set(parameters, trigger_parameter::slot_count, a14);
 }
 
 // Xbox 0x000FFAD0
@@ -984,15 +991,15 @@ void build_runtime_marker_area_parameters(std::span<u8, 0x348> parameters, const
     u16 id, u16 next, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, const char* default_name)
 {
     initialize_actor_effect_parameters(parameters.data(), default_name);
-    put_vector(parameters, 8, position);
-    put_vector(parameters, 0x14, euler);
-    put_half(parameters, 0x2AA, id);
-    put_half(parameters, 0x2AC, next);
+    set(parameters, actor_parameter_field::position, position);
+    set(parameters, actor_parameter_field::euler, euler);
+    set(parameters, actor_parameter_field::marker_id, id);
+    set(parameters, actor_parameter_field::next_marker, next);
     put_word(parameters, 0x33C, a4);
     put_word(parameters, 0x334, a2);
-    put_half(parameters, 0, 0x348);
-    put_half(parameters, 2, 0x6E);
-    put_half(parameters, 4, 0x1F);
+    set(parameters, object_parameter_field::size, 0x348);
+    set(parameters, object_parameter_field::unk_2, 0x6E);
+    set(parameters, object_parameter_field::type, 0x1F);
     put_word(parameters, 0x338, a3);
     put_word(parameters, 0x340, a5);
     put_word(parameters, 0x344, a6);

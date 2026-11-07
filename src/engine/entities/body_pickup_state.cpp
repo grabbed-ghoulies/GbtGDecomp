@@ -1,4 +1,7 @@
 #include "body_pickup_state.h"
+#include <cstddef>
+#include "weapon_fields.h"
+#include "mind_fields.h"
 #include "actor_attachment_events.h"
 #include "actor_spawn_eligibility.h"
 #include "actor_spawn_query.h"
@@ -8,6 +11,8 @@
 #include "../camera/camera_mind_rig.h"
 #include "../scripts/script_conditions.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
+#include "player_fields.h"
 
 #include <array>
 #include <bit>
@@ -18,11 +23,6 @@ namespace gbtg
 namespace
 {
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
 }
@@ -92,7 +92,7 @@ float runtime_pickup_grab_point(std::span<const u8> weapon, u16 host_class)
 void release_runtime_pickup_weapon(RuntimePickupStateContext& context)
 {
     const auto body = context.body;
-    const u32 weapon = read_u32(body, 0x48);
+    const u32 weapon = body_record(body).attached;
     if (weapon == 0)
     {
         return;
@@ -104,9 +104,9 @@ void release_runtime_pickup_weapon(RuntimePickupStateContext& context)
     }
     const std::array<u32, 3> pulse{0x74, read_u32(body, 8), weapon};
     broadcast_actor_pulse_message(reinterpret_cast<const i32*>(pulse.data())); // 0x00122C70
-    const u16 count = u16(read_u16(held->bytes, 0xAE4) - 1);
-    std::memcpy(held->bytes.data() + 0xAE4, &count, 2);
-    if (read_u16(context.actor_bytes, 0xCDC) == 2 || read_u32(context.actor_bytes, 0x93C) != 0)
+    const u16 count = u16(weapon_base(held->bytes).pickup_count - 1);
+    std::memcpy(held->bytes.data() + offsetof(WeaponBase, pickup_count), &count, 2);
+    if (player_record(context.actor_bytes).mode == 2 || player_record(context.actor_bytes).case_link != 0)
     {
         const std::array<u32, 2> event{0xAD, read_u16(held->bytes, 6)};
         script_queue_event(context.game,
@@ -123,40 +123,40 @@ void pickup_state_object_sizes(ObjectSizes& output)
 }
 
 // Xbox 0x0009DE00
-bool initialize_runtime_pickup_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_pickup_state(PickupState& state, std::span<const u8> parameters,
     RuntimePickupStateContext& context)
 {
     const auto body = context.body;
-    body[0x38] = 1;
-    body[0x39] = 1;
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits.bytes[5] |= 4;
     adjust_live_attachment_holds(context.live_attachments, 1);
-    body[0x6D] = u8(body[0x6D] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     adjust_body_counters(body, 1);
     const Vec3 start = actor_world_position(context.actor); // 0x000412A0
-    set(state, pickup_state_field::start_position, start);
-    set(state, pickup_state_field::taken, 0);
-    set(state, pickup_state_field::release_point, get(parameters, pickup_state_parameter::release_point));
+    state.start_position = start;
+    state.taken = 0;
+    state.release_point = get(parameters, pickup_state_parameter::release_point);
     return true;
 }
 
 // Xbox 0x0009DEA0
-void destroy_runtime_pickup_state(std::span<u8>, RuntimePickupStateContext& context)
+void destroy_runtime_pickup_state(PickupState&, RuntimePickupStateContext& context)
 {
     const auto body = context.body;
     context.bits.bytes[5] &= 0xFB;
     adjust_body_counters(body, -1);
     adjust_live_attachment_holds(context.live_attachments, -1);
-    body[0x6D] = u8(body[0x6D] - 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
     release_runtime_pickup_weapon(context);
 }
 
 // Xbox 0x0009E2B0
-void approach_runtime_pickup(std::span<const u8> state, RuntimePlayerAttachmentActor& weapon, float grab,
+void approach_runtime_pickup(const PickupState& state, RuntimePlayerAttachmentActor& weapon, float grab,
     RuntimePickupStateContext& context)
 {
     const auto body = context.body;
-    const Vec3 position{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+    const Vec3 position = body_record(body).position;
     Vec3 point;
     float radius = 0.f;
     i32 index = 0;
@@ -170,9 +170,8 @@ void approach_runtime_pickup(std::span<const u8> state, RuntimePlayerAttachmentA
     float angle = 0.f;
     if (runtime_direction_angle(direction, angle)) // 0x00105F90
     {
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
-        put_float(body, 0x730, angle);
+        level_body_euler(body);
+       body_record(body).euler.y = angle;
     }
     const MinaPlayer* player = first_player(context.animation);
     const float position_now = player == nullptr ? 0.f : player->position;
@@ -183,36 +182,34 @@ void approach_runtime_pickup(std::span<const u8> state, RuntimePlayerAttachmentA
         {
             offset_camera_point(point, angle + std::bit_cast<float>(0x40490FDBu), radius); // 0x001062A0, DAT_0032B148
         }
-        const Vec3 start = get(state, pickup_state_field::start_position);
-        put_float(body, 0x18, (point.x - start.x) * ratio + start.x);
-        put_float(body, 0x1C, position.y);
-        put_float(body, 0x20, (point.z - start.z) * ratio + start.z);
+        const Vec3 start = state.start_position;
+       body_record(body).position.x = (point.x - start.x) * ratio + start.x;
+       body_record(body).position.y = position.y;
+       body_record(body).position.z = (point.z - start.z) * ratio + start.z;
     }
 }
 
 // Xbox 0x0009DF90
-void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& context)
+void tick_runtime_pickup_state(PickupState& state, RuntimePickupStateContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
     const auto mind = context.mind;
-    const u32 weapon_address = mind.empty() ? 0 : read_u32(mind, 0x18);
-    set(state, body_state_field::elapsed,
-        runtime_actor_step(actor, context.clock) + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
+    const u32 weapon_address = mind.empty() ? 0 : mind_record(mind).action_actor;
+    state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
+    level_body_euler(body);
     if (weapon_address != 0)
     {
         auto& weapon = context.weapon_at(weapon_address);
         const float grab = runtime_pickup_grab_point(weapon.object.bytes, read_u16(context.actor_bytes, 6));
-        if (get(state, pickup_state_field::taken) == 0)
+        if (state.taken == 0)
         {
             approach_runtime_pickup(state, weapon, grab, context); // 0x0009E2B0
         }
         const MinaPlayer* player = first_player(context.animation);
         if (player != nullptr && runtime_pickup_grab_crossed(*player, grab))
         {
-            set(state, pickup_state_field::taken, 1);
+            state.taken = 1;
             if (actor_can_supply_ghoulybox(weapon.actor)) // 0x00146150, ECX weapon
             {
                 if (attach_runtime_player_weapon(weapon, 0, context.attachment, context.default_position,
@@ -227,14 +224,14 @@ void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& c
             }
             if (!mind.empty())
             {
-                put_word(mind, 0x18, 0);
+                mind_record(mind).action_actor = 0;
             }
         }
     }
     const MinaPlayer* player = first_player(context.animation);
     const float position = player == nullptr ? 0.f : player->position;
-    const float end = get(state, pickup_state_field::release_point);
-    const bool taken_empty = get(state, pickup_state_field::taken) != 0 && read_u32(body, 0x48) == 0;
+    const float end = state.release_point;
+    const bool taken_empty = state.taken != 0 && body_record(body).attached == 0;
     if (context.input == nullptr || context.input_state == nullptr)
     {
         throw Error("pick-up state stick check without the tick's input device");
@@ -247,10 +244,10 @@ void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& c
         runtime_input_secondary_axes(*context.input, axes, *context.input_state); // 0x001088D0
         pushed = axes[1] * axes[1] + axes[0] * axes[0] > context.stick_threshold;
     }
-    if (end <= position && get(state, pickup_state_field::taken) != 0 && pushed)
+    if (end <= position && state.taken != 0 && pushed)
     {
         const u16 key = context.body_slot_key(0x2C);
-        set(state, body_state_field::next_key, key);
+        state.base.next_key = key;
         return;
     }
     if (!taken_empty && player != nullptr)
@@ -273,7 +270,7 @@ void tick_runtime_pickup_state(std::span<u8> state, RuntimePickupStateContext& c
         }
     }
     const u16 key = context.body_slot_key(0x20);
-    set(state, body_state_field::next_key, key);
+    state.base.next_key = key;
 }
 
 // Xbox 0x0009E430
@@ -284,20 +281,20 @@ void lift_state_object_sizes(ObjectSizes& output)
 }
 
 // Xbox 0x0009E4B0
-bool initialize_runtime_lift_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_lift_state(LiftState& state, std::span<const u8> parameters,
     RuntimePickupStateContext& context)
 {
     const auto body = context.body;
-    set(state, lift_state_field::stage, 1);
-    set(state, lift_state_field::ask_point, get(parameters, lift_state_parameter::ask_point));
-    set(state, lift_state_field::hands_point, get(parameters, lift_state_parameter::hands_point));
-    set(state, lift_state_field::release_point, get(parameters, lift_state_parameter::release_point));
-    set(state, lift_state_field::hold_height, get(parameters, lift_state_parameter::hold_height));
-    body[0x38] = 1;
-    body[0x39] = 1;
+    state.stage = 1;
+    state.ask_point = get(parameters, lift_state_parameter::ask_point);
+    state.hands_point = get(parameters, lift_state_parameter::hands_point);
+    state.release_point = get(parameters, lift_state_parameter::release_point);
+    state.hold_height = get(parameters, lift_state_parameter::hold_height);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     context.bits.bytes[5] |= 4;
     adjust_live_attachment_holds(context.live_attachments, 1);
-    body[0x6D] = u8(body[0x6D] + 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D + 1);
     if (context.latches == nullptr)
     {
         throw Error("lift state has no DAT_00511AA4 latch view for 0x0001FC40");
@@ -308,26 +305,26 @@ bool initialize_runtime_lift_state(std::span<u8> state, std::span<const u8> para
 }
 
 // Xbox 0x0009E560
-void destroy_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& context)
+void destroy_runtime_lift_state(LiftState& state, RuntimePickupStateContext& context)
 {
     const auto body = context.body;
     context.bits.bytes[5] &= 0xFB;
     context.bits.bytes[5] &= 0xBF;
     adjust_body_counters(body, -1);
     adjust_live_attachment_holds(context.live_attachments, -1);
-    body[0x6D] = u8(body[0x6D] - 1);
+    body_record(body).unk_6D = u8(body_record(body).unk_6D - 1);
     if (context.latches == nullptr)
     {
         throw Error("lift state has no DAT_00511AA4 latch view for 0x0001FD20");
     }
     decrement_runtime_body_latches(body, context.actor, *context.latches); // 0x0001FD20, ECX body
-    if (read_u32(body, 0x48) != 0)
+    if (body_record(body).attached != 0)
     {
         release_runtime_pickup_weapon(context); // Inlined as in 0x0009DEA0.
         return;
     }
-    const u32 weapon = get(state, lift_state_field::weapon);
-    if (get(state, lift_state_field::stage) == 3 && weapon != 0)
+    const u32 weapon = state.weapon;
+    if (state.stage == 3 && weapon != 0)
     {
         const Actor& lifted = context.weapon_at(weapon).actor;
         // Weapon +0x918: no bind node, an unbound node, or a node of no actor.
@@ -361,30 +358,27 @@ void face_runtime_lift_weapon(u32 weapon, RuntimePickupStateContext& context)
     float angle = 0.f;
     if (runtime_direction_angle(direction, angle)) // 0x00105F90
     {
-        put_float(body, 0x734, 0.f);
-        put_float(body, 0x72C, 0.f);
-        put_float(body, 0x730, angle);
+        level_body_euler(body);
+       body_record(body).euler.y = angle;
     }
 }
 
 // Xbox 0x0009E6B0
-void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& context)
+void tick_runtime_lift_state(LiftState& state, RuntimePickupStateContext& context)
 {
     const auto body = context.body;
     Actor& actor = context.actor;
-    set(state, body_state_field::elapsed,
-        runtime_actor_step(actor, context.clock) + get(state, body_state_field::elapsed));
-    put_float(body, 0x734, 0.f);
-    put_float(body, 0x72C, 0.f);
-    const u32 stage = get(state, lift_state_field::stage);
+    state.base.elapsed = runtime_actor_step(actor, context.clock) + state.base.elapsed;
+    level_body_euler(body);
+    const u32 stage = state.stage;
     u32 weapon = 0;
     if (stage == 1)
     {
-        weapon = context.mind.empty() ? 0 : read_u32(context.mind, 0x18);
+        weapon = context.mind.empty() ? 0 : mind_record(context.mind).action_actor;
     }
     else if (stage == 3)
     {
-        weapon = get(state, lift_state_field::weapon);
+        weapon = state.weapon;
     }
     if (stage == 1)
     {
@@ -392,12 +386,12 @@ void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& con
     }
     const MinaPlayer* player = first_player(context.animation);
     const bool crossed = player != nullptr
-        && runtime_pickup_grab_crossed(*player, get(state, lift_state_field::ask_point));
+        && runtime_pickup_grab_crossed(*player, state.ask_point);
     const float position = player == nullptr ? 0.f : player->position;
-    const bool past_end = position >= get(state, lift_state_field::release_point);
+    const bool past_end = position >= state.release_point;
     if (crossed)
     {
-        set(state, lift_state_field::stage, 2);
+        state.stage = 2;
         if (weapon != 0 && actor_can_supply_ghoulybox(context.weapon_at(weapon).actor)) // 0x00146150, ECX weapon
         {
             // {0xA0, reply, the lifting actor, the hold offset (0, actor +0x38 * state +0x24, 0), the lift time}.
@@ -406,10 +400,9 @@ void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& con
             ask[0] = 0xA0;
             ask[2] = read_u32(body, 8);
             ask[3] = std::bit_cast<u32>(0.f);
-            ask[4] = std::bit_cast<u32>(actor.radius_xz * get(state, lift_state_field::hold_height)); // Actor +0x38.
+            ask[4] = std::bit_cast<u32>(actor.radius_xz * state.hold_height); // Actor +0x38.
             ask[5] = std::bit_cast<u32>(0.f);
-            ask[6] = std::bit_cast<u32>((get(state, lift_state_field::hands_point)
-                - get(state, lift_state_field::ask_point)) * duration);
+            ask[6] = std::bit_cast<u32>((state.hands_point - state.ask_point) * duration);
             if (!context.weapon_message)
             {
                 throw Error("lift state has no weapon message view for message 0xA0");
@@ -417,15 +410,15 @@ void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& con
             context.weapon_message(weapon, ask); // Weapon vtable +0xC; ask[1] is its reply.
             if (ask[1] != 0)
             {
-                set(state, lift_state_field::weapon, weapon);
-                set(state, lift_state_field::stage, 3);
+                state.weapon = weapon;
+                state.stage = 3;
                 context.bits.bytes[5] |= 0x40;
                 const u32 lift[]{0x48};
                 context.actor_message(lift);
             }
         }
     }
-    const bool asked = get(state, lift_state_field::stage) == 2;
+    const bool asked = state.stage == 2;
     // EAX the tick's input word: a null word reads its kind from address zero, and a kind outside 1..5 gives no
     // stick in both 0x001085F0 and 0x001088D0.
     std::array<float, 2> axes{};
@@ -455,7 +448,7 @@ void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& con
     if (past_end && asked)
     {
         const u16 key = context.body_slot_key(pushed ? 0x2C : 0x20);
-        set(state, body_state_field::next_key, key);
+        state.base.next_key = key;
         return;
     }
     if (player != nullptr)
@@ -478,11 +471,11 @@ void tick_runtime_lift_state(std::span<u8> state, RuntimePickupStateContext& con
         }
     }
     const u16 key = context.body_slot_key(0x20);
-    set(state, body_state_field::next_key, key);
+    state.base.next_key = key;
 }
 
 // Xbox 0x0009E9F0
-void message_runtime_lift_state(std::span<u8> state, std::span<const u32> message,
+void message_runtime_lift_state(LiftState& state, std::span<const u32> message,
     RuntimePickupStateContext& context)
 {
     if (message[0] == 0x5C)
@@ -499,9 +492,9 @@ void message_runtime_lift_state(std::span<u8> state, std::span<const u32> messag
         context.actor_message(lifted);
         return;
     }
-    if (message[0] == 0x7C && message[1] == get(state, lift_state_field::weapon))
+    if (message[0] == 0x7C && message[1] == state.weapon)
     {
-        set(state, lift_state_field::weapon, 0);
+        state.weapon = 0;
     }
 }
 }

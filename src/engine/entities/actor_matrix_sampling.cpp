@@ -13,20 +13,16 @@ namespace gbtg
 void sample_actor_model_matrix(Actor& actor, i32 index, Vec3& position, Vec3& euler,
     i32 clamp_height, RuntimeActorMatrixSampling& context)
 {
-    auto record = context.records.subspan(u32(index) * 0x48u, 0x48);
-    if (read_u32(record, 0x44) != 0)
+    ActorMatrixRecord& record = context.records[size_t(index)];
+    if (record.active != 0)
     {
-        position.x = read_f32(record, 4);
-        position.y = read_f32(record, 8);
-        position.z = read_f32(record, 0xC);
-        euler.x = read_f32(record, 0x10);
-        euler.y = read_f32(record, 0x14);
-        euler.z = read_f32(record, 0x18);
+        position = record.translation;
+        euler = record.euler;
         return;
     }
     context.active = context.scratch.data();
     std::memcpy(context.active, actor.xform, 48);
-    const i32 joint = std::bit_cast<i32>(read_u32(record, 0));
+    const i32 joint = std::bit_cast<i32>(record.binding);
     if (joint != -1)
     {
         const ModelPoseBuffer* pose = nullptr;
@@ -59,7 +55,7 @@ void sample_actor_model_matrix(Actor& actor, i32 index, Vec3& position, Vec3& eu
     position.x = x;
     position.y = y;
     position.z = z;
-    matrix_axis_scales(copied.data(), *reinterpret_cast<Vec3*>(record.data() + 0x1C));
+    matrix_axis_scales(copied.data(), record.scale);
     euler = actor_matrix_euler(copied.data());
     if (clamp_height != 0)
     {
@@ -67,7 +63,7 @@ void sample_actor_model_matrix(Actor& actor, i32 index, Vec3& position, Vec3& eu
         if (actor_position.y > position.y)
         {
             position.y = actor_position.y;
-            std::memcpy(record.data() + 8, &actor_position.y, 4);
+            record.translation.y = actor_position.y;
         }
     }
 }

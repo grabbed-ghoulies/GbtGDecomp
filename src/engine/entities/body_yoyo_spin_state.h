@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "actor_clock.h"
 #include "body_action_selection.h"
 #include "body_contacts.h"
@@ -32,27 +33,28 @@ constexpr RetailField<std::array<char, 0x80>, 0x124> hold_sound{};
 constexpr u32 kSize = 0x1A4;
 static_assert(retail_fits(kSize, hold_sound));
 } // namespace yoyo_spin_state_parameter
-namespace yoyo_spin_state_field
+struct YoyoSpinState
 {
-constexpr RetailField<u32, 0x18> phase{};
-constexpr RetailField<float, 0x1C> timer{};
-constexpr RetailField<float, 0x20> blend{};
-constexpr RetailField<u32, 0x24> windup{}; // 0x0003AAA0 records; their native pointers are kept by state
-constexpr RetailField<u32, 0x28> throw_animation{};
-constexpr RetailField<u32, 0x2C> catch_animation{};
-constexpr RetailField<std::array<char, 0x80>, 0x30> throw_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0xB0> spin_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0x130> hold_sound{};
-constexpr RetailField<u16, 0x1B0> shape_tag{};
-constexpr RetailField<float, 0x1B4> shape_scale{};
-constexpr RetailField<u32, 0x1B8> shapes_active{};
-constexpr RetailField<u32, 0x1BC> shape_mode{}; // 0x0001FEB0's previous mode, restored on destroy
-constexpr RetailField<u32, 0x1C0> callout{};
-constexpr RetailField<Vec3, 0x1C4> start{};
-constexpr RetailField<Vec3, 0x1D0> aim{};
-constexpr u32 kSize = 0x1DC;
-static_assert(retail_fits(kSize, aim));
-} // namespace yoyo_spin_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18
+    float timer = 0.f; // +0x1C
+    float blend = 0.f; // +0x20
+    u32 windup = 0; // +0x24, 0x0003AAA0 records; their native pointers are kept by state
+    u32 throw_animation = 0; // +0x28
+    u32 catch_animation = 0; // +0x2C
+    std::array<char, 0x80> throw_sound{}; // +0x30
+    std::array<char, 0x80> spin_sound{}; // +0xB0
+    std::array<char, 0x80> hold_sound{}; // +0x130
+    u16 shape_tag = 0; // +0x1B0
+    std::array<u8, 2> unk_1B2{}; // +0x1B2, padding
+    float shape_scale = 0.f; // +0x1B4
+    u32 shapes_active = 0; // +0x1B8
+    u32 shape_mode = 0; // +0x1BC, 0x0001FEB0's previous mode, restored on destroy
+    u32 callout = 0; // +0x1C0
+    Vec3 start{}; // +0x1C4
+    Vec3 aim{}; // +0x1D0
+};
+static_assert(sizeof(YoyoSpinState) == 0x1DC);
 struct RuntimeYoYoSpinStateContext
 {
     std::span<u8> body;
@@ -72,11 +74,11 @@ struct RuntimeYoYoSpinStateContext
     std::function<u16(u32 slot)> body_slot_key; // Body vtable +0x20.
 };
 void yoyo_spin_state_object_sizes(ObjectSizes& output); // Xbox 0x000A69E0
-bool initialize_runtime_yoyo_spin_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_yoyo_spin_state(YoyoSpinState& state, std::span<const u8> parameters,
     RuntimeYoYoSpinStateContext& context); // Xbox 0x000A6A60
-void destroy_runtime_yoyo_spin_state(std::span<u8> state, RuntimeYoYoSpinStateContext& context); // Xbox 0x000A6C40
-void tick_runtime_yoyo_spin_state(std::span<u8> state, RuntimeYoYoSpinStateContext& context); // Xbox 0x000A6CC0
-void message_runtime_yoyo_spin_state(std::span<u8> state, std::span<const u32> message,
+void destroy_runtime_yoyo_spin_state(YoyoSpinState& state, RuntimeYoYoSpinStateContext& context); // Xbox 0x000A6C40
+void tick_runtime_yoyo_spin_state(YoyoSpinState& state, RuntimeYoYoSpinStateContext& context); // Xbox 0x000A6CC0
+void message_runtime_yoyo_spin_state(YoyoSpinState& state, std::span<const u32> message,
     RuntimeYoYoSpinStateContext& context); // Xbox 0x000A7030
 // Type 0x90 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_yoyo_spin_state_class(std::span<ObjectFactoryType> types,

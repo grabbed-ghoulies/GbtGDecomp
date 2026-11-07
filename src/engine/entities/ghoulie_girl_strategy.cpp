@@ -1,4 +1,7 @@
 #include "ghoulie_girl_strategy.h"
+#include "body_fields.h"
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "player_children.h"
 #include "player_goal_cleanup.h"
@@ -16,7 +19,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = ghoulie_girl_strategy_field;
+GhoulieGirlStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<GhoulieGirlStrategyState>(strategy);
+}
+
+const GhoulieGirlStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<GhoulieGirlStrategyState>(strategy);
+}
+
 namespace parameter = ghoulie_girl_strategy_parameter;
 
 constexpr u32 kRecordAddress = 0x00302B68;
@@ -81,7 +93,7 @@ RuntimeMindTarget* mind_target(RuntimeGhoulieGirlStrategy& context)
     {
         return nullptr;
     }
-    const u32 address = read_u32(mind, 0x10);
+    const u32 address = mind_record(mind).target_record;
     if (address == 0)
     {
         return nullptr;
@@ -112,8 +124,8 @@ void end_wake(RuntimeGhoulieGirlStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     const std::array<u32, 2> message{5, 0};
-    context.object_message(get(strategy, field::object), message); // Object vtable +0xC.
-    set(strategy, field::object, 0u);
+    context.object_message(fields_of(strategy).object, message); // Object vtable +0xC.
+    fields_of(strategy).object = 0u;
     decrement_runtime_body_latch_mask(body_of(context), 0x3F, actor_of(context), context.latches); // 0x0001F2F0
 }
 
@@ -121,23 +133,23 @@ void end_wake(RuntimeGhoulieGirlStrategy& context)
 void set_mode(u32 mode, RuntimeGhoulieGirlStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::mode) == mode)
+    if (fields_of(strategy).mode == mode)
     {
         return;
     }
-    if (get(strategy, field::mode) == 1)
+    if (fields_of(strategy).mode == 1)
     {
         end_wake(context);
     }
-    set(strategy, field::mode, mode);
+    fields_of(strategy).mode = mode;
     if (mode == 1)
     {
         load_goal(context.goal_wake, context);
-        set(strategy, field::timer, kWakeTime); // Record +4.
-        const auto name = get(strategy, field::object_name);
+        fields_of(strategy).timer = kWakeTime; // Record +4.
+        const auto name = fields_of(strategy).object_name;
         // 0x00107720 clones the named template, +8 becomes the actor, 0x00107520 makes it and 0x000663E0 frees
         // the clone; with no template the object is 0.
-        set(strategy, field::object, context.create_object(name.data(), read_u32(strategy, 8)));
+        fields_of(strategy).object = context.create_object(name.data(), strategy_base(strategy).actor);
         increment_runtime_body_latch_mask(body_of(context), 0x3F, actor_of(context), context.latches); // 0x0001F3F0
         return;
     }
@@ -151,23 +163,23 @@ void set_mode(u32 mode, RuntimeGhoulieGirlStrategy& context)
 void stop_mode(RuntimeGhoulieGirlStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::mode) == 0)
+    if (fields_of(strategy).mode == 0)
     {
         return;
     }
-    if (get(strategy, field::mode) == 1)
+    if (fields_of(strategy).mode == 1)
     {
         end_wake(context);
     }
-    set(strategy, field::mode, 0u);
+    fields_of(strategy).mode = 0u;
 }
 
 // Xbox 0x000ABC60, EAX strategy: holding, she wakes the first time and wanders after.
 void enter_hold(RuntimeGhoulieGirlStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    body_of(context)[0x328] = 2;
-    if (get(strategy, field::woken) == 0)
+    body_record(body_of(context)).move_class = 2;
+    if (fields_of(strategy).woken == 0)
     {
         set_mode(1, context); // 0x000ABE80, EAX 1
         return;
@@ -231,24 +243,24 @@ void update_hold(RuntimeGhoulieGirlStrategy& context)
         return;
     }
     const std::span<const u8> mind = mind_of(context);
-    if (mind.empty() || read_u32(mind, 0x10) == 0)
+    if (mind.empty() || mind_record(mind).target_record == 0)
     {
         return;
     }
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::mode) == 1)
+    if (fields_of(strategy).mode == 1)
     {
-        float timer = get(strategy, field::timer);
+        float timer = fields_of(strategy).timer;
         count_down_runtime_strategy_timer(timer, goals_of(context)); // 0x0002B9F0, ECX +0x44
-        set(strategy, field::timer, timer);
-        if (kRunOut > get(strategy, field::timer)) // COMISS; JBE keeps the wake.
+        fields_of(strategy).timer = timer;
+        if (kRunOut > fields_of(strategy).timer) // COMISS; JBE keeps the wake.
         {
             set_mode(2, context); // 0x000ABE80, EAX 2
-            set(strategy, field::woken, 1u);
+            fields_of(strategy).woken = 1u;
         }
         return;
     }
-    if (get(strategy, field::mode) != 2)
+    if (fields_of(strategy).mode != 2)
     {
         return;
     }
@@ -268,9 +280,9 @@ void enter_knockdown(RuntimeGhoulieGirlStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     load_goal(context.goal_knockdown, context);
-    set(strategy, field::knockdown_time, kKnockdownTime); // Record +8.
-    body_of(context)[0x328] = 4;
-    strategy[0x1A] = 1;
+    fields_of(strategy).knockdown_time = kKnockdownTime; // Record +8.
+    body_record(body_of(context)).move_class = 4;
+    strategy_base(strategy).attacking = 1;
 }
 
 // Xbox 0x000ABFA0, EAX actor, ESI strategy
@@ -284,7 +296,7 @@ void update_knockdown(RuntimeGhoulieGirlStrategy& context)
     if (knock_down_again(context)) // 0x000AC020, EAX actor
     {
         load_goal(context.goal_knockdown, context);
-        set(strategy, field::knockdown_time, kKnockdownStep + get(strategy, field::knockdown_time)); // Record +0xC.
+        fields_of(strategy).knockdown_time = kKnockdownStep + fields_of(strategy).knockdown_time; // Record +0xC.
         return;
     }
     change_state(0x40D, context); // The inlined 0x0002B8D0.
@@ -294,10 +306,10 @@ void update_knockdown(RuntimeGhoulieGirlStrategy& context)
 void update_wait(RuntimeGhoulieGirlStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    float timer = get(strategy, field::timer);
+    float timer = fields_of(strategy).timer;
     count_down_runtime_strategy_timer(timer, goals_of(context));
-    set(strategy, field::timer, timer);
-    if (kRunOut > get(strategy, field::timer)) // COMISS
+    fields_of(strategy).timer = timer;
+    if (kRunOut > fields_of(strategy).timer) // COMISS
     {
         change_state(0x401, context); // The inlined 0x0002B8D0.
     }
@@ -307,7 +319,7 @@ void update_wait(RuntimeGhoulieGirlStrategy& context)
 // Xbox 0x000AC140
 void ghoulie_girl_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(GhoulieGirlStrategyState);
     output.parameters = parameter::kSize;
 }
 
@@ -316,15 +328,15 @@ bool initialize_runtime_ghoulie_girl_strategy(std::span<u8> strategy, std::span<
     RuntimeGhoulieGirlStrategy& context)
 {
     (void)context;
-    set(strategy, field::record, kRecordAddress);
-    set(strategy, field::woken, 0u);
+    fields_of(strategy).record = kRecordAddress;
+    fields_of(strategy).woken = 0u;
     const auto source = get(parameters, parameter::object_name);
     std::array<char, 0x80> name{};
     std::strncpy(name.data(), source.data(), name.size() - 1); // The inlined strcpy.
-    set(strategy, field::object_name, name);
-    set(strategy, field::object, 0u);
-    set(strategy, field::knockdown_time, 0.f);
-    set(strategy, field::timer, 0.f);
+    fields_of(strategy).object_name = name;
+    fields_of(strategy).object = 0u;
+    fields_of(strategy).knockdown_time = 0.f;
+    fields_of(strategy).timer = 0.f;
     return true;
 }
 
@@ -332,7 +344,7 @@ bool initialize_runtime_ghoulie_girl_strategy(std::span<u8> strategy, std::span<
 void dispatch_runtime_ghoulie_girl_message(std::span<const u32> message, RuntimeGhoulieGirlStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 actor = read_u32(strategy_of(context), 8);
+    const u32 actor = strategy_base(strategy_of(context)).actor;
     dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
     switch (message[0])
     {
@@ -370,7 +382,7 @@ void dispatch_runtime_ghoulie_girl_message(std::span<const u32> message, Runtime
 // Xbox 0x000AC200
 void update_runtime_ghoulie_girl_strategy(RuntimeGhoulieGirlStrategy& context)
 {
-    const u16 state = read_u16(strategy_of(context), 0xE);
+    const u16 state = strategy_base(strategy_of(context)).state;
     update_runtime_base_strategy(goals_of(context)); // 0x0002C130
     switch (state)
     {
@@ -404,8 +416,8 @@ void enter_runtime_ghoulie_girl_state(u16 state, RuntimeGhoulieGirlStrategy& con
     case 0x40D:
         load_goal(context.goal_wake, context);
         // UCOMISS against DAT_0032B100 (0): a set knockdown time is waited out, else the record's +8.
-        set(strategy, field::timer,
-            get(strategy, field::knockdown_time) != 0.f ? get(strategy, field::knockdown_time) : kKnockdownTime);
+        fields_of(strategy).timer = fields_of(strategy).knockdown_time != 0.f ? fields_of(strategy).knockdown_time
+            : kKnockdownTime;
         return;
     default:
         return;
@@ -418,19 +430,19 @@ void leave_runtime_ghoulie_girl_state(u16 state, RuntimeGhoulieGirlStrategy& con
     const std::span<u8> strategy = strategy_of(context);
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
     }
     switch (state)
     {
     case 0x3EE:
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         detach_runtime_strategy_link(context.base.link); // The tail jump to 0x00112A20, EAX strategy +0x20.
         return;
     case 0x401:
         stop_mode(context); // 0x000ABD00
         return;
     case 0x40D:
-        set(strategy, field::knockdown_time, 0.f);
+        fields_of(strategy).knockdown_time = 0.f;
         return;
     default:
         return;

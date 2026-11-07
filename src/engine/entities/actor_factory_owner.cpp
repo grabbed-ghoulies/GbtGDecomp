@@ -1,4 +1,5 @@
 #include "actor_factory_owner.h"
+#include "actor_fields.h"
 #include "actor_collision_queries.h"
 #include "physical_mesh_queries.h"
 #include "entity_heap.h"
@@ -181,8 +182,8 @@ bool construct_actor_view(FactoryObject& object, std::span<const u8> parameters)
     std::memcpy(object.bytes.get() + 0x208, instance.startup.models.name.data(), instance.startup.models.name.size());
     // 0x0003E940 stores parameters +0x2AA / +0x2AC at actor +0x1FC / +0x1FE; the instance bytes carry them for the
     // readers that take the retail words (triggers, strategies, weapons).
-    std::memcpy(object.bytes.get() + 0x1FC, &instance.startup.setting_1fc, 2);
-    std::memcpy(object.bytes.get() + 0x1FE, &instance.startup.setting_1fe, 2);
+    std::memcpy(object.bytes.get() + offsetof(ActorBase, marker_id), &instance.startup.setting_1fc, 2);
+    std::memcpy(object.bytes.get() + offsetof(ActorBase, marker_next), &instance.startup.setting_1fe, 2);
     instance.frame.bone = instance.startup.bone;
     refresh_actor_model_animation_view(instance);
     return result;

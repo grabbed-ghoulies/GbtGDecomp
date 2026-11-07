@@ -1,4 +1,6 @@
 #include "camera_mind_rig.h"
+#include "../entities/body_fields.h"
+#include "../entities/mind_fields.h"
 #include "display_setup_math.h"
 #include "display_view.h"
 #include "../entities/actor_transform.h"
@@ -11,6 +13,7 @@
 #include "../navigation/navigation.h"
 #include "gbtg/sound_runtime.h"
 #include "gbtg/anim.h"
+#include "../entities/player_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -38,19 +41,9 @@ float real(std::span<const u8> bytes, size_t offset)
     return read_f32(bytes, offset);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 Vec3 record_position(std::span<const u8> record)
 {
-    return Vec3{real(record, 4), real(record, 8), real(record, 0xC)};
+    return mind_target_shape(record).position;
 }
 
 // The inline wrap after 0x00152BE0: a remainder below -pi (compared in x87) gains a turn; one at or
@@ -73,7 +66,7 @@ float wrap_angle(float value)
 const RuntimeDialogueInputDevice* actor_input_device(const RuntimeDirectorActor& actor,
     const RuntimeCameraRigContext& context)
 {
-    const u32 address = read_u32(actor.bytes, 0x960);
+    const u32 address = player_record(actor.bytes).input_device;
     if (address == 0)
     {
         return nullptr;
@@ -93,27 +86,6 @@ const EntityCamNode& active_camera()
 
 std::array<u32, 11> g_camera_view_tunables{0x4479FFF0, 0x428C0000, 0x000003E7, 0x4479FFF0, 0x40800000, 0xC0000000,
     0x40C00000, 0x3F000000, 0x40000000, 0x00000000, 0x00000000};
-
-float RuntimeCameraRigTunables::real(u32 address) const
-{
-    float value;
-    if (address >= 0x004274B8 && address + 4 <= 0x004275A4)
-    {
-        std::memcpy(&value, rig.data() + (address - 0x004274B8), 4);
-        return value;
-    }
-    if (address >= 0x00434008 && address + 4 <= 0x00434034)
-    {
-        std::memcpy(&value, reinterpret_cast<const u8*>(g_camera_view_tunables.data()) + (address - 0x00434008), 4);
-        return value;
-    }
-    throw Error("camera rig tunable outside DAT_004274B8..DAT_004275A4 and DAT_00434008");
-}
-
-u32 RuntimeCameraRigTunables::word(u32 address) const
-{
-    return std::bit_cast<u32>(real(address));
-}
 
 // Xbox 0x0013DC40
 float camera_input_turn(const RuntimeDirectorActor& actor, const RuntimeCameraRigContext& context)
@@ -169,7 +141,7 @@ float camera_floor_height(const RuntimeDirectorActor& actor, const Vec3& point, 
     float margin)
 {
     float result = point.y;
-    const i32 floor = i32(read_u32(actor.bytes, 0xCEC));
+    const i32 floor = i32(player_record(actor.bytes).floor);
     const i32 cell = navigation_cell_index(floor, point);
     if (cell == -1)
     {
@@ -254,7 +226,7 @@ void aim_camera_offset(Vec3& output, const Vec3& from, const Vec3& to, u32 actor
     output.x = to.x - from.x;
     output.y = to.y - from.y;
     output.z = to.z - from.z;
-    const float boost = context.tunables.real(0x00434028);
+    const float boost = context.tunables.view_real(camera_view_tunable::aim_boost);
     float scaled_range = range;
     float low = near_distance;
     float high = far_distance;
@@ -268,7 +240,7 @@ void aim_camera_offset(Vec3& output, const Vec3& from, const Vec3& to, u32 actor
             high = boost * far_distance;
         }
     }
-    const float lift = context.tunables.real(0x00434024);
+    const float lift = context.tunables.view_real(camera_view_tunable::aim_lift);
     if (lift > 0.f)
     {
         output.y = output.y * lift;
@@ -310,10 +282,10 @@ u32 frame_camera_target(const Vec3& from, std::span<const u8, 0x20> record, Vec3
     {
         return 0;
     }
-    const float half_height = real(record, 0x14) * kHalf;
+    const float half_height = mind_target_shape(record).height * kHalf;
     rise = half_height;
     float vertical = 0.f;
-    const i32 vertical_pixels = i32(context.tunables.word(0x00434010));
+    const i32 vertical_pixels = i32(context.tunables.view_word(camera_view_tunable::vertical_pixels));
     if (vertical_pixels != 0)
     {
         if (context.render_height == 0)
@@ -324,14 +296,14 @@ u32 frame_camera_target(const Vec3& from, std::span<const u8, 0x20> record, Vec3
             / (float(vertical_pixels) * kHundredth * float(context.render_height / 2));
     }
     float horizontal = 0.f;
-    const i32 horizontal_pixels = i32(context.tunables.word(0x004274E4));
+    const i32 horizontal_pixels = i32(context.tunables.rig.horizontal_pixels);
     if (horizontal_pixels != 0)
     {
         if (context.render_width == 0)
         {
             throw Error("camera rig needs the display records 0x000F5900 initializes (DAT_0054DD84 is 0)");
         }
-        horizontal = active_camera().focal_pixels * active_camera().pixel_aspect * real(record, 0x1C)
+        horizontal = active_camera().focal_pixels * active_camera().pixel_aspect * mind_target_shape(record).radius
             / (float(horizontal_pixels) * kHundredth * float(context.render_width / 2));
     }
     if (!(horizontal >= vertical))
@@ -348,16 +320,16 @@ u32 frame_camera_target(const Vec3& from, std::span<const u8, 0x20> record, Vec3
 float camera_stick_turn(const RuntimeDirectorActor& target, std::span<const u8> mind,
     const RuntimeCameraRigContext& context)
 {
-    float speed = context.tunables.real(0x00434030);
-    if (!(speed >= 0.f) || target.mind.empty() || target.mind[0x20] == 0)
+    float speed = context.tunables.view_real(camera_view_tunable::target_speed);
+    if (!(speed >= 0.f) || target.mind.empty() || mind_record(target.mind).target_mode == 0)
     {
-        speed = context.tunables.real(0x0043402C);
+        speed = context.tunables.view_real(camera_view_tunable::free_speed);
     }
     if (!(speed > 0.f))
     {
         return 0.f;
     }
-    const RuntimeDialogueInputDevice* device = context.input_device(read_u32(target.bytes, 0x960));
+    const RuntimeDialogueInputDevice* device = context.input_device(player_record(target.bytes).input_device);
     if (read_u32(device->record, 4) == 0 || (target.body_bits->bytes[6] & 0x80) == 0)
     {
         return 0.f;
@@ -377,7 +349,7 @@ float camera_stick_turn(const RuntimeDirectorActor& target, std::span<const u8> 
         angle = float(retail_atan2(axes[1], axes[0]));
     }
     // ECX is the camera actor at mind +8; its +0x18 is the yaw.
-    const float yaw = context.actor_at(read_u32(mind, 8)).actor->euler.y;
+    const float yaw = context.actor_at(mind_record(mind).actor).actor->euler.y;
     angle = runtime_relative_angle(angle, yaw);
     if (angle > kHalfPi)
     {
@@ -394,50 +366,52 @@ float camera_stick_turn(const RuntimeDirectorActor& target, std::span<const u8> 
 void ease_camera_heading(std::span<u8> mind, const Actor& camera, float& heading, const RuntimeDirectorActor& target,
     const RuntimeCameraRigContext& context)
 {
-    if (read_u32(mind, 0xAC) != 0)
+    if (camera_mind_record(mind).heading_goal_active != 0)
     {
         const float step = runtime_frame_step(context.clock);
         const float rate = runtime_actor_rate(camera);
-        const float limit = float(double(real(mind, 0xD0)) * kRadians * rate * step);
-        put_float(mind, 0xB8, step_runtime_damage_angle(heading, real(mind, 0xB4), limit));
-        const float offset = wrap_angle(float(double(real(mind, 0xB4)) - heading));
+        const float limit = float(double(camera_mind_record(mind).heading_goal_speed) * kRadians * rate * step);
+        camera_mind_record(mind).heading = step_runtime_damage_angle(heading, camera_mind_record(mind).heading_goal,
+            limit);
+        const float offset = wrap_angle(float(double(camera_mind_record(mind).heading_goal) - heading));
         bool settled = kRadians > engine_absolute(offset);
         if (!settled)
         {
-            const float hold = real(mind, 0xBC);
+            const float hold = camera_mind_record(mind).heading_goal_hold;
             if (hold > 0.f)
             {
                 const float remaining = hold - runtime_actor_rate(camera) * runtime_frame_step(context.clock);
-                put_float(mind, 0xBC, remaining);
+                camera_mind_record(mind).heading_goal_hold = remaining;
                 if (!(0.f < remaining))
                 {
-                    put_float(mind, 0xBC, 0.f);
+                    camera_mind_record(mind).heading_goal_hold = 0.f;
                     settled = true;
                 }
             }
         }
         if (settled)
         {
-            put(mind, 0xAC, 0);
-            put(mind, 0xB0, 1);
+            camera_mind_record(mind).heading_goal_active = 0;
+            camera_mind_record(mind).heading_restart = 1;
         }
-        heading = clamp_camera_heading(heading, real(mind, 0xB4), real(mind, 0xB8));
+        heading = clamp_camera_heading(heading, camera_mind_record(mind).heading_goal,
+            camera_mind_record(mind).heading);
         return;
     }
-    if (0.f > context.tunables.real(0x00434030) && !target.mind.empty() && target.mind[0x20] != 0)
+    if (0.f > context.tunables.view_real(camera_view_tunable::target_speed) && !target.mind.empty() && mind_record(target.mind).target_mode != 0)
     {
-        if (read_u32(mind, 0xC4) == 0)
+        if (camera_mind_record(mind).heading_held == 0)
         {
-            put_float(mind, 0xB8, heading);
+            camera_mind_record(mind).heading = heading;
         }
         else
         {
-            heading = real(mind, 0xB8);
+            heading = camera_mind_record(mind).heading;
         }
-        put(mind, 0xC4, 1);
+        camera_mind_record(mind).heading_held = 1;
         return;
     }
-    put(mind, 0xC4, 0);
+    camera_mind_record(mind).heading_held = 0;
 }
 
 // Xbox 0x0013D640
@@ -526,11 +500,11 @@ void merge_camera_targets(std::span<const u8> records, i32 count, const Vec3& ey
     const auto elevation = [&records, &eye](size_t offset, float& top, float& bottom)
     {
         const std::span<const u8> record = records.subspan(offset, 0x20);
-        const float dz = real(record, 0xC) - eye.z;
-        const float dx = real(record, 4) - eye.x;
+        const float dz = mind_target_shape(record).position.z - eye.z;
+        const float dx = mind_target_shape(record).position.x - eye.x;
         const float flat = float(retail_square_root(dz * dz + dx * dx));
-        top = float(retail_atan2(real(record, 0x14) + real(record, 8) - eye.y, flat));
-        bottom = float(retail_atan2(real(record, 8) - eye.y, flat));
+        top = float(retail_atan2(mind_target_shape(record).height + mind_target_shape(record).position.y - eye.y, flat));
+        bottom = float(retail_atan2(mind_target_shape(record).position.y - eye.y, flat));
     };
     float top_angle = 0.f;
     float bottom_angle = 0.f;
@@ -554,14 +528,14 @@ void merge_camera_targets(std::span<const u8> records, i32 count, const Vec3& ey
     output[0] = 4;
     output[1] = 0x20;
     output[2] = 1;
-    const std::span<u8> bytes{output.data(), 0x20};
-    put_float(bytes, 4, meet_x);
-    put_float(bytes, 8, eye.y + bottom_height);
-    put_float(bytes, 0xC, meet_z);
-    put_float(bytes, 0x10, 0.f);
-    put_float(bytes, 0x14, float(double(top_height) - bottom_height));
-    put_float(bytes, 0x18, 0.f);
-    put_float(bytes, 0x1C, width);
+    MindTargetShape& shape = mind_target_shape(std::span<u8>(output.data(), 0x20));
+    shape.position.x = meet_x;
+    shape.position.y = eye.y + bottom_height;
+    shape.position.z = meet_z;
+    shape.unk_10 = 0;
+    shape.height = float(double(top_height) - bottom_height);
+    shape.unk_18 = 0;
+    shape.radius = width;
 }
 
 // Xbox 0x00078840
@@ -569,14 +543,14 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
     Vec3& position, Vec3& focus, u32 target, float& distance, const RuntimeCameraRigContext& context)
 {
     const Vec3 euler = actor_world_euler(camera);
-    const i32 count = i32(read_u32(request, 0x294));
+    const i32 count = i32(get(request, camera_target_request::shape_count));
     if (count < 1)
     {
         position = eye;
         return;
     }
     std::array<u8, 0x20> merged{};
-    merge_camera_targets(request.subspan(0x14), count, eye, euler.y, merged);
+    merge_camera_targets(request.subspan(camera_target_request::shapes), count, eye, euler.y, merged);
     const RuntimeDirectorActor watched = context.actor_at(target);
     float heading = 0.f;
     float rise = 0.f;
@@ -586,24 +560,24 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
         const float dz = eye.z - focus.z;
         const float dx = eye.x - focus.x;
         const float planar = float(retail_square_root(dz * dz + dx * dx));
-        if (read_u32(mind, 0xB0) != 0)
+        if (camera_mind_record(mind).heading_restart != 0)
         {
-            put_float(mind, 0xB8, heading);
-            put(mind, 0xB0, 0);
+            camera_mind_record(mind).heading = heading;
+            camera_mind_record(mind).heading_restart = 0;
         }
         heading = camera_stick_turn(watched, mind, context) + heading;
         ease_camera_heading(mind, camera, heading, watched, context);
-        if (distance > real(mind, 0xC8) && distance > planar)
+        if (distance > camera_mind_record(mind).distance && distance > planar)
         {
-            distance = planar > real(mind, 0xC8) ? planar : real(mind, 0xC8);
-            if (context.tunables.real(0x0042753C) > distance)
+            distance = planar > camera_mind_record(mind).distance ? planar : camera_mind_record(mind).distance;
+            if (context.tunables.rig.min_distance > distance)
             {
-                distance = context.tunables.real(0x0042753C);
+                distance = context.tunables.rig.min_distance;
             }
         }
         else
         {
-            put_float(mind, 0xC8, distance);
+            camera_mind_record(mind).distance = distance;
         }
         position = focus;
         const float reach = distance;
@@ -611,28 +585,28 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
         const float cosine = float(retail_cos(heading));
         position.x = sine * reach + position.x;
         position.z = cosine * reach + position.z;
-        if (context.tunables.word(0x004274E8) != 0)
+        if (context.tunables.rig.raises_eye != 0)
         {
-            if (context.tunables.word(0x004274EC) != 0)
+            if (context.tunables.rig.pitches_eye != 0)
             {
-                float pitch = context.tunables.real(0x004274D8);
+                float pitch = context.tunables.rig.single_target_pitch;
                 if (context.director.skip_candidates != 0 || count > 1)
                 {
-                    pitch = context.tunables.real(0x00434008);
+                    pitch = context.tunables.view_real(camera_view_tunable::many_target_pitch);
                 }
                 position.y = float(display_tangent(pitch * kRadians) * distance + position.y);
             }
             else
             {
-                position.y = position.y + context.tunables.real(0x00434014);
+                position.y = position.y + context.tunables.view_real(camera_view_tunable::eye_raise);
             }
         }
-        if (context.tunables.real(0x0042753C) > planar)
+        if (context.tunables.rig.min_distance > planar)
         {
             const float floor = focus.y + rise;
-            if (context.tunables.real(0x004274F0) > position.y - floor)
+            if (context.tunables.rig.floor_margin > position.y - floor)
             {
-                position.y = context.tunables.real(0x004274F0) + floor;
+                position.y = context.tunables.rig.floor_margin + floor;
             }
         }
         probe = position;
@@ -646,13 +620,13 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
             {
                 sign = kNegativeOne;
             }
-            if (context.tunables.real(0x00427518) > 0.f)
+            if (context.tunables.rig.side_offset > 0.f)
             {
                 offset_camera_point(position, sign * kHalfPi + heading,
-                    context.tunables.real(0x00427518) * magnitude);
+                    context.tunables.rig.side_offset * magnitude);
             }
         }
-        put(mind, 0xB0, 1);
+        camera_mind_record(mind).heading_restart = 1;
     }
     else
     {
@@ -665,17 +639,18 @@ void place_camera_rig(std::span<u8> mind, const Actor& camera, std::span<const u
         probe.x = eye.x;
         probe.z = eye.z;
     }
-    const float floor = camera_floor_height(watched, probe, focus, context.tunables.real(0x004274F0));
-    put(mind, 0xD8, position.y > floor ? 1 : 0);
+    const float floor = camera_floor_height(watched, probe, focus, context.tunables.rig.floor_margin);
+    camera_mind_record(mind).above_floor = position.y > floor ? 1 : 0;
     position.y = floor;
 }
 
 // Xbox 0x000791A0
 void set_camera_heading_goal(std::span<u8> mind, float heading, float hold, u32 keep_side, float speed, u32 tag)
 {
-    const float current = wrap_angle(float(double(real(mind, 0xB4)) - real(mind, 0xB8)));
-    const float wanted = wrap_angle(float(double(heading) - real(mind, 0xB8)));
-    const u32 active = read_u32(mind, 0xAC);
+    const float current = wrap_angle(float(double(camera_mind_record(mind).heading_goal)
+        - camera_mind_record(mind).heading));
+    const float wanted = wrap_angle(float(double(heading) - camera_mind_record(mind).heading));
+    const u32 active = camera_mind_record(mind).heading_goal_active;
     if (keep_side != 0 && active != 0)
     {
         const float current_side = current >= 0.f ? kOne : kNegativeOne;
@@ -689,12 +664,12 @@ void set_camera_heading_goal(std::span<u8> mind, float heading, float hold, u32 
             return;
         }
     }
-    put_float(mind, 0xB4, heading);
-    put_float(mind, 0xBC, hold);
-    put(mind, 0xAC, 1);
-    put_float(mind, 0xD0, speed);
-    put(mind, 0xB0, active == 0 ? 1 : 0);
-    put(mind, 0xD4, tag);
+    camera_mind_record(mind).heading_goal = heading;
+    camera_mind_record(mind).heading_goal_hold = hold;
+    camera_mind_record(mind).heading_goal_active = 1;
+    camera_mind_record(mind).heading_goal_speed = speed;
+    camera_mind_record(mind).heading_restart = active == 0 ? 1 : 0;
+    camera_mind_record(mind).heading_goal_tag = tag;
 }
 
 namespace
@@ -708,7 +683,7 @@ u32 camera_body_mask(const Actor& camera)
 Vec3 first_contact_normal()
 {
     const u8* record = entity_detail::g_segment_slots[0].pool.begin;
-    return Vec3{read_f32({record, 0x18}, 0xC), read_f32({record, 0x18}, 0x10), read_f32({record, 0x18}, 0x14)};
+    return segment_contact_normal({record, 0x18});
 }
 }
 
@@ -773,7 +748,7 @@ i32 slide_camera_eye(RuntimeCameraMindView& view, const Vec3& normal, const Vec3
     if (runtime_direction_angle(Vec3{eye.x - center.x, eye.y - center.y, eye.z - center.z}, toward))
     {
         const float side = runtime_relative_angle(heading, toward) >= 0.f ? kOne : kNegativeOne;
-        heading = context.tunables.real(0x00427534) * kRadians * side + heading;
+        heading = context.tunables.rig.sweep_step_degrees * kRadians * side + heading;
     }
     const float dz = eye.z - center.z;
     const float dx = eye.x - center.x;
@@ -781,20 +756,20 @@ i32 slide_camera_eye(RuntimeCameraMindView& view, const Vec3& normal, const Vec3
     offset_runtime_horizontal_point(slid, center, heading, reach);
     i32 last_cell = 0;
     u32 first;
-    if (context.tunables.word(0x00427528) != 0)
+    if (context.tunables.rig.probes_slide != 0)
     {
-        first = entity_record_movement_probe(slid, center, context.tunables.word(0x004274B8), 4,
+        first = entity_record_movement_probe(slid, center, context.tunables.rig.probe_radius, 4,
             camera_body_mask(view.camera)) == 0 ? 1 : 0;
     }
     else
     {
-        first = navigation_path_clear(center, slid, i32(context.tunables.word(0x00427524)), 0, 0, 0, nullptr,
+        first = navigation_path_clear(center, slid, i32(context.tunables.rig.slide_path_mode), 0, 0, 0, nullptr,
             &last_cell, 0) ? 1 : 0;
     }
     u32 second = first;
-    if (context.tunables.word(0x00427530) != 0)
+    if (context.tunables.rig.checks_eye_path != 0)
     {
-        second = navigation_path_clear(eye, slid, i32(context.tunables.word(0x0042752C)), 0, 0, 0, nullptr,
+        second = navigation_path_clear(eye, slid, i32(context.tunables.rig.eye_path_mode), 0, 0, 0, nullptr,
             &last_cell, 0) ? 1 : 0;
     }
     if (first != 0)
@@ -842,39 +817,39 @@ u32 sweep_camera_eye(RuntimeCameraMindView& view, const Vec3& eye, Vec3& start, 
 void choose_camera_heading(RuntimeCameraMindView& view, std::span<const u8> request, const Vec3& eye,
     const RuntimeCameraRigContext& context)
 {
-    if (read_u32(request, 0x298) != 0)
+    if (get(request, camera_target_request::fixed_heading) != 0)
     {
-        set_camera_heading_goal(view.mind, real(request, 0x29C), context.tunables.real(0x004274FC), 0,
-            context.tunables.real(0x004274F8), 1);
+        set_camera_heading_goal(view.mind, get(request, camera_target_request::heading), context.tunables.rig.fixed_heading_hold, 0,
+            context.tunables.rig.fixed_heading_speed, 1);
         return;
     }
-    if (read_u32(request, 0x294) == 0)
+    if (get(request, camera_target_request::shape_count) == 0)
     {
         return;
     }
-    const std::span<const u8, 0x20> record{request.data() + 0x14, 0x20};
-    if (navigation_record_reaches_point(record, eye, i32(context.tunables.word(0x0042751C)),
-            i32(context.tunables.word(0x00427520)), 1) != 0)
+    const std::span<const u8, 0x20> record{request.data() + camera_target_request::shapes, 0x20};
+    if (navigation_record_reaches_point(record, eye, i32(context.tunables.rig.unk_51C),
+            i32(context.tunables.rig.unk_520), 1) != 0)
     {
-        put(view.mind, 0xCC, 1);
+        camera_mind_record(view.mind).route_reaches_eye = 1;
         return;
     }
-    Vec3 center{real(record, 4), real(record, 0x14) * kHalf + real(record, 8), real(record, 0xC)};
+    Vec3 center{mind_target_shape(record).position.x, mind_target_shape(record).height * kHalf + mind_target_shape(record).position.y, mind_target_shape(record).position.z};
     Vec3 start = eye;
     float heading = 0.f;
-    if (sweep_camera_eye(view, eye, start, center, heading, i32(context.tunables.word(0x00427538)), context) != 0)
+    if (sweep_camera_eye(view, eye, start, center, heading, i32(context.tunables.rig.sweep_passes), context) != 0)
     {
-        set_camera_heading_goal(view.mind, heading, context.tunables.real(0x00427514), 1,
-            context.tunables.real(0x004274F4), 0);
+        set_camera_heading_goal(view.mind, heading, context.tunables.rig.heading_hold, 1,
+            context.tunables.rig.heading_speed, 0);
     }
-    put(view.mind, 0xCC, 0);
+    camera_mind_record(view.mind).route_reaches_eye = 0;
 }
 
 // Xbox 0x00079450
 u32 settle_camera_position(RuntimeCameraMindView& view, Vec3& eye, u32 target, Vec3& position,
     Vec3& focus, std::span<u8, 0x54> contact, const RuntimeCameraRigContext& context)
 {
-    const u32 probe = context.tunables.word(0x004274B8);
+    const u32 probe = context.tunables.rig.probe_radius;
     Vec3 kept{focus.x, position.y, focus.z};
     float height = position.y;
     u32 lifted = 0;
@@ -891,12 +866,13 @@ u32 settle_camera_position(RuntimeCameraMindView& view, Vec3& eye, u32 target, V
         entity_copy_match_block(contact.data(), entity_detail::g_segment_slots[0].pool.begin);
         result = 1;
         bool blocked = false;
-        if (read_u32(view.mind, 0xAC) == 0 || read_u32(view.mind, 0xD4) == 0)
+        if (camera_mind_record(view.mind).heading_goal_active == 0
+            || camera_mind_record(view.mind).heading_goal_tag == 0)
         {
             const RuntimeDirectorActor watched = context.actor_at(target);
             if (camera_input_turn(watched, context) == 0.f)
             {
-                const i32 floor = i32(read_u32(watched.bytes, 0xCEC));
+                const i32 floor = i32(player_record(watched.bytes).floor);
                 const i32 cell = navigation_cell_index(floor, position);
                 if (cell != -1
                     && !entity_detail::navigation_cell_has_no_unblocked_neighbor(*entity_detail::g_nav_grids[floor],
@@ -932,7 +908,7 @@ u32 settle_camera_position(RuntimeCameraMindView& view, Vec3& eye, u32 target, V
         const float eye_z = eye.z - focus.z;
         const float eye_x = eye.x - focus.x;
         const float from_eye = float(retail_square_root(eye_z * eye_z + eye_x * eye_x));
-        const float limit = context.tunables.real(0x0042753C);
+        const float limit = context.tunables.rig.min_distance;
         if (limit > settled && limit > from_eye && from_eye > settled)
         {
             position = eye;
@@ -951,31 +927,33 @@ void track_camera_obstruction(RuntimeCameraMindView& view, Vec3& eye, Vec3& posi
         const float dz = eye.z - focus.z;
         const float dx = eye.x - focus.x;
         const float planar = float(retail_square_root(dz * dz + dx * dx));
-        if (context.tunables.word(0x004274C4) != 0 && target != 0)
+        if (context.tunables.rig.checks_input_turn != 0 && target != 0)
         {
             if (camera_input_turn(context.actor_at(target), context) != 0.f)
             {
                 return;
             }
         }
-        if (!(planar < context.tunables.real(0x004274C0)))
+        if (!(planar < context.tunables.rig.wall_turn_distance))
         {
             return;
         }
         float angle = 0.f;
-        const Vec3 wall{read_f32(contact, 0xC), read_f32(contact, 0x10), read_f32(contact, 0x14)};
+        const Vec3 wall = segment_contact_normal(contact);
         if (!runtime_direction_angle(wall, angle))
         {
             return;
         }
-        const float side = runtime_relative_angle(angle, real(view.mind, 0xB8)) >= 0.f ? kOne : kNegativeOne;
-        const long double swing = (double(kHalfPi) - double(context.tunables.real(0x00427510)) * kRadians) * side;
+        const float side = runtime_relative_angle(angle, camera_mind_record(view.mind).heading) >= 0.f ? kOne
+            : kNegativeOne;
+        const long double swing = (double(kHalfPi) - double(context.tunables.rig.wall_swing_degrees) * kRadians) * side;
         const float heading = float(angle - swing);
-        set_camera_heading_goal(view.mind, heading, context.tunables.real(0x00427514) * kFloorMargin, 1,
-            context.tunables.real(0x004274F4), 1);
+        set_camera_heading_goal(view.mind, heading, context.tunables.rig.heading_hold * kFloorMargin, 1,
+            context.tunables.rig.heading_speed, 1);
         return;
     }
-    const Vec3 pushed{real(view.body, 0x1D8), real(view.body, 0x1DC), real(view.body, 0x1E0)};
+    const Vec3 pushed{body_record(view.body).contact_push.x, body_record(view.body).contact_push.y,
+        body_record(view.body).contact_push.z};
     const Vec3 euler = actor_world_euler(view.camera);
     Vec3 forward{};
     add_sound_direction(forward, euler.x, euler.y, 1.f);
@@ -988,21 +966,22 @@ void track_camera_obstruction(RuntimeCameraMindView& view, Vec3& eye, Vec3& posi
         forward.z = float(forward.z * factor);
     }
     if ((view.body_bits->bytes[2] & 0x20) != 0
-        && forward.z * pushed.z + forward.y * pushed.y + forward.x * pushed.x > context.tunables.real(0x0042750C))
+        && forward.z * pushed.z + forward.y * pushed.y + forward.x * pushed.x > context.tunables.rig.push_facing_dot)
     {
         const float step = runtime_frame_step(context.clock);
-        put_float(view.mind, 0xC0, step * runtime_actor_rate(view.camera) + real(view.mind, 0xC0));
+        camera_mind_record(view.mind).pushed_time = step * runtime_actor_rate(view.camera)
+            + camera_mind_record(view.mind).pushed_time;
     }
     else
     {
-        put_float(view.mind, 0xC0, 0.f);
+        camera_mind_record(view.mind).pushed_time = 0.f;
     }
-    if (!(real(view.mind, 0xC0) > context.tunables.real(0x00427500)))
+    if (!(camera_mind_record(view.mind).pushed_time > context.tunables.rig.pushed_time_limit))
     {
         return;
     }
     Vec3 kept = eye;
-    if (entity_record_movement_probe(kept, focus, context.tunables.word(0x004274B8), 4,
+    if (entity_record_movement_probe(kept, focus, context.tunables.rig.probe_radius, 4,
             camera_body_mask(view.camera)) == 0)
     {
         return;
@@ -1010,25 +989,25 @@ void track_camera_obstruction(RuntimeCameraMindView& view, Vec3& eye, Vec3& posi
     const float dz = focus.z - kept.z;
     const float dx = focus.x - kept.x;
     const long double gap = retail_square_root(dz * dz + dx * dx);
-    if (!(gap > double(context.tunables.real(0x00427504)) * distance))
+    if (!(gap > double(context.tunables.rig.push_gap_share) * distance))
     {
         return;
     }
     position = kept;
-    const float pull = context.tunables.real(0x00427508);
+    const float pull = context.tunables.rig.push_pull;
     const u32 message[4]{0x22,
         std::bit_cast<u32>((kept.x - focus.x) * pull + focus.x),
         std::bit_cast<u32>((kept.y - focus.y) * pull + focus.y),
         std::bit_cast<u32>((kept.z - focus.z) * pull + focus.z)};
     view.body_message(message);
-    put_float(view.mind, 0xC0, 0.f);
+    camera_mind_record(view.mind).pushed_time = 0.f;
 }
 
 // Xbox 0x000781F0
 u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8> request, float distance,
     const RuntimeCameraRigContext& context)
 {
-    const u32 target = read_u32(view.mind, 0xC);
+    const u32 target = mind_record(view.mind).target;
     if (target == 0)
     {
         return 0;
@@ -1038,39 +1017,35 @@ u32 update_camera_target_request(RuntimeCameraMindView& view, std::span<const u8
     {
         choose_camera_heading(view, request, eye, context);
     }
-    else if (read_u32(view.mind, 0xAC) != 0)
+    else if (camera_mind_record(view.mind).heading_goal_active != 0)
     {
-        put(view.mind, 0xAC, 0);
-        put(view.mind, 0xB0, 1);
+        camera_mind_record(view.mind).heading_goal_active = 0;
+        camera_mind_record(view.mind).heading_restart = 1;
     }
     Vec3 position{};
     Vec3 focus{};
     place_camera_rig(view.mind, view.camera, request, eye, position, focus, target, distance, context);
     track_camera_obstruction(view, eye, position, focus, target, distance, context);
-    if (read_u32(request, 0x2A0) != 0)
+    if (get(request, camera_target_request::sets_goal_point) != 0)
     {
-        put_float(view.mind, 0x70, position.x);
-        put_float(view.mind, 0x74, position.y);
-        put_float(view.mind, 0x78, position.z);
+        mind_record(view.mind).goal_point = position;
         Vec3 aim{};
-        aim_camera_offset(aim, eye, position, target, context.tunables.real(0x004274DC), 0.f,
-            context.tunables.real(0x004274E0), context);
-        put_float(view.body, 0x318, aim.x);
-        put_float(view.body, 0x31C, aim.y);
-        put_float(view.body, 0x320, aim.z);
+        aim_camera_offset(aim, eye, position, target, context.tunables.rig.aim_range, 0.f,
+            context.tunables.rig.aim_far, context);
+       body_record(view.body).velocity.x = aim.x;
+       body_record(view.body).velocity.y = aim.y;
+       body_record(view.body).velocity.z = aim.z;
     }
     else
     {
-        put_float(view.mind, 0x70, eye.x);
-        put_float(view.mind, 0x74, eye.y);
-        put_float(view.mind, 0x78, eye.z);
+        mind_record(view.mind).goal_point = eye;
         const u32 message[1]{3};
         view.body_message(message);
     }
-    put_float(view.body, 0x2FC, focus.x);
-    put_float(view.body, 0x300, focus.y);
-    put_float(view.body, 0x304, focus.z);
-    view.body[0x308] = 1;
+   body_record(view.body).look_point.x = focus.x;
+   body_record(view.body).look_point.y = focus.y;
+   body_record(view.body).look_point.z = focus.z;
+    body_record(view.body).look_point_set = 1;
     return 1;
 }
 }

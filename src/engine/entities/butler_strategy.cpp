@@ -1,20 +1,20 @@
 #include "butler_strategy.h"
+#include <cstddef>
+#include "body_fields.h"
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "player_mind_events.h"
 #include "player_mind_goals.h"
 #include "../graphics/actor_effect_stream.h"
 #include "../scripts/script_actor_query.h"
 #include "../scripts/script_conditions.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 RuntimePlayerStrategyGoals& goals_of(RuntimeButlerStrategy& context)
 {
     return context.base.goals;
@@ -38,7 +38,7 @@ void change_state(u16 state, RuntimeButlerStrategy& context)
 // Actor +0xCDC == 2 or a +0x93C link: the actor is a player.
 bool actor_is_player(std::span<const u8> actor)
 {
-    return read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0;
+    return player_record(actor).mode == 2 || player_record(actor).case_link != 0;
 }
 
 // The first goal kind of the actor +0x980 ring; an empty ring reads the word at address zero.
@@ -65,9 +65,9 @@ bool initialize_runtime_butler_strategy(std::span<u8> strategy, std::span<u8> ac
 {
     if (name != nullptr)
     {
-        std::memcpy(strategy.data() + 0x38, name, std::strlen(name) + 1);
+        std::memcpy(strategy_view<ButlerStrategyState>(strategy).scared_name.data(), name, std::strlen(name) + 1);
     }
-    put(actor, 0xCF0, 1);
+    player_record(actor).outer_cells = 1;
     return true;
 }
 
@@ -86,14 +86,14 @@ u32 find_runtime_butler_threat(RuntimeButlerStrategy& context)
         select_runtime_strategy_target(target, 0, goals);
         return 0;
     }
-    put(mind, 0xC, context.actor_address(*found));
+    mind_record(mind).target = context.actor_address(*found);
     const u32 target = context.first_live_attachment_at(context.actor_address(*found)); // Actor +0x8F8.
     if (target != 0)
     {
         set_runtime_mind_target(goals.entry.events, target);
         return 1;
     }
-    put(mind, 0x10, 0);
+    mind_record(mind).target_record = 0;
     return 1;
 }
 
@@ -102,7 +102,7 @@ void update_runtime_butler_strategy(RuntimeButlerStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     update_runtime_base_strategy(goals);
-    switch (read_u16(strategy_of(context), 0xE))
+    switch (strategy_base(strategy_of(context)).state)
     {
     case 0x3FB:
         if (goals.goal_volume == nullptr)
@@ -146,10 +146,10 @@ void dispatch_runtime_butler_message(std::span<const u32> message, RuntimeButler
 void react_runtime_butler_hit(std::span<const u32> message, RuntimeButlerStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 self = read_u32(strategy_of(context), 8);
+    const u32 self = strategy_base(strategy_of(context)).actor;
     const u32 first = message[1];
     const u32 second = message[2];
-    if (first == self || second == 0 || strategy_of(context)[0x1C] != 0)
+    if (first == self || second == 0 || strategy_base(strategy_of(context)).pause_count != 0)
     {
         return;
     }
@@ -190,10 +190,10 @@ void enter_runtime_butler_state(u16 state, u16 previous, RuntimeButlerStrategy& 
     case 0x411:
     {
         load_runtime_mind_goal(context.goal_scared, goals.entry.goals);
-        const char* name = reinterpret_cast<const char*>(strategy_of(context).data() + 0x38);
+        const char* name = strategy_view<ButlerStrategyState>(strategy_of(context)).scared_name.data();
         if (*name != '\0')
         {
-            std::memcpy(goals.entry.body.data() + 0x288, name, std::strlen(name) + 1);
+            std::memcpy(goals.entry.body.data() + offsetof(BodyRecord, variant), name, std::strlen(name) + 1);
         }
         return;
     }
@@ -208,11 +208,11 @@ void leave_runtime_butler_state(u16 state, RuntimeButlerStrategy& context)
 {
     if (state == 0x411)
     {
-        goals_of(context).entry.body[0x288] = 0;
+        body_record(goals_of(context).entry.body).variant[0] = 0;
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy_of(context)[0x1C];
+        --strategy_base(strategy_of(context)).pause_count;
     }
 }
 }

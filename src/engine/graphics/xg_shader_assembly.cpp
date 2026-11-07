@@ -1,4 +1,5 @@
 #include "xg_shader_assembly.h"
+#include "boot_shader_tables.h"
 
 #include <algorithm>
 #include <array>
@@ -381,9 +382,8 @@ void create_runtime_boot_vertex_shaders(RuntimeBootVertexShaders& context)
 // Xbox 0x00065F60
 void bind_runtime_boot_vertex_shader(u32 index, RuntimeBootVertexShaders& context)
 {
-    const u32 offset = index * 0x18;
-    context.bind(context.image.word(0x004271F4 + offset));
-    const u32 constants = context.image.word(0x004271E8 + offset);
+    context.bind(context.image.word(boot_vertex_shader(index).handle));
+    const u32 constants = context.image.word(boot_vertex_shader(index).constants);
     if (constants != 0)
     {
         context.constants(0x60, reinterpret_cast<const float*>(context.image.pointer(constants)), 0xC);

@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_clock.h"
 #include "actor_factory_owner.h"
 #include "gbtg/retail_field.h"
@@ -32,20 +34,21 @@ constexpr RetailField<u32, 0x44C> move_player{}; // the challenge's +0x134
 constexpr u32 kSize = 0x450;
 static_assert(retail_fits(kSize, move_player));
 } // namespace sss_door_parameter
-namespace sss_door_field
+struct SssDoorState
 {
-constexpr RetailField<float, 0x934> reach{};
-constexpr RetailField<u32, 0x93C> phase{}; // 0 waiting, 1 coming out, 2 scaring, 3 going in, 4 out of sight
-constexpr RetailField<float, 0x940> timer{};
-constexpr RetailRecord<0x944, 0x80> first_clip{};
-constexpr RetailRecord<0x9C4, 0x80> second_clip{};
-constexpr RetailField<u32, 0xA44> reusable{};
-constexpr RetailField<u32, 0xA48> door{};
-constexpr RetailField<u32, 0xA4C> face_player{};
-constexpr RetailField<u32, 0xA50> move_player{};
-constexpr u32 kSize = 0xA54;
-static_assert(retail_fits(kSize, move_player));
-} // namespace sss_door_field
+    ActorBase base{}; // +0
+    float reach = 0.f; // +0x934
+    std::array<u8, 4> unk_938{}; // +0x938, never read or written by translated code
+    u32 phase = 0; // +0x93C, 0 waiting, 1 coming out, 2 scaring, 3 going in, 4 out of sight
+    float timer = 0.f; // +0x940
+    std::array<char, 0x80> first_clip{}; // +0x944
+    std::array<char, 0x80> second_clip{}; // +0x9C4
+    u32 reusable = 0; // +0xA44
+    u32 door = 0; // +0xA48
+    u32 face_player = 0; // +0xA4C
+    u32 move_player = 0; // +0xA50
+};
+static_assert(sizeof(SssDoorState) == 0xA54);
 struct RuntimeSssDoor
 {
     std::span<u8> bytes;

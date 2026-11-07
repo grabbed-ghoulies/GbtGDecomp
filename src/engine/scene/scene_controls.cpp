@@ -1,4 +1,5 @@
 #include "scene_controls.h"
+#include "scene_control_fields.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../runtime/rare_replay.h"
 #endif
@@ -15,16 +16,6 @@ SceneControlLists g_scene_controls;
 namespace
 {
 NativeSceneControlOwner* installing = nullptr;
-
-u32 word(std::span<const u8> bytes, size_t offset)
-{
-    return read_u32(bytes, offset);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 std::span<u8> state_of(FactoryObject& object)
 {
@@ -90,12 +81,14 @@ bool construct_walkabout_view(FactoryObject& object, std::span<const u8>)
     auto& control = installing->instance(object);
     control.state = state_of(object);
     control.type = object.type;
-    return construct_runtime_walkabout_control(state_of(object), control, installing->context);
+    return construct_runtime_walkabout_control(scene_control_view<WalkaboutControlState>(state_of(object)),
+        control, installing->context);
 }
 
 void destroy_walkabout_view(FactoryObject& object)
 {
-    destroy_runtime_walkabout_control(state_of(object), installing->instance(object), installing->context);
+    destroy_runtime_walkabout_control(scene_control_view<WalkaboutControlState>(state_of(object)),
+        installing->instance(object), installing->context);
 }
 
 bool construct_attract_view(FactoryObject& object, std::span<const u8> parameters)
@@ -104,14 +97,14 @@ bool construct_attract_view(FactoryObject& object, std::span<const u8> parameter
     control.state = state_of(object);
     control.type = object.type;
     control.attract = std::make_unique<AttractControlState>();
-    return construct_runtime_attract_control(state_of(object), parameters, *control.attract,
+    return construct_runtime_attract_control(parameters, *control.attract,
         installing->context.attract_services());
 }
 
 void destroy_attract_view(FactoryObject& object)
 {
     auto& control = installing->instance(object);
-    destroy_runtime_attract_control(state_of(object), *control.attract, installing->context.attract_services());
+    destroy_runtime_attract_control(*control.attract, installing->context.attract_services());
 }
 
 bool construct_gameselect_view(FactoryObject& object, std::span<const u8>)
@@ -137,13 +130,14 @@ bool construct_trophy_heads_view(FactoryObject& object, std::span<const u8> para
     control.state = state_of(object);
     control.type = object.type;
     control.trophy_heads = std::make_unique<TrophyHeadsControlState>();
-    return construct_runtime_trophy_heads_control(state_of(object), parameters, *control.trophy_heads,
+    return construct_runtime_trophy_heads_control(parameters, *control.trophy_heads,
         installing->context.trophy_heads_services());
 }
 
 void destroy_trophy_heads_view(FactoryObject& object)
 {
-    destroy_runtime_trophy_heads_control(state_of(object), installing->context.trophy_heads_services());
+    auto& control = installing->instance(object);
+    destroy_runtime_trophy_heads_control(*control.trophy_heads, installing->context.trophy_heads_services());
 }
 
 bool construct_haunted_chairs_view(FactoryObject& object, std::span<const u8>)
@@ -152,7 +146,7 @@ bool construct_haunted_chairs_view(FactoryObject& object, std::span<const u8>)
     control.state = state_of(object);
     control.type = object.type;
     control.haunted_chairs = std::make_unique<HauntedChairsControlState>();
-    return construct_runtime_haunted_chairs_control(state_of(object));
+    return construct_runtime_haunted_chairs_control(*control.haunted_chairs);
 }
 
 void destroy_haunted_chairs_view(FactoryObject&)
@@ -165,7 +159,8 @@ bool construct_chapter2_scene4_view(FactoryObject& object, std::span<const u8> p
     auto& control = installing->instance(object);
     control.state = state_of(object);
     control.type = object.type;
-    return construct_runtime_chapter2_scene4_control(state_of(object), parameters, control, installing->context.lists,
+    return construct_runtime_chapter2_scene4_control(scene_control_view<Chapter2Scene4ControlState>(state_of(object)),
+        parameters, control, installing->context.lists,
         installing->context.chapter2_scene4_services());
 }
 
@@ -187,7 +182,7 @@ bool construct_final_score_view(FactoryObject& object, std::span<const u8>)
     auto& control = installing->instance(object);
     control.state = state_of(object);
     control.type = object.type;
-    return construct_runtime_final_score_control(state_of(object),
+    return construct_runtime_final_score_control(scene_control_view<FinalScoreControlState>(state_of(object)),
         installing->context.final_score_services()); // 0x00082DC0
 }
 
@@ -207,14 +202,15 @@ bool construct_relics_store_view(FactoryObject& object, std::span<const u8>)
     control.state = state_of(object);
     control.type = object.type;
     control.relics_store = std::make_unique<RelicsStoreControlState>();
-    return construct_runtime_relics_store_control(state_of(object), *control.relics_store,
+    return construct_runtime_relics_store_control(scene_control_view<SceneControlBase>(state_of(object)),
+        *control.relics_store,
         installing->context.relics_store_services()); // 0x00081060
 }
 
 void destroy_relics_store_view(FactoryObject& object)
 {
     auto& control = installing->instance(object);
-    destroy_runtime_relics_store_control(state_of(object), *control.relics_store,
+    destroy_runtime_relics_store_control(*control.relics_store,
         installing->context.relics_store_services()); // 0x00081150
 }
 
@@ -223,7 +219,8 @@ bool construct_scene_fx_view(FactoryObject& object, std::span<const u8> paramete
     auto& control = installing->instance(object);
     control.state = state_of(object);
     control.type = object.type;
-    return construct_runtime_scene_fx_control(state_of(object), parameters, installing->context.fx_services());
+    return construct_runtime_scene_fx_control(scene_control_view<SceneFxControlState>(state_of(object)),
+        parameters, installing->context.fx_services());
 }
 
 void destroy_scene_fx_view(FactoryObject&)
@@ -237,14 +234,14 @@ bool construct_super_scary_view(FactoryObject& object, std::span<const u8> param
     control.state = state_of(object);
     control.type = object.type;
     control.super_scary = std::make_unique<SuperScaryControlState>();
-    return construct_runtime_super_scary_control(state_of(object), parameters, *control.super_scary,
+    return construct_runtime_super_scary_control(parameters, *control.super_scary,
         installing->context.super_scary_services());
 }
 
 void destroy_super_scary_view(FactoryObject& object)
 {
     auto& control = installing->instance(object);
-    destroy_runtime_super_scary_control(state_of(object), *control.super_scary,
+    destroy_runtime_super_scary_control(*control.super_scary,
         installing->context.super_scary_services());
 }
 
@@ -621,25 +618,26 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
 {
     if (control.type == 0x92)
     {
-        message_runtime_trophy_heads_control(control.state, words, reference, *control.trophy_heads, control,
+        message_runtime_trophy_heads_control(words, reference, *control.trophy_heads, control,
             context.lists, context.trophy_heads_services());
         return;
     }
     if (control.type == 0x93)
     {
-        message_runtime_haunted_chairs_control(control.state, words, *control.haunted_chairs, control,
+        message_runtime_haunted_chairs_control(words, *control.haunted_chairs, control,
             context.lists, context.haunted_chairs_services());
         return;
     }
     if (control.type == 0x94)
     {
-        message_runtime_relics_store_control(control.state, words, reference, *control.relics_store, control,
+        message_runtime_relics_store_control(scene_control_view<SceneControlBase>(control.state),
+            words, reference, *control.relics_store, control,
             context.lists, context.relics_store_services()); // 0x000811A0
         return;
     }
     if (control.type == 0x98)
     {
-        message_runtime_super_scary_control(control.state, words, *control.super_scary, control, context.lists);
+        message_runtime_super_scary_control(words, *control.super_scary, control, context.lists);
         return;
     }
     // Types 3, 0x91, 0x95, 0x99, 0x9A, 0x9B, 0x9D, 0x9E and 0x9F share 0x00115EE0.
@@ -651,43 +649,51 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
     switch (control.type)
     {
     case 3:
-        tick_runtime_scene_control(control.state, context.frame_clock());
+        tick_runtime_scene_control(scene_control_view<SceneControlBase>(control.state), context.frame_clock());
         return;
     case 0x91:
-        tick_runtime_walkabout_control(control.state, control, context);
+        tick_runtime_walkabout_control(scene_control_view<WalkaboutControlState>(control.state), control, context);
         return;
     case 0x9A:
         tick_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());
         return;
     case 0x9B:
-        tick_runtime_attract_control(control.state, *control.attract, context.attract_services());
+        tick_runtime_attract_control(scene_control_view<SceneControlBase>(control.state),
+            *control.attract, context.attract_services());
         return;
     case 0x92:
-        tick_runtime_trophy_heads_control(control.state, *control.trophy_heads, context.trophy_heads_services());
+        tick_runtime_trophy_heads_control(scene_control_view<SceneControlBase>(control.state),
+            *control.trophy_heads, context.trophy_heads_services());
         return;
     case 0x93:
-        tick_runtime_haunted_chairs_control(control.state, *control.haunted_chairs, control, context.lists,
+        tick_runtime_haunted_chairs_control(scene_control_view<SceneControlBase>(control.state),
+            *control.haunted_chairs, control, context.lists,
             context.haunted_chairs_services());
         return;
     case 0x94:
-        tick_runtime_relics_store_control(control.state, *control.relics_store,
+        tick_runtime_relics_store_control(scene_control_view<SceneControlBase>(control.state), *control.relics_store,
             context.relics_store_services()); // 0x00081080
         return;
     case 0x95:
-        tick_runtime_chapter2_scene4_control(control.state, control, context.lists,
+        tick_runtime_chapter2_scene4_control(scene_control_view<Chapter2Scene4ControlState>(control.state),
+            control, context.lists,
             context.chapter2_scene4_services()); // 0x00082A90
         return;
     case 0x97:
-        tick_runtime_scene_fx_control(control.state, context.fx_services()); // 0x00083570
+        tick_runtime_scene_fx_control(scene_control_view<SceneFxControlState>(control.state),
+            context.fx_services()); // 0x00083570
         return;
     case 0x99:
-        tick_runtime_final_score_control(control.state, context.final_score_services()); // 0x00082E50
+        tick_runtime_final_score_control(scene_control_view<FinalScoreControlState>(control.state),
+            context.final_score_services()); // 0x00082E50
         return;
     case 0x9D:
-        tick_runtime_chapter5_countdown_control(control.state, chapter5_countdown("0x00082D10")); // 0x00082D10
+        tick_runtime_chapter5_countdown_control(scene_control_view<SceneControlBase>(control.state),
+            chapter5_countdown("0x00082D10")); // 0x00082D10
         return;
     case 0x98:
-        tick_runtime_super_scary_control(control.state, *control.super_scary, control, context.lists,
+        tick_runtime_super_scary_control(scene_control_view<SceneControlBase>(control.state), *control.super_scary,
+            control, context.lists,
             context.super_scary_services());
         return;
     case 0x9E:
@@ -729,11 +735,11 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
         draw_runtime_gameselect_control(control.state, *control.gameselect, context.gameselect_services());
         return;
     case 0x94:
-        draw_runtime_relics_store_control(control.state, *control.relics_store,
+        draw_runtime_relics_store_control(*control.relics_store,
             context.relics_store_services()); // 0x00081310
         return;
     case 0x98:
-        draw_runtime_super_scary_control(control.state, *control.super_scary, context.super_scary_services());
+        draw_runtime_super_scary_control(*control.super_scary, context.super_scary_services());
         return;
     default:
         throw Error("scene control vtable +0x14 for factory type " + std::to_string(control.type));
@@ -791,19 +797,18 @@ void message_runtime_scene_control(SceneControlInstance& control, std::span<cons
 }
 
 // Xbox 0x00115E30
-void tick_runtime_scene_control(std::span<u8> state, const RuntimeActorClock& clock)
+void tick_runtime_scene_control(SceneControlBase& state, const RuntimeActorClock& clock)
 {
-    const float time = read_f32(state, 0x20) + runtime_frame_step(clock);
-    std::memcpy(state.data() + 0x20, &time, 4);
+    state.elapsed = state.elapsed + runtime_frame_step(clock);
 }
 
 // Xbox 0x00080670
-void build_runtime_scene_playlist(std::span<u8> state, std::vector<u16>& playlist, u32 count, u32& random)
+void build_runtime_scene_playlist(WalkaboutControlState& state, std::vector<u16>& playlist, u32 count, u32& random)
 {
     // +0x24 holds the playlist (0x000F72D0); the pool of remaining indices is a temporary allocation.
     playlist.assign(count, 0);
-    put_word(state, 0x2C, count);
-    put_word(state, 0x28, 0);
+    state.count = count;
+    state.position = 0;
     std::vector<u16> pool;
     for (u32 index = 0; i32(index) < i32(count); ++index)
     {
@@ -823,25 +828,25 @@ void build_runtime_scene_playlist(std::span<u8> state, std::vector<u16>& playlis
 }
 
 // Xbox 0x00080570
-bool construct_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
+bool construct_runtime_walkabout_control(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context)
 {
     build_runtime_scene_playlist(state, control.playlist, 0x2A, context.random);
-    put_word(state, 0x30, 0xFFFFFFFFu);
-    put_word(state, 0x34, 2);
-    put_word(state, 0x38, context.chapter() == 9 ? 1 : 0);
+    state.track = 0xFFFFFFFFu;
+    state.start_countdown = 2;
+    state.plays_timer = context.chapter() == 9 ? 1 : 0;
     return true;
 }
 
 // Xbox 0x00080810
-void stop_runtime_walkabout_track(std::span<u8> state, SceneControlContext& context)
+void stop_runtime_walkabout_track(WalkaboutControlState& state, SceneControlContext& context)
 {
-    const u32 track = word(state, 0x30);
+    const u32 track = state.track;
     if (track == 0xFFFFFFFFu)
     {
         return;
     }
-    const char* name = word(state, 0x38) == 0 ? walkabout_name(track, context) : context.timer;
+    const char* name = state.plays_timer == 0 ? walkabout_name(track, context) : context.timer;
     AudioTrackedBank* bank = find_tracked_audio_bank(name, context.streams());
     if (bank == nullptr)
     {
@@ -861,23 +866,23 @@ void stop_runtime_walkabout_track(std::span<u8> state, SceneControlContext& cont
         detach_tracked_audio_bank(*bank, context.streams());
         bank->id = 0;
     }
-    put_word(state, 0x30, 0xFFFFFFFFu);
+    state.track = 0xFFFFFFFFu;
 }
 
 // Xbox 0x000808B0
-void play_runtime_walkabout_track(std::span<u8> state, SceneControlInstance& control,
+void play_runtime_walkabout_track(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context)
 {
     stop_runtime_walkabout_track(state, context);
-    const u32 position = word(state, 0x28);
+    const u32 position = state.position;
     const u16 track = control.playlist.at(position);
-    put_word(state, 0x28, position + 1);
-    if (position + 1 == word(state, 0x2C))
+    state.position = position + 1;
+    if (position + 1 == state.count)
     {
-        put_word(state, 0x28, 0);
+        state.position = 0;
     }
-    put_word(state, 0x30, track);
-    if (word(state, 0x38) != 0)
+    state.track = track;
+    if (state.plays_timer != 0)
     {
         acquire_tracked_audio_bank(context.timer, 2, context.streams());
         return;
@@ -886,7 +891,7 @@ void play_runtime_walkabout_track(std::span<u8> state, SceneControlInstance& con
 }
 
 // Xbox 0x000805B0
-void destroy_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
+void destroy_runtime_walkabout_control(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context)
 {
     stop_runtime_walkabout_track(state, context);
@@ -894,12 +899,11 @@ void destroy_runtime_walkabout_control(std::span<u8> state, SceneControlInstance
 }
 
 // Xbox 0x00080600
-void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
+void tick_runtime_walkabout_control(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context)
 {
-    const float time = read_f32(state, 0x20) + runtime_frame_step(context.frame_clock());
-    std::memcpy(state.data() + 0x20, &time, 4);
-    const u32 countdown = word(state, 0x34);
+    state.base.elapsed = state.base.elapsed + runtime_frame_step(context.frame_clock());
+    const u32 countdown = state.start_countdown;
 #if !defined(GBTG_RETAIL_GAME_ONLY)
     // Rare Replay: +0x34 counts retail ticks.
     if (countdown != 0 && rare_replay_retail_tick())
@@ -907,13 +911,13 @@ void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& c
     if (countdown != 0)
 #endif
     {
-        put_word(state, 0x34, countdown - 1);
+        state.start_countdown = countdown - 1;
         if (countdown - 1 == 0)
         {
             play_runtime_walkabout_track(state, control, context);
         }
     }
-    const u32 track = word(state, 0x30);
+    const u32 track = state.track;
     if (track != 0xFFFFFFFFu && runtime_audio_bank_state(walkabout_name(track, context), context.streams()) == 2)
     {
         play_runtime_walkabout_track(state, control, context);

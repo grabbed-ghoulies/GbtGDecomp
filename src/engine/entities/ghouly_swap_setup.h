@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_base_messages.h"
 #include "ghouly_requests.h"
 #include "ghouly_spawn_record.h"
@@ -27,20 +29,21 @@ constexpr RetailField<u32, 0x444> unk_444{};
 constexpr u32 kSize = 0x4C8;
 static_assert(retail_fits(kSize, unk_444));
 } // namespace ghouly_swap_parameter
-namespace ghouly_swap_field
+struct GhoulySwapState
 {
-constexpr RetailField<u32, 0x934> anchor{}; // the actor message 0x7D looks up by +0x1FE; 0xA7 asks it for the pose
-constexpr RetailField<u32, 0x938> load{}; // the ghoulybox load (0x000F39A0); its native view is the context's
-constexpr RetailField<u32, 0x93C> source{}; // the actor the ghouly replaces
-constexpr RetailField<u32, 0x940> swapped{}; // set once 0xA7 made the ghouly
-constexpr RetailField<std::array<char, 0x80>, 0x944> box{}; // empty unless the constructor kept it
-constexpr RetailField<std::array<char, 0x80>, 0x9C4> attributes{};
-constexpr RetailField<float, 0xA48> radius{};
-constexpr RetailField<float, 0xA4C> chance{};
-constexpr RetailField<u32, 0xA50> unk_A50{};
-constexpr u32 kSize = 0xA54;
-static_assert(retail_fits(kSize, unk_A50));
-} // namespace ghouly_swap_field
+    ActorBase base{}; // +0
+    u32 anchor = 0; // +0x934, the actor message 0x7D looks up by +0x1FE; 0xA7 asks it for the pose
+    u32 load = 0; // +0x938, the ghoulybox load (0x000F39A0); its native view is the context's
+    u32 source = 0; // +0x93C, the actor the ghouly replaces
+    u32 swapped = 0; // +0x940, set once 0xA7 made the ghouly
+    std::array<char, 0x80> box{}; // +0x944, empty unless the constructor kept it
+    std::array<char, 0x80> attributes{}; // +0x9C4
+    std::array<u8, 4> unk_A44{}; // +0xA44, never read or written by translated code
+    float radius = 0.f; // +0xA48
+    float chance = 0.f; // +0xA4C
+    u32 unk_A50 = 0; // +0xA50
+};
+static_assert(sizeof(GhoulySwapState) == 0xA54);
 struct RuntimeGhoulySwapSetup
 {
     std::span<u8> bytes;

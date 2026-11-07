@@ -1,4 +1,5 @@
 #pragma once
+#include "gbtg/actor_runtime.h"
 #include "gbtg/entity.h"
 #include <functional>
 
@@ -6,7 +7,7 @@ namespace gbtg
 {
 struct RuntimeActorMatrixSampling
 {
-    std::span<u8> records; // Actor +0x288, stride 0x48.
+    std::span<ActorMatrixRecord> records; // Actor +0x288.
     std::span<const u8> node; // Actor +0x290.
     std::span<float, 12> scratch; // DAT_0050D7A0.
     float*& active; // DAT_0050DD70.

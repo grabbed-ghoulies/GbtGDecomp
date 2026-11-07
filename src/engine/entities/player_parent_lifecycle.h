@@ -29,8 +29,8 @@ struct RuntimeStrategyClassRanges
     const i32& count; // DAT_0050E1C4.
     std::span<const u8> rows; // DAT_0050E1C8, stride 0xC.
 };
-extern i32 g_50e1c4; // DAT_0050E1C4, the class range count.
-extern std::array<u8, 8 * 0xC> g_50e1c8; // DAT_0050E1C8, the class range rows.
+extern i32 g_strategy_class_range_count; // DAT_0050E1C4, the class range count.
+extern std::array<u8, 8 * 0xC> g_strategy_class_ranges; // DAT_0050E1C8, the class range rows.
 // SI tag, XMM1 low, XMM2 high: a zero range drops the tag's row (the last row takes its place); anything else
 // appends a row for the tag.
 void set_runtime_strategy_class_range(u16 actor_class, float low, float high, std::span<u8> rows,

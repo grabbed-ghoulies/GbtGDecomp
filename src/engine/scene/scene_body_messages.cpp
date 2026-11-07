@@ -1,4 +1,7 @@
 #include "scene_body_messages.h"
+#include <cstddef>
+#include "../entities/body_fields.h"
+#include "../entities/mind_fields.h"
 #include "../entities/body_orientation.h"
 #include "../camera/display_view.h"
 #include "../entities/body_move_action_slots.h"
@@ -18,6 +21,7 @@
 #include "../scripts/script_actions.h"
 #include "scene_actor_services.h"
 #include "gbtg/actor_spawn_factory.h"
+#include "../entities/player_fields.h"
 #include <bit>
 #include <cstring>
 #include <optional>
@@ -52,7 +56,7 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           {
               return services.source_at(services.address_of(bytes));
           }},
-      effect_commands_{player.actor, i32(read_u32(player.actor_bytes, 0xCEC)), services.effect_scene,
+      effect_commands_{player.actor, i32(player_record(player.actor_bytes).floor), services.effect_scene,
           services.surfaces, services.effect_tags, services.effect_suffixes[0], services.effect_suffixes[1],
           services.effect_suffixes[2], services.effect_suffixes[3], services.effects},
       query_name_([this](RuntimeBodyAttachedActor& attached, std::span<char, 128> name)
@@ -73,7 +77,7 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           services.flags, proximity_, player.scene.address_of(player.body.data()),
           player.actor_instance.startup.resource.resource.data(),
           player.callout, player.body_lists},
-      spatial_{player.actor, player.actor_address, u8(read_u32(player.actor_bytes, 0xCEC)),
+      spatial_{player.actor, player.actor_address, u8(player_record(player.actor_bytes).floor),
           player.actor_instance.live_attachments, services.global_attachments},
       parent_{player.actor, player.actor_bytes, actions_, children_, animation_, spatial_, shape_scratch_,
           services.latches, player.collision, first_timer_, second_timer_, services.contact_players,
@@ -82,7 +86,8 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
               bind_action_children();
           }},
       death_notice_{services.game, body_view_, player.actor_address,
-          reinterpret_cast<const char*>(player.actor_bytes.data() + 0xBA0), player.spawn.record, services.resources},
+          reinterpret_cast<const char*>(player.actor_bytes.data() + offsetof(PlayerRecord, ghouly_box)),
+              player.spawn.record, services.resources},
       death_drops_{player.actor, player.actor_bytes, services.resources, services.factory,
           [this](FactoryObject object) -> u32
           {
@@ -99,7 +104,8 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           },
           services.default_position, services.default_euler, services.random, services.occupancy_initial},
       death_{death_notice_, death_drops_, player.body_attributes,
-          *reinterpret_cast<u32*>(player.actor_bytes.data() + 0xCE0), services.story_flags, services.empty_name,
+          *reinterpret_cast<u32*>(player.actor_bytes.data() + offsetof(PlayerRecord, live)), services.story_flags,
+              services.empty_name,
           services.empty_name, player.attachment},
       processor_{player.actor, player.actor_address, *player.body_flags, player.body_attributes, nullptr, nullptr,
           services.damage_tables, services.push_keys, services.amount_keys, services.player_damage, 0, services.player_blocked,
@@ -130,7 +136,8 @@ SceneBodyMessages::SceneBodyMessages(SceneBodyServices& services, NativePlayerIn
           }},
       damage_{services.game, processor_, nullptr, timer_creation_},
       messages_{parent_, damage_, player.ring, services.address_zero, mask_,
-          *reinterpret_cast<const i32*>(player.actor_bytes.data() + 0xCEC), player.actor_instance.render,
+          *reinterpret_cast<const i32*>(player.actor_bytes.data() + offsetof(PlayerRecord, floor)),
+              player.actor_instance.render,
           services.clock, services.tag_rows, services.tag_names, services.shock_pass, services.shock_fail,
           player.body_attributes, hit_view_, services.scene_flags, services.restart_requested},
       controls_{player.actor, player.actor_bytes[0x197], player.actor_instance.anchors, live_attachment_,
@@ -224,8 +231,9 @@ void SceneBodyMessages::bind_action_children()
                     }
                     RuntimeHitStateMessages context{player_.body, read_u32(player_.body, 8), mind_target(),
                         id == 7 ? services_.event_at(read_u32(message, 0xC)) : std::span<const u8>(), contact,
-                        read_u32(player_.body, 0x48), services_.actor_callouts};
-                    message_runtime_hit_state({child->bytes.get(), child->size}, message, context);
+                        body_record(player_.body).attached, services_.actor_callouts};
+                    message_runtime_hit_state(body_state_view<HitState>({child->bytes.get(), child->size}),
+                        message, context);
                 };
             }
             children_[child->bytes.get()] = hit.get();
@@ -239,7 +247,8 @@ void SceneBodyMessages::bind_action_children()
                 knockdown = std::make_unique<RuntimeBodyMessageChild>();
                 knockdown->message = [this, child](std::span<u8> message)
                 {
-                    message_runtime_knockdown_state({child->bytes.get(), child->size}, message,
+                    message_runtime_knockdown_state(body_state_view<KnockdownState>({child->bytes.get(), child->size}),
+                        message,
                         knockdown_context()); // 0x0009D0E0
                 };
             }
@@ -254,7 +263,7 @@ void SceneBodyMessages::bind_action_children()
                 anim = std::make_unique<RuntimeBodyMessageChild>();
                 anim->message = [this, child](std::span<u8> message)
                 {
-                    message_runtime_anim_state({child->bytes.get(), child->size}, message,
+                    message_runtime_anim_state(body_state_view<AnimState>({child->bytes.get(), child->size}), message,
                         anim_context()); // 0x00088960
                 };
             }
@@ -269,7 +278,8 @@ void SceneBodyMessages::bind_action_children()
                 die = std::make_unique<RuntimeBodyMessageChild>();
                 die->message = [child](std::span<u8> message)
                 {
-                    message_runtime_die_state({child->bytes.get(), child->size}, message); // 0x0008C4D0
+                    message_runtime_die_state(body_state_view<DieState>({child->bytes.get(), child->size}),
+                        message); // 0x0008C4D0
                 };
             }
             children_[child->bytes.get()] = die.get();
@@ -283,7 +293,8 @@ void SceneBodyMessages::bind_action_children()
                 dizzy = std::make_unique<RuntimeBodyMessageChild>();
                 dizzy->message = [child](std::span<u8> message)
                 {
-                    message_runtime_dizzy_state({child->bytes.get(), child->size}, message); // 0x0008CEA0
+                    message_runtime_dizzy_state(body_state_view<DizzyState>({child->bytes.get(), child->size}),
+                        message); // 0x0008CEA0
                 };
             }
             children_[child->bytes.get()] = dizzy.get();
@@ -297,7 +308,7 @@ void SceneBodyMessages::bind_action_children()
                 thrown = std::make_unique<RuntimeBodyMessageChild>();
                 thrown->message = [this, child](std::span<u8> message)
                 {
-                    message_runtime_throw_state({child->bytes.get(), child->size}, message,
+                    message_runtime_throw_state(body_state_view<ThrowState>({child->bytes.get(), child->size}), message,
                         throw_context()); // 0x000A3D20
                 };
             }
@@ -313,7 +324,8 @@ void SceneBodyMessages::bind_action_children()
                 arc->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_arc_state({child->bytes.get(), child->size}, words, arc_context()); // 0x0008DD30
+                    message_runtime_arc_state(body_state_view<ArcState>({child->bytes.get(), child->size}),
+                        words, arc_context()); // 0x0008DD30
                 };
             }
             children_[child->bytes.get()] = arc.get();
@@ -328,7 +340,8 @@ void SceneBodyMessages::bind_action_children()
                 walk->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_walk_state({child->bytes.get(), child->size}, words, walk_context()); // 0x000A5270
+                    message_runtime_walk_state(body_state_view<WalkState>({child->bytes.get(), child->size}),
+                        words, walk_context()); // 0x000A5270
                 };
             }
             children_[child->bytes.get()] = walk.get();
@@ -343,7 +356,8 @@ void SceneBodyMessages::bind_action_children()
                 grab_throw->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_grab_throw_state({child->bytes.get(), child->size}, words,
+                    message_runtime_grab_throw_state(body_state_view<GrabThrowState>({child->bytes.get(), child->size}),
+                        words,
                         grab_throw_context()); // 0x00094FA0
                 };
             }
@@ -359,7 +373,8 @@ void SceneBodyMessages::bind_action_children()
                 bandaged->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_bandaged_state({child->bytes.get(), child->size}, words,
+                    message_runtime_bandaged_state(body_state_view<BandagedState>({child->bytes.get(), child->size}),
+                        words,
                         bandaged_context()); // 0x0008A8E0
                 };
             }
@@ -375,7 +390,8 @@ void SceneBodyMessages::bind_action_children()
                 blood_suck->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_blood_suck_state({child->bytes.get(), child->size}, words,
+                    message_runtime_blood_suck_state(body_state_view<BloodSuckState>({child->bytes.get(), child->size}),
+                        words,
                         blood_suck_context()); // 0x0008BB90
                 };
             }
@@ -391,7 +407,8 @@ void SceneBodyMessages::bind_action_children()
                 jump_on->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_jump_on_state({child->bytes.get(), child->size}, words,
+                    message_runtime_jump_on_state(body_state_view<JumpOnState>({child->bytes.get(), child->size}),
+                        words,
                         jump_on_context()); // 0x0009AE60
                 };
             }
@@ -411,7 +428,8 @@ void SceneBodyMessages::bind_action_children()
                     {
                         unbound("arc attack state word message 0x62 without the collision reply's contact record");
                     }
-                    message_runtime_arc_attack_state({child->bytes.get(), child->size}, words, {},
+                    message_runtime_arc_attack_state(body_state_view<ArcAttackState>({child->bytes.get(), child->size}),
+                        words, {},
                         arc_attack_context()); // 0x00089530
                 };
             }
@@ -427,7 +445,9 @@ void SceneBodyMessages::bind_action_children()
                 generate->message = [child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_generate_ghouly_state({child->bytes.get(), child->size}, words); // 0x00094150
+                    message_runtime_generate_ghouly_state(
+                        body_state_view<GenerateGhoulyState>({child->bytes.get(), child->size}),
+                        words); // 0x00094150
                 };
             }
             children_[child->bytes.get()] = generate.get();
@@ -442,7 +462,7 @@ void SceneBodyMessages::bind_action_children()
                 swing->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_swing_state({child->bytes.get(), child->size}, words,
+                    message_runtime_swing_state(body_state_view<SwingState>({child->bytes.get(), child->size}), words,
                         swing_context()); // 0x00098620
                 };
             }
@@ -458,7 +478,9 @@ void SceneBodyMessages::bind_action_children()
                 scoop->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_scoop_whack_state({child->bytes.get(), child->size}, words,
+                    message_runtime_scoop_whack_state(
+                        body_state_view<ScoopWhackState>({child->bytes.get(), child->size}),
+                        words,
                         scoop_whack_context()); // 0x0009EED0
                 };
             }
@@ -474,7 +496,9 @@ void SceneBodyMessages::bind_action_children()
                 dance->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_drone_dance_state({child->bytes.get(), child->size}, words,
+                    message_runtime_drone_dance_state(
+                        body_state_view<DroneDanceState>({child->bytes.get(), child->size}),
+                        words,
                         drone_dance_context()); // 0x0008E480
                 };
             }
@@ -490,7 +514,8 @@ void SceneBodyMessages::bind_action_children()
                 yoyo->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_yoyo_spin_state({child->bytes.get(), child->size}, words,
+                    message_runtime_yoyo_spin_state(body_state_view<YoyoSpinState>({child->bytes.get(), child->size}),
+                        words,
                         yoyo_spin_context()); // 0x000A7030
                 };
             }
@@ -506,7 +531,8 @@ void SceneBodyMessages::bind_action_children()
                 spin->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_spin_dizzy_state({child->bytes.get(), child->size}, words,
+                    message_runtime_spin_dizzy_state(body_state_view<SpinDizzyState>({child->bytes.get(), child->size}),
+                        words,
                         spin_dizzy_context()); // 0x000A24B0
                 };
             }
@@ -522,7 +548,8 @@ void SceneBodyMessages::bind_action_children()
                 endure->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_endure_state({child->bytes.get(), child->size}, words, endure_context()); // 0x000A1850
+                    message_runtime_endure_state(body_state_view<EndureState>({child->bytes.get(), child->size}),
+                        words, endure_context()); // 0x000A1850
                 };
             }
             children_[child->bytes.get()] = endure.get();
@@ -536,7 +563,8 @@ void SceneBodyMessages::bind_action_children()
                 stunned = std::make_unique<RuntimeBodyMessageChild>();
                 stunned->message = [this, child](std::span<u8> message)
                 {
-                    message_runtime_stunned_state({child->bytes.get(), child->size}, message,
+                    message_runtime_stunned_state(body_state_view<StunnedState>({child->bytes.get(), child->size}),
+                        message,
                         stunned_context()); // 0x000A3460
                 };
             }
@@ -552,7 +580,8 @@ void SceneBodyMessages::bind_action_children()
                 stream->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_hit_stream_state({child->bytes.get(), child->size}, words,
+                    message_runtime_hit_stream_state(body_state_view<HitStreamState>({child->bytes.get(), child->size}),
+                        words,
                         hit_stream_context()); // 0x00097890
                 };
             }
@@ -568,7 +597,9 @@ void SceneBodyMessages::bind_action_children()
                 flame->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_flamethrower_state({child->bytes.get(), child->size}, words,
+                    message_runtime_flamethrower_state(
+                        body_state_view<FlamethrowerState>({child->bytes.get(), child->size}),
+                        words,
                         flamethrower_context()); // 0x0008FBF0
                 };
             }
@@ -583,7 +614,7 @@ void SceneBodyMessages::bind_action_children()
                 slide = std::make_unique<RuntimeBodyMessageChild>();
                 slide->message = [this, child](std::span<u8> message)
                 {
-                    message_runtime_slide_state({child->bytes.get(), child->size}, message,
+                    message_runtime_slide_state(body_state_view<SlideState>({child->bytes.get(), child->size}), message,
                         slide_context()); // 0x000A1070
                 };
             }
@@ -599,7 +630,8 @@ void SceneBodyMessages::bind_action_children()
                 transform->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_transform_state({child->bytes.get(), child->size}, words,
+                    message_runtime_transform_state(body_state_view<TransformState>({child->bytes.get(), child->size}),
+                        words,
                         transform_context()); // 0x000A49D0
                 };
             }
@@ -615,7 +647,7 @@ void SceneBodyMessages::bind_action_children()
                 lift->message = [this, child](std::span<u8> message)
                 {
                     const std::span<const u32> words{reinterpret_cast<const u32*>(message.data()), message.size() / 4};
-                    message_runtime_lift_state({child->bytes.get(), child->size}, words,
+                    message_runtime_lift_state(body_state_view<LiftState>({child->bytes.get(), child->size}), words,
                         pickup_context()); // 0x0009E9F0
                 };
             }
@@ -653,12 +685,12 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
     mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
     processor_.attributes = player_.body_attributes; // Body +0x268.
     refresh_damage_rows();
-    const u32 request = read_u32(player_.body, 0x84);
+    const u32 request = body_record(player_.body).hit_record;
     hit_view_ = request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24);
     // 0x0001A290 reads body +0x48: the held weapon and its +0x998 collision state.
     attached_shapes_.reset();
     animation_.attached_shapes = nullptr;
-    if (const u32 held = read_u32(player_.body, 0x48); held != 0)
+    if (const u32 held = body_record(player_.body).attached; held != 0)
     {
         if (!services_.weapon_attachment_at || !services_.weapon_collision)
         {
@@ -711,11 +743,11 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         contact_pool.emplace(entity_detail::SegmentPool{pool.stride, pool.grow, pool.begin, pool.cursor, pool.limit});
         auto& source = services_.source_at(message[2]);
         const auto source_body = services_.source_body_at(message[2]);
-        const u32 request = read_u32(source_body, 0x84);
+        const u32 request = body_record(source_body).hit_record;
         RuntimeBodyAttachedActor* retained = nullptr;
-        if (read_u32(player_.body, 0x278) == 0 && read_u32(player_.body, 0x270) != 0)
+        if (body_record(player_.body).unk_278 == 0 && body_record(player_.body).attacker != 0)
         {
-            retained = &services_.source_at(read_u32(player_.body, 0x270));
+            retained = &services_.source_at(body_record(player_.body).attacker);
         }
         std::span<const u8> bound_view;
         if (live_attachment_ != nullptr)
@@ -751,9 +783,9 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         contact_pool.emplace(entity_detail::SegmentPool{pool.stride, pool.grow, pool.begin, pool.cursor, pool.limit});
         auto& source = services_.source_at(message[2]);
         RuntimeBodyAttachedActor* retained = nullptr;
-        if (read_u32(player_.body, 0x278) == 0 && read_u32(player_.body, 0x270) != 0)
+        if (body_record(player_.body).unk_278 == 0 && body_record(player_.body).attacker != 0)
         {
-            retained = &services_.source_at(read_u32(player_.body, 0x270));
+            retained = &services_.source_at(body_record(player_.body).attacker);
         }
         source_contact.emplace(RuntimeBodySourceContact{
             RuntimeBodyContactHitViews{*contact_pool, message[3], source, retained}, {}, {}, {}, player_.ring,
@@ -778,7 +810,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
         }
         const u32 holder = weapon.host->address;
         const auto holder_body = services_.source_body_at(holder);
-        const u32 request = read_u32(holder_body, 0x84);
+        const u32 request = body_record(holder_body).hit_record;
         std::span<const u8> bound_view;
         if (live_attachment_ != nullptr)
         {
@@ -903,7 +935,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         RuntimeStandAlertTick tick{player_.body, player_.actor, *player_.body_bits,
             player_.actor_instance.animation, player_.body_selection, services_.clock, player_.input_device,
             player_.scene.input_state,
-            !player_.mind.empty(), player_.mind.empty() ? u8(0) : player_.mind[0x20],
+            !player_.mind.empty(), player_.mind.empty() ? u8(0) : mind_record(player_.mind).target_mode,
             services_.stand_input_threshold,
             [this]() -> u16
             {
@@ -915,11 +947,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             {
                 settle_runtime_body_turn(player_.body, player_.actor); // 0x00134720, ESI body
             }};
-        tick_runtime_stand_alert({action.bytes.get(), action.size}, tick);
+        tick_runtime_stand_alert(body_state_view<StandAlertState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x69:
-        tick_runtime_player_death_state({action.bytes.get(), action.size}, player_death_context()); // 0x0008F290
+        tick_runtime_player_death_state(body_state_view<PlayerDeathState>({action.bytes.get(), action.size}),
+            player_death_context()); // 0x0008F290
         return;
     case 0x88:
     {
@@ -940,7 +973,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
                 }
                 return actor_world_position(*target);
             }};
-        tick_runtime_struggle_state({action.bytes.get(), action.size}, tick);
+        tick_runtime_struggle_state(body_state_view<StruggleState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x5D:
@@ -963,12 +996,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         RuntimeWalkAlertTick tick{player_.body, player_.actor, *player_.body_bits, player_.body_selection,
             services_.clock, device, player_.scene.input_state, services_.damage_tables, services_.mode_scales,
-            !player_.mind.empty(), player_.mind.empty() ? u8(0) : player_.mind[0x20],
+            !player_.mind.empty(), player_.mind.empty() ? u8(0) : mind_record(player_.mind).target_mode,
             [this]()
             {
                 settle_runtime_body_turn(player_.body, player_.actor); // 0x00134720, ESI body
             }};
-        tick_runtime_walk_alert({action.bytes.get(), action.size}, tick);
+        tick_runtime_walk_alert(body_state_view<WalkAlertState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x6D:
@@ -985,36 +1018,45 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         RuntimeWalkAlertTick tick{player_.body, player_.actor, *player_.body_bits, player_.body_selection,
             services_.clock, device, player_.scene.input_state, services_.damage_tables, services_.mode_scales,
-            !player_.mind.empty(), player_.mind.empty() ? u8(0) : player_.mind[0x20], {}};
-        tick_runtime_fly_state({action.bytes.get(), action.size}, tick); // 0x00091190
+            !player_.mind.empty(), player_.mind.empty() ? u8(0) : mind_record(player_.mind).target_mode, {}};
+        tick_runtime_fly_state(body_state_view<FlyState>({action.bytes.get(), action.size}), tick); // 0x00091190
         return;
     }
     case 0x8B:
-        tick_runtime_throw_state({action.bytes.get(), action.size}, throw_context()); // 0x000A3990
+        tick_runtime_throw_state(body_state_view<ThrowState>({action.bytes.get(), action.size}),
+            throw_context()); // 0x000A3990
         return;
     case 0x66:
-        tick_runtime_arc_state({action.bytes.get(), action.size}, arc_context()); // 0x0008DC70
+        tick_runtime_arc_state(body_state_view<ArcState>({action.bytes.get(), action.size}),
+            arc_context()); // 0x0008DC70
         return;
     case 0x65:
-        tick_runtime_drone_appear_state({action.bytes.get(), action.size}, drone_appear_context()); // 0x0008D4D0
+        tick_runtime_drone_appear_state(body_state_view<DroneAppearState>({action.bytes.get(), action.size}),
+            drone_appear_context()); // 0x0008D4D0
         return;
     case 0x79:
-        tick_runtime_jump_on_state({action.bytes.get(), action.size}, jump_on_context()); // 0x0009AB00
+        tick_runtime_jump_on_state(body_state_view<JumpOnState>({action.bytes.get(), action.size}),
+            jump_on_context()); // 0x0009AB00
         return;
     case 0x8D:
-        tick_runtime_walk_state({action.bytes.get(), action.size}, walk_context()); // 0x000A5100
+        tick_runtime_walk_state(body_state_view<WalkState>({action.bytes.get(), action.size}),
+            walk_context()); // 0x000A5100
         return;
     case 0x5F:
-        tick_runtime_arc_attack_state({action.bytes.get(), action.size}, arc_attack_context()); // 0x00089060
+        tick_runtime_arc_attack_state(body_state_view<ArcAttackState>({action.bytes.get(), action.size}),
+            arc_attack_context()); // 0x00089060
         return;
     case 0x6F:
-        tick_runtime_generate_ghouly_state({action.bytes.get(), action.size}, generate_ghouly_context()); // 0x00093EC0
+        tick_runtime_generate_ghouly_state(body_state_view<GenerateGhoulyState>({action.bytes.get(), action.size}),
+            generate_ghouly_context()); // 0x00093EC0
         return;
     case 0x80:
-        tick_runtime_shocked_state({action.bytes.get(), action.size}, shocked_context()); // 0x0009F5F0
+        tick_runtime_shocked_state(body_state_view<ShockedState>({action.bytes.get(), action.size}),
+            shocked_context()); // 0x0009F5F0
         return;
     case 0x82:
-        tick_runtime_slam_smash_state({action.bytes.get(), action.size}, slam_smash_context()); // 0x000A0630
+        tick_runtime_slam_smash_state(body_state_view<SlamSmashState>({action.bytes.get(), action.size}),
+            slam_smash_context()); // 0x000A0630
         return;
     case 0x60:
     {
@@ -1030,68 +1072,89 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         auto& context = bandaged_context();
         context.input = device;
-        tick_runtime_bandaged_state({action.bytes.get(), action.size}, context); // 0x0008A5F0
+        tick_runtime_bandaged_state(body_state_view<BandagedState>({action.bytes.get(), action.size}),
+            context); // 0x0008A5F0
         return;
     }
     case 0x61:
-        tick_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B6C0
+        tick_runtime_blood_suck_state(body_state_view<BloodSuckState>({action.bytes.get(), action.size}),
+            blood_suck_context()); // 0x0008B6C0
         return;
     case 0x72:
-        tick_runtime_grab_throw_state({action.bytes.get(), action.size}, grab_throw_context()); // 0x00094B00
+        tick_runtime_grab_throw_state(body_state_view<GrabThrowState>({action.bytes.get(), action.size}),
+            grab_throw_context()); // 0x00094B00
         return;
     case 0x71:
-        tick_runtime_grabbed_hold_state({action.bytes.get(), action.size}, grabbed_hold_context()); // 0x000956C0
+        tick_runtime_grabbed_hold_state(body_state_view<BodyStateBase>({action.bytes.get(), action.size}),
+            grabbed_hold_context()); // 0x000956C0
         return;
     case 0x68:
-        tick_runtime_explode_state({action.bytes.get(), action.size}, explode_context()); // 0x0008EA90
+        tick_runtime_explode_state(body_state_view<ExplodeState>({action.bytes.get(), action.size}),
+            explode_context()); // 0x0008EA90
         return;
     case 0x8C:
-        tick_runtime_transform_state({action.bytes.get(), action.size}, transform_context()); // 0x000A46D0
+        tick_runtime_transform_state(body_state_view<TransformState>({action.bytes.get(), action.size}),
+            transform_context()); // 0x000A46D0
         return;
     case 0x85:
-        tick_runtime_spawn_ghouly_state({action.bytes.get(), action.size}, spawn_ghouly_context()); // 0x000A1BE0
+        tick_runtime_spawn_ghouly_state(body_state_view<SpawnGhoulyState>({action.bytes.get(), action.size}),
+            spawn_ghouly_context()); // 0x000A1BE0
         return;
     case 0x90:
-        tick_runtime_yoyo_spin_state({action.bytes.get(), action.size}, yoyo_spin_context()); // 0x000A6CC0
+        tick_runtime_yoyo_spin_state(body_state_view<YoyoSpinState>({action.bytes.get(), action.size}),
+            yoyo_spin_context()); // 0x000A6CC0
         return;
     case 0x75:
-        tick_runtime_furnace_hit_state({action.bytes.get(), action.size}, furnace_hit_context()); // 0x00096FC0
+        tick_runtime_furnace_hit_state(body_state_view<FurnaceHitState>({action.bytes.get(), action.size}),
+            furnace_hit_context()); // 0x00096FC0
         return;
     case 0x63:
-        tick_runtime_death_state({action.bytes.get(), action.size}, death_context()); // 0x0008C7E0
+        tick_runtime_death_state(body_state_view<DeathState>({action.bytes.get(), action.size}),
+            death_context()); // 0x0008C7E0
         return;
     case 0x7F:
-        tick_runtime_scrabble_state({action.bytes.get(), action.size}, scrabble_context()); // 0x0009F170
+        tick_runtime_scrabble_state(body_state_view<ScrabbleState>({action.bytes.get(), action.size}),
+            scrabble_context()); // 0x0009F170
         return;
     case 0x7E:
-        tick_runtime_scoop_whack_state({action.bytes.get(), action.size}, scoop_whack_context()); // 0x0009EC90
+        tick_runtime_scoop_whack_state(body_state_view<ScoopWhackState>({action.bytes.get(), action.size}),
+            scoop_whack_context()); // 0x0009EC90
         return;
     case 0x6B:
-        tick_runtime_flip_state({action.bytes.get(), action.size}, flip_context(input)); // 0x00090760
+        tick_runtime_flip_state(body_state_view<FlipState>({action.bytes.get(), action.size}),
+            flip_context(input)); // 0x00090760
         return;
     case 0x77:
-        tick_runtime_hover_state({action.bytes.get(), action.size}, hover_context(input)); // 0x00097CF0
+        tick_runtime_hover_state(body_state_view<HoverState>({action.bytes.get(), action.size}),
+            hover_context(input)); // 0x00097CF0
         return;
     case 0x6A:
-        tick_runtime_flamethrower_state({action.bytes.get(), action.size}, flamethrower_context()); // 0x0008F8F0
+        tick_runtime_flamethrower_state(body_state_view<FlamethrowerState>({action.bytes.get(), action.size}),
+            flamethrower_context()); // 0x0008F8F0
         return;
     case 0x81:
-        tick_runtime_shoot_state({action.bytes.get(), action.size}, shoot_context(input)); // 0x0009FA80
+        tick_runtime_shoot_state(body_state_view<ShootState>({action.bytes.get(), action.size}),
+            shoot_context(input)); // 0x0009FA80
         return;
     case 0x76:
-        tick_runtime_hit_stream_state({action.bytes.get(), action.size}, hit_stream_context()); // 0x00097500
+        tick_runtime_hit_stream_state(body_state_view<HitStreamState>({action.bytes.get(), action.size}),
+            hit_stream_context()); // 0x00097500
         return;
     case 0x84:
-        tick_runtime_endure_state({action.bytes.get(), action.size}, endure_context()); // 0x000A1710
+        tick_runtime_endure_state(body_state_view<EndureState>({action.bytes.get(), action.size}),
+            endure_context()); // 0x000A1710
         return;
     case 0x89:
-        tick_runtime_stunned_state({action.bytes.get(), action.size}, stunned_context()); // 0x000A3380
+        tick_runtime_stunned_state(body_state_view<StunnedState>({action.bytes.get(), action.size}),
+            stunned_context()); // 0x000A3380
         return;
     case 0x67:
-        tick_runtime_drone_dance_state({action.bytes.get(), action.size}, drone_dance_context()); // 0x0008E130
+        tick_runtime_drone_dance_state(body_state_view<DroneDanceState>({action.bytes.get(), action.size}),
+            drone_dance_context()); // 0x0008E130
         return;
     case 0x7B:
-        tick_runtime_look_for_weapon_state({action.bytes.get(), action.size}, look_for_weapon_context()); // 0x0009DB30
+        tick_runtime_look_for_weapon_state(body_state_view<LookForWeaponState>({action.bytes.get(), action.size}),
+            look_for_weapon_context()); // 0x0009DB30
         return;
     case 0x6E:
     {
@@ -1121,27 +1184,30 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
                 }
                 return actor_world_position(*target);
             }};
-        tick_runtime_fly_alert({action.bytes.get(), action.size}, tick, player_.body_bits->bytes[0]); // 0x00091E10
+        tick_runtime_fly_alert(body_state_view<FlyAlertState>({action.bytes.get(), action.size}),
+            tick, player_.body_bits->bytes[0]); // 0x00091E10
         return;
     }
     case 0x83:
-        tick_runtime_slide_state({action.bytes.get(), action.size}, slide_context()); // 0x000A0F90
+        tick_runtime_slide_state(body_state_view<SlideState>({action.bytes.get(), action.size}),
+            slide_context()); // 0x000A0F90
         return;
     case 0x78:
-        tick_runtime_swing_state({action.bytes.get(), action.size}, swing_context()); // 0x00098460
+        tick_runtime_swing_state(body_state_view<SwingState>({action.bytes.get(), action.size}),
+            swing_context()); // 0x00098460
         return;
     case 0x8A:
     {
         RuntimeHoldStateTick tick{player_.body, player_.actor, player_.actor_address,
             services_.clock, recovery_action()};
-        tick_runtime_hold_state({action.bytes.get(), action.size}, tick);
+        tick_runtime_hold_state(body_state_view<HoldState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x8F:
     {
         // 0x000A6520 takes only the state; 0x00019840 reads the stick through actor +0x960 itself.
         const RuntimeDialogueInputDevice* device = nullptr;
-        if (read_u32(player_.actor_bytes, 0x960) != 0)
+        if (player_record(player_.actor_bytes).input_device != 0)
         {
             device = &player_.input_device;
         }
@@ -1156,7 +1222,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
                 }
                 return actor_world_position(*target);
             }};
-        tick_runtime_walk_target({action.bytes.get(), action.size}, tick);
+        tick_runtime_walk_target(body_state_view<WalkTargetState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x73:
@@ -1172,12 +1238,12 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             device = &player_.input_device;
         }
         const RuntimeDialogueInputDevice* own = nullptr;
-        if (read_u32(player_.actor_bytes, 0x960) != 0)
+        if (player_record(player_.actor_bytes).input_device != 0)
         {
             own = &player_.input_device;
         }
-        const u32 hit_address = read_u32(player_.body, 0x84);
-        const u32 attached = read_u32(player_.body, 0x48);
+        const u32 hit_address = body_record(player_.body).hit_record;
+        const u32 attached = body_record(player_.body).attached;
         const RuntimeBodyCollisionState* attached_collision = nullptr;
         if (attached != 0)
         {
@@ -1213,7 +1279,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             {
                 return body_slot_key(0x2C);
             }};
-        tick_runtime_hit_state({action.bytes.get(), action.size}, tick);
+        tick_runtime_hit_state(body_state_view<HitState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x74:
@@ -1232,7 +1298,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
             player_.actor_instance.animation, services_.clock, player_.body_attributes, device,
             player_.scene.input_state, services_.address_zero, player_.actor_address, services_.probe_messages,
             services_.record_at, recovery_action()};
-        tick_runtime_hit_furnace_state({action.bytes.get(), action.size}, tick);
+        tick_runtime_hit_furnace_state(body_state_view<HitFurnaceState>({action.bytes.get(), action.size}), tick);
         return;
     }
     case 0x5E:
@@ -1249,11 +1315,11 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         auto& context = anim_context();
         context.input = device;
-        tick_runtime_anim_state({action.bytes.get(), action.size}, context);
+        tick_runtime_anim_state(body_state_view<AnimState>({action.bytes.get(), action.size}), context);
         return;
     }
     case 0x62:
-        tick_runtime_die_state({action.bytes.get(), action.size}, die_context());
+        tick_runtime_die_state(body_state_view<DieState>({action.bytes.get(), action.size}), die_context());
         return;
     case 0x64:
     {
@@ -1269,7 +1335,7 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         auto& context = dizzy_context();
         context.input = device;
-        tick_runtime_dizzy_state({action.bytes.get(), action.size}, context);
+        tick_runtime_dizzy_state(body_state_view<DizzyState>({action.bytes.get(), action.size}), context);
         return;
     }
     case 0x86:
@@ -1286,11 +1352,13 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         }
         auto& context = spin_dizzy_context();
         context.dizzy.input = device;
-        tick_runtime_spin_dizzy_state({action.bytes.get(), action.size}, context); // 0x000A23A0
+        tick_runtime_spin_dizzy_state(body_state_view<SpinDizzyState>({action.bytes.get(), action.size}),
+            context); // 0x000A23A0
         return;
     }
     case 0x7A:
-        tick_runtime_knockdown_state({action.bytes.get(), action.size}, knockdown_context());
+        tick_runtime_knockdown_state(body_state_view<KnockdownState>({action.bytes.get(), action.size}),
+            knockdown_context());
         return;
     case 0x70:
     case 0x7C:
@@ -1311,15 +1379,17 @@ void SceneBodyMessages::action_tick(FactoryObject& action, u32 input)
         if (action.type == 0x70)
         {
             RuntimeGrabbedStateContext grabbed{context, recovery_action(), hold_timer()};
-            tick_runtime_grabbed_state({action.bytes.get(), action.size}, grabbed); // 0x00094530
+            tick_runtime_grabbed_state(body_state_view<GrabbedState>({action.bytes.get(), action.size}),
+                grabbed); // 0x00094530
             return;
         }
         if (action.type == 0x7D)
         {
-            tick_runtime_lift_state({action.bytes.get(), action.size}, context); // 0x0009E6B0
+            tick_runtime_lift_state(body_state_view<LiftState>({action.bytes.get(), action.size}),
+                context); // 0x0009E6B0
             return;
         }
-        tick_runtime_pickup_state({action.bytes.get(), action.size}, context);
+        tick_runtime_pickup_state(body_state_view<PickupState>({action.bytes.get(), action.size}), context);
         return;
     }
     default:
@@ -1332,10 +1402,12 @@ void SceneBodyMessages::action_step(FactoryObject& action)
     switch (action.type)
     {
     case 0x61:
-        step_runtime_blood_suck_state({action.bytes.get(), action.size}, blood_suck_context()); // 0x0008B9C0
+        step_runtime_blood_suck_state(body_state_view<BloodSuckState>({action.bytes.get(), action.size}),
+            blood_suck_context()); // 0x0008B9C0
         return;
     case 0x72:
-        step_runtime_grab_throw_state({action.bytes.get(), action.size}, grab_throw_context()); // 0x00094F10
+        step_runtime_grab_throw_state(body_state_view<GrabThrowState>({action.bytes.get(), action.size}),
+            grab_throw_context()); // 0x00094F10
         return;
     case 0x5A:
         // Type 0x5A's +0x14 is 0x0002AD30 itself.
@@ -1424,7 +1496,7 @@ RuntimeBodyDamageEntry& SceneBodyMessages::damage_entry()
     mask_ = EntityMaskHost{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
     processor_.attributes = player_.body_attributes; // Body +0x268.
     refresh_damage_rows();
-    const u32 request = read_u32(player_.body, 0x84);
+    const u32 request = body_record(player_.body).hit_record;
     hit_view_ = request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24);
     return damage_;
 }
@@ -1474,7 +1546,7 @@ void SceneBodyMessages::refresh_damage_rows()
 RuntimeBodyRecoveryAction& SceneBodyMessages::recovery_action()
 {
     recovery_.emplace(RuntimeBodyRecoveryAction{player_.body, player_.body_attributes, player_.action_table,
-        first_timer_, player_.ring, read_u16(player_.actor_bytes, 0x990), services_.address_zero,
+        first_timer_, player_.ring, player_record(player_.actor_bytes).goal_latch, services_.address_zero,
         [this](u32& output)
         {
             // 0x00028360: the front goal's kind in AX (0 without a ring; an empty ring reads address zero).
@@ -1567,9 +1639,9 @@ RuntimeThrowStateContext& SceneBodyMessages::throw_context()
     {
         unbound("throw state without the body +0x15C bit block");
     }
-    const u32 hit = read_u32(player_.body, 0x84);
-    const RuntimeDialogueInputDevice* own = read_u32(player_.actor_bytes, 0x960) != 0 ? &player_.input_device
-                                                                                       : nullptr;
+    const u32 hit = body_record(player_.body).hit_record;
+    const RuntimeDialogueInputDevice* own =
+        player_record(player_.actor_bytes).input_device != 0 ? &player_.input_device : nullptr;
     throw_.reset();
     throw_.emplace(RuntimeThrowStateContext{player_.body, player_.actor, player_.actor_bytes, *player_.body_flags,
         player_.actor_instance.animation, services_.clock, player_.actor_instance.live_attachments,
@@ -1729,7 +1801,7 @@ RuntimeJumpOnStateContext& SceneBodyMessages::jump_on_context()
         unbound("jump on/off state of a body with no +0x15C bit block");
     }
     if (services_.intro == nullptr || services_.story_byte == nullptr || !services_.jump_peer
-        || !services_.reply_message || services_.jump_globals.empty())
+        || !services_.reply_message || services_.jump_tunables == nullptr)
     {
         unbound("jump on/off state services");
     }
@@ -1738,7 +1810,7 @@ RuntimeJumpOnStateContext& SceneBodyMessages::jump_on_context()
         player_.actor_bytes, *player_.body_bits, player_.body_selection, services_.clock,
         player_.actor_instance.animation, player_.mind, player_.actor_instance.live_attachments, services_.latches,
         spatial_, services_.state_context(services_.address_of(player_.body.data())), services_.sounds,
-        services_.jump_globals, services_.default_position, services_.default_euler, services_.random,
+        *services_.jump_tunables, services_.default_position, services_.default_euler, services_.random,
         services_.scene_flags, services_.player_blocked, services_.player_modes, services_.player_mode,
         *services_.intro, *services_.story_byte, player_.scene.input_state, services_.occupancy_initial,
         services_.image_string,
@@ -2309,11 +2381,11 @@ RuntimeShootStateContext& SceneBodyMessages::shoot_context(u32 input)
         }
         device = &player_.input_device;
     }
-    const u32 request = read_u32(player_.body, 0x84);
+    const u32 request = body_record(player_.body).hit_record;
     shoot_.reset();
     shoot_.emplace(RuntimeShootStateContext{player_.body, player_.actor, *player_.body_bits, services_.clock,
         player_.mind, services_.target_at, request == 0 ? std::span<const u8>() : services_.record_at(request, 0x24),
-        player_.body_selection, services_.image_string, read_u32(player_.body, 0x48), services_.message,
+        player_.body_selection, services_.image_string, body_record(player_.body).attached, services_.message,
         services_.bytes_at,
         [this]() -> u32
         {
@@ -2489,7 +2561,7 @@ RuntimeAnimStateContext& SceneBodyMessages::anim_context()
         [this]() -> u32
         {
             // Actor +0x958 is the mind; its +0xC is the target.
-            const u32 mind = read_u32(player_.actor_bytes, 0x958);
+            const u32 mind = player_record(player_.actor_bytes).mind;
             if (mind == 0)
             {
                 return 0;
@@ -2498,7 +2570,7 @@ RuntimeAnimStateContext& SceneBodyMessages::anim_context()
             {
                 unbound("anim state actor +0x958 " + std::to_string(mind) + " is not the player's mind");
             }
-            return read_u32(player_.mind, 0xC);
+            return mind_record(player_.mind).target;
         },
         [this](u32 address) -> const Actor*
         {
@@ -2527,7 +2599,7 @@ RuntimeDieStateContext& SceneBodyMessages::die_context()
         [this]() -> u32
         {
             // Actor +0x958 is the mind; its +0xC is the target.
-            const u32 mind = read_u32(player_.actor_bytes, 0x958);
+            const u32 mind = player_record(player_.actor_bytes).mind;
             if (mind == 0)
             {
                 return 0;
@@ -2536,7 +2608,7 @@ RuntimeDieStateContext& SceneBodyMessages::die_context()
             {
                 unbound("die state actor +0x958 " + std::to_string(mind) + " is not the player's mind");
             }
-            return read_u32(player_.mind, 0xC);
+            return mind_record(player_.mind).target;
         },
         [this](u32 address) -> const Actor*
         {
@@ -2595,9 +2667,9 @@ RuntimePlayerDeathContext& SceneBodyMessages::player_death_context()
     auto& scene = player_.scene;
     player_death_.emplace(RuntimePlayerDeathContext{knockdown, services_.latches, player_.mind,
         player_.mind.empty() ? nullptr : &player_.mind_events.anchor, *services_.camera_pulse, services_.streams(),
-        *services_.dialogue, g_510cec, g_4dea24, g_script_30d94, scene.scene_kills, scene.brew_kills_required,
-        *services_.frontend_state, scene.prompt_owner, g_scene_transition.phase, g_5493dc,
-        g_runtime_profile.progress.bytes, g_runtime_profile.unlocks.bytes, reinterpret_cast<const char*>(g_510e58),
+        *services_.dialogue, g_pause_count, g_transition_pause_count, g_script_30d94, scene.scene_kills, scene.brew_kills_required,
+        *services_.frontend_state, scene.prompt_owner, g_scene_transition.phase, g_transition_row_two_pending,
+        g_runtime_profile.progress.bytes, g_runtime_profile.unlocks.bytes, reinterpret_cast<const char*>(g_scene_record),
         services_.begin_transition});
     return *player_death_;
 }
@@ -2617,7 +2689,7 @@ std::span<const u8> SceneBodyMessages::mind_target()
     {
         return {};
     }
-    const u32 target = read_u32(player_.mind, 0x14);
+    const u32 target = mind_record(player_.mind).action_record;
     return target == 0 ? std::span<const u8>() : services_.target_at(target);
 }
 
@@ -2978,7 +3050,7 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             unbound("body vtable +0x1C of factory type " + std::to_string(body.type));
         }
         const EntityMaskHost mask{player_.actor.mask_flag, player_.actor.goal_ring, player_.actor.mask_mode};
-        const i32 floor = i32(read_u32(player_.actor_bytes, 0xCEC));
+        const i32 floor = i32(player_record(player_.actor_bytes).floor);
         RuntimePlayerCollisionAction action{[this](RuntimePlayerCollisionReply& reply)
         {
             const u32 type = player_.body_selection.second.type;
@@ -2998,14 +3070,15 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             {
                 // 0x0009D0E0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
-                message_runtime_knockdown_state({second.bytes.get(), second.size}, reply, knockdown_context());
+                message_runtime_knockdown_state(body_state_view<KnockdownState>({second.bytes.get(), second.size}),
+                    reply, knockdown_context());
                 return;
             }
             if (type == 0x8B)
             {
                 // 0x000A3D20 reads the reply's id: only 0x25 acts.
                 auto& second = player_.body_selection.second;
-                message_runtime_throw_state({second.bytes.get(), second.size},
+                message_runtime_throw_state(body_state_view<ThrowState>({second.bytes.get(), second.size}),
                     {reinterpret_cast<const u8*>(&reply.id), 4}, throw_context());
                 return;
             }
@@ -3014,14 +3087,15 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 // 0x0009E9F0 reads the reply's id and, for 0x5C and 0x7C, its next word.
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 2> words{reply.id, read_u32({reinterpret_cast<const u8*>(&reply.id), 8}, 4)};
-                message_runtime_lift_state({second.bytes.get(), second.size}, words, pickup_context());
+                message_runtime_lift_state(body_state_view<LiftState>({second.bytes.get(), second.size}), words,
+                    pickup_context());
                 return;
             }
             if (type == 0x5E)
             {
                 // 0x00088960 reads the reply's id: only 0x25 acts.
                 auto& second = player_.body_selection.second;
-                message_runtime_anim_state({second.bytes.get(), second.size},
+                message_runtime_anim_state(body_state_view<AnimState>({second.bytes.get(), second.size}),
                     {reinterpret_cast<const u8*>(&reply.id), 8}, anim_context());
                 return;
             }
@@ -3029,14 +3103,15 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
             {
                 // 0x0008C4D0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
-                message_runtime_die_state({second.bytes.get(), second.size}, {reinterpret_cast<const u8*>(&reply.id), 8});
+                message_runtime_die_state(body_state_view<DieState>({second.bytes.get(), second.size}),
+                    {reinterpret_cast<const u8*>(&reply.id), 8});
                 return;
             }
             if (type == 0x89)
             {
                 // 0x000A3460 reads the reply's id; for 0x53 0x00023890 reads +4 and writes +8.
                 auto& second = player_.body_selection.second;
-                message_runtime_stunned_state({second.bytes.get(), second.size},
+                message_runtime_stunned_state(body_state_view<StunnedState>({second.bytes.get(), second.size}),
                     {reinterpret_cast<u8*>(&reply.id), 12}, stunned_context());
                 return;
             }
@@ -3045,7 +3120,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 // 0x000A1850 reads the reply's id and its next word.
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 2> words{reply.id, read_u32({reinterpret_cast<const u8*>(&reply.id), 8}, 4)};
-                message_runtime_endure_state({second.bytes.get(), second.size}, words, endure_context());
+                message_runtime_endure_state(body_state_view<EndureState>({second.bytes.get(), second.size}),
+                    words, endure_context());
                 return;
             }
             if (type == 0x90)
@@ -3057,7 +3133,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_yoyo_spin_state({second.bytes.get(), second.size}, words, yoyo_spin_context());
+                message_runtime_yoyo_spin_state(body_state_view<YoyoSpinState>({second.bytes.get(), second.size}),
+                    words, yoyo_spin_context());
                 return;
             }
             if (type == 0x86)
@@ -3065,14 +3142,15 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 // 0x000A24B0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 2> words{reply.id, read_u32({reinterpret_cast<const u8*>(&reply.id), 8}, 4)};
-                message_runtime_spin_dizzy_state({second.bytes.get(), second.size}, words, spin_dizzy_context());
+                message_runtime_spin_dizzy_state(body_state_view<SpinDizzyState>({second.bytes.get(), second.size}),
+                    words, spin_dizzy_context());
                 return;
             }
             if (type == 0x64)
             {
                 // 0x0008CEA0 reads the reply's id and, for 0x7C, its next word.
                 auto& second = player_.body_selection.second;
-                message_runtime_dizzy_state({second.bytes.get(), second.size},
+                message_runtime_dizzy_state(body_state_view<DizzyState>({second.bytes.get(), second.size}),
                     {reinterpret_cast<const u8*>(&reply.id), 8});
                 return;
             }
@@ -3120,7 +3198,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 std::array<u32, 3> words{reply.id, reply.accepted, reply.handled};
                 const std::span<const u8> contact = reply.contact == nullptr ? std::span<const u8>()
                                                                              : std::span<const u8>(reply.contact, 0x18);
-                message_runtime_arc_attack_state({second.bytes.get(), second.size}, words, contact,
+                message_runtime_arc_attack_state(body_state_view<ArcAttackState>({second.bytes.get(), second.size}),
+                    words, contact,
                     arc_attack_context());
                 reply.accepted = words[1];
                 reply.handled = words[2];
@@ -3131,7 +3210,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 // 0x0008DD30 reads the reply's id: only 0x51 acts.
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_arc_state({second.bytes.get(), second.size}, words, arc_context());
+                message_runtime_arc_state(body_state_view<ArcState>({second.bytes.get(), second.size}),
+                    words, arc_context());
                 return;
             }
             if (type == 0x72)
@@ -3143,7 +3223,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_grab_throw_state({second.bytes.get(), second.size}, words, grab_throw_context());
+                message_runtime_grab_throw_state(body_state_view<GrabThrowState>({second.bytes.get(), second.size}),
+                    words, grab_throw_context());
                 return;
             }
             if (type == 0x60)
@@ -3155,7 +3236,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_bandaged_state({second.bytes.get(), second.size}, words, bandaged_context());
+                message_runtime_bandaged_state(body_state_view<BandagedState>({second.bytes.get(), second.size}),
+                    words, bandaged_context());
                 return;
             }
             if (type == 0x61)
@@ -3167,7 +3249,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_blood_suck_state({second.bytes.get(), second.size}, words, blood_suck_context());
+                message_runtime_blood_suck_state(body_state_view<BloodSuckState>({second.bytes.get(), second.size}),
+                    words, blood_suck_context());
                 return;
             }
             if (type == 0x79)
@@ -3179,7 +3262,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_jump_on_state({second.bytes.get(), second.size}, words, jump_on_context());
+                message_runtime_jump_on_state(body_state_view<JumpOnState>({second.bytes.get(), second.size}),
+                    words, jump_on_context());
                 return;
             }
             if (type == 0x67)
@@ -3209,7 +3293,8 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                 }
                 auto& second = player_.body_selection.second;
                 const std::array<u32, 1> words{reply.id};
-                message_runtime_transform_state({second.bytes.get(), second.size}, words, transform_context());
+                message_runtime_transform_state(body_state_view<TransformState>({second.bytes.get(), second.size}),
+                    words, transform_context());
                 return;
             }
             if (type == 0x6A)

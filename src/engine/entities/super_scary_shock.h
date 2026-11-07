@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_factory_owner.h"
 #include "gbtg/retail_field.h"
 #include <functional>
@@ -30,27 +32,27 @@ constexpr RetailField<u32, 0x750> challenge_word{};
 constexpr u32 kSize = 0x754;
 static_assert(retail_fits(kSize, challenge_word));
 } // namespace super_scary_shock_parameter
-namespace super_scary_shock_field
+struct SuperScaryShockState
 {
-constexpr RetailField<u32, 0x934> ghouly{}; // the spawned ghouly's address, zero until the player comes near
-constexpr RetailField<float, 0x938> reach{}; // parameters +0x340
-constexpr RetailField<float, 0x93C> clip_time{}; // drawn for each challenge; -1 when +0xA40 is -1
-constexpr RetailRecord<0x940, 0x80> ghouly_name{}; // written to the template's +0x28 and +0x2B4
-constexpr RetailRecord<0x9C0, 0x80> ghouly_template{};
-constexpr RetailField<float, 0xA40> clip_time_base{};
-constexpr RetailField<float, 0xA44> clip_time_range{};
-constexpr RetailRecord<0xA48, 0x80> first_clip{};
-constexpr RetailRecord<0xAC8, 0x80> attack_animation{}; // message 0x8E 0
-constexpr RetailRecord<0xB48, 0x80> attack_events{};
-constexpr RetailRecord<0xBC8, 0x80> second_clip{};
-constexpr RetailRecord<0xC48, 0x80> end_animation{}; // message 0x8E 2
-constexpr RetailRecord<0xCC8, 0x80> end_events{};
-constexpr RetailField<u32, 0xD48> ditty_started{};
-constexpr RetailField<u32, 0xD4C> ditty_held{}; // the destructor lets the ditty go while set
-constexpr RetailField<u32, 0xD50> challenge_word{}; // 0x000873A0's +0x14C
-constexpr u32 kSize = 0xD54;
-static_assert(retail_fits(kSize, challenge_word));
-} // namespace super_scary_shock_field
+    ActorBase base{}; // +0
+    u32 ghouly = 0; // +0x934, the spawned ghouly's address, zero until the player comes near
+    float reach = 0.f; // +0x938, parameters +0x340
+    float clip_time = 0.f; // +0x93C, drawn for each challenge; -1 when +0xA40 is -1
+    std::array<char, 0x80> ghouly_name{}; // +0x940, written to the template's +0x28 and +0x2B4
+    std::array<char, 0x80> ghouly_template{}; // +0x9C0
+    float clip_time_base = 0.f; // +0xA40
+    float clip_time_range = 0.f; // +0xA44
+    std::array<char, 0x80> first_clip{}; // +0xA48
+    std::array<char, 0x80> attack_animation{}; // +0xAC8, message 0x8E 0
+    std::array<char, 0x80> attack_events{}; // +0xB48
+    std::array<char, 0x80> second_clip{}; // +0xBC8
+    std::array<char, 0x80> end_animation{}; // +0xC48, message 0x8E 2
+    std::array<char, 0x80> end_events{}; // +0xCC8
+    u32 ditty_started = 0; // +0xD48
+    u32 ditty_held = 0; // +0xD4C, the destructor lets the ditty go while set
+    u32 challenge_word = 0; // +0xD50, 0x000873A0's +0x14C
+};
+static_assert(sizeof(SuperScaryShockState) == 0xD54);
 struct RuntimeSuperScaryShock
 {
     std::span<u8> bytes;

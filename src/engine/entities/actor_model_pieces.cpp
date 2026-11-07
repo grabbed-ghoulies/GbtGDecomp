@@ -1,4 +1,5 @@
 #include "actor_model_pieces.h"
+#include "gbtg/model_nodes.h"
 #include "gbtg/anim.h"
 #include "gbtg/model_runtime.h"
 
@@ -10,11 +11,6 @@ namespace gbtg
 {
 namespace
 {
-void store(std::vector<u8>& bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // DAT_0054DD7C's step and its [1, 2) mantissa float.
 float next_unit(u32& random)
 {
@@ -41,28 +37,28 @@ void build_actor_model_pieces(const Actor& actor, std::vector<u8>& pieces, u32& 
         return;
     }
     const auto cpu = actor.model->cpu;
-    const u32 block = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+    const u32 block = runtime_model_piece_header(cpu);
     if (block == 0)
     {
         return;
     }
     const u8 count = cpu[block + 1];
-    pieces.assign(size_t(count) * 0xB0, 0); // 0x000F72D0.
+    pieces.assign(size_t(count) * sizeof(ActorModelPiece), 0); // 0x000F72D0.
     constexpr float one = 1.f; // DAT_0032B0F8.
     constexpr float turn = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
     constexpr float quarter_turn = std::bit_cast<float>(0x3FC90FDBu); // DAT_0032B140.
     constexpr float two_turns = std::bit_cast<float>(0x41490FDBu); // DAT_0032B21C.
     for (u32 index = 0; index < count; ++index)
     {
-        const size_t row = size_t(index) * 0xB0;
-        store(pieces, row + 0x44, 0.f);
-        store(pieces, row + 0x40, 0.f);
-        store(pieces, row + 0x3C, 0.f);
-        store(pieces, row + 0x20, 0.f);
-        store(pieces, row + 0x1C, 0.f);
-        store(pieces, row + 0x18, 0.f);
-        store(pieces, row + 0xA8, 0.f);
-        store(pieces, row + 0x8C, 0.f);
+        ActorModelPiece& row = actor_model_piece(pieces, index);
+        row.euler.z = 0.f;
+        row.euler.y = 0.f;
+        row.euler.x = 0.f;
+        row.turn.z = 0.f;
+        row.turn.y = 0.f;
+        row.turn.x = 0.f;
+        row.age = 0.f;
+        row.active = 0u;
         const u32 lists = read_u32(cpu, block + 8);
         float x = 0.f;
         float y = 0.f;
@@ -75,7 +71,7 @@ void build_actor_model_pieces(const Actor& actor, std::vector<u8>& pieces, u32& 
         }
         if (points == 0)
         {
-            store(pieces, row + 0xAC, 0.f);
+            row.extent = 0.f;
         }
         else
         {
@@ -109,9 +105,9 @@ void build_actor_model_pieces(const Actor& actor, std::vector<u8>& pieces, u32& 
                 divisor += 4294967296.0L;
             }
             radius = float(distance / divisor);
-            store(pieces, row + 0x20, 0.f);
-            store(pieces, row + 0x1C, 0.f);
-            store(pieces, row + 0x18, 0.f);
+            row.turn.z = 0.f;
+            row.turn.y = 0.f;
+            row.turn.x = 0.f;
             float max_x = read_f32(list, 0);
             float max_y = read_f32(list, 4);
             float max_z = read_f32(list, 8);
@@ -155,36 +151,36 @@ void build_actor_model_pieces(const Actor& actor, std::vector<u8>& pieces, u32& 
             {
                 if (extent_x > extent_z)
                 {
-                    store(pieces, row + 0x18, quarter_turn);
-                    store(pieces, row + 0xAC, extent_z * 0.5f); // DAT_0032B0F4.
+                    row.turn.x = quarter_turn;
+                    row.extent = extent_z * 0.5f; // DAT_0032B0F4.
                 }
                 else
                 {
-                    store(pieces, row + 0x20, quarter_turn);
-                    store(pieces, row + 0xAC, extent_x * 0.5f);
+                    row.turn.z = quarter_turn;
+                    row.extent = extent_x * 0.5f;
                 }
             }
             else
             {
-                store(pieces, row + 0xAC, extent_y * 0.5f);
+                row.extent = extent_y * 0.5f;
             }
-            store(pieces, row + 0x1C, (next_unit(random) - one) * turn);
+            row.turn.y = (next_unit(random) - one) * turn;
         }
         radius *= std::bit_cast<float>(0x3F4CCCCDu); // DAT_0032B244.
-        store(pieces, row + 0x98, z);
-        store(pieces, row + 0x90, x);
-        store(pieces, row + 0x94, y);
+        row.center.z = z;
+        row.center.x = x;
+        row.center.y = y;
         constexpr float largest = 5.f; // DAT_0032B184.
         if (radius > largest)
         {
             radius = largest;
         }
-        store(pieces, row + 0x48, radius);
+        row.radius = radius;
         const float first = next_unit(random);
         const float second = next_unit(random);
-        store(pieces, row + 0xC, (second - one) * two_turns - turn);
-        store(pieces, row + 0x14, 0.f);
-        store(pieces, row + 0x10, (first - one) * two_turns - turn);
+        row.spin.x = (second - one) * two_turns - turn;
+        row.spin.z = 0.f;
+        row.spin.y = (first - one) * two_turns - turn;
     }
 }
 
@@ -201,10 +197,9 @@ void launch_actor_model_piece_group(Actor& actor, i32 group, std::vector<u8>& pi
         throw Error("0x0003F820 launches pieces of an actor without a model instance");
     }
     const auto cpu = actor.model->cpu;
-    const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
-    const u32 descriptor = header + u32(group) * 0xC;
-    const u8 count = cpu[descriptor + 0x16];
-    const u32 list = header + read_u16(cpu, descriptor + 0x14);
+    const u32 header = runtime_model_piece_header(cpu);
+    const u8 count = runtime_model_piece_group_size(cpu, header, u32(group));
+    const u32 list = runtime_model_piece_group_list(cpu, header, u32(group));
     // The world matrix through the root bone, inverted: piece offsets are measured in the model's root frame.
     AnimationMatrix world;
     std::memcpy(world.data(), actor.xform, 48);
@@ -223,38 +218,38 @@ void launch_actor_model_piece_group(Actor& actor, i32 group, std::vector<u8>& pi
     for (u32 index = 0; index < count; ++index)
     {
         const u8 piece = cpu[list + index];
-        const size_t row = size_t(piece) * 0xB0;
+        ActorModelPiece& row = actor_model_piece(pieces, piece);
         const u32 one = 1;
-        std::memcpy(pieces.data() + row + 0x8C, &one, 4);
+        row.active = one;
         const auto matrix = resolve(runtime_matrix_array_matrix_offset(matrices.matrices.node, piece)); // 0x00155FF0
-        std::memcpy(pieces.data() + row + 0x4C, matrix.data(), 0x40);
+        std::memcpy(row.matrix.data(), matrix.data(), sizeof(row.matrix));
         Vec3 position;
         Vec3 euler;
         sample_actor_model_matrix(actor, piece, position, euler, 1, sampling); // 0x00040640
-        std::memcpy(pieces.data() + row + 0x30, &position, 12);
-        std::memcpy(pieces.data() + row + 0x3C, &euler, 12);
-        const float px = read_f32(pieces, row + 0x30);
-        const float py = read_f32(pieces, row + 0x34);
-        const float pz = read_f32(pieces, row + 0x38);
-        const float dx = ((py * w[1] + pz * w[2]) + px * w[0]) + w[3] - read_f32(pieces, row + 0x90);
-        const float dy = ((px * w[4] + py * w[5]) + pz * w[6]) + w[7] - read_f32(pieces, row + 0x94);
-        const float dz = ((px * w[8] + py * w[9]) + pz * w[10]) + w[11] - read_f32(pieces, row + 0x98);
+        row.position = position;
+        row.euler = euler;
+        const float px = row.position.x;
+        const float py = row.position.y;
+        const float pz = row.position.z;
+        const float dx = ((py * w[1] + pz * w[2]) + px * w[0]) + w[3] - row.center.x;
+        const float dy = ((px * w[4] + py * w[5]) + pz * w[6]) + w[7] - row.center.y;
+        const float dz = ((px * w[8] + py * w[9]) + pz * w[10]) + w[11] - row.center.z;
         const long double length = std::sqrt(std::sqrt((static_cast<long double>(dz) * dz +
             static_cast<long double>(dy) * dy) + static_cast<long double>(dx) * dx));
-        float extent = float(static_cast<long double>(read_f32(pieces, row + 0xAC)) - length);
+        float extent = float(static_cast<long double>(row.extent) - length);
         if (0.f > extent)
         {
             extent = 0.f;
         }
-        std::memcpy(pieces.data() + row + 0xAC, &extent, 4);
+        row.extent = extent;
         const float first = next_unit(random);
         const float second = next_unit(random);
         const float third = next_unit(random);
         constexpr float spread = std::bit_cast<float>(0x3FB33333u); // DAT_0032B3D0.
         constexpr float offset = std::bit_cast<float>(0x3F333333u); // DAT_0032B264.
-        store(pieces, row, (first - 1.f) * spread - offset);
-        store(pieces, row + 4, (second - 1.f) * offset);
-        store(pieces, row + 8, (third - 1.f) * spread - offset);
+        row.velocity.x = (first - 1.f) * spread - offset;
+        row.velocity.y = (second - 1.f) * offset;
+        row.velocity.z = (third - 1.f) * spread - offset;
     }
 }
 }

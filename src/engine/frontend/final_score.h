@@ -1,4 +1,5 @@
 #pragma once
+#include "../scene/scene_control_fields.h"
 #include "gbtg/entity.h"
 #include "gbtg/object_factory.h"
 #include "gbtg/retail_field.h"
@@ -21,12 +22,12 @@ struct SaveGameContext;
 // finished game in its save (0x000F2D70), builds the final score (0x000D3E30) and opens page 1, the Baron's intro
 // line. The update runs the current page (0x000D4070) and moves on through the pages as each one finishes: 2 the
 // four scores counted up, 3 and 4, then 5 and aid_script_ghoulies_credits_final.
-namespace final_score_control_field
+struct FinalScoreControlState
 {
-constexpr RetailField<i32, 0x24> page{}; // 0 building, then pages 1..4 and 5 the credits requested
-constexpr u32 kSize = 0x28;
-static_assert(retail_fits(kSize, page));
-} // namespace final_score_control_field
+    SceneControlBase base;
+    i32 page = 0; // +0x24, 0 building, then pages 1..4 and 5 the credits requested
+};
+static_assert(sizeof(FinalScoreControlState) == 0x28);
 // One of the four scores (DAT_00506558 +r*0x388): its row of the 0x00303F60 table (stride 0x110) and its rank.
 struct FinalScoreRow
 {
@@ -259,7 +260,7 @@ void draw_runtime_game_final_score(GameSelectWidget& widget,
 void draw_runtime_final_score(FinalScoreServices& services); // Xbox 0x000D4120
 // The control's vtable: construct 0x00082DC0, destroy 0x00082E20, update 0x00082E50 and draw 0x00082F70 (a jump
 // to 0x000D4120).
-bool construct_runtime_final_score_control(std::span<u8> state, FinalScoreServices& services); // Xbox 0x00082DC0
+bool construct_runtime_final_score_control(FinalScoreControlState& control, FinalScoreServices& services); // Xbox 0x00082DC0
 void destroy_runtime_final_score_control(FinalScoreServices& services); // Xbox 0x00082E20
-void tick_runtime_final_score_control(std::span<u8> state, FinalScoreServices& services); // Xbox 0x00082E50
+void tick_runtime_final_score_control(FinalScoreControlState& control, FinalScoreServices& services); // Xbox 0x00082E50
 }

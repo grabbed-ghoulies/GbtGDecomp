@@ -1,4 +1,5 @@
 #include "weapon_breakage.h"
+#include "gbtg/model_nodes.h"
 #include "weapon_actor_detail.h"
 #include "actor_live_attachments.h"
 #include "actor_model_anchors.h"
@@ -94,7 +95,7 @@ i32 runtime_weapon_stat_points(RuntimeWeaponActor& weapon, std::span<char16_t> t
 // Xbox 0x001456D0, ESI actor
 void award_runtime_weapon_points(RuntimeWeaponActor& weapon, u16 category)
 {
-    if (read_u32(weapon.bytes, 0xDA4) == 0)
+    if (weapon_base(weapon.bytes).awards_points == 0)
     {
         return;
     }
@@ -108,7 +109,7 @@ void award_runtime_weapon_points(RuntimeWeaponActor& weapon, u16 category)
     {
         ++weapon.services.broken_parts; // DAT_00545978.
         weapon.services.award(points, category, weapon.services.award_text.data(),
-            i32(read_u32(weapon.bytes, 0x9A4))); // 0x0012DE90
+            i32(weapon_base(weapon.bytes).unk_9A4)); // 0x0012DE90
     }
 }
 
@@ -121,7 +122,7 @@ void set_runtime_weapon_piece_pairs(RuntimeWeaponActor& weapon, float fraction)
         return;
     }
     const auto cpu = actor.model->cpu;
-    const u32 header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+    const u32 header = runtime_model_piece_header(cpu);
     if (header == 0 || cpu[header + 0x19] == 0xFF)
     {
         return;
@@ -147,7 +148,7 @@ bool break_runtime_weapon(RuntimeWeaponActor& weapon)
     if (actor.model != nullptr && actor.model->cpu.data() != nullptr)
     {
         const auto cpu = actor.model->cpu;
-        header = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+        header = runtime_model_piece_header(cpu);
         if (header != 0)
         {
             groups = cpu[header];
@@ -159,35 +160,35 @@ bool break_runtime_weapon(RuntimeWeaponActor& weapon)
         const auto cpu = actor.model->cpu;
         dispatch_actor_resource_callout(weapon.view.startup.resource, 0xD, nullptr, weapon.base().callouts); // 0x0003BE20
         bytes[0x298] = 0;
-        if (i32(read_u32(bytes, 0xD90)) < i32(groups))
+        if (i32(weapon_base(bytes).broken_groups) < i32(groups))
         {
             launched = true;
             do
             {
-                const u32 group = read_u32(bytes, 0xD90);
-                RuntimeActorMatrixSampling sampling{{weapon.matrices.allocation,
-                    size_t(weapon.matrices.matrices.count) * 0x48}, weapon.matrices.matrices.node,
+                const u32 group = weapon_base(bytes).broken_groups;
+                RuntimeActorMatrixSampling sampling{actor_matrix_records(weapon.matrices),
+                    weapon.matrices.matrices.node,
                     weapon.services.sampling_scratch, weapon.services.sampling_active, actor_transform_origin,
                     weapon.model_source};
                 launch_actor_model_piece_group(actor, i32(group), weapon.pieces, weapon.matrices, sampling,
                     weapon.model_source, weapon.random); // 0x0003F820
-                store32(bytes, 0xD94, read_u32(bytes, 0xD94) + cpu[header + 0x16 + group * 0xC]);
-                store32(bytes, 0xD90, group + 1);
+                weapon_base(bytes).broken_pieces = weapon_base(bytes).broken_pieces + cpu[header + 0x16 + group * 0xC];
+                weapon_base(bytes).broken_groups = group + 1;
             }
-            while (i32(read_u32(bytes, 0xD90)) < i32(groups));
+            while (i32(weapon_base(bytes).broken_groups) < i32(groups));
         }
     }
     set_runtime_weapon_piece_pairs(weapon, 0.f); // 0x001457A0
-    bytes[0x93C] = 0;
+    weapon_base(bytes).mask = 0;
     actor.mask_flag = i32(u32(actor.mask_flag) & ~0xFFu);
-    if (bytes[0xD08] != 0)
+    if (weapon_base(bytes).voice_name.data()[0] != 0)
     {
-        const u16 voice = read_u16(bytes, 0xD88);
-        bytes[0xD08] = 0;
+        const u16 voice = weapon_base(bytes).voice;
+        weapon_base(bytes).voice_name.data()[0] = 0;
         if (voice != 0xFFFF)
         {
             stop_actor_sound_voice(i16(voice), weapon.services.sounds); // 0x00039690
-            store16(bytes, 0xD88, 0xFFFF);
+            weapon_base(bytes).voice = 0xFFFF;
         }
     }
     if (weapon.view.startup.models.secondary != nullptr) // Actor +0x310, held natively.
@@ -204,17 +205,17 @@ bool break_runtime_weapon(RuntimeWeaponActor& weapon)
             node = next;
         }
         weapon.services.release_frames(actor, weapon.view.frame.updates); // 0x0003DE90
-        request_runtime_weapon_variant(weapon, reinterpret_cast<const char*>(bytes.data() + 0xAEC),
-            reinterpret_cast<const char*>(bytes.data() + 0xB6C)); // 0x00148430
+        request_runtime_weapon_variant(weapon, weapon_base(bytes).variant_name.data(),
+            weapon_base(bytes).variant_attributes.data()); // 0x00148430
     }
     actor.spawn_model_blocked = 1; // +0x9A0.
-    store32(bytes, 0x9A0, 1);
-    const u16 category = read_u16(bytes, 0xAA8);
-    if (category != 0 && read_u32(bytes, 0x9A4) == 0)
+    weapon_base(bytes).spawn_model_blocked = 1;
+    const u16 category = weapon_base(bytes).break_category;
+    if (category != 0 && weapon_base(bytes).unk_9A4 == 0)
     {
         award_runtime_weapon_points(weapon, category); // 0x001456D0
     }
-    if (read_u32(bytes, 0x9A4) == 0)
+    if (weapon_base(bytes).unk_9A4 == 0)
     {
         ++weapon.services.broken_parts; // DAT_00545978.
         const std::array<i32, 2> message{0x8F, i32(weapon.self_address())};
@@ -233,7 +234,7 @@ bool request_runtime_weapon_variant(RuntimeWeaponActor& weapon, const char* name
     {
         return false;
     }
-    if (read_u32(bytes, 0xC00) != 0 && !actor_can_supply_ghoulybox(weapon.actor)) // 0x00146150
+    if (weapon_base(bytes).unk_C00 != 0 && !actor_can_supply_ghoulybox(weapon.actor)) // 0x00146150
     {
         return false;
     }
@@ -254,21 +255,21 @@ bool request_runtime_weapon_variant(RuntimeWeaponActor& weapon, const char* name
         std::strcpy(record->attributes_30, attributes);
     }
     link_actor_load_record(&g_side_list, *record); // 0x000F3C30 on DAT_00510568
-    if (bytes[0x93C] != 0)
+    if (weapon_base(bytes).mask != 0)
     {
-        if (read_u32(bytes, 0xC00) != 0)
+        if (weapon_base(bytes).unk_C00 != 0)
         {
             weapon.services.runtime_flags |= 2; // DAT_0050EA9C.
             activate_actor_bind_tree(weapon.actor); // 0x00112CC0
         }
         else
         {
-            bytes[0xAEC] = 0;
+            weapon_base(bytes).variant_name.data()[0] = 0;
             std::array<u32, 0x42> message{};
             message[0] = 0x13;
             weapon.message(message); // Vtable +0xC.
         }
-        scare_near_runtime_weapon(weapon, read_f32(bytes, 0xBF0)); // 0x0013B660
+        scare_near_runtime_weapon(weapon, weapon_base(bytes).trigger_radius); // 0x0013B660
     }
     return weapon.spawn_record != nullptr;
 }

@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "strategy_fields.h"
 #include "spider_strategy.h"
 
 namespace gbtg
@@ -8,15 +10,14 @@ namespace gbtg
 // wanders ("randomwander") and, queued on a standing target, either grabs it ("knockbackprepare", state 0x3ED, holding
 // the target's body +0x50) or knocks it down ("knockdown", 0x3EE). It keeps the director's sizes (0x000AAE40,
 // 0x44 / 0x18) and the empty destructor 0x001628B0.
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace vampire_chicken_strategy_field
+struct VampireChickenStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_003034E8
-constexpr RetailField<u32, 0x3C> held{}; // The grabbed target's body (its +0x50 names this actor)
-constexpr RetailField<u32, 0x40> provoked{}; // Each tick: the actor is provoked, or its target is no player in view
-constexpr u32 kSize = 0x44;
-static_assert(retail_fits(kSize, provoked));
-} // namespace vampire_chicken_strategy_field
+    StrategyBase base{}; // +0
+    u32 parameters = 0; // +0x38, DAT_003034E8
+    u32 held = 0; // +0x3C, the grabbed target's body (its +0x50 names this actor)
+    u32 provoked = 0; // +0x40, each tick: the actor is provoked, or its target is no player in view
+};
+static_assert(sizeof(VampireChickenStrategyState) == 0x44);
 struct RuntimeVampireChickenStrategy
 {
     // The instance's spider views over the same strategy: base goals, target checks, queue and actor views.

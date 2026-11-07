@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "body_action_selection.h"
@@ -30,19 +31,19 @@ constexpr RetailField<u32, 0x194> found_animation{}; // an XBE string
 constexpr u32 kSize = 0x198;
 static_assert(retail_fits(kSize, found_animation));
 } // namespace look_for_weapon_state_parameter
-namespace look_for_weapon_state_field
+struct LookForWeaponState
 {
-constexpr RetailField<u32, 0x18> found{}; // 0 searching, 1 a weapon was found
-constexpr RetailField<u32, 0x1C> joint{}; // the kind 4 locator's joint, or -1
-constexpr RetailField<float, 0x20> wait{};
-constexpr RetailField<u32, 0x24> found_animation{}; // set when the record was found
-// The three sprites (0x00035E90), set when loaded; the resources stay on the host.
-constexpr RetailField<u32, 0x28> puzzled{};
-constexpr RetailField<u32, 0x2C> bulb{};
-constexpr RetailField<u32, 0x30> glow{};
-constexpr u32 kSize = 0x34;
-static_assert(retail_fits(kSize, glow));
-} // namespace look_for_weapon_state_field
+    BodyStateBase base{}; // +0
+    u32 found = 0; // +0x18, 0 searching, 1 a weapon was found
+    u32 joint = 0; // +0x1C, the kind 4 locator's joint, or -1
+    float wait = 0.f; // +0x20
+    u32 found_animation = 0; // +0x24, set when the record was found
+    // +0x28: The three sprites (0x00035E90), set when loaded; the resources stay on the host.
+    u32 puzzled = 0;
+    u32 bulb = 0; // +0x2C
+    u32 glow = 0; // +0x30
+};
+static_assert(sizeof(LookForWeaponState) == 0x34);
 struct RuntimeLookForWeaponStateContext
 {
     std::span<u8> body;
@@ -61,16 +62,16 @@ struct RuntimeLookForWeaponStateContext
     std::function<u16()> next_key; // Body vtable +0x20.
 };
 void look_for_weapon_state_object_sizes(ObjectSizes& output); // Xbox 0x0009D8A0
-bool initialize_runtime_look_for_weapon_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_look_for_weapon_state(LookForWeaponState& state, std::span<const u8> parameters,
     RuntimeLookForWeaponStateContext& context); // Xbox 0x0009D920
-void destroy_runtime_look_for_weapon_state(std::span<u8> state,
+void destroy_runtime_look_for_weapon_state(LookForWeaponState& state,
     RuntimeLookForWeaponStateContext& context); // Xbox 0x0009DAE0
-void tick_runtime_look_for_weapon_state(std::span<u8> state,
+void tick_runtime_look_for_weapon_state(LookForWeaponState& state,
     RuntimeLookForWeaponStateContext& context); // Xbox 0x0009DB30
 // Whether the mind has a weapon to go for: its usable choice (mind +0x18), else the nearest (kept at mind +0x18).
 bool find_runtime_mind_weapon(RuntimeLookForWeaponStateContext& context); // Xbox 0x0009DC70, EAX actor
 // The question mark, or the bulb and its glow, above the locator.
-void draw_runtime_look_for_weapon_state(std::span<const u8> state,
+void draw_runtime_look_for_weapon_state(const LookForWeaponState& state,
     RuntimeLookForWeaponStateContext& context); // Xbox 0x0009DCD0, EAX actor, ESI state
 // The body turns to the actor at `target` while it is free to turn.
 void face_runtime_body_actor(std::span<u8> body, const Actor& actor, const Actor& target); // Xbox 0x001345B0, EBX body, ESI target

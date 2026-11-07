@@ -1,4 +1,9 @@
 #include "zombie_strategy.h"
+#include "gbtg/retail_field.h"
+#include "weapon_fields.h"
+#include "strategy_fields.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "body_action_selection.h"
 #include "player_children.h"
@@ -7,6 +12,7 @@
 #include "player_strategy.h"
 #include "../navigation/mind_navigation_angles.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -14,14 +20,19 @@ namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
+const ZombieParameters& parameters_of(RuntimeZombieStrategy& context)
 {
-    std::memcpy(bytes.data() + offset, &value, 4);
+    return retail_view<ZombieParameters>(context.parameters);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
+ZombieStrategyState& fields_of(std::span<u8> strategy)
 {
-    std::memcpy(bytes.data() + offset, &value, 4);
+    return strategy_view<ZombieStrategyState>(strategy);
+}
+
+const ZombieStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<ZombieStrategyState>(strategy);
 }
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeZombieStrategy& context)
@@ -55,13 +66,13 @@ bool requests_pending(RuntimeZombieStrategy& context)
 bool body_settled(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
 }
 
 // Mind +0x10: the current target record, or null.
 RuntimeMindTarget* mind_target(RuntimeZombieStrategy& context)
 {
-    const u32 address = read_u32(mind_of(context), 0x10);
+    const u32 address = mind_record(mind_of(context)).target_record;
     return address == 0 ? nullptr : goals_of(context).target_at(address);
 }
 
@@ -93,19 +104,19 @@ bool target_attackable(RuntimeZombieStrategy& context)
 RuntimePlayerMindRequest* request_position(float heading, RuntimeZombieStrategy& context)
 {
     Vec3 position;
-    if (!select_runtime_strategy_roam_position(position, heading, read_f32(context.parameters, 4),
-        read_f32(context.parameters, 0), context.checks))
+    if (!select_runtime_strategy_roam_position(position, heading, parameters_of(context).move.range,
+        parameters_of(context).move.width, context.checks))
     {
         return nullptr;
     }
-    return request_runtime_strategy_position(position, context.parameters, goals_of(context));
+    return request_runtime_strategy_position(position, parameters_of(context).move, goals_of(context));
 }
 }
 
 // Xbox 0x000C57F0
 bool initialize_runtime_zombie_strategy(std::span<u8> strategy)
 {
-    set(strategy, zombie_strategy_field::parameters, 0x004288B0u);
+    fields_of(strategy).parameters = 0x004288B0u;
     return true;
 }
 
@@ -113,9 +124,9 @@ bool initialize_runtime_zombie_strategy(std::span<u8> strategy)
 bool runtime_zombie_body_state_shown(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    if (body[0x2D0] != 0 && body[0x2D0] == 1)
+    if (body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == 1)
     {
-        return body[0x2D2] != 0;
+        return body_record(body).unk_2D2 != 0;
     }
     return false;
 }
@@ -124,9 +135,9 @@ bool runtime_zombie_body_state_shown(RuntimeZombieStrategy& context)
 bool runtime_zombie_body_state_hidden(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> body = body_of_actor(context);
-    if (body[0x2D0] != 0 && body[0x2D0] == 1)
+    if (body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == 1)
     {
-        return body[0x2D2] == 0;
+        return body_record(body).unk_2D2 == 0;
     }
     return true;
 }
@@ -175,13 +186,13 @@ void approach_runtime_zombie_target(RuntimeZombieStrategy& context)
     {
         return;
     }
-    const u32 approach = get(strategy, zombie_strategy_field::approach);
+    const u32 approach = fields_of(strategy).approach;
     if (approach == 1)
     {
-        if (actor_event_chance(goals.random, read_f32(context.parameters, 0x18))
-            && read_u32(mind_of(context), 0x10) == 0)
+        if (actor_event_chance(goals.random, parameters_of(context).aimless_swipe_chance)
+            && mind_record(mind_of(context)).target_record == 0)
         {
-            set(strategy, zombie_strategy_field::approach, 2u);
+            fields_of(strategy).approach = 2u;
             load_runtime_mind_goal(context.goal_swipe_aimless, goals.entry.goals);
             return;
         }
@@ -200,17 +211,18 @@ RuntimePlayerMindRequest* request_runtime_zombie_flank(const RuntimeMindTarget& 
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const Actor& actor = goals.entry.actor;
     const Vec3 position = actor_world_position(actor);
-    const Vec3 toward{read_f32(target.bytes, 0x20) - position.x, read_f32(target.bytes, 0x24) - position.y,
-        read_f32(target.bytes, 0x28) - position.z};
+    const Vec3 toward{mind_target_record(target.bytes).shape.position.x - position.x,
+        mind_target_record(target.bytes).shape.position.y - position.y,
+        mind_target_record(target.bytes).shape.position.z - position.z};
     // The angle goes to the target argument's stack slot; a zero direction leaves the target's address there.
     float angle = std::bit_cast<float>(target.address);
     runtime_direction_angle(toward, angle);
     float heading = angle;
     const Vec3 again = actor_world_position(actor);
-    const float dx = again.x - read_f32(target.bytes, 0x20);
-    const float dy = again.y - read_f32(target.bytes, 0x24);
-    const float dz = again.z - read_f32(target.bytes, 0x28);
-    const float near = read_f32(context.parameters, 0x24);
+    const float dx = again.x - mind_target_record(target.bytes).shape.position.x;
+    const float dy = again.y - mind_target_record(target.bytes).shape.position.y;
+    const float dz = again.z - mind_target_record(target.bytes).shape.position.z;
+    const float near = parameters_of(context).sidestep_reach;
     if (near * near > dz * dz + dy * dy + dx * dx)
     {
         goals.random = goals.random * 0x19660Du + 0x3C6EF35Fu;
@@ -241,7 +253,7 @@ RuntimePlayerMindRequest* request_runtime_zombie_roam(RuntimeZombieStrategy& con
 void set_runtime_zombie_approach(u32 mode, RuntimeZombieStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    set(strategy_of(context), zombie_strategy_field::approach, mode);
+    fields_of(strategy_of(context)).approach = mode;
     if (mode == 2)
     {
         load_runtime_mind_goal(context.goal_swipe_aimless, goals.entry.goals);
@@ -265,7 +277,7 @@ void set_runtime_zombie_approach(u32 mode, RuntimeZombieStrategy& context)
         request = request_runtime_zombie_roam(context);
         stance = 2;
     }
-    body_of_actor(context)[0x328] = stance;
+    body_record(body_of_actor(context)).move_class = stance;
     if (request == nullptr)
     {
         return;
@@ -274,17 +286,17 @@ void set_runtime_zombie_approach(u32 mode, RuntimeZombieStrategy& context)
     {
         return;
     }
-    put_float(request->bytes, 0x1C, 1.f); // DAT_0032B0F8.
-    put_float(request->bytes, 0x20, 1.f);
+    set(request->bytes, navigation_request::speed_low, 1.f); // DAT_0032B0F8.
+    set(request->bytes, navigation_request::speed_high, 1.f);
 }
 
 // Xbox 0x000C5290
 void begin_runtime_zombie_special(RuntimeZombieStrategy& context)
 {
     std::span<u8> strategy = strategy_of(context);
-    set(strategy, zombie_strategy_field::special_hit, 0u);
+    fields_of(strategy).special_hit = 0u;
     load_runtime_mind_goal(context.goal_special, goals_of(context).entry.goals);
-    strategy[0x1A] = 1;
+    strategy_base(strategy).attacking = 1;
 }
 
 // Xbox 0x000C52C0
@@ -292,8 +304,8 @@ void end_runtime_zombie_special(RuntimeZombieStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    strategy[0x1A] = 0;
-    if (get(strategy, zombie_strategy_field::special_hit) != 0 || !body_settled(context))
+    strategy_base(strategy).attacking = 0;
+    if (fields_of(strategy).special_hit != 0 || !body_settled(context))
     {
         return;
     }
@@ -304,9 +316,9 @@ void end_runtime_zombie_special(RuntimeZombieStrategy& context)
 // Xbox 0x000C5300
 void update_runtime_zombie_special(RuntimeZombieStrategy& context)
 {
-    if (get(strategy_of(context), zombie_strategy_field::special_hit) != 0)
+    if (fields_of(strategy_of(context)).special_hit != 0)
     {
-        strategy_of(context)[0x1A] = 0;
+        strategy_base(strategy_of(context)).attacking = 0;
     }
     if (body_settled(context) && !requests_pending(context))
     {
@@ -327,7 +339,7 @@ void update_runtime_zombie_wait(RuntimeZombieStrategy& context)
 void react_runtime_zombie_message(std::span<const u32> message, RuntimeZombieStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const u32 actor = read_u32(strategy_of(context), 8);
+    const u32 actor = strategy_base(strategy_of(context)).actor;
     switch (message[0])
     {
     case 0x36:
@@ -359,7 +371,7 @@ void react_runtime_zombie_message(std::span<const u32> message, RuntimeZombieStr
         return;
     }
     case 0x7A:
-        put(mind_of(context), 0x18, message[3]);
+        mind_record(mind_of(context)).action_actor = message[3];
         return;
     case 0x82:
         if (runtime_zombie_body_state_hidden(context))
@@ -382,7 +394,7 @@ void react_runtime_zombie_message(std::span<const u32> message, RuntimeZombieStr
 // Xbox 0x000C5570
 void return_runtime_zombie_to_approach(RuntimeZombieStrategy& context)
 {
-    const u16 state = get(strategy_of(context), strategy_field::state);
+    const u16 state = strategy_base(strategy_of(context)).state;
     if ((state >= 0x3ED && state <= 0x3EF) || state == 0x401)
     {
         change_state(0x40C, context);
@@ -437,7 +449,7 @@ void choose_runtime_zombie_state(RuntimeZombieStrategy& context)
 u16 choose_runtime_zombie_weapon_state(RuntimeZombieStrategy& context)
 {
     const std::span<const u8> mind = mind_of(context);
-    const u32 weapon = mind.data() == nullptr ? 0 : read_u32(mind, 0x18);
+    const u32 weapon = mind.data() == nullptr ? 0 : mind_record(mind).action_actor;
     if (weapon != 0)
     {
         const Actor& held = *context.views.actor_at(weapon);
@@ -445,8 +457,8 @@ u16 choose_runtime_zombie_weapon_state(RuntimeZombieStrategy& context)
         // Weapon +0x918's first dword is the parent node: none, the root's (its own first dword null), or a node of
         // no actor (the node minus 0x918 is null).
         const auto* parent = held.link == nullptr ? nullptr : static_cast<const ActorLink*>(held.link->head);
-        if ((parent == nullptr || parent->head == nullptr || held.link->owner == nullptr) && bytes[0x93C] != 0
-            && read_u32(bytes, 0xAD0) == 0 && read_u32(bytes, 0xAC4) != 0)
+        if ((parent == nullptr || parent->head == nullptr || held.link->owner == nullptr) && weapon_base(bytes).mask != 0
+            && weapon_base(bytes).spawn_blocked == 0 && weapon_base(bytes).spawn_point_count != 0)
         {
             return 0x405;
         }
@@ -463,7 +475,7 @@ void update_runtime_zombie_strategy(RuntimeZombieStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals);
     switch (state)
     {
@@ -485,7 +497,7 @@ void update_runtime_zombie_strategy(RuntimeZombieStrategy& context)
         return;
     case 0x40C:
         selected_target(context);
-        if (state == get(strategy, strategy_field::state))
+        if (state == strategy_base(strategy).state)
         {
             approach_runtime_zombie_target(context);
         }
@@ -506,9 +518,9 @@ void dispatch_runtime_zombie_message(std::span<const u32> message, RuntimeZombie
         dispatch_runtime_base_strategy_message(message, context.base);
         return;
     }
-    if (get(strategy_of(context), strategy_field::state) == 0x3EF && message[0] == 0x3B)
+    if (strategy_base(strategy_of(context)).state == 0x3EF && message[0] == 0x3B)
     {
-        set(strategy_of(context), zombie_strategy_field::special_hit, 1u);
+        fields_of(strategy_of(context)).special_hit = 1u;
         return;
     }
     react_runtime_zombie_message(message, context);
@@ -524,26 +536,26 @@ void enter_runtime_zombie_state(u16 state, u16 previous, RuntimeZombieStrategy& 
     {
         goals.room = nullptr; // Actor +0xCA0.
     }
-    body[0x328] = 2;
+    body_record(body).move_class = 2;
     switch (state)
     {
     case 0x3ED:
-        body[0x328] = 4;
+        body_record(body).move_class = 4;
         load_runtime_mind_goal(context.goal_swipe, mind);
         return;
     case 0x3EE:
-        body[0x328] = 5;
+        body_record(body).move_class = 5;
         load_runtime_mind_goal(context.goal_kick, mind);
         return;
     case 0x3EF:
-        body[0x328] = 6;
+        body_record(body).move_class = 6;
         begin_runtime_zombie_special(context);
         return;
     case 0x405:
         load_runtime_mind_goal(context.goal_get_weapon, mind);
         return;
     case 0x40C:
-        set(strategy_of(context), zombie_strategy_field::approach, 0u);
+        fields_of(strategy_of(context)).approach = 0u;
         set_runtime_zombie_approach(1, context);
         return;
     case 0x416:
@@ -572,12 +584,12 @@ void leave_runtime_zombie_state(u16 state, u16 next, RuntimeZombieStrategy& cont
         end_runtime_zombie_special(context);
         return;
     case 0x40C:
-        set(strategy_of(context), zombie_strategy_field::approach, 0u);
+        fields_of(strategy_of(context)).approach = 0u;
         return;
     default:
         if (state == 0x3FC || state == 0x3FF || state == 0x415)
         {
-            --strategy_of(context)[0x1C];
+            --strategy_base(strategy_of(context)).pause_count;
         }
         return;
     }

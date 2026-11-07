@@ -1,4 +1,5 @@
 #pragma once
+#include "mind_fields.h"
 #include "player_children.h"
 #include "player_strategy_goals.h"
 #include "../frontend/dialogue_input.h"
@@ -7,6 +8,16 @@
 
 namespace gbtg
 {
+// One actor the director is considering (0x2C bytes, on the stack in 0x000AA590).
+struct CameraDirectorEntry
+{
+    u32 actor = 0; // +0, by address; 0 for a group's centre
+    i32 priority = 0; // +4, the highest sort first
+    float distance = 0.f; // +8, the nearest sort first
+    MindTargetShape shape{}; // +0xC
+};
+static_assert(sizeof(CameraDirectorEntry) == 0x2C);
+
 // One player actor as the camera director reads it through its +0x934 node on DAT_00511B38.
 struct RuntimeDirectorActor
 {
@@ -47,9 +58,9 @@ struct RuntimeDirectorTargets
 bool runtime_actor_strategy_waiting(const RuntimeDirectorActor& actor); // Xbox 0x00028CC0, ECX actor
 u32 camera_target_watched_elsewhere(u32 self, u32 target,
     const RuntimeDirectorTargets& context); // Xbox 0x000AA480, ESI self, EDX target
-u8* reserve_camera_director_entry(u8* entries, i32& count, u32 actor, i32 priority,
+CameraDirectorEntry* reserve_camera_director_entry(CameraDirectorEntry* entries, i32& count, u32 actor, i32 priority,
     i32 limit); // Xbox 0x000AA4D0, EAX entries, EDI count, EBX actor
-u32 add_camera_director_entry(u8* entries, i32& count, u32 actor, i32 priority, i32 limit, float distance,
+u32 add_camera_director_entry(CameraDirectorEntry* entries, i32& count, u32 actor, i32 priority, i32 limit, float distance,
     const RuntimeDirectorTargets& context); // Xbox 0x000AA520, EAX priority, ECX limit, EDX actor, EDI count
 int compare_camera_director_entries(const void* left, const void* right); // Xbox 0x000AA560
 i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output, i32 limit,

@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "input_tracking_record.h"
 
 #include "actor_clock.h"
 #include "actor_factory_owner.h"
@@ -37,33 +39,33 @@ constexpr RetailField<std::array<char, 0x80>, 0x318> struggle_sound{};
 constexpr u32 kSize = 0x398;
 static_assert(retail_fits(kSize, struggle_sound));
 } // namespace bandaged_state_parameter
-namespace bandaged_state_field
+struct BandagedState
 {
-constexpr RetailField<u32, 0x18> phase{};
-constexpr RetailField<std::array<char, 0x80>, 0x1C> wrap_model{};
-constexpr RetailField<std::array<char, 0x80>, 0x9C> bind_animation{};
-constexpr RetailField<std::array<char, 0x80>, 0x11C> dust_effect{};
-constexpr RetailField<std::array<char, 0x80>, 0x19C> bits_effect{};
-constexpr RetailField<std::array<char, 0x80>, 0x21C> mummified_model{};
-constexpr RetailField<u32, 0x29C> mummified{}; // the mummified avatar; message 0x7C naming it clears it
-constexpr RetailField<u32, 0x2A0> wrap{}; // the bandage wrap avatar; message 0x7C naming it clears it
-constexpr u32 kTracking = 0x2A4; // 0x00109810's record over the pad: +0x14 (state +0x2B8) 1 still, 2 struggle
-constexpr RetailField<float, 0x2B0> struggle{}; // the tracking's +0xC; 20 (DAT_0032B234) escapes
-constexpr RetailField<u32, 0x2B8> tracking_state{};
-// Three animation records (0x0003AAA0), held natively beside these words.
-constexpr RetailField<u32, 0x2BC> still_animation{};
-constexpr RetailField<u32, 0x2C0> struggle_animation{};
-constexpr RetailField<u32, 0x2C4> escape_animation{};
-constexpr RetailField<std::array<char, 0x80>, 0x2C8> still_sound{};
-constexpr RetailField<std::array<char, 0x80>, 0x348> struggle_sound{};
-constexpr RetailField<float, 0x3C8> unk_3C8{}; // 8 (DAT_0032B26C), set by the constructor only
-constexpr RetailField<float, 0x3CC> timer{}; // 8 s (DAT_0032B26C) of binding while the body has energy
-constexpr RetailField<float, 0x3D0> scale{}; // the avatars' scale: actor +0x34 * body +0x884 * 0.05
-constexpr RetailField<u32, 0x3D4> hidden{}; // the body and its held actor are hidden behind the mummified avatar
-constexpr RetailField<u32, 0x3D8> held{}; // the body's +0x30 hold count is raised
-constexpr u32 kSize = 0x3DC;
-static_assert(retail_fits(kSize, held));
-} // namespace bandaged_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18
+    std::array<char, 0x80> wrap_model{}; // +0x1C
+    std::array<char, 0x80> bind_animation{}; // +0x9C
+    std::array<char, 0x80> dust_effect{}; // +0x11C
+    std::array<char, 0x80> bits_effect{}; // +0x19C
+    std::array<char, 0x80> mummified_model{}; // +0x21C
+    u32 mummified = 0; // +0x29C, the mummified avatar; message 0x7C naming it clears it
+    u32 wrap = 0; // +0x2A0, the bandage wrap avatar; message 0x7C naming it clears it
+    // +0x2A4: 0x00109810's record over the pad: its state is 1 still, 2 struggle; its accumulation at 20 (DAT_0032B234)
+    // escapes.
+    InputTrackingRecord tracking{};
+    // +0x2BC: Three animation records (0x0003AAA0), held natively beside these words.
+    u32 still_animation = 0;
+    u32 struggle_animation = 0; // +0x2C0
+    u32 escape_animation = 0; // +0x2C4
+    std::array<char, 0x80> still_sound{}; // +0x2C8
+    std::array<char, 0x80> struggle_sound{}; // +0x348
+    float unk_3C8 = 0.f; // +0x3C8, 8 (DAT_0032B26C), set by the constructor only
+    float timer = 0.f; // +0x3CC, 8 s (DAT_0032B26C) of binding while the body has energy
+    float scale = 0.f; // +0x3D0, the avatars' scale: actor +0x34 * body +0x884 * 0.05
+    u32 hidden = 0; // +0x3D4, the body and its held actor are hidden behind the mummified avatar
+    u32 held = 0; // +0x3D8, the body's +0x30 hold count is raised
+};
+static_assert(sizeof(BandagedState) == 0x3DC);
 struct RuntimeBandagedStateContext
 {
     std::span<u8> body;
@@ -92,31 +94,35 @@ struct RuntimeBandagedStateContext
     const RuntimeDialogueInputDevice* input = nullptr; // The tick's second argument (actor +0x960 or zero).
 };
 void bandaged_state_object_sizes(ObjectSizes& output); // Xbox 0x0008A2E0
-bool initialize_runtime_bandaged_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_bandaged_state(BandagedState& state, std::span<const u8> parameters,
     RuntimeBandagedStateContext& context); // Xbox 0x0008A360
-void destroy_runtime_bandaged_state(std::span<u8> state, RuntimeBandagedStateContext& context); // Xbox 0x0008A5A0
-void tick_runtime_bandaged_state(std::span<u8> state, RuntimeBandagedStateContext& context); // Xbox 0x0008A5F0
-void message_runtime_bandaged_state(std::span<u8> state, std::span<const u32> message,
+void destroy_runtime_bandaged_state(BandagedState& state, RuntimeBandagedStateContext& context); // Xbox 0x0008A5A0
+void tick_runtime_bandaged_state(BandagedState& state, RuntimeBandagedStateContext& context); // Xbox 0x0008A5F0
+void message_runtime_bandaged_state(BandagedState& state, std::span<const u32> message,
     RuntimeBandagedStateContext& context); // Xbox 0x0008A8E0
-void set_runtime_bandaged_phase(u32 phase, std::span<u8> state,
+void set_runtime_bandaged_phase(u32 phase, BandagedState& state,
     RuntimeBandagedStateContext& context); // Xbox 0x0008A950, EAX state
 // The body hides behind the mummified avatar (0x0008AE30), its +0x309..+0x30C counts and +0x310 raised.
-void hide_runtime_bandaged_body(std::span<u8> state, RuntimeBandagedStateContext& context); // Xbox 0x0008AAD0, EAX state
+void hide_runtime_bandaged_body(BandagedState& state,
+    RuntimeBandagedStateContext& context); // Xbox 0x0008AAD0, EAX state
 // Undoes 0x0008AAD0 and the +0x30 hold, and deletes both avatars.
-void release_runtime_bandaged_state(std::span<u8> state, RuntimeBandagedStateContext& context); // Xbox 0x0008AB60, EDI state
+void release_runtime_bandaged_state(BandagedState& state,
+    RuntimeBandagedStateContext& context); // Xbox 0x0008AB60, EDI state
 // The bandage wrap avatar at the body, playing the bind animation.
-void spawn_runtime_bandage_wrap(std::span<u8> state, RuntimeBandagedStateContext& context); // Xbox 0x0008AC30
+void spawn_runtime_bandage_wrap(BandagedState& state, RuntimeBandagedStateContext& context); // Xbox 0x0008AC30
 // The wrap unravelling off the body (type 0x14).
-void spawn_runtime_bandage_unwrap(std::span<const u8> state, RuntimeBandagedStateContext& context); // Xbox 0x0008ADC0
-void spawn_runtime_mummified_avatar(std::span<u8> state, RuntimeBandagedStateContext& context); // Xbox 0x0008AE30, EBX state
+void spawn_runtime_bandage_unwrap(const BandagedState& state, RuntimeBandagedStateContext& context); // Xbox 0x0008ADC0
+void spawn_runtime_mummified_avatar(BandagedState& state,
+    RuntimeBandagedStateContext& context); // Xbox 0x0008AE30, EBX state
 // The dust effect stream at `actor` (EAX), bound to it.
-void start_runtime_bandage_dust(u32 actor_address, std::span<const u8> state,
+void start_runtime_bandage_dust(u32 actor_address, const BandagedState& state,
     RuntimeBandagedStateContext& context); // Xbox 0x0008AF60, EAX actor
 // The bandage bits effect stream at `actor` (EAX), raised by its model height.
-void start_runtime_bandage_bits(u32 actor_address, std::span<const u8> state,
+void start_runtime_bandage_bits(u32 actor_address, const BandagedState& state,
     RuntimeBandagedStateContext& context); // Xbox 0x0008B050, EAX actor
 // The bandages tear: the body is down, its timer ran out, or its struggle is full.
-bool runtime_bandaged_escape_due(std::span<u8> state, RuntimeBandagedStateContext& context); // Xbox 0x0008B140, EAX state, ECX body
+bool runtime_bandaged_escape_due(BandagedState& state,
+    RuntimeBandagedStateContext& context); // Xbox 0x0008B140, EAX state, ECX body
 // The type 0x14 parameters (0x340 bytes): the avatar at `position` / `euler`, the model and animation, and the
 // animation's start `position`, `speed` (its sign the direction, its size the duration) and the fade time.
 void build_runtime_anim_delete_parameters(std::span<u8, 0x340> parameters, const Vec3& position, const Vec3& euler,

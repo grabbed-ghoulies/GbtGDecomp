@@ -14,15 +14,18 @@ namespace gbtg
 {
 namespace
 {
-namespace field = super_scary_shock_field;
+SuperScaryShockState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<SuperScaryShockState>(bytes);
+}
+
+const SuperScaryShockState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<SuperScaryShockState>(bytes);
+}
+
 namespace parameter = super_scary_shock_parameter;
 constexpr const char* kDitty = "XACT_SOUNDBANK_GSTREAMSDITTIES_UGLYGIRLTURNAROUND"; // 0x00427438
-
-template <u32 Offset>
-const char* text(RuntimeSuperScaryShock& context, RetailRecord<Offset, 0x80> name)
-{
-    return reinterpret_cast<const char*>(record(context.bytes, name).data());
-}
 
 void copy_name(std::span<const u8> source, std::span<u8> target)
 {
@@ -55,7 +58,7 @@ float next_random(RuntimeSuperScaryShock& context)
 // Xbox 0x00072250
 void super_scary_shock_object_sizes(ObjectSizes& sizes)
 {
-    sizes.instance = field::kSize;
+    sizes.instance = sizeof(SuperScaryShockState);
     sizes.parameters = parameter::kSize;
 }
 
@@ -67,28 +70,28 @@ bool initialize_runtime_super_scary_shock(RuntimeSuperScaryShock& context, std::
         return false;
     }
     auto bytes = context.bytes;
-    set(bytes, field::reach, get(parameters, parameter::reach));
-    copy_name(record(parameters, parameter::ghouly_name), record(bytes, field::ghouly_name));
-    copy_name(record(parameters, parameter::ghouly_template), record(bytes, field::ghouly_template));
-    set(bytes, field::clip_time_base, get(parameters, parameter::clip_time));
-    set(bytes, field::clip_time_range, get(parameters, parameter::clip_time_range));
-    copy_name(record(parameters, parameter::first_clip), record(bytes, field::first_clip));
-    copy_name(record(parameters, parameter::attack_animation), record(bytes, field::attack_animation));
-    copy_name(record(parameters, parameter::attack_events), record(bytes, field::attack_events));
-    copy_name(record(parameters, parameter::second_clip), record(bytes, field::second_clip));
-    copy_name(record(parameters, parameter::end_animation), record(bytes, field::end_animation));
-    copy_name(record(parameters, parameter::end_events), record(bytes, field::end_events));
-    set(bytes, field::challenge_word, get(parameters, parameter::challenge_word));
-    set(bytes, field::ditty_started, 0u);
-    set(bytes, field::ditty_held, 0u);
-    set(bytes, field::ghouly, 0u);
+    fields_of(bytes).reach = get(parameters, parameter::reach);
+    copy_name(record(parameters, parameter::ghouly_name), retail_bytes(fields_of(bytes).ghouly_name));
+    copy_name(record(parameters, parameter::ghouly_template), retail_bytes(fields_of(bytes).ghouly_template));
+    fields_of(bytes).clip_time_base = get(parameters, parameter::clip_time);
+    fields_of(bytes).clip_time_range = get(parameters, parameter::clip_time_range);
+    copy_name(record(parameters, parameter::first_clip), retail_bytes(fields_of(bytes).first_clip));
+    copy_name(record(parameters, parameter::attack_animation), retail_bytes(fields_of(bytes).attack_animation));
+    copy_name(record(parameters, parameter::attack_events), retail_bytes(fields_of(bytes).attack_events));
+    copy_name(record(parameters, parameter::second_clip), retail_bytes(fields_of(bytes).second_clip));
+    copy_name(record(parameters, parameter::end_animation), retail_bytes(fields_of(bytes).end_animation));
+    copy_name(record(parameters, parameter::end_events), retail_bytes(fields_of(bytes).end_events));
+    fields_of(bytes).challenge_word = get(parameters, parameter::challenge_word);
+    fields_of(bytes).ditty_started = 0u;
+    fields_of(bytes).ditty_held = 0u;
+    fields_of(bytes).ghouly = 0u;
     return true;
 }
 
 // Xbox 0x00072420
 void destroy_runtime_super_scary_shock(RuntimeSuperScaryShock& context)
 {
-    if (get(context.bytes, field::ditty_held) == 0)
+    if (fields_of(context.bytes).ditty_held == 0)
     {
         return;
     }
@@ -115,11 +118,11 @@ void destroy_runtime_super_scary_shock(RuntimeSuperScaryShock& context)
 // Xbox 0x00072480
 void update_runtime_super_scary_shock(RuntimeSuperScaryShock& context, const std::function<void()>& update_actor)
 {
-    if (get(context.bytes, field::ditty_started) == 0)
+    if (fields_of(context.bytes).ditty_started == 0)
     {
         acquire_tracked_audio_bank(kDitty, 0xF, context.streams); // 0x00038910
-        set(context.bytes, field::ditty_started, 1u);
-        set(context.bytes, field::ditty_held, 1u);
+        fields_of(context.bytes).ditty_started = 1u;
+        fields_of(context.bytes).ditty_held = 1u;
     }
     update_actor(); // 0x000420D0
     watch_runtime_super_scary_shock(context); // 0x00072750
@@ -147,22 +150,22 @@ void dispatch_runtime_super_scary_shock_message(RuntimeSuperScaryShock& context,
     switch (message[1])
     {
     case 0:
-        play_runtime_super_scary_ghouly_clip(context, get(bytes, field::ghouly), get(bytes, field::clip_time),
-            text(context, field::attack_animation), 1, text(context, field::attack_events)); // 0x00072980
+        play_runtime_super_scary_ghouly_clip(context, fields_of(bytes).ghouly, fields_of(bytes).clip_time,
+            fields_of(context.bytes).attack_animation.data(), 1, fields_of(context.bytes).attack_events.data()); // 0x00072980
         return;
     case 2:
-        play_runtime_super_scary_ghouly_clip(context, get(bytes, field::ghouly), -1.f,
-            text(context, field::end_animation), 0, text(context, field::end_events)); // 0x00072980
+        play_runtime_super_scary_ghouly_clip(context, fields_of(bytes).ghouly, -1.f,
+            fields_of(context.bytes).end_animation.data(), 0, fields_of(context.bytes).end_events.data()); // 0x00072980
         return;
     case 4:
         release_tracked_audio_bank(kDitty, context.streams); // 0x00038970
-        set(bytes, field::ditty_held, 0u);
+        fields_of(bytes).ditty_held = 0u;
         return;
     case 7:
     case 8:
     {
         std::array<u32, 0x42> end{0xA};
-        context.message(get(bytes, field::ghouly), end); // Vtable +0xC.
+        context.message(fields_of(bytes).ghouly, end); // Vtable +0xC.
         activate_actor_bind_tree(context.view.bat.actor); // 0x00112CC0, ESI the shock
         const u32 notice = 0xB3;
         context.queue_event({reinterpret_cast<const u8*>(&notice), sizeof(notice)}); // 0x00116810, EDI the notice
@@ -180,7 +183,7 @@ void watch_runtime_super_scary_shock(RuntimeSuperScaryShock& context)
     {
         return;
     }
-    if (context.prompt_lock > -1 || get(context.bytes, field::ghouly) != 0 || (context.runtime_flags & 8u) != 0)
+    if (context.prompt_lock > -1 || fields_of(context.bytes).ghouly != 0 || (context.runtime_flags & 8u) != 0)
     {
         return;
     }
@@ -191,12 +194,12 @@ void watch_runtime_super_scary_shock(RuntimeSuperScaryShock& context)
         return;
     }
     const Vec3 player_position = actor_world_position(*player); // 0x000412A0
-    if (!(get(context.bytes, field::reach) > float(runtime_point_distance(player_position, position)))) // 0x00146CE0
+    if (!(fields_of(context.bytes).reach > float(runtime_point_distance(player_position, position)))) // 0x00146CE0
     {
         return;
     }
     const u32 ghouly = spawn_runtime_super_scary_ghouly(context); // 0x000727F0
-    set(context.bytes, field::ghouly, ghouly);
+    fields_of(context.bytes).ghouly = ghouly;
     if (ghouly == 0)
     {
         throw Error("Super Scary shock has no ghouly template; 0x00072750 messages the null object");
@@ -211,8 +214,8 @@ u32 spawn_runtime_super_scary_ghouly(RuntimeSuperScaryShock& context)
 {
     const Vec3 position = actor_world_position(context.view.bat.actor); // 0x000412A0
     const Vec3 euler = actor_world_euler(context.view.bat.actor); // 0x00041820
-    const char* name = text(context, field::ghouly_name);
-    return context.create_from_template(text(context, field::ghouly_template), [&](std::span<u8> clone)
+    const char* name = fields_of(context.bytes).ghouly_name.data();
+    return context.create_from_template(fields_of(context.bytes).ghouly_template.data(), [&](std::span<u8> clone)
         {
             std::memcpy(clone.data() + 8, &position, 12);
             std::memcpy(clone.data() + 0x14, &euler, 12);
@@ -226,16 +229,16 @@ u32 spawn_runtime_super_scary_ghouly(RuntimeSuperScaryShock& context)
 void start_runtime_super_scary_challenge(RuntimeSuperScaryShock& context)
 {
     auto bytes = context.bytes;
-    float time = get(bytes, field::clip_time_base);
+    float time = fields_of(bytes).clip_time_base;
     if (time != -1.f) // DAT_0032B120.
     {
-        time = next_random(context) * get(bytes, field::clip_time_range) + get(bytes, field::clip_time_base);
+        time = next_random(context) * fields_of(bytes).clip_time_range + fields_of(bytes).clip_time_base;
     }
-    set(bytes, field::clip_time, time);
+    fields_of(bytes).clip_time = time;
     std::array<u8, 0x1D8> parameters{};
-    build_runtime_scene_challenge_parameters(parameters, text(context, field::first_clip), get(bytes, field::ghouly),
-        time, -1.f, nullptr, nullptr, 0, nullptr, get(bytes, field::challenge_word), 0, 0,
-        text(context, field::second_clip), context.runtime_flags); // 0x000873A0
+    build_runtime_scene_challenge_parameters(parameters, fields_of(context.bytes).first_clip.data(), fields_of(bytes).ghouly,
+        time, -1.f, nullptr, nullptr, 0, nullptr, fields_of(bytes).challenge_word, 0, 0,
+        fields_of(context.bytes).second_clip.data(), context.runtime_flags); // 0x000873A0
     context.create_object(parameters); // 0x00107520
 }
 

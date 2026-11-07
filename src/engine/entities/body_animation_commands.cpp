@@ -1,9 +1,14 @@
 #include "body_animation_commands.h"
+#include "actor_event_messages.h"
+#include "body_animation_events.h"
+#include "weapon_fields.h"
+#include <cstddef>
 #include "actor_model_anchors.h"
 #include "../runtime/name_lookup.h"
 #include "actor_render_registration.h"
 #include "player_mind_events.h"
 #include "gbtg/sound_runtime.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -55,12 +60,12 @@ void command_runtime_body_breath(Actor& actor, const EntityBitBlock& flags,
                 if (index != -1)
                 {
                     auto& effect = *g_actor_effect_nodes[index];
-                    effect.bytes[0x18] |= 8;
-                    if (read_f32(command, 8) != 0.f)
+                    effect_header(effect.bytes).flags |= 8;
+                    if (get(command, animation_event_field::end) != 0.f)
                     {
                         const float duration = runtime_actor_animation_duration(animation, slot);
-                        const float value = duration * (read_f32(command, 8) - read_f32(command, 4));
-                        std::memcpy(effect.bytes.data() + 0x10, &value, 4);
+                        const float value = duration * (get(command, animation_event_field::end) - get(command, animation_event_field::begin));
+                        effect_header(effect.bytes).life = value;
                     }
                 }
             }
@@ -97,7 +102,7 @@ void command_runtime_body_proximity(Actor& actor, std::span<const u8> command,
     const Vec3 position = actor_world_position(actor);
     const std::array<u32, 4> message{0x37, std::bit_cast<u32>(position.x),
         std::bit_cast<u32>(position.y), std::bit_cast<u32>(position.z)};
-    broadcast_runtime_actor_proximity(first, message, position, read_f32(command, 0x10));
+    broadcast_runtime_actor_proximity(first, message, position, get(command, proximity_event::radius));
 }
 
 // Xbox 0x0001B5D0
@@ -108,9 +113,9 @@ u32 teleport_runtime_body_secondary(std::span<u8> body, RuntimeBodyAttachedActor
     const bool same = secondary == primary;
     if (same)
     {
-        if (secondary->bytes[0x93D] == 3)
+        if (weapon_base(secondary->bytes).unk_93D == 3)
         {
-            --body[0x30B];
+            --body_record(body).unk_30B;
         }
     }
     auto* attached = detach_runtime_body_secondary(body, secondary, receiver);
@@ -132,7 +137,7 @@ void command_runtime_body_teleport(std::span<u8> body, Actor& actor,
 {
     const Vec3 position = actor_world_position(actor);
     Vec3 offset{0.f, 0.f, 0.f};
-    add_sound_direction(offset, read_f32(command, 0x10), actor.euler.y, read_f32(command, 0x14));
+    add_sound_direction(offset, get(command, teleport_event::pitch), actor.euler.y, get(command, teleport_event::distance));
     teleport_runtime_body_secondary(body, primary, secondary, receiver,
         Vec3{position.x + offset.x, position.y + offset.y, position.z + offset.z});
 }
@@ -170,7 +175,7 @@ void command_runtime_body_target_push(Actor& actor, const EntityBitBlock& flags,
         {
             angle = runtime_actor_relative_target_angle(actor, *mind->position);
         }
-        add_runtime_body_direction_push(actor, std::bit_cast<i32>(read_u32(command, 0x10)),
+        add_runtime_body_direction_push(actor, get(command, target_push_event::speed),
             actor.euler.y + angle);
     }
 }
@@ -182,21 +187,21 @@ void record_runtime_body_attachment_event(const u8* record,
     auto output = context.command_attachments;
     if (read_u32(output, 0) != 8)
     {
-        const auto bytes = std::span<const u8>(record, 0xD4);
-        const u16 kind = read_u16(bytes, 4);
+        const auto bytes = std::span<const u8>(record, attachment_event_field::kSize);
+        const u16 kind = get(bytes, attachment_event_field::kind);
         u16 token;
         if (kind == 4)
         {
-            const i16 joint = read_u32(bytes, 0xC8) == 0 ? -1 : i16(read_u16(bytes, 0xCC));
+            const i16 joint = get(bytes, joint_attachment_event::has_joint) == 0 ? -1 : get(bytes, joint_attachment_event::joint);
             token = request_actor_joint_attachment(context.actor, context.attachments,
-                reinterpret_cast<const char*>(record + 0x48), read_u32(bytes, 0xD0),
+                field_data(bytes, attachment_event_field::name), get(bytes, joint_attachment_event::flags),
                 joint, options, context.effects);
         }
         else if (kind == 5)
         {
             token = request_actor_binding_attachment(context.actor, context.attachments,
-                reinterpret_cast<const char*>(record + 0x48), read_u32(bytes, 0xCC),
-                i16(read_u16(bytes, 0xC8)), options, context.effects);
+                field_data(bytes, attachment_event_field::name), get(bytes, binding_attachment_event::flags),
+                get(bytes, binding_attachment_event::binding_kind), options, context.effects);
         }
         else
         {
@@ -253,10 +258,10 @@ void command_runtime_body_attachment_list(std::span<u8> body, u32 body_address,
         clear_runtime_body_command_attachments(body, lists);
         return;
     }
-    body[0x2D2] = 1;
+    body_record(body).unk_2D2 = 1;
     if (events.actor_address != 0xFFFFFF74u)
     {
-        events.command_attachments = body.subspan(0x2D8, 36);
+        events.command_attachments = body.subspan(offsetof(BodyRecord, command_tokens), 36);
         dispatch_actor_attachment_records(record, 0x40, record_runtime_body_attachment_event,
             nullptr, events, body_address + 0x2D8);
     }
@@ -268,8 +273,8 @@ void command_runtime_body_facing_push(Actor& actor, const EntityBitBlock& flags,
 {
     if ((flags.bytes[7] & 0x20) == 0)
     {
-        const float angle = read_f32(command, 0x14) * std::bit_cast<float>(0x3C8EFA35u) + actor.euler.y;
-        add_runtime_body_direction_push(actor, std::bit_cast<i32>(read_u32(command, 0x10)), angle);
+        const float angle = get(command, facing_push_event::degrees) * std::bit_cast<float>(0x3C8EFA35u) + actor.euler.y;
+        add_runtime_body_direction_push(actor, get(command, facing_push_event::speed), angle);
     }
 }
 
@@ -278,12 +283,12 @@ void command_runtime_body_detach_actors(std::span<u8> body,
     std::span<const u8> command, RuntimeBodyActorAttachment& primary,
     RuntimeBodyAttachedActor*& secondary, RuntimeBodyAnimationReceiver*& receiver)
 {
-    if (read_u32(command, 0x10) != 0 && primary.attached != nullptr)
+    if (get(command, detach_event::primary) != 0 && primary.attached != nullptr)
     {
         RuntimeBodyAttachedActor* attached = detach_runtime_body_actor(body, primary);
         activate_actor_bind_tree(*attached->actor);
     }
-    if (read_u32(command, 0x14) != 0 && secondary != nullptr)
+    if (get(command, detach_event::secondary) != 0 && secondary != nullptr)
     {
         RuntimeBodyAttachedActor* attached = detach_runtime_body_secondary(body, secondary, receiver);
         activate_actor_bind_tree(*attached->actor);
@@ -424,11 +429,11 @@ void command_runtime_attached_contact_shapes(RuntimeBodyCommandAttachment* attac
     {
         if (phase == 0)
         {
-            activate_runtime_attached_contact_shapes(*attached, read_u16(command, 0x10),
-                u8(read_u16(command, 0x12)), read_f32(command, 0x14));
+            activate_runtime_attached_contact_shapes(*attached, get(command, contact_shape_event::tag),
+                u8(get(command, contact_shape_event::flags)), get(command, contact_shape_event::scale));
             return;
         }
-        deactivate_runtime_attached_contact_shapes(*attached, read_u16(command, 0x10));
+        deactivate_runtime_attached_contact_shapes(*attached, get(command, contact_shape_event::tag));
     }
 }
 
@@ -440,15 +445,15 @@ void command_runtime_body_contact_shapes(std::span<u8> body, Actor& actor,
     {
         if (state != nullptr)
         {
-            activate_runtime_body_contact_shapes(*state, actor, read_u16(command, 0x10),
-                u8(read_u16(command, 0x12)), read_f32(command, 0x14));
+            activate_runtime_body_contact_shapes(*state, actor, get(command, contact_shape_event::tag),
+                u8(get(command, contact_shape_event::flags)), get(command, contact_shape_event::scale));
             const u32 zero = 0;
-            std::memcpy(body.data() + 0x2CC, &zero, 4);
+            body_record(body).contact_count = zero;
         }
     }
     else if (state != nullptr)
     {
-        deactivate_runtime_body_contact_shapes(*state, read_u16(command, 0x10));
+        deactivate_runtime_body_contact_shapes(*state, get(command, contact_shape_event::tag));
     }
 }
 
@@ -459,19 +464,19 @@ void command_runtime_body_side_counters(std::span<u8> body, u32 mask, u32 phase)
     {
         if ((mask & 1) != 0)
         {
-            ++body[0x309];
+            ++body_record(body).unk_309;
         }
         if ((mask & 2) != 0)
         {
-            ++body[0x30A];
+            ++body_record(body).unk_30A;
         }
         if ((mask & 4) != 0)
         {
-            ++body[0x30B];
+            ++body_record(body).unk_30B;
         }
         if ((mask & 8) != 0)
         {
-            ++body[0x30C];
+            ++body_record(body).unk_30C;
             return;
         }
     }
@@ -479,19 +484,19 @@ void command_runtime_body_side_counters(std::span<u8> body, u32 mask, u32 phase)
     {
         if ((mask & 1) != 0)
         {
-            --body[0x309];
+            --body_record(body).unk_309;
         }
         if ((mask & 2) != 0)
         {
-            --body[0x30A];
+            --body_record(body).unk_30A;
         }
         if ((mask & 4) != 0)
         {
-            --body[0x30B];
+            --body_record(body).unk_30B;
         }
         if ((mask & 8) != 0)
         {
-            --body[0x30C];
+            --body_record(body).unk_30C;
         }
     }
 }
@@ -543,13 +548,13 @@ float runtime_body_random_range(u32& random, float low, float high)
 void command_runtime_body_random_timer(std::span<u8> body, float low, float high, u32& random)
 {
     const float value = runtime_body_random_range(random, low, high);
-    if (read_f32(body, 0x34) <= value)
+    if (body_record(body).move_hold_time <= value)
     {
-        std::memcpy(body.data() + 0x34, &value, 4);
+        body_record(body).move_hold_time = value;
         return;
     }
-    const u32 retained = read_u32(body, 0x34);
-    std::memcpy(body.data() + 0x34, &retained, 4);
+    const u32 retained = read_u32(body, offsetof(BodyRecord, move_hold_time));
+    std::memcpy(body.data() + offsetof(BodyRecord, move_hold_time), &retained, 4);
 }
 
 // Xbox 0x00019A90

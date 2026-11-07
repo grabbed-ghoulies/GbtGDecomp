@@ -1,4 +1,5 @@
 #include "ghoul_intro.h"
+#include "../entities/mind_fields.h"
 #include "../../gbtg/text/localtext_resources.h"
 #include "../audio/bank_streams.h"
 #include "../camera/entity_camera.h"
@@ -9,6 +10,7 @@
 #include "../runtime/name_lookup.h"
 #include "gbtg/anim.h"
 #include "gbtg/resource_error.h"
+#include "../entities/body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -18,16 +20,6 @@ namespace
 {
 constexpr const char* kIntroView = "ghouly_intro"; // 0x00321808.
 constexpr const char* kIntroDitty = "XACT_SOUNDBANK_GSTREAMSDITTIES_GHOULINTRODITTY"; // 0x0030C790.
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 // The scene step: 0 while DAT_004312DC is above 0, else DAT_005096C0 * DAT_004312C4.
 float frame_step(const RuntimeGhoulIntroContext& context)
@@ -125,10 +117,8 @@ void update_runtime_ghoul_intro(RuntimeGhoulIntroContext& context)
         // The intro's actor looks at the camera: mind +0x3C, gaze point +0x40 (DAT_00506DA0).
         if (std::span<u8> mind = context.mind(*notices.first); !mind.empty())
         {
-            put_word(mind, 0x3C, 1);
-            put_float(mind, 0x40, intro.camera.position.x);
-            put_float(mind, 0x44, intro.camera.position.y);
-            put_float(mind, 0x48, intro.camera.position.z);
+            mind_record(mind).gaze_point_set = 1;
+            mind_record(mind).gaze_point = intro.camera.position;
         }
         const Actor& actor = *notices.first;
         if (count_down(intro.shot_time, frame_step(context)) && -1 < intro.shot)
@@ -306,7 +296,7 @@ void place_runtime_ghoul_intro_camera(i32 shot, const Actor& actor, float height
     const float distance = read_f32(row, 0xC);
     float heading;
     const std::span<u8> mind = context.mind(actor);
-    const u32 target = mind.empty() ? 0 : read_u32(mind, 0x10);
+    const u32 target = mind.empty() ? 0 : mind_record(mind).target_record;
     if (target != 0)
     {
         // Toward the mind's target; 0x00105F90 keeps the word it was given (the record address) for a zero vector.
@@ -320,8 +310,8 @@ void place_runtime_ghoul_intro_camera(i32 shot, const Actor& actor, float height
         heading = actor.euler.y; // Actor +0x18.
     }
     const std::span<const u8> body = context.body(actor);
-    const float reach = actor.radius_xz * read_f32(body, 0x888) * distance; // Body +8 +0x38.
-    const float rise = actor.radius_y * read_f32(body, 0x884) * height; // Body +8 +0x34.
+    const float reach = actor.radius_xz * body_record(body).radius_scale * distance; // Body +8 +0x38.
+    const float rise = actor.radius_y * body_record(body).height_scale * height; // Body +8 +0x34.
     const Vec3 position = actor_world_position(actor); // 0x000412A0
     const float angle = float(static_cast<long double>(heading) + turn);
     const float x = float(retail_sin(angle)) * reach + position.x; // 0x00153320

@@ -1,4 +1,5 @@
 #include "gameselect_scene_replay.h"
+#include "gameselect_page_layout.h"
 #include "dialogue_text_metrics.h"
 #include <cstdio>
 #include "button_bat_menu.h"
@@ -33,7 +34,7 @@
 
 namespace gbtg
 {
-extern u8 g_510e58[]; // DAT_00510E58, scene.cpp.
+extern u8 g_scene_record[]; // DAT_00510E58, scene.cpp.
 
 namespace
 {
@@ -69,14 +70,21 @@ GameSceneReplayWidget& page_widget(const ReplayPage& page, GameSelectControlServ
     return *(s.frontend.*page.widget);
 }
 
-float layout_real(const ReplayPage& page, u32 offset, const GameSelectControlServices& s)
+const GameSelectPageLayout& layout_of(const ReplayPage& page, const GameSelectControlServices& s)
 {
-    return std::bit_cast<float>(read_u32(s.image.memory(page.layout + offset, 4), 0));
+    return gameselect_page_layout(s, page.layout);
 }
 
-float exe_real(const GameSelectControlServices& s, u32 address)
+// DAT_00429AD0, after the bonus books' block: an owned book's icon on its menu item.
+struct BonusBookIconLayout
 {
-    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
+    float offset[2]; // -30, 8
+    float full_scale[2]; // 0.55, 0.55
+};
+
+const BonusBookIconLayout& bonus_book_icon(const GameSelectControlServices& s)
+{
+    return *reinterpret_cast<const BonusBookIconLayout*>(s.image.memory(0x00429AD0, sizeof(BonusBookIconLayout)).data());
 }
 
 i32 exe_integer(const GameSelectControlServices& s, u32 address)
@@ -394,11 +402,11 @@ void add_bonus_book_scenes(GameSelectControlServices& s)
         auto item = make_runtime_button_bat_menu_item(label.c_str(), {}, {}, {}, {}, action, u32(ordinal));
         if ((books[size_t(ordinal) >> 3] & (1u << (ordinal & 7))) != 0)
         {
-            // 0x001433C0: the item with its icon, placed after the text (0x00060710 at DAT_00429AC0).
-            const float width = runtime_text_line_width(s.metrics, 0, label.c_str(), exe_real(s, 0x00429AC0));
-            const std::array<float, 2> offset{width * exe_real(s, 0x0032B1C4) + exe_real(s, 0x00429AD0),
-                exe_real(s, 0x00429AD4)};
-            const std::array<float, 2> full{exe_real(s, 0x00429AD8), exe_real(s, 0x00429ADC)};
+            // 0x001433C0: the item with its icon, placed after the text (0x00060710 at the bonus books' menu text scale).
+            const float width = runtime_text_line_width(s.metrics, 0, label.c_str(), layout_of(kBonusBookPage, s).menu_text_scale);
+            const std::array<float, 2> offset{width * -0.5f + bonus_book_icon(s).offset[0], // DAT_0032B1C4.
+                bonus_book_icon(s).offset[1]};
+            const std::array<float, 2> full{bonus_book_icon(s).full_scale[0], bonus_book_icon(s).full_scale[1]};
             item->icon = std::make_unique<ButtonBatMenuSprite>(); // 0x000F72D0(0x2C)
             initialize_menu_sprite(*item->icon, s.image.string(0x00309BF0), offset, full, 0.5f,
                 s); // 0x00144780, EAX the bonus-books icon
@@ -515,18 +523,18 @@ void open_replay_page(const ReplayPage& p, GameSelectControlState& control, Game
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     allocate_dialogue_text_pool(w.pool, 0, 1, 0x80, s.text_pools); // 0x0005F390, ESI +0x41C
-    w.pool->origin = {layout_real(p, 0x30, s), layout_real(p, 0x34, s), std::bit_cast<float>(3u)};
+    w.pool->origin = {layout_of(p, s).pool_origin[0], layout_of(p, s).pool_origin[1], std::bit_cast<float>(3u)};
     copy_wide(w.title.text.data(), w.name); // lstrcpyW(+4, +0x48C)
-    w.title.x = layout_real(p, 0x10, s);
-    w.title.y = layout_real(p, 0x14, s);
+    w.title.x = layout_of(p, s).title_position[0];
+    w.title.y = layout_of(p, s).title_position[1];
     w.title.record = 0;
     if (s.text.data() != nullptr) // IsBadReadPtr(DAT_005462C4, 1)
     {
         lookup_borrowed_localtext(s.text, "gameselect", p.banner, w.banner.text.data(),
             s.localtext); // 0x000FF120, EBX +0x210, EDI the banner key
     }
-    w.banner.x = layout_real(p, 8, s);
-    w.banner.y = layout_real(p, 0xC, s);
+    w.banner.x = layout_of(p, s).banner_position[0];
+    w.banner.y = layout_of(p, s).banner_position[1];
     w.banner.record = 0;
     if (p.chapter_number)
     {
@@ -534,11 +542,11 @@ void open_replay_page(const ReplayPage& p, GameSelectControlState& control, Game
         save_game_script(w.name, script); // 0x0010DB10, EBX +0x48C
         w.chapter_number = exe_integer(s, 0x002FE698 + u32(gameselect_script_chapter(script, s)) * 4); // 0x0004B4D0
     }
-    const std::array<float, 2> anchor{s.hud.center_x + layout_real(p, 0x38, s),
-        s.hud.center_y + layout_real(p, 0x3C, s)}; // DAT_00509730, DAT_00509734
-    create_runtime_button_bat_menu(anchor, i32(read_u32(s.image.memory(p.layout + 0x40, 4), 0)),
-        layout_real(p, 0x44, s), layout_real(p, 0x48, s), 0, layout_real(p, 0x50, s), layout_real(p, 0x54, s),
-        std::bit_cast<float>(3u), read_u32(s.image.memory(p.layout + 0x4C, 4), 0), 1, 1,
+    const std::array<float, 2> anchor{s.hud.center_x + layout_of(p, s).menu_offset[0],
+        s.hud.center_y + layout_of(p, s).menu_offset[1]}; // DAT_00509730, DAT_00509734
+    create_runtime_button_bat_menu(anchor, layout_of(p, s).menu_visible_rows,
+        layout_of(p, s).menu_row_spacing, layout_of(p, s).menu_text_scale, 0, layout_of(p, s).menu_origin[0], layout_of(p, s).menu_origin[1],
+        std::bit_cast<float>(3u), layout_of(p, s).menu_wrap, 1, 1,
         s); // 0x00143550, EAX the anchor
     start_pause_ditty(s.ditty, s.streams); // The 0x00038910 call, while DAT_00429BB8 is clear.
     set_runtime_game_scene_replay_state(w, 1, s); // The page's state change (1)
@@ -667,24 +675,24 @@ void set_runtime_game_scene_replay_state(GameSceneReplayWidget& w, i32 state, Ga
     std::memcpy(resource, "aid_loctext_ghoulies_gameselect_gameselecttext", 47); // 0x0020A574
     if (w.state == 1)
     {
-        const float icon = layout_real(p, 0x28, s);
-        const float text = layout_real(p, 0x2C, s);
-        const float spacing = layout_real(p, 0x20, s);
-        const std::array<float, 2> anchor{s.hud.inner_left + layout_real(p, 0x18, s),
-            s.hud.inner_bottom - layout_real(p, 0x1C, s)}; // DAT_00509740, DAT_0050974C
+        const float icon = layout_of(p, s).prompts_icon_scale;
+        const float text = layout_of(p, s).prompts_text_scale;
+        const float spacing = layout_of(p, s).prompts_spacing;
+        const std::array<float, 2> anchor{s.hud.inner_left + layout_of(p, s).prompts_left,
+            s.hud.inner_bottom - layout_of(p, s).prompts_bottom}; // DAT_00509740, DAT_0050974C
         const std::array<float, 2> row_step{icon * 0.f, 0.f - icon * spacing};
-        const float half = spacing * exe_real(s, 0x0032B0F4) * icon;
-        const std::array<float, 2> origin{half + layout_real(p, 0x24, s), 0.f - half};
+        const float half = spacing * 0.5f * icon; // DAT_0032B0F4.
+        const std::array<float, 2> origin{half + layout_of(p, s).prompts_origin_x, 0.f - half};
         std::array<char16_t, 0x200> scratch{};
         const float width = measure_dialogue_widget_width(resource, s.image.memory(p.prompts, 0x310).data(), icon,
             text, "gameselect", scratch.data(), s.widgets); // 0x001428F0, EAX the resource, ECX the rows
         const std::array<float, 2> column{width, 0.f};
         // Both records' ids go to +0x20C: retail stores the banner's over the title's.
         w.title.record = create_dialogue_text_record(*w.pool, w.title.text.data(), w.title.x, w.title.y,
-            layout_real(p, 0, s), layout_real(p, 0, s), 1.f, 1, 0, 1, s.metrics, s.viewport_width,
+            layout_of(p, s).title_text_scale, layout_of(p, s).title_text_scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width,
             s.next_text_id, s.random); // 0x0005F5C0, EAX 1
         w.title.record = create_dialogue_text_record(*w.pool, w.banner.text.data(), w.banner.x, w.banner.y,
-            layout_real(p, 4, s), layout_real(p, 4, s), 1.f, 1, 0, 1, s.metrics, s.viewport_width,
+            layout_of(p, s).banner_text_scale, layout_of(p, s).banner_text_scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width,
             s.next_text_id, s.random);
         if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
         {
@@ -693,14 +701,14 @@ void set_runtime_game_scene_replay_state(GameSceneReplayWidget& w, i32 state, Ga
         create_dialogue_widget(w.prompts, 1, s.image.memory(p.prompts, 0x310).data(), anchor, row_step, origin,
             &column, icon, text, "gameselect", s.text, 0x400C0, s.widget_allocation); // 0x00141E20, EAX +0x498
         auto& prompts = *w.prompts;
-        const float fade = exe_real(s, 0x0032B1AC);
+        const float fade = 0.2f; // DAT_0032B1AC.
         prompts.duration = fade;
         if (prompts.progress > fade)
         {
             prompts.progress = fade;
         }
         prompts.pool->end_time = fade;
-        prompts.pool->origin = {layout_real(p, 0x30, s), layout_real(p, 0x34, s), std::bit_cast<float>(3u)};
+        prompts.pool->origin = {layout_of(p, s).pool_origin[0], layout_of(p, s).pool_origin[1], std::bit_cast<float>(3u)};
         p.add_items(s); // 0x000E3560, 0x000E27A0, 0x000E43C0 or 0x000E5430
         open_runtime_button_bat_menu(s); // 0x00143B10
     }
@@ -751,7 +759,7 @@ namespace
 {
 const char* current_script()
 {
-    return reinterpret_cast<const char*>(g_510e58); // DAT_00510E58, game select's own script
+    return reinterpret_cast<const char*>(g_scene_record); // DAT_00510E58, game select's own script
 }
 
 // 0x00035960 over the held order (EAX DAT_00511B64) with wrap 1.

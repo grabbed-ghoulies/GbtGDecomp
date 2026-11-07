@@ -1,4 +1,6 @@
 #include "haunted_chairs_control.h"
+#include "../entities/actor_fields.h"
+#include "../entities/weapon_fields.h"
 #include "scene_controls.h"
 #include "scene_control_fields.h"
 #include "../camera/camera_body_slots.h"
@@ -14,7 +16,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = haunted_chairs_field;
 
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
 {
@@ -33,7 +34,7 @@ bool chair_stands_free(Actor& chair, HauntedChairsControlServices& services)
         return false;
     }
     const auto bytes = services.actor_bytes(chair);
-    return bytes[0x93C] != 0 && read_u32(bytes, 0xAD0) == 0 && read_u32(bytes, 0xAC4) != 0;
+    return weapon_base(bytes).mask != 0 && weapon_base(bytes).spawn_blocked == 0 && weapon_base(bytes).spawn_point_count != 0;
 }
 
 // The marker record (DAT_0051108C: a count at +0, records from +8, each its size at +0) whose +6 id matches.
@@ -56,23 +57,23 @@ const u8* find_marker(const u8* markers, u16 id)
 // Xbox 0x000824D0
 void haunted_chairs_control_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = 0x74;
     output.parameters = 8;
 }
 
 // Xbox 0x00082540
-bool construct_runtime_haunted_chairs_control(std::span<u8> state)
+bool construct_runtime_haunted_chairs_control(HauntedChairsControlState& control)
 {
-    set(state, field::phase, 0u);
+    control.phase = 0u;
     return true;
 }
 
 // Xbox 0x00082710, ECX state: the haunted chairs (class 0x89) on the DAT_00511B24 list, at most nine, each with the
 // row its +0x1FC id has in UNK_00301B30.
-void gather_runtime_haunted_chairs(std::span<u8> state, HauntedChairsControlState& control,
+void gather_runtime_haunted_chairs(HauntedChairsControlState& control,
     HauntedChairsControlServices& services)
 {
-    set(state, field::count, 0);
+    control.count = 0;
     for (auto* node = static_cast<ActorSpawnLink*>(entity_detail::g_world.body_b.next); node != nullptr;
          node = node->next) // DAT_00511B28.
     {
@@ -83,9 +84,9 @@ void gather_runtime_haunted_chairs(std::span<u8> state, HauntedChairsControlStat
         }
         if (actor->class_key == 0x89)
         {
-            const i32 count = get(state, field::count);
+            const i32 count = control.count;
             control.chairs[size_t(count)] = actor;
-            const u16 id = read_u16(services.actor_bytes(*actor), 0x1FC);
+            const u16 id = actor_marker_id(services.actor_bytes(*actor));
             i32 row = 0;
             while (row < 9 && services.chair_ids[size_t(row)] != u32(id))
             {
@@ -95,12 +96,12 @@ void gather_runtime_haunted_chairs(std::span<u8> state, HauntedChairsControlStat
             {
                 row = -1;
             }
-            auto rows = get(state, field::rows);
+            auto rows = control.rows;
             rows[size_t(count)] = row;
-            set(state, field::rows, rows);
-            set(state, field::count, count + 1);
+            control.rows = rows;
+            control.count = count + 1;
         }
-        if (get(state, field::count) >= 9)
+        if (control.count >= 9)
         {
             return;
         }
@@ -109,11 +110,11 @@ void gather_runtime_haunted_chairs(std::span<u8> state, HauntedChairsControlStat
 
 // Xbox 0x00082780: each free chair leaves the render bins (0x0003CBB0); the others' rows in the current cutscene
 // are released (0x0004E9E0).
-void hide_runtime_haunted_chairs(std::span<const u8> state, const HauntedChairsControlState& control,
+void hide_runtime_haunted_chairs(const HauntedChairsControlState& control,
     HauntedChairsControlServices& services)
 {
-    const auto rows = get(state, field::rows);
-    for (i32 index = 0; index < get(state, field::count); ++index)
+    const auto rows = control.rows;
+    for (i32 index = 0; index < control.count; ++index)
     {
         Actor* chair = control.chairs[size_t(index)];
         if (chair != nullptr && chair_stands_free(*chair, services))
@@ -141,10 +142,10 @@ void hide_runtime_haunted_chairs(std::span<const u8> state, const HauntedChairsC
 
 // Xbox 0x00082810: each free chair rejoins the render bins (0x0003CAE0) and, with a +0x1FE marker id, stands at its
 // marker's position and euler.
-void show_runtime_haunted_chairs(std::span<const u8> state, const HauntedChairsControlState& control,
+void show_runtime_haunted_chairs(const HauntedChairsControlState& control,
     HauntedChairsControlServices& services)
 {
-    for (i32 index = 0; index < get(state, field::count); ++index)
+    for (i32 index = 0; index < control.count; ++index)
     {
         Actor* chair = control.chairs[size_t(index)];
         if (chair == nullptr || !chair_stands_free(*chair, services))
@@ -153,7 +154,7 @@ void show_runtime_haunted_chairs(std::span<const u8> state, const HauntedChairsC
         }
         register_actor_render_bins(services.render(*chair)); // 0x0003CAE0
         const auto bytes = services.actor_bytes(*chair);
-        const u16 id = read_u16(bytes, 0x1FE);
+        const u16 id = actor_marker_next(bytes);
         if (id == 0)
         {
             continue;
@@ -173,23 +174,23 @@ void show_runtime_haunted_chairs(std::span<const u8> state, const HauntedChairsC
         actor_set_world_position(*chair, position); // 0x00041730, EDI chair, ESI position
         wrap_runtime_euler(euler, chair->euler); // 0x00105AA0, ESI euler, EDI chair +0x14
         chair->xform_valid = 0; // +0x2A8.
-        put_word(bytes, 0xAAC, 1);
+        weapon_base(bytes).was_held = 1;
         actor_refresh_transform(*chair); // 0x00040DE0
     }
 }
 
 // Xbox 0x00082560
-void message_runtime_haunted_chairs_control(std::span<u8> state, std::span<const u32> message,
+void message_runtime_haunted_chairs_control(std::span<const u32> message,
     HauntedChairsControlState& control, SceneControlInstance& instance, SceneControlLists& lists,
     HauntedChairsControlServices& services)
 {
     switch (message[0])
     {
     case 1:
-        set(state, field::phase, 1u);
+        control.phase = 1u;
         break;
     case 0x7C:
-        for (i32 index = 0; index < get(state, field::count); ++index)
+        for (i32 index = 0; index < control.count; ++index)
         {
             Actor* chair = control.chairs[size_t(index)];
             if (chair != nullptr && services.actor_address(*chair) == message[1])
@@ -199,13 +200,13 @@ void message_runtime_haunted_chairs_control(std::span<u8> state, std::span<const
         }
         break;
     case 0x7D:
-        gather_runtime_haunted_chairs(state, control, services); // 0x00082710
+        gather_runtime_haunted_chairs(control, services); // 0x00082710
         break;
     case 0x7E:
-        if (get(state, field::phase) == 1)
+        if (control.phase == 1)
         {
-            hide_runtime_haunted_chairs(state, control, services); // 0x00082780
-            set(state, field::phase, 2u);
+            hide_runtime_haunted_chairs(control, services); // 0x00082780
+            control.phase = 2u;
         }
         break;
     default:
@@ -218,20 +219,20 @@ void message_runtime_haunted_chairs_control(std::span<u8> state, std::span<const
 }
 
 // Xbox 0x00082680
-void tick_runtime_haunted_chairs_control(std::span<u8> state, HauntedChairsControlState& control,
+void tick_runtime_haunted_chairs_control(SceneControlBase& base, HauntedChairsControlState& control,
     SceneControlInstance& instance, SceneControlLists& lists, HauntedChairsControlServices& services)
 {
     auto& cutscenes = services.cutscenes;
     const auto& bindings = cutscenes.bindings;
     const float step = bindings.freeze > 0.f ? 0.f : bindings.dt * bindings.scene_scale;
-    set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + step);
-    const u32 phase = get(state, field::phase);
+    base.elapsed = base.elapsed + step;
+    const u32 phase = control.phase;
     if (phase == 2)
     {
         if (cutscenes.index <= -1) // DAT_004E1C34.
         {
-            show_runtime_haunted_chairs(state, control, services); // 0x00082810
-            set(state, field::phase, 3u);
+            show_runtime_haunted_chairs(control, services); // 0x00082810
+            control.phase = 3u;
         }
         return;
     }

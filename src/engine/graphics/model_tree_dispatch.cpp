@@ -39,7 +39,7 @@ void pop_runtime_model_node(u32& callback, u32& node, ModelTreeDispatchContext& 
 // Xbox 0x00158900
 u32 runtime_model_node_callback(u32 descriptor, const RuntimeRelocationImage& image)
 {
-    return image.word(image.word(descriptor, 0x50));
+    return image.word(image.get(descriptor, model_node_type_field::callback));
 }
 // Xbox 0x001589F0
 void dispatch_runtime_model_nodes(u16 mask, void* storage, ModelTreeDispatchContext& c)
@@ -48,12 +48,12 @@ void dispatch_runtime_model_nodes(u16 mask, void* storage, ModelTreeDispatchCont
     pop_runtime_model_node(callback, node, c);
     while (callback != 0)
     {
-        if ((c.image.half(node, 6) & mask) == 0)
+        if ((c.image.get(node, model_node_field::mask) & mask) == 0)
         {
-            const u32 sibling = c.image.word(node, 0x18);
+            const u32 sibling = c.image.get(node, model_node_field::next);
             if (sibling != 0)
             {
-                callback = runtime_model_node_callback(c.image.word(sibling, 0x10), c.image);
+                callback = runtime_model_node_callback(c.image.get(sibling, model_node_field::descriptor), c.image);
                 push_runtime_model_node(callback, sibling, c);
             }
         }
@@ -67,26 +67,26 @@ void dispatch_runtime_model_nodes(u16 mask, void* storage, ModelTreeDispatchCont
 // Xbox 0x00158960
 void queue_runtime_model_group(u32 node, ModelTreeDispatchContext& c)
 {
-    const u32 sibling = c.image.word(node, 0x18);
+    const u32 sibling = c.image.get(node, model_node_field::next);
     if (sibling != 0)
     {
-        const u32 callback = runtime_model_node_callback(c.image.word(sibling, 0x10), c.image);
+        const u32 callback = runtime_model_node_callback(c.image.get(sibling, model_node_field::descriptor), c.image);
         push_runtime_model_node(callback, sibling, c);
     }
-    const u32 child = c.image.word(node, 0x14);
+    const u32 child = c.image.get(node, model_node_field::child);
     if (child != 0)
     {
-        const u32 callback = runtime_model_node_callback(c.image.word(child, 0x10), c.image);
+        const u32 callback = runtime_model_node_callback(c.image.get(child, model_node_field::descriptor), c.image);
         push_runtime_model_node(callback, child, c);
     }
 }
 // Xbox 0x001589C0
 void queue_runtime_model_sibling(u32 node, ModelTreeDispatchContext& c)
 {
-    const u32 sibling = c.image.word(node, 0x18);
+    const u32 sibling = c.image.get(node, model_node_field::next);
     if (sibling != 0)
     {
-        const u32 callback = runtime_model_node_callback(c.image.word(sibling, 0x10), c.image);
+        const u32 callback = runtime_model_node_callback(c.image.get(sibling, model_node_field::descriptor), c.image);
         push_runtime_model_node(callback, sibling, c);
     }
 }
@@ -125,8 +125,8 @@ void render_runtime_model_tree(u32 tree, u16 root, u16 mask, void* storage,
     c.fog_pixel_state = 0;
     c.mask = mask;
     push_runtime_model_node(0, 0, c);
-    const u32 node = c.image.word(c.image.word(tree, 8), static_cast<u32>(root) * 4);
-    const u32 callback = runtime_model_node_callback(c.image.word(node, 0x10), c.image);
+    const u32 node = c.image.word(c.image.get(tree, model_tree_field::roots), static_cast<u32>(root) * 4);
+    const u32 callback = runtime_model_node_callback(c.image.get(node, model_node_field::descriptor), c.image);
     push_runtime_model_node(callback, node, c);
     dispatch_runtime_model_nodes(c.mask, storage, c);
 }

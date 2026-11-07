@@ -13,21 +13,20 @@ namespace gbtg
 // Idle, he drinks (0x3FA); a hit while the body's bit 0x1A is up makes him angry (the parameters' +0x18 effect, all
 // six body latches) and he throws at once. Hits from others, each within two seconds of the last, count in +0xD4;
 // five or more force the knockdown with a sword.
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace pirate_strategy_field
+struct PirateStrategyState
 {
-constexpr RetailField<u32, 0x38> chest{}; // the chest to fetch (0x00129C20, flags 0x1F), or the held one (0x7D)
-constexpr RetailField<u32, 0x3C> fetching{}; // state 0x405 found the chest free to take
-constexpr RetailField<u32, 0x40> wants_chest{}; // set by the constructor and message 0x3B; 0x405 clears it
-constexpr RetailField<u32, 0x44> drink_open{}; // state 0x3FA: the body's bit 0x1A, so a hit makes him angry
-constexpr RetailField<float, 0x48> drink_delay{}; // seconds to the next drink, 5 + 5 * random
-constexpr RetailField<std::array<char, 0x80>, 0x4C> angry_effect{}; // parameters +0x18
-constexpr RetailField<u32, 0xCC> angry_object{}; // the angry effect (0x0003DF40); message 0x14 forgets it
-constexpr RetailField<float, 0xD0> hit_window{}; // two seconds after each hit counted in +0xD4
-constexpr RetailField<u32, 0xD4> hits{}; // hits within the window; five or more force the knockdown
-constexpr u32 kSize = 0xD8;
-static_assert(retail_fits(kSize, hits));
-} // namespace pirate_strategy_field
+    StrategyBase base{}; // +0
+    u32 chest = 0; // +0x38, the chest to fetch (0x00129C20, flags 0x1F), or the held one (0x7D)
+    u32 fetching = 0; // +0x3C, state 0x405 found the chest free to take
+    u32 wants_chest = 0; // +0x40, set by the constructor and message 0x3B; 0x405 clears it
+    u32 drink_open = 0; // +0x44, state 0x3FA: the body's bit 0x1A, so a hit makes him angry
+    float drink_delay = 0.f; // +0x48, seconds to the next drink, 5 + 5 * random
+    std::array<char, 0x80> angry_effect{}; // +0x4C, parameters +0x18
+    u32 angry_object = 0; // +0xCC, the angry effect (0x0003DF40); message 0x14 forgets it
+    float hit_window = 0.f; // +0xD0, two seconds after each hit counted in +0xD4
+    u32 hits = 0; // +0xD4, hits within the window; five or more force the knockdown
+};
+static_assert(sizeof(PirateStrategyState) == 0xD8);
 struct RuntimePirateStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

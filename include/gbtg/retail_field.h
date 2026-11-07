@@ -2,6 +2,8 @@
 
 #include "gbtg/types.h"
 
+#include <cstdio>
+#include <string>
 #include <type_traits>
 
 namespace gbtg
@@ -38,11 +40,19 @@ constexpr bool retail_fits(u32 object_size, F)
 
 namespace detail
 {
+inline std::string to_hex(size_t value)
+{
+    char text[24];
+    std::snprintf(text, sizeof(text), "%zX", value);
+    return text;
+}
+
 inline void check_retail_range(size_t available, size_t offset, size_t size)
 {
     if (offset + size > available)
     {
-        throw Error("retail field out of range");
+        throw Error("retail field out of range: +0x" + to_hex(offset) + ", 0x" + to_hex(size) + " bytes of 0x"
+            + to_hex(available));
     }
 }
 
@@ -113,6 +123,46 @@ auto record(Bytes&& bytes, RetailRecord<Offset, Stride, Count>, size_t index = 0
     detail::check_retail_range(view.size(), Offset + index * Stride, Stride);
     using Byte = typename decltype(view)::element_type;
     return std::span<Byte>(view.data() + Offset + index * Stride, Stride);
+}
+
+namespace detail
+{
+template <typename T>
+struct IsSpan : std::false_type
+{
+};
+template <typename E, size_t N>
+struct IsSpan<std::span<E, N>> : std::true_type
+{
+};
+} // namespace detail
+
+// A read-only block of the executable image as its struct. The block must be bound and whole.
+template <typename T>
+const T& retail_view(std::span<const u8> bytes)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    detail::check_retail_range(bytes.size(), 0, sizeof(T));
+    return *reinterpret_cast<const T*>(bytes.data());
+}
+
+// Row `index` of a read-only table of the executable image.
+template <typename T>
+const T& retail_row(std::span<const u8> bytes, size_t index)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    detail::check_retail_range(bytes.size(), index * sizeof(T), sizeof(T));
+    return *reinterpret_cast<const T*>(bytes.data() + index * sizeof(T));
+}
+
+// The bytes of a record kept as a struct, for the functions that still take a retail byte span. A span is already
+// the bytes: passing one would give the span object's own pointer and length.
+template <typename T>
+std::span<u8> retail_bytes(T& object)
+{
+    static_assert(!detail::IsSpan<std::remove_cv_t<T>>::value, "retail_bytes takes a struct, not a span");
+    static_assert(std::is_trivially_copyable_v<T>);
+    return std::span<u8>(reinterpret_cast<u8*>(&object), sizeof(T));
 }
 
 } // namespace gbtg

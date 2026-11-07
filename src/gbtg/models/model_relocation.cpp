@@ -68,16 +68,16 @@ i32 intern_runtime_vertex_shader(RuntimeVertexShaderCache& cache,
 void relocate_runtime_vertex_shader_node(const RuntimeRelocationImage& image,
     u32 node, u32 base, RuntimeVertexShaderCache& cache)
 {
-    const u32 declaration = image.word(node, 0x50) + base;
-    image.set_word(node, 0x50, declaration);
-    const u32 program = image.word(node, 0x54) + base;
-    image.set_word(node, 0x58, image.word(node, 0x58) + base);
-    image.set_word(node, 0x20, image.word(node, 0x20) + base);
-    image.set_word(node, 0x54, program);
+    const u32 declaration = image.get(node, vertex_shader_node::declaration) + base;
+    image.set(node, vertex_shader_node::declaration, declaration);
+    const u32 program = image.get(node, vertex_shader_node::program) + base;
+    image.set(node, vertex_shader_node::strides, image.get(node, vertex_shader_node::strides) + base);
+    image.set(node, vertex_shader_node::streams, image.get(node, vertex_shader_node::streams) + base);
+    image.set(node, vertex_shader_node::program, program);
     const i32 index = intern_runtime_vertex_shader(cache, image, program, declaration,
-        std::bit_cast<i32>(image.word(node, 0x44)), image.word(node, 0x3C) != 0xFFFFFFFF,
-        image.word(node, 0x40) != 0xFFFFFFFF);
-    image.set_word(node, 0x64, u32(index));
+        image.get(node, vertex_shader_node::variant), image.get(node, vertex_shader_node::first_channel) != 0xFFFFFFFF,
+        image.get(node, vertex_shader_node::second_channel) != 0xFFFFFFFF);
+    image.set(node, vertex_shader_node::shader, u32(index));
     relocate_runtime_node_links(image, node, base);
 }
 
@@ -87,18 +87,20 @@ void relocate_runtime_vertex_buffer_node(const RuntimeRelocationImage& image,
 {
     relocate_runtime_node_links(image, node, base);
     u32 index = 0;
-    image.set_word(node, 0x20, image.word(node, 0x20) + base);
-    if (image.word(node, 0x24) != 0)
+    image.set(node, vertex_buffer_node::buffers, image.get(node, vertex_buffer_node::buffers) + base);
+    if (image.get(node, vertex_buffer_node::buffer_count) != 0)
     {
         u32 offset = 0;
         do
         {
-            const u32 record = image.word(node, 0x20) + offset;
-            image.set_word(record, 0x10, image.word(record, 0x10) + gpu_base);
-            boundaries.register_resource(record + 4, image.word(record, 0x10));
+            const u32 record = image.get(node, vertex_buffer_node::buffers) + offset;
+            image.set(record, model_vertex_buffer_field::data,
+                image.get(record, model_vertex_buffer_field::data) + gpu_base);
+            boundaries.register_resource(record + model_vertex_buffer_field::header_offset,
+                image.get(record, model_vertex_buffer_field::data));
             ++index;
-            offset += 0x18;
-        } while (index < image.word(node, 0x24));
+            offset += model_vertex_buffer_field::kSize;
+        } while (index < image.get(node, vertex_buffer_node::buffer_count));
     }
 }
 
@@ -106,7 +108,7 @@ void relocate_runtime_vertex_buffer_node(const RuntimeRelocationImage& image,
 void relocate_runtime_transform_node(const RuntimeRelocationImage& image,
     u32 node, u32 base, const RuntimeNodeRelocationBoundaries& boundaries)
 {
-    boundaries.transpose(node + 0x24, node + 0x24);
+    boundaries.transpose(node + transform_node::matrix_offset, node + transform_node::matrix_offset);
     relocate_runtime_node_links(image, node, base);
 }
 
@@ -116,66 +118,69 @@ void relocate_runtime_blendshape_node(const RuntimeRelocationImage& image,
 {
     relocate_runtime_node_links(image, node, base);
     u32 shape = 0;
-    image.set_word(node, 0x20, image.word(node, 0x20) + base);
-    if (image.half(node, 0x24) != 0)
+    image.set(node, blendshape_node::targets, image.get(node, blendshape_node::targets) + base);
+    if (image.get(node, blendshape_node::target_count) != 0)
     {
         do
         {
-            const u32 entry = image.word(node, 0x20) + shape * 4;
+            const u32 entry = image.get(node, blendshape_node::targets) + shape * 4;
             image.set_word(entry, 0, image.word(entry) + base);
             const u32 table = image.word(entry);
-            if (image.word(table, 0x24) != 0)
+            if (image.get(table, vertex_buffer_node::buffer_count) != 0)
             {
-                image.set_word(table, 0x20, image.word(table, 0x20) + base);
+                image.set(table, vertex_buffer_node::buffers, image.get(table, vertex_buffer_node::buffers) + base);
             }
             u32 vertex = 0;
-            if (image.word(table, 0x24) != 0)
+            if (image.get(table, vertex_buffer_node::buffer_count) != 0)
             {
                 u32 offset = 0;
                 do
                 {
-                    const u32 record = image.word(table, 0x20) + offset;
-                    image.set_word(record, 0x10, image.word(record, 0x10) + gpu_base);
+                    const u32 record = image.get(table, vertex_buffer_node::buffers) + offset;
+                    image.set(record, model_vertex_buffer_field::data,
+                        image.get(record, model_vertex_buffer_field::data) + gpu_base);
                     ++vertex;
-                    offset += 0x18;
-                } while (vertex < image.word(table, 0x24));
+                    offset += model_vertex_buffer_field::kSize;
+                } while (vertex < image.get(table, vertex_buffer_node::buffer_count));
             }
             ++shape;
-        } while (shape < image.half(node, 0x24));
+        } while (shape < image.get(node, blendshape_node::target_count));
     }
     u32 vertex = 0;
-    const u32 first = image.word(image.word(node, 0x20));
-    if (image.half(first, 0x24) != 0)
+    const u32 first = image.word(image.get(node, blendshape_node::targets));
+    if (u16(image.get(first, vertex_buffer_node::buffer_count)) != 0)
     {
         u32 offset = 0;
         do
         {
-            const u32 record = image.word(first, 0x20) + offset;
-            boundaries.register_resource(record + 4, image.word(record, 0x10));
+            const u32 record = image.get(first, vertex_buffer_node::buffers) + offset;
+            boundaries.register_resource(record + model_vertex_buffer_field::header_offset,
+                image.get(record, model_vertex_buffer_field::data));
             ++vertex;
-            offset += 0x18;
-        } while (vertex < image.half(first, 0x24));
+            offset += model_vertex_buffer_field::kSize;
+        } while (vertex < u16(image.get(first, vertex_buffer_node::buffer_count)));
     }
-    if (image.half(node, 0x24) > 1)
+    if (image.get(node, blendshape_node::target_count) > 1)
     {
         shape = 1;
         do
         {
-            const u32 table = image.word(image.word(node, 0x20) + shape * 4);
+            const u32 table = image.word(image.get(node, blendshape_node::targets) + shape * 4);
             u32 index = 0;
-            if (image.byte(image.word(table, 0x20), 1) != 9)
+            if (image.byte(image.get(table, vertex_buffer_node::buffers), 1) != 9)
             {
-                u32 type = image.word(table, 0x20) + 1;
+                u32 type = image.get(table, vertex_buffer_node::buffers) + 1;
                 do
                 {
                     type += 0x18;
                     ++index;
                 } while (image.byte(type) != 9);
             }
-            const u32 record = image.word(table, 0x20) + index * 0x18;
-            boundaries.register_resource(record + 4, image.word(record, 0x10));
+            const u32 record = image.get(table, vertex_buffer_node::buffers) + index * model_vertex_buffer_field::kSize;
+            boundaries.register_resource(record + model_vertex_buffer_field::header_offset,
+                image.get(record, model_vertex_buffer_field::data));
             ++shape;
-        } while (shape < image.half(node, 0x24));
+        } while (shape < image.get(node, blendshape_node::target_count));
     }
 }
 
@@ -241,8 +246,8 @@ void bind_runtime_node_type(const RuntimeRelocationImage& image, u32 node,
         if (std::strcmp(types.entries[index].name.c_str(),
             reinterpret_cast<const char*>(image.pointer(image.word(node)))) == 0)
         {
-            image.set_word(node, 0x10, types.address + u32(index) * 0x54);
-            image.set_half(node, 4, u16(index));
+            image.set(node, model_node_field::descriptor, types.address + u32(index) * model_node_type_field::kSize);
+            image.set(node, model_node_field::type_index, u16(index));
             return;
         }
         ++index;
@@ -257,21 +262,22 @@ void bind_runtime_node_type(const RuntimeRelocationImage& image, u32 node,
 void dispatch_runtime_node_relocation(const RuntimeRelocationImage& image, u32 descriptor,
     u32 node, u32 base, u32 gpu_base, const RuntimeNodeRelocationTypes& types)
 {
-    types.entries[(descriptor - types.address) / 0x54].relocate(image, node, base, gpu_base);
+    types.entries[(descriptor - types.address) / model_node_type_field::kSize].relocate(image, node, base, gpu_base);
 }
 
 // Xbox 0x00156600.
 void relocate_runtime_node_chain(const RuntimeRelocationImage& image, u32 node,
     u32 base, u32 gpu_base, const RuntimeNodeRelocationTypes& types)
 {
-    for (; node != 0; node = image.word(node, 0x18))
+    for (; node != 0; node = image.get(node, model_node_field::next))
     {
-        image.set_word(node, 0, image.word(node) + base);
+        image.set(node, model_node_field::type_name, image.word(node) + base);
         bind_runtime_node_type(image, node, types);
-        dispatch_runtime_node_relocation(image, image.word(node, 0x10), node, base, gpu_base, types);
-        if (image.word(node, 0x14) != 0)
+        dispatch_runtime_node_relocation(image, image.get(node, model_node_field::descriptor), node, base, gpu_base,
+            types);
+        if (image.get(node, model_node_field::child) != 0)
         {
-            relocate_runtime_node_chain(image, image.word(node, 0x14), base, gpu_base, types);
+            relocate_runtime_node_chain(image, image.get(node, model_node_field::child), base, gpu_base, types);
         }
     }
 }
@@ -280,34 +286,34 @@ void relocate_runtime_node_chain(const RuntimeRelocationImage& image, u32 node,
 void relocate_runtime_model_tree(const RuntimeRelocationImage& image, u32 tree,
     u32 base, u32 gpu_base, const RuntimeNodeRelocationTypes& types)
 {
-    if (image.word(tree, 0x10) != 0)
+    if (image.get(tree, model_tree_field::names) != 0)
     {
-        const u32 names = image.word(tree, 0x10) + base;
-        image.set_word(tree, 0x10, names);
+        const u32 names = image.get(tree, model_tree_field::names) + base;
+        image.set(tree, model_tree_field::names, names);
         relocate_runtime_model_names(image, names, base);
     }
-    if (image.word(tree, 0x14) != 0)
+    if (image.get(tree, model_tree_field::lists) != 0)
     {
-        const u32 lists = image.word(tree, 0x14) + base;
-        image.set_word(tree, 0x14, lists);
+        const u32 lists = image.get(tree, model_tree_field::lists) + base;
+        image.set(tree, model_tree_field::lists, lists);
         relocate_runtime_model_pointer_lists(image, lists, base);
     }
     u32 index = 0;
-    image.set_word(tree, 8, image.word(tree, 8) + base);
-    if (image.word(tree, 0xC) != 0)
+    image.set(tree, model_tree_field::roots, image.get(tree, model_tree_field::roots) + base);
+    if (image.get(tree, model_tree_field::root_count) != 0)
     {
         do
         {
-            const u32 root = image.word(tree, 8) + index * 4;
+            const u32 root = image.get(tree, model_tree_field::roots) + index * 4;
             image.set_word(root, 0, image.word(root) + base);
             relocate_runtime_node_chain(image, image.word(root), base, gpu_base, types);
             ++index;
-        } while (index < image.word(tree, 0xC));
+        } while (index < image.get(tree, model_tree_field::root_count));
     }
-    if (image.word(tree, 0x28) != 0)
+    if (image.get(tree, model_tree_field::second_lists) != 0)
     {
-        const u32 lists = image.word(tree, 0x28) + base;
-        image.set_word(tree, 0x28, lists);
+        const u32 lists = image.get(tree, model_tree_field::second_lists) + base;
+        image.set(tree, model_tree_field::second_lists, lists);
         relocate_runtime_model_pointer_lists(image, lists, base);
     }
 }
@@ -316,22 +322,23 @@ void relocate_runtime_model_tree(const RuntimeRelocationImage& image, u32 tree,
 void relocate_runtime_texture_table(const RuntimeRelocationImage& image, u32 table,
     u32 base, const RuntimeGpuSegments& gpu)
 {
-    image.set_word(table, 4, image.word(table, 4) + base);
+    image.set(table, model_texture_table_field::textures, image.get(table, model_texture_table_field::textures) + base);
     u32 index = 0;
     if (image.word(table) != 0)
     {
         do
         {
-            const u32 pointer = image.word(table, 4) + index * 4;
+            const u32 pointer = image.get(table, model_texture_table_field::textures) + index * 4;
             image.set_word(pointer, 0, image.word(pointer) + base);
             const u32 texture = image.word(pointer);
-            if (image.word(texture, 0x18) == 0)
+            if (image.get(texture, model_texture_field::frame_size) == 0)
             {
-                image.set_word(texture, 0x14, 0);
+                image.set(texture, model_texture_field::data, 0);
             }
             else
             {
-                image.set_word(texture, 0x14, runtime_gpu_address(gpu, image.word(texture, 0x14)));
+                image.set(texture, model_texture_field::data,
+                    runtime_gpu_address(gpu, image.get(texture, model_texture_field::data)));
             }
             ++index;
         } while (index < image.word(table));
@@ -342,39 +349,45 @@ void relocate_runtime_texture_table(const RuntimeRelocationImage& image, u32 tab
 void relocate_runtime_geometry_block(const RuntimeRelocationImage& image, u32 block,
     u32 base, const RuntimeGpuSegments& gpu, const RuntimeNodeRelocationBoundaries& boundaries)
 {
-    if (image.word(block, 8) != 0)
+    if (image.get(block, model_geometry_block_field::unk_08) != 0)
     {
-        image.set_word(block, 8, image.word(block, 8) + base);
+        image.set(block, model_geometry_block_field::unk_08,
+            image.get(block, model_geometry_block_field::unk_08) + base);
     }
-    if (image.word(block, 0xC) != 0)
+    if (image.get(block, model_geometry_block_field::unk_0C) != 0)
     {
-        image.set_word(block, 0xC, image.word(block, 0xC) + base);
+        image.set(block, model_geometry_block_field::unk_0C,
+            image.get(block, model_geometry_block_field::unk_0C) + base);
     }
-    if (image.word(block, 0x3C) != 0)
+    if (image.get(block, model_geometry_block_field::streams) != 0)
     {
-        image.set_word(block, 0x3C, image.word(block, 0x3C) + base);
+        image.set(block, model_geometry_block_field::streams,
+            image.get(block, model_geometry_block_field::streams) + base);
         u32 index = 0;
-        if (image.word(block, 0x1C) != 0)
+        if (image.get(block, model_geometry_block_field::stream_count) != 0)
         {
             u32 offset = 0;
             do
             {
-                const u32 stream = image.word(block, 0x3C) + offset;
-                const u32 gpu_offset = image.word(stream, 0xC);
+                const u32 stream = image.get(block, model_geometry_block_field::streams) + offset;
+                const u32 gpu_offset = image.get(stream, model_geometry_stream_field::data);
                 if (gpu_offset != 0)
                 {
-                    image.set_word(stream, 0xC, runtime_gpu_address(gpu, gpu_offset));
-                    boundaries.set_vertex_buffer_header(image.word(stream, 8), 8, 0, 0, stream + 0x10, 0);
-                    boundaries.register_resource(stream + 0x10, image.word(stream, 0xC));
+                    image.set(stream, model_geometry_stream_field::data, runtime_gpu_address(gpu, gpu_offset));
+                    boundaries.set_vertex_buffer_header(image.get(stream, model_geometry_stream_field::length), 8, 0, 0,
+                        stream + model_geometry_stream_field::header_offset, 0);
+                    boundaries.register_resource(stream + model_geometry_stream_field::header_offset,
+                        image.get(stream, model_geometry_stream_field::data));
                 }
                 ++index;
-                offset += 0x1C;
-            } while (index < image.word(block, 0x1C));
+                offset += model_geometry_stream_field::kSize;
+            } while (index < image.get(block, model_geometry_block_field::stream_count));
         }
     }
-    if (image.word(block, 0x40) != 0)
+    if (image.get(block, model_geometry_block_field::unk_40) != 0)
     {
-        image.set_word(block, 0x40, image.word(block, 0x40) + base);
+        image.set(block, model_geometry_block_field::unk_40,
+            image.get(block, model_geometry_block_field::unk_40) + base);
     }
 }
 
@@ -393,9 +406,9 @@ void relocate_runtime_pixel_shader_node(const RuntimeRelocationImage& image,
 // Xbox 0x00054490.
 void relocate_runtime_physics_simple(const RuntimeRelocationImage& image, u32 record, u32 base)
 {
-    if (image.word(record, 0x14) != 0)
+    if (image.get(record, model_posed_mesh_field::triangles) != 0)
     {
-        image.set_word(record, 0x14, image.word(record, 0x14) + base);
+        image.set(record, model_posed_mesh_field::triangles, image.get(record, model_posed_mesh_field::triangles) + base);
     }
 }
 
@@ -403,9 +416,9 @@ void relocate_runtime_physics_simple(const RuntimeRelocationImage& image, u32 re
 void relocate_runtime_physics_pairs(const RuntimeRelocationImage& image, u32 record, u32 base)
 {
     i32 index = 0;
-    if (image.half(record, 0x20) != 0)
+    if (image.get(record, model_grid_mesh_field::cell_count) != 0)
     {
-        u32 pointer = record + 0x30;
+        u32 pointer = record + model_grid_mesh_field::cells.offset + model_grid_cell_field::triangles.offset;
         do
         {
             if (image.word(pointer) != 0)
@@ -413,8 +426,8 @@ void relocate_runtime_physics_pairs(const RuntimeRelocationImage& image, u32 rec
                 image.set_word(pointer, 0, image.word(pointer) + base);
             }
             ++index;
-            pointer += 8;
-        } while (index < i32(image.half(record, 0x20)));
+            pointer += model_grid_mesh_field::cells.stride;
+        } while (index < i32(image.get(record, model_grid_mesh_field::cell_count)));
     }
 }
 
@@ -424,21 +437,21 @@ void relocate_runtime_physics_block(const RuntimeRelocationImage& image, u32 blo
     using Relocator = void (*)(const RuntimeRelocationImage&, u32, u32);
     static constexpr std::array<Relocator, 3> callbacks{
         relocate_runtime_physics_simple, relocate_runtime_physics_pairs, relocate_runtime_physics_simple};
-    image.set_word(block, 0xC, image.word(block, 0xC) + base);
-    u32 record = block + 0x10;
-    if (std::bit_cast<i32>(image.word(block)) > 0)
+    image.set(block, model_physics_block_field::unk_0C, image.get(block, model_physics_block_field::unk_0C) + base);
+    u32 record = block + model_physics_block_field::records_offset;
+    if (image.get(block, model_physics_block_field::count) > 0)
     {
         i32 index = 0;
         do
         {
-            const auto callback = callbacks[image.byte(record)];
+            const auto callback = callbacks[image.get(record, model_physics_record_field::kind)];
             if (callback != nullptr)
             {
                 callback(image, record, base);
             }
             ++index;
-            record += image.word(record, 8);
-        } while (index < std::bit_cast<i32>(image.word(block)));
+            record += image.get(record, model_physics_record_field::size);
+        } while (index < image.get(block, model_physics_block_field::count));
     }
 }
 
@@ -448,9 +461,9 @@ void relocate_runtime_model_directory(const RuntimeRelocationImage& image,
     u32 directory, u32 base, const RuntimeGpuSegments* gpu,
     const RuntimeNodeRelocationTypes& types, const RuntimeNodeRelocationBoundaries& boundaries)
 {
-    image.set_word(directory, 0, image.word(directory) + base);
+    image.set(directory, model_directory_field::entries, image.word(directory) + base);
     u32 index = 0;
-    if (image.word(directory, 4) != 0)
+    if (image.get(directory, model_directory_field::count) != 0)
     {
         do
         {
@@ -459,15 +472,18 @@ void relocate_runtime_model_directory(const RuntimeRelocationImage& image,
             switch (image.word(entry))
             {
             case 0:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                block = image.word(entry, 4);
-                image.set_word(block, 0, image.word(block) + base);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                block = image.get(entry, model_directory_entry_field::block);
+                image.set(block, model_tree_block_field::tree, image.get(block, model_tree_block_field::tree) + base);
                 if (gpu != nullptr)
                 {
-                    image.set_word(block, 4, runtime_gpu_address(*gpu, image.word(block, 4)));
+                    image.set(block, model_tree_block_field::gpu_base,
+                        runtime_gpu_address(*gpu, image.get(block, model_tree_block_field::gpu_base)));
                 }
-                relocate_runtime_model_tree(image, image.word(block), image.word(block),
-                    image.word(block, 4), types);
+                relocate_runtime_model_tree(image, image.get(block, model_tree_block_field::tree),
+                    image.get(block, model_tree_block_field::tree), image.get(block, model_tree_block_field::gpu_base),
+                    types);
                 break;
             case 2:
             case 3:
@@ -479,20 +495,24 @@ void relocate_runtime_model_directory(const RuntimeRelocationImage& image,
             case 0xF:
             case 0x14:
             case 0x15:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
                 break;
             case 6:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                relocate_runtime_physics_block(image, image.word(entry, 4), base);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                relocate_runtime_physics_block(image, image.get(entry, model_directory_entry_field::block), base);
                 break;
             case 7:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                relocate_runtime_texture_table(image, image.word(entry, 4), base, *gpu);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                relocate_runtime_texture_table(image, image.get(entry, model_directory_entry_field::block), base, *gpu);
                 break;
             case 0xB:
             case 0x17:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                block = image.word(entry, 4);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                block = image.get(entry, model_directory_entry_field::block);
                 if (image.word(block, 0xC) != 0)
                 {
                     image.set_word(block, 0xC, image.word(block, 0xC) + base);
@@ -500,8 +520,9 @@ void relocate_runtime_model_directory(const RuntimeRelocationImage& image,
                 break;
             case 0xC:
             case 0xD:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                block = image.word(entry, 4);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                block = image.get(entry, model_directory_entry_field::block);
                 if (image.word(block, 4) != 0)
                 {
                     image.set_word(block, 4, image.word(block, 4) + base);
@@ -509,12 +530,14 @@ void relocate_runtime_model_directory(const RuntimeRelocationImage& image,
                 relocate_runtime_texture_table(image, block + 8, base, *gpu);
                 break;
             case 0xE:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                relocate_runtime_model_type14(image, image.word(entry, 4), base);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                relocate_runtime_model_type14(image, image.get(entry, model_directory_entry_field::block), base);
                 break;
             case 0x10:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                block = image.word(entry, 4);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                block = image.get(entry, model_directory_entry_field::block);
                 if (image.word(block, 4) != 0)
                 {
                     image.set_word(block, 4, image.word(block, 4) + base);
@@ -529,16 +552,20 @@ void relocate_runtime_model_directory(const RuntimeRelocationImage& image,
                 }
                 break;
             case 0x11:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                relocate_runtime_model_type17(image, image.word(entry, 4), base);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                relocate_runtime_model_type17(image, image.get(entry, model_directory_entry_field::block), base);
                 break;
             case 0x12:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                relocate_runtime_geometry_block(image, image.word(entry, 4), base, *gpu, boundaries);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                relocate_runtime_geometry_block(image, image.get(entry, model_directory_entry_field::block), base, *gpu,
+                    boundaries);
                 break;
             case 0x13:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                block = image.word(entry, 4);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                block = image.get(entry, model_directory_entry_field::block);
                 if (image.word(block, 4) != 0)
                 {
                     image.set_word(block, 4, image.word(block, 4) + base);
@@ -549,17 +576,20 @@ void relocate_runtime_model_directory(const RuntimeRelocationImage& image,
                 }
                 break;
             case 0x16:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                relocate_runtime_model_type22(image, image.word(entry, 4), base);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                relocate_runtime_model_type22(image, image.get(entry, model_directory_entry_field::block), base);
                 break;
             case 0x18:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                relocate_runtime_model_type24(image, image.word(entry, 4), base);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                relocate_runtime_model_type24(image, image.get(entry, model_directory_entry_field::block), base);
                 break;
             case 0x19:
             case 0x1A:
-                image.set_word(entry, 4, image.word(entry, 4) + base);
-                block = image.word(entry, 4);
+                image.set(entry, model_directory_entry_field::block,
+                    image.get(entry, model_directory_entry_field::block) + base);
+                block = image.get(entry, model_directory_entry_field::block);
                 if (image.word(block, 4) != 0)
                 {
                     image.set_word(block, 4, image.word(block, 4) + base);
@@ -567,7 +597,7 @@ void relocate_runtime_model_directory(const RuntimeRelocationImage& image,
                 break;
             }
             ++index;
-        } while (index < image.word(directory, 4));
+        } while (index < image.get(directory, model_directory_field::count));
     }
 }
 
@@ -575,33 +605,33 @@ void relocate_runtime_model_directory(const RuntimeRelocationImage& image,
 void postload_runtime_matrix_array(const RuntimeRelocationImage& image, u32 node,
     const RuntimeModelHeapBoundaries& heap)
 {
-    if (image.word(node, 0x30) != 0 && image.word(node, 0x2C) != 0)
+    if (image.get(node, matrix_array_node::matrix_count) != 0 && image.get(node, matrix_array_node::matrices) != 0)
     {
-        const auto allocation = heap.allocate(image.word(node, 0x30) << 6);
-        u32 source = image.word(node, 0x2C);
+        const auto allocation = heap.allocate(image.get(node, matrix_array_node::matrix_count) << 6);
+        u32 source = image.get(node, matrix_array_node::matrices);
         u32 destination = 0;
-        for (u32 count = (image.word(node, 0x30) & 0x3FFFFFF) << 4; count != 0; --count)
+        for (u32 count = (image.get(node, matrix_array_node::matrix_count) & 0x3FFFFFF) << 4; count != 0; --count)
         {
             const u32 value = image.word(source);
             std::memcpy(allocation.bytes.data() + destination, &value, 4);
             source += 4;
             destination += 4;
         }
-        image.set_word(node, 0x2C, allocation.address);
-        image.set_byte(node, 0x29, 1);
+        image.set(node, matrix_array_node::matrices, allocation.address);
+        image.set(node, matrix_array_node::owns_matrices, 1);
         return;
     }
-    image.set_byte(node, 0x29, 0);
+    image.set(node, matrix_array_node::owns_matrices, 0);
 }
 
 // Xbox 0x00155DF0.
 void unload_runtime_matrix_array(const RuntimeRelocationImage& image, u32 node,
     const RuntimeModelHeapBoundaries& heap)
 {
-    if (image.word(node, 0x2C) != 0 && image.byte(node, 0x29) != 0)
+    if (image.get(node, matrix_array_node::matrices) != 0 && image.get(node, matrix_array_node::owns_matrices) != 0)
     {
-        heap.free(image.word(node, 0x2C));
-        image.set_word(node, 0x2C, node + image.half(node, 0x2A));
+        heap.free(image.get(node, matrix_array_node::matrices));
+        image.set(node, matrix_array_node::matrices, node + image.get(node, matrix_array_node::matrices_offset));
     }
 }
 
@@ -611,12 +641,12 @@ void postload_runtime_push_buffer(const RuntimeRelocationImage& image, u32 node,
     const std::function<void(u32, u32, u32, u32)>& set_push_buffer_header,
     const RuntimeNodeRelocationBoundaries& d3d)
 {
-    if (image.word(node, 0x24) != 0)
+    if (image.get(node, push_buffer_node::header) != 0)
     {
-        const auto allocation = heap.allocate_physical(image.word(node, 0x2C), 0x80,
+        const auto allocation = heap.allocate_physical(image.get(node, push_buffer_node::size), 0x80,
             ".\\nodes\\geometry\\pushbuffer.c", 0xF4);
-        const u32 size = image.word(node, 0x2C);
-        u32 source = image.word(node, 0x28);
+        const u32 size = image.get(node, push_buffer_node::size);
+        u32 source = image.get(node, push_buffer_node::data);
         u32 destination = 0;
         for (u32 count = size >> 2; count != 0; --count)
         {
@@ -631,9 +661,10 @@ void postload_runtime_push_buffer(const RuntimeRelocationImage& image, u32 node,
             ++source;
             ++destination;
         }
-        image.set_word(node, 0x28, allocation.address);
-        set_push_buffer_header(image.word(node, 0x2C), 0, image.word(node, 0x24), 0);
-        d3d.register_resource(image.word(node, 0x24), image.word(node, 0x28));
+        image.set(node, push_buffer_node::data, allocation.address);
+        set_push_buffer_header(image.get(node, push_buffer_node::size), 0, image.get(node, push_buffer_node::header),
+            0);
+        d3d.register_resource(image.get(node, push_buffer_node::header), image.get(node, push_buffer_node::data));
     }
 }
 
@@ -641,19 +672,19 @@ void postload_runtime_push_buffer(const RuntimeRelocationImage& image, u32 node,
 void postload_runtime_pixel_shader(const RuntimeRelocationImage& image, u32 shader,
     const RuntimeNodeRelocationBoundaries& d3d)
 {
-    u32 handle = image.word(shader, 0xC);
-    d3d.create_pixel_shader(image.word(shader, 4), handle);
-    image.set_word(shader, 0xC, handle);
+    u32 handle = image.get(shader, model_pixel_shader_field::handle);
+    d3d.create_pixel_shader(image.get(shader, model_pixel_shader_field::program), handle);
+    image.set(shader, model_pixel_shader_field::handle, handle);
 }
 
 // Xbox 0x0015B640.
 void unload_runtime_pixel_shader(const RuntimeRelocationImage& image, u32 shader,
     const RuntimeNodeRelocationBoundaries& d3d)
 {
-    if (image.word(shader, 0xC) != 0)
+    if (image.get(shader, model_pixel_shader_field::handle) != 0)
     {
-        d3d.delete_pixel_shader(image.word(shader, 0xC));
-        image.set_word(shader, 0xC, 0);
+        d3d.delete_pixel_shader(image.get(shader, model_pixel_shader_field::handle));
+        image.set(shader, model_pixel_shader_field::handle, 0);
     }
 }
 
@@ -661,10 +692,10 @@ void unload_runtime_pixel_shader(const RuntimeRelocationImage& image, u32 shader
 void postload_runtime_shader_node(const RuntimeRelocationImage& image, u32 node,
     const RuntimeNodeRelocationBoundaries& d3d)
 {
-    postload_runtime_pixel_shader(image, image.word(node, 0x20), d3d);
-    if (image.word(node, 0x24) != 0)
+    postload_runtime_pixel_shader(image, image.get(node, shader_node::primary), d3d);
+    if (image.get(node, shader_node::secondary) != 0)
     {
-        postload_runtime_pixel_shader(image, image.word(node, 0x24), d3d);
+        postload_runtime_pixel_shader(image, image.get(node, shader_node::secondary), d3d);
     }
 }
 
@@ -672,10 +703,10 @@ void postload_runtime_shader_node(const RuntimeRelocationImage& image, u32 node,
 void unload_runtime_shader_node(const RuntimeRelocationImage& image, u32 node,
     const RuntimeNodeRelocationBoundaries& d3d)
 {
-    unload_runtime_pixel_shader(image, image.word(node, 0x20), d3d);
-    if (image.word(node, 0x24) != 0)
+    unload_runtime_pixel_shader(image, image.get(node, shader_node::primary), d3d);
+    if (image.get(node, shader_node::secondary) != 0)
     {
-        unload_runtime_pixel_shader(image, image.word(node, 0x24), d3d);
+        unload_runtime_pixel_shader(image, image.get(node, shader_node::secondary), d3d);
     }
 }
 
@@ -710,11 +741,11 @@ void postload_runtime_node_chain(const RuntimeRelocationImage& image, u32 node,
         {
             postload_runtime_matrix_array(image, node, heap);
         }
-        if (image.word(node, 0x14) != 0)
+        if (image.get(node, model_node_field::child) != 0)
         {
-            postload_runtime_node_chain(image, image.word(node, 0x14), heap, d3d);
+            postload_runtime_node_chain(image, image.get(node, model_node_field::child), heap, d3d);
         }
-        node = image.word(node, 0x18);
+        node = image.get(node, model_node_field::next);
     } while (true);
 }
 
@@ -737,11 +768,11 @@ void unload_runtime_node_chain(const RuntimeRelocationImage& image, u32 node,
         {
             unload_runtime_matrix_array(image, node, heap);
         }
-        if (image.word(node, 0x14) != 0)
+        if (image.get(node, model_node_field::child) != 0)
         {
-            unload_runtime_node_chain(image, image.word(node, 0x14), heap, d3d);
+            unload_runtime_node_chain(image, image.get(node, model_node_field::child), heap, d3d);
         }
-        node = image.word(node, 0x18);
+        node = image.get(node, model_node_field::next);
     } while (true);
 }
 
@@ -750,13 +781,14 @@ void postload_runtime_model_tree(const RuntimeRelocationImage& image, u32 tree,
     const RuntimeModelHeapBoundaries& heap, const RuntimeNodeRelocationBoundaries& d3d)
 {
     u32 index = 0;
-    if (image.word(tree, 0xC) != 0)
+    if (image.get(tree, model_tree_field::root_count) != 0)
     {
         do
         {
-            postload_runtime_node_chain(image, image.word(image.word(tree, 8) + index * 4), heap, d3d);
+            postload_runtime_node_chain(image, image.word(image.get(tree, model_tree_field::roots) + index * 4), heap,
+                d3d);
             ++index;
-        } while (index < image.word(tree, 0xC));
+        } while (index < image.get(tree, model_tree_field::root_count));
     }
 }
 
@@ -765,13 +797,14 @@ void unload_runtime_model_tree(const RuntimeRelocationImage& image, u32 tree,
     const RuntimeModelHeapBoundaries& heap, const RuntimeNodeRelocationBoundaries& d3d)
 {
     u32 index = 0;
-    if (image.word(tree, 0xC) != 0)
+    if (image.get(tree, model_tree_field::root_count) != 0)
     {
         do
         {
-            unload_runtime_node_chain(image, image.word(image.word(tree, 8) + index * 4), heap, d3d);
+            unload_runtime_node_chain(image, image.word(image.get(tree, model_tree_field::roots) + index * 4), heap,
+                d3d);
             ++index;
-        } while (index < image.word(tree, 0xC));
+        } while (index < image.get(tree, model_tree_field::root_count));
     }
 }
 
@@ -1011,36 +1044,37 @@ void relocate_runtime_model_type24(const RuntimeRelocationImage& image, u32 bloc
 // Xbox 0x0015ACB0.
 void relocate_runtime_shader_parameters(const RuntimeRelocationImage& image, u32 shader, u32 base)
 {
-    if (image.word(shader, 8) != 0)
+    if (image.get(shader, model_material_field::stages) != 0)
     {
-        image.set_word(shader, 8, image.word(shader, 8) + base);
+        image.set(shader, model_material_field::stages, image.get(shader, model_material_field::stages) + base);
     }
-    if (image.word(shader) != 0)
+    if (image.get(shader, model_material_field::colours) != 0)
     {
-        image.set_word(shader, 0, image.word(shader) + base);
+        image.set(shader, model_material_field::colours, image.get(shader, model_material_field::colours) + base);
     }
-    if (image.word(shader, 4) != 0)
+    if (image.get(shader, model_material_field::constants) != 0)
     {
-        image.set_word(shader, 4, image.word(shader, 4) + base);
+        image.set(shader, model_material_field::constants, image.get(shader, model_material_field::constants) + base);
     }
-    if (image.word(shader, 0x20) != 0)
+    if (image.get(shader, model_material_field::name) != 0)
     {
-        image.set_word(shader, 0x20, image.word(shader, 0x20) + base);
+        image.set(shader, model_material_field::name, image.get(shader, model_material_field::name) + base);
     }
-    if (image.word(shader, 0x24) != 0)
+    if (image.get(shader, model_material_field::entries) != 0)
     {
-        image.set_word(shader, 0x24, image.word(shader, 0x24) + base);
+        image.set(shader, model_material_field::entries, image.get(shader, model_material_field::entries) + base);
         u32 index = 0;
-        if (image.word(shader, 0x28) != 0)
+        if (image.get(shader, model_material_field::entry_count) != 0)
         {
             u32 offset = 0;
             do
             {
-                const u32 entry = image.word(shader, 0x24) + offset;
-                image.set_word(entry, 0, image.word(entry) + base);
+                const u32 entry = image.get(shader, model_material_field::entries) + offset;
+                image.set(entry, model_material_entry_field::name,
+                    image.get(entry, model_material_entry_field::name) + base);
                 ++index;
-                offset += 0x10;
-            } while (index < image.word(shader, 0x28));
+                offset += model_material_entry_field::kSize;
+            } while (index < image.get(shader, model_material_field::entry_count));
         }
     }
 }
@@ -1048,23 +1082,23 @@ void relocate_runtime_shader_parameters(const RuntimeRelocationImage& image, u32
 // Xbox 0x0015B340.
 void relocate_runtime_pixel_shader(const RuntimeRelocationImage& image, u32 shader, u32 base)
 {
-    image.set_word(shader, 4, image.word(shader, 4) + base);
+    image.set(shader, model_pixel_shader_field::program, image.get(shader, model_pixel_shader_field::program) + base);
 }
 
 // Xbox 0x00158910.
 void relocate_runtime_node_links(const RuntimeRelocationImage& image, u32 node, u32 base)
 {
-    if (image.word(node, 0x14) != 0)
+    if (image.get(node, model_node_field::child) != 0)
     {
-        image.set_word(node, 0x14, image.word(node, 0x14) + base);
+        image.set(node, model_node_field::child, image.get(node, model_node_field::child) + base);
     }
-    if (image.word(node, 0x18) != 0)
+    if (image.get(node, model_node_field::next) != 0)
     {
-        image.set_word(node, 0x18, image.word(node, 0x18) + base);
+        image.set(node, model_node_field::next, image.get(node, model_node_field::next) + base);
     }
-    if (image.word(node, 0x1C) != 0)
+    if (image.get(node, model_node_field::unk_1C) != 0)
     {
-        image.set_word(node, 0x1C, image.word(node, 0x1C) + base);
+        image.set(node, model_node_field::unk_1C, image.get(node, model_node_field::unk_1C) + base);
     }
 }
 
@@ -1078,51 +1112,51 @@ void relocate_runtime_pixel_shader_parameter_node(const RuntimeRelocationImage& 
 void relocate_runtime_push_buffer_node(const RuntimeRelocationImage& image, u32 node, u32 base)
 {
     relocate_runtime_node_links(image, node, base);
-    if (image.word(node, 0x24) != 0)
+    if (image.get(node, push_buffer_node::header) != 0)
     {
-        image.set_word(node, 0x24, image.word(node, 0x24) + base);
-        image.set_word(node, 0x28, image.word(node, 0x28) + base);
+        image.set(node, push_buffer_node::header, image.get(node, push_buffer_node::header) + base);
+        image.set(node, push_buffer_node::data, image.get(node, push_buffer_node::data) + base);
         return;
     }
-    image.set_word(node, 0x30, image.word(node, 0x30) + base);
-    image.set_word(node, 0x38, image.word(node, 0x38) + base);
+    image.set(node, push_buffer_node::draw_indices, image.get(node, push_buffer_node::draw_indices) + base);
+    image.set(node, push_buffer_node::draw_counts, image.get(node, push_buffer_node::draw_counts) + base);
     u32 index = 0;
-    image.set_word(node, 0x34, image.word(node, 0x34) + base);
-    if (image.word(node, 0x20) != 0)
+    image.set(node, push_buffer_node::draw_primitives, image.get(node, push_buffer_node::draw_primitives) + base);
+    if (image.get(node, push_buffer_node::draw_count) != 0)
     {
         do
         {
-            const u32 entry = image.word(node, 0x30) + index * 4;
+            const u32 entry = image.get(node, push_buffer_node::draw_indices) + index * 4;
             image.set_word(entry, 0, image.word(entry) + base);
             ++index;
-        } while (index < image.word(node, 0x20));
+        } while (index < image.get(node, push_buffer_node::draw_count));
     }
 }
 
 // Xbox 0x001580A0.
 void relocate_runtime_background_push_buffer_node(const RuntimeRelocationImage& image, u32 node, u32 base)
 {
-    image.set_word(node, 0x44, image.word(node, 0x44) + base);
-    image.set_word(node, 0x40, image.word(node, 0x40) + base);
+    image.set(node, push_buffer_node::unk_44, image.get(node, push_buffer_node::unk_44) + base);
+    image.set(node, push_buffer_node::unk_40, image.get(node, push_buffer_node::unk_40) + base);
     relocate_runtime_node_links(image, node, base);
-    if (image.word(node, 0x24) != 0)
+    if (image.get(node, push_buffer_node::header) != 0)
     {
-        image.set_word(node, 0x24, image.word(node, 0x24) + base);
-        image.set_word(node, 0x28, image.word(node, 0x28) + base);
+        image.set(node, push_buffer_node::header, image.get(node, push_buffer_node::header) + base);
+        image.set(node, push_buffer_node::data, image.get(node, push_buffer_node::data) + base);
         return;
     }
-    image.set_word(node, 0x30, image.word(node, 0x30) + base);
-    image.set_word(node, 0x38, image.word(node, 0x38) + base);
+    image.set(node, push_buffer_node::draw_indices, image.get(node, push_buffer_node::draw_indices) + base);
+    image.set(node, push_buffer_node::draw_counts, image.get(node, push_buffer_node::draw_counts) + base);
     u32 index = 0;
-    image.set_word(node, 0x34, image.word(node, 0x34) + base);
-    if (image.word(node, 0x20) != 0)
+    image.set(node, push_buffer_node::draw_primitives, image.get(node, push_buffer_node::draw_primitives) + base);
+    if (image.get(node, push_buffer_node::draw_count) != 0)
     {
         do
         {
-            const u32 entry = image.word(node, 0x30) + index * 4;
+            const u32 entry = image.get(node, push_buffer_node::draw_indices) + index * 4;
             image.set_word(entry, 0, image.word(entry) + base);
             ++index;
-        } while (index < image.word(node, 0x20));
+        } while (index < image.get(node, push_buffer_node::draw_count));
     }
 }
 
@@ -1130,19 +1164,19 @@ void relocate_runtime_background_push_buffer_node(const RuntimeRelocationImage& 
 void relocate_runtime_skeleton_node(const RuntimeRelocationImage& image, u32 node, u32 base)
 {
     relocate_runtime_node_links(image, node, base);
-    image.set_word(node, 0x24, image.word(node, 0x24) + base);
+    image.set(node, skeleton_node::joints, image.get(node, skeleton_node::joints) + base);
 }
 
 // Xbox 0x001572D0.
 void relocate_runtime_shader_parameter_node(const RuntimeRelocationImage& image, u32 node, u32 base)
 {
-    u32 shader = image.word(node, 0x20) + base;
-    image.set_word(node, 0x20, shader);
+    u32 shader = image.get(node, shader_node::primary) + base;
+    image.set(node, shader_node::primary, shader);
     relocate_runtime_shader_parameters(image, shader, base);
-    if (image.word(node, 0x24) != 0)
+    if (image.get(node, shader_node::secondary) != 0)
     {
-        shader = image.word(node, 0x24) + base;
-        image.set_word(node, 0x24, shader);
+        shader = image.get(node, shader_node::secondary) + base;
+        image.set(node, shader_node::secondary, shader);
         relocate_runtime_shader_parameters(image, shader, base);
     }
     relocate_runtime_node_links(image, node, base);
@@ -1151,13 +1185,13 @@ void relocate_runtime_shader_parameter_node(const RuntimeRelocationImage& image,
 // Xbox 0x00157C60.
 void relocate_runtime_shader_node(const RuntimeRelocationImage& image, u32 node, u32 base)
 {
-    u32 shader = image.word(node, 0x20) + base;
-    image.set_word(node, 0x20, shader);
+    u32 shader = image.get(node, shader_node::primary) + base;
+    image.set(node, shader_node::primary, shader);
     relocate_runtime_pixel_shader(image, shader, base);
-    if (image.word(node, 0x24) != 0)
+    if (image.get(node, shader_node::secondary) != 0)
     {
-        shader = image.word(node, 0x24) + base;
-        image.set_word(node, 0x24, shader);
+        shader = image.get(node, shader_node::secondary) + base;
+        image.set(node, shader_node::secondary, shader);
         relocate_runtime_pixel_shader(image, shader, base);
     }
     relocate_runtime_node_links(image, node, base);
@@ -1172,24 +1206,24 @@ void runtime_model_noop()
 void relocate_runtime_matrix_array_node(const RuntimeRelocationImage& image, u32 node, u32 base)
 {
     relocate_runtime_node_links(image, node, base);
-    const u32 matrices = image.word(node, 0x2C) + base;
-    image.set_word(node, 0x20, image.word(node, 0x20) + base);
-    image.set_word(node, 0x2C, matrices);
-    if (matrices != 0 && image.word(node, 0x30) != 0)
+    const u32 matrices = image.get(node, matrix_array_node::matrices) + base;
+    image.set(node, matrix_array_node::rows, image.get(node, matrix_array_node::rows) + base);
+    image.set(node, matrix_array_node::matrices, matrices);
+    if (matrices != 0 && image.get(node, matrix_array_node::matrix_count) != 0)
     {
         const i32 offset = std::bit_cast<i32>(matrices - node);
         if (offset < 0 || offset > 0xFFFF)
         {
             runtime_model_noop();
         }
-        image.set_half(node, 0x2A, u16(offset));
+        image.set(node, matrix_array_node::matrices_offset, u16(offset));
     }
 }
 
 // Xbox 0x00157C40.
 void relocate_runtime_rigid_skin_node(const RuntimeRelocationImage& image, u32 node, u32 base)
 {
-    image.set_word(node, 0x20, image.word(node, 0x20) + base);
+    image.set(node, rigid_skin_node::indices, image.get(node, rigid_skin_node::indices) + base);
     relocate_runtime_node_links(image, node, base);
 }
 

@@ -1,6 +1,11 @@
 #include "body_attachment_requests.h"
+#include "mind_fields.h"
+#include "weapon_fields.h"
+#include <cstddef>
+#include "player_mind_targets.h"
 #include "body_message_helpers.h"
 #include "shape_copy.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -14,10 +19,10 @@ u32 runtime_body_target_height(std::span<const u8> body, const Actor& actor,
     {
         copy_actor_shape(shape, target.data() + 0x1C);
     }
-    const float height = actor.radius_y * read_f32(body, 0x884);
-    const float radius = read_f32(target, 0x30);
+    const float height = actor.radius_y * body_record(body).height_scale;
+    const float radius = mind_target_record(target).shape.height;
     const Vec3 position = actor_world_position(actor);
-    const float difference = (read_f32(target, 0x24) + radius) - (position.y + height);
+    const float difference = (mind_target_record(target).shape.position.y + radius) - (position.y + height);
     if (difference > height * .25f)
     {
         return 2;
@@ -33,9 +38,9 @@ u32 runtime_body_target_height(std::span<const u8> body, const Actor& actor,
 bool runtime_body_accepts_target_request(std::span<const u8> body,
     const EntityBitBlock& flags, u16 owner_class)
 {
-    if (body[0x6B] == 0 && (body[0x6A] == 0 || body[0x6C] != 0)
-        && !(read_f32(body, 0x70) > 0.f) && read_u16(body, 0x30) == 0
-        && read_f32(body, 0x34) == 0.f && (flags.bytes[3] & 8) == 0)
+    if (body_record(body).unk_6B == 0 && (body_record(body).unk_6A == 0 || body_record(body).unk_6C != 0)
+        && !(body_record(body).unk_70 > 0.f) && body_record(body).move_holds == 0
+        && body_record(body).move_hold_time == 0.f && (flags.bytes[3] & 8) == 0)
     {
         if (!runtime_body_bit_set(flags, 0x2C))
         {
@@ -78,10 +83,6 @@ const u8* search(const RuntimeAttachmentRequestRows& rows, u16 key, size_t strid
     }
     return nullptr;
 }
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 }
 
 // Xbox 0x0001C560
@@ -123,7 +124,7 @@ u8 runtime_body_attached_category(const RuntimeBodyAttachedActor* attached)
 {
     if (attached != nullptr)
     {
-        return attached->bytes[0x93D];
+        return weapon_base(attached->bytes).unk_93D;
     }
     return 0;
 }
@@ -137,7 +138,7 @@ bool runtime_attachment_request_matches(std::span<const u8> row,
     if (secondary != nullptr)
     {
         classification = classify_runtime_attached_actor(secondary->bytes, owner_class);
-        category = secondary->bytes[0x93D];
+        category = weapon_base(secondary->bytes).unk_93D;
     }
     else
     {
@@ -175,8 +176,8 @@ bool accept_runtime_attachment_request(RuntimeBodyAttachmentRequests& context, c
 {
     const u32 address = context.address_of(row);
     context.state = row;
-    put(context.body, 0x84, address);
-    put(context.body, 0x88, timer);
+   body_record(context.body).hit_record = address;
+   body_record(context.body).unk_88 = timer;
     const u16 key = read_u16({row, 2}, 0);
     if (key != 0 && context.actions.table != nullptr)
     {
@@ -185,15 +186,15 @@ bool accept_runtime_attachment_request(RuntimeBodyAttachmentRequests& context, c
         if (action != nullptr)
         {
             select_runtime_body_action_row(context.body, action, nullptr, context.actions);
-            put(context.body, 0x88, timer);
+           body_record(context.body).unk_88 = timer;
             context.state = row;
-            put(context.body, 0x84, address);
+           body_record(context.body).hit_record = address;
             return true;
         }
     }
-    put(context.body, 0x88, timer);
+   body_record(context.body).unk_88 = timer;
     context.state = row;
-    put(context.body, 0x84, address);
+   body_record(context.body).hit_record = address;
     return false;
 }
 
@@ -260,8 +261,8 @@ bool select_runtime_attachment_request(RuntimeBodyAttachmentRequests& context, u
 // Xbox 0x0001D830
 void raise_runtime_body_request_tag(std::span<u8> body, entity_detail::ListHead& live_attachments, u16 bits)
 {
-    const u16 tag = u16(read_u16(body, 0x6E) | bits);
-    std::memcpy(body.data() + 0x6E, &tag, 2);
+    const u16 tag = u16(body_record(body).tag | bits);
+    body_record(body).tag = tag;
     auto* first = static_cast<ActorLiveAttachment*>(live_attachments.next); // Body +8 actor +0x8F8.
     if (first != nullptr)
     {

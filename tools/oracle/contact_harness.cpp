@@ -39,8 +39,8 @@ void engine_copy_bytes(void* dest, const void* src, u32 count)
         std::memmove(dest, src, count);
     }
 }
-void* g_512344 = nullptr;
-i32 g_512348 = 0;
+void* g_occupancy_pool = nullptr; // DAT_00512344
+i32 g_occupancy_mask = 0; // DAT_00512348
 struct ModelPoseBuffer;
 struct Joint;
 struct ModelBoneBinding;

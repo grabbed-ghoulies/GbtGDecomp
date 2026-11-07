@@ -27,11 +27,6 @@ constexpr u32 kPageTextures = 0x00427B60; // aid_texture_ghoulies_unlockableart_
 constexpr const char* kTurn = "aid_cutscene_ghoulies_misc_artbookreadpageturn"; // 0x00427A60
 constexpr const char* kTurnBack = "aid_cutscene_ghoulies_misc_artbookreadpageturnback"; // 0x00427AE0
 
-float exe_real(const GameSelectControlServices& s, u32 address)
-{
-    return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
-}
-
 const char* page_texture_name(i32 page, const GameSelectControlServices& s)
 {
     return s.image.string(kPageTextures + u32(page) * 0x80);
@@ -178,8 +173,8 @@ void show_page_caption(GalleryControlState& control, GameSelectControlServices& 
 {
     end_all_dialogue_text_records(*control.pool, s.fonts, s.fallback_texture, s.random); // 0x0005F970
     page_caption(page_texture_name(control.page, s), control.caption.data(), s); // 0x000883A0
-    create_dialogue_text_record(*control.pool, control.caption.data(), float(s.screen[0]) * exe_real(s, 0x0032B0F4),
-        float(s.screen[1]) * exe_real(s, 0x0032B168), 1.f, 1.f, 7.f, 1, 0, 0, s.metrics, s.viewport_width,
+    create_dialogue_text_record(*control.pool, control.caption.data(), float(s.screen[0]) * 0.5f, // DAT_0032B0F4.
+        float(s.screen[1]) * 0.15f, 1.f, 1.f, 7.f, 1, 0, 0, s.metrics, s.viewport_width, // DAT_0032B168.
         s.next_text_id, s.random); // 0x0005F5C0, EAX 0, DAT_005096E8, DAT_005096EA
 }
 
@@ -188,10 +183,10 @@ void make_prompts(GalleryControlState& control, GameSelectControlServices& s)
 {
     char resource[0x80]{};
     std::memcpy(resource, "aid_loctext_ghoulies_gameselect_gameselecttext", 47); // 0x0020A574
-    const std::array<float, 2> anchor{float(s.screen[0]) * exe_real(s, 0x0032B168),
-        s.hud.inner_bottom - exe_real(s, 0x0032B648)}; // DAT_005096E8, DAT_0050974C
-    const std::array<float, 2> row_step{0.f, exe_real(s, 0x0032B644)};
-    const std::array<float, 2> origin{exe_real(s, 0x0032B470), exe_real(s, 0x0032B4F4)};
+    const std::array<float, 2> anchor{float(s.screen[0]) * 0.15f, // DAT_0032B168.
+        s.hud.inner_bottom - 24.f}; // DAT_005096E8, DAT_0050974C, DAT_0032B648.
+    const std::array<float, 2> row_step{0.f, -24.f}; // DAT_0032B644.
+    const std::array<float, 2> origin{12.f, -12.f}; // DAT_0032B470, DAT_0032B4F4.
     create_resource_dialogue_widget(control.prompts, 0, s.image.memory(0x003022D8, 0x310).data(), anchor, row_step,
         origin, nullptr, 0.75f, 0.75f, "gameselect", resource, 0x80, s.widget_allocation); // 0x00141DA0, ESI +0xA8, 0x003022D8
 }
@@ -215,8 +210,8 @@ void turn_back_to_leave(GalleryControlState& control, GameSelectControlServices&
     control.cutscene = load_runtime_cutscene(kTurnBack, 0, camera_of(control), s.cutscenes); // 0x0004D680
     turn_page(control, -1, s); // 0x000881C0, EAX -1
     bind_page_textures(control, 1, s); // 0x00087FE0(1)
-    const float most = exe_real(s, 0x0032B184);
-    control.speed = control.speed + exe_real(s, 0x0032B0F8);
+    const float most = 5.f; // DAT_0032B184.
+    control.speed = control.speed + 1.f; // DAT_0032B0F8.
     if (most <= control.speed)
     {
         control.speed = most;
@@ -445,7 +440,7 @@ void set_runtime_gallery_state(GalleryControlState& control, i32 state, GameSele
         bind_page_textures(control, 1, s); // 0x00087FE0(1)
         show_page_caption(control, s); // 0x000883F0
         control.state = state;
-        control.speed = exe_real(s, 0x0032B0F8);
+        control.speed = 1.f; // DAT_0032B0F8.
         return;
     }
     case 4:

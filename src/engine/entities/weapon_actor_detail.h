@@ -1,6 +1,7 @@
 #pragma once
 
 #include "weapon_actor.h"
+#include "weapon_fields.h"
 #include "gbtg/anim.h"
 
 #include <bit>

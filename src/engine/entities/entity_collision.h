@@ -1,9 +1,28 @@
 #pragma once
 
+#include "gbtg/retail_field.h"
 #include "entity_types.h"
 
 namespace gbtg
 {
+// A segment contact record (0x54 bytes).
+namespace segment_contact_field
+{
+constexpr RetailField<Vec3, 0x00> point{};
+constexpr RetailField<Vec3, 0x0C> normal{};
+constexpr RetailField<Vec3, 0x2C> center{}; // of the sphere swept
+constexpr RetailField<float, 0x38> radius{};
+} // namespace segment_contact_field
+inline Vec3 segment_contact_normal(std::span<const u8> contact)
+{
+    return get(contact, segment_contact_field::normal);
+}
+// The capsule behind a body message's `bound` and DAT_0050E398: its start, end and radius (0x00114910). Inferred from the
+// cloth's use of the same words.
+namespace actor_capsule_field
+{
+constexpr RetailField<Vec3, 0x20> start{};
+} // namespace actor_capsule_field
 namespace entity_detail
 {
 // DAT_00511188 indexes DAT_005111AC. Message 99 writes the contact and does not bump the index.

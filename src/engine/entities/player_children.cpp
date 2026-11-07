@@ -1,5 +1,7 @@
 #include "player_children.h"
+#include "strategy_fields.h"
 #include "entity_heap.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -48,11 +50,11 @@ void player_strategy_object_sizes(ObjectSizes& output)
 // Xbox 0x000BED90
 void destroy_runtime_player_strategy(std::span<u8> strategy, u32& active_count)
 {
-    if (read_u32(strategy, 0x48) != 0)
+    PlayerStrategyState& state = strategy_view<PlayerStrategyState>(strategy);
+    if (state.pause_held != 0)
     {
         --active_count;
-        const u32 zero = 0;
-        std::memcpy(strategy.data() + 0x48, &zero, 4);
+        state.pause_held = 0;
     }
 }
 
@@ -103,7 +105,7 @@ void clear_runtime_player_mind_requests(RuntimePlayerMindRequests& mind)
 void destroy_runtime_player_mind(std::span<const u8> actor, u32 runtime_flags,
     RuntimeInputActivationContext& input)
 {
-    if ((runtime_flags & 0x800) == 0 && read_u32(actor, 0x960) != 0)
+    if ((runtime_flags & 0x800) == 0 && player_record(actor).input_device != 0)
     {
         pop_runtime_input_entry(input);
     }

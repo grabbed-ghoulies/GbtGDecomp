@@ -1,35 +1,29 @@
 #include "cinema_mind_lifecycle.h"
+#include "actor_fields.h"
+#include "mind_fields.h"
 #include <bit>
 #include <cstring>
 
 namespace gbtg
 {
-namespace
-{
-void word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-}
-
 // Xbox 0x0007C500
 void runtime_cinema_mind_storage_sizes(ObjectSizes& sizes)
 {
-    sizes = {0xD0, 0x128};
+    sizes = {sizeof(CinemaMindRecord), cinema_mind_parameter::kSize};
 }
 
 // Xbox 0x0007CC00
 void load_runtime_cinema_mind_resource(RuntimeCinemaMindLifecycle& context, std::span<const u8> parameters)
 {
-    if (read_u32(parameters, 0xA8) == 0x5F646961)
+    if (std::memcmp(field_data(parameters, cinema_mind_parameter::sound_resource), "aid_", 4) == 0)
     {
-        context.resource = acquire_animation_resource(context.registry,
-            reinterpret_cast<const char*>(parameters.data() + 0xA8));
+        context.resource =
+            acquire_animation_resource(context.registry, field_data(parameters, cinema_mind_parameter::sound_resource));
         if (context.resource.data() == nullptr)
         {
             resource_error(context.error, 2);
         }
-        word(context.bytes, 0x84, context.address_of(context.resource.data()));
+        cinema_mind_record(context.bytes).sound_resource = context.address_of(context.resource.data());
         if (context.resource.data() != nullptr)
         {
             i32 index = 0;
@@ -42,44 +36,44 @@ void load_runtime_cinema_mind_resource(RuntimeCinemaMindLifecycle& context, std:
                 }
                 ++index;
                 name += 0x80;
-                word(context.bytes, 0x88, read_u32(context.bytes, 0x88) + 1);
+                cinema_mind_record(context.bytes).sound_count = cinema_mind_record(context.bytes).sound_count + 1;
             }
             while (index < 3);
         }
     }
-    if (read_u32(context.bytes, 0x88) != 0)
+    if (cinema_mind_record(context.bytes).sound_count != 0)
     {
         const float minimum = read_f32(context.resource, 0);
         const float maximum = read_f32(context.resource, 4);
         context.random = context.random * 0x19660Du + 0x3C6EF35Fu;
         const float random = std::bit_cast<float>((context.random & 0x7FFFFFu) | 0x3F800000u) - 1.f;
         const float delay = (maximum - minimum) * random + minimum;
-        word(context.bytes, 0x8C, std::bit_cast<u32>(delay));
+        cinema_mind_record(context.bytes).sound_timer = delay;
     }
 }
 
 // Xbox 0x0007C7D0
 bool initialize_runtime_cinema_mind(RuntimeCinemaMindLifecycle& context, std::span<const u8> parameters)
 {
-    word(context.bytes, 0x7C, read_u32(parameters, 0xA0));
-    word(context.bytes, 0x80, read_u32(parameters, 0xA4));
-    if (read_u16(context.actor, 0x1FC) == 0)
+    cinema_mind_record(context.bytes).roam_radius = get(parameters, cinema_mind_parameter::roam_radius);
+    cinema_mind_record(context.bytes).target_radius = get(parameters, cinema_mind_parameter::target_radius);
+    if (actor_marker_id(context.actor) == 0)
     {
-        word(context.bytes, 0x64, read_u32(context.bytes, 0x64) & 0xFFFFFFDFu);
-        word(context.bytes, 0x6C, 0);
+        mind_record(context.bytes).target_flags = mind_record(context.bytes).target_flags & 0xFFFFFFDFu;
+        mind_record(context.bytes).target_range = 0.f;
     }
-    word(context.bytes, 0xA0, 0);
-    word(context.bytes, 0x9C, 0);
-    word(context.bytes, 0xA8, 0);
-    word(context.bytes, 0xA4, 0);
-    word(context.bytes, 0xB0, 1);
-    word(context.bytes, 0xAC, 0);
-    word(context.bytes, 0xB8, 0);
-    word(context.bytes, 0xB4, 0);
-    word(context.bytes, 0xC0, 0);
-    word(context.bytes, 0xBC, 0);
-    word(context.bytes, 0xC8, 1);
-    word(context.bytes, 0xC4, 0);
+    cinema_mind_record(context.bytes).unk_A0 = 0;
+    cinema_mind_record(context.bytes).unk_9C = 0;
+    cinema_mind_record(context.bytes).unk_A8 = 0;
+    cinema_mind_record(context.bytes).unk_A4 = 0;
+    cinema_mind_record(context.bytes).unk_B0 = 1;
+    cinema_mind_record(context.bytes).unk_AC = 0;
+    cinema_mind_record(context.bytes).unk_B8 = 0;
+    cinema_mind_record(context.bytes).unk_B4 = 0;
+    cinema_mind_record(context.bytes).unk_C0 = 0;
+    cinema_mind_record(context.bytes).unk_BC = 0;
+    cinema_mind_record(context.bytes).unk_C8 = 1;
+    cinema_mind_record(context.bytes).unk_C4 = 0;
     load_runtime_cinema_mind_resource(context, parameters);
     return true;
 }
@@ -87,10 +81,10 @@ bool initialize_runtime_cinema_mind(RuntimeCinemaMindLifecycle& context, std::sp
 // Xbox 0x0007C880
 void destroy_runtime_cinema_mind(RuntimeCinemaMindLifecycle& context)
 {
-    if (read_u32(context.bytes, 0x84) != 0)
+    if (cinema_mind_record(context.bytes).sound_resource != 0)
     {
         release_animation_resource(context.registry, context.resource);
-        word(context.bytes, 0x84, 0);
+        cinema_mind_record(context.bytes).sound_resource = 0;
         context.resource = {}; // Native pointer view of the cleared field.
     }
 }

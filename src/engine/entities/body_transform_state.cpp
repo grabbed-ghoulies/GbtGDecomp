@@ -1,4 +1,5 @@
 #include "body_transform_state.h"
+#include "actor_fields.h"
 #include "actor_transform.h"
 #include "gbtg/model_runtime.h"
 
@@ -12,7 +13,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = transform_state_field;
 namespace parameter = transform_state_parameter;
 
 std::function<RuntimeTransformStateContext&(u32)> transform_context_of;
@@ -26,11 +26,6 @@ struct TransformRecords
     const AnimationRecord* third = nullptr;
 };
 std::unordered_map<const u8*, TransformRecords> transform_records;
-
-u32 body_address_of(std::span<const u8> state)
-{
-    return read_u32(state, 8);
-}
 
 void copy_name(char* target, const char* source)
 {
@@ -132,12 +127,12 @@ u32 create_morph(const char* name, RuntimeTransformStateContext& context)
 }
 
 // Xbox 0x000A4BB0: the final actor from the template at +0xBC, at the body's pose and scale and with its marker key.
-u32 create_result(std::span<u8> state, RuntimeTransformStateContext& context)
+u32 create_result(TransformState& state, RuntimeTransformStateContext& context)
 {
     const Vec3 position = actor_world_position(context.actor); // 0x000412A0
     const Vec3 euler = actor_world_euler(context.actor); // 0x00041820
-    const char* name = field_data(state, field::result);
-    if (read_u32(state, field::result.offset) != 0x5F646961) // "aid_".
+    const char* name = state.result.data();
+    if (std::memcmp(name, "aid_", 4) != 0)
     {
         return 0;
     }
@@ -147,7 +142,7 @@ u32 create_result(std::span<u8> state, RuntimeTransformStateContext& context)
         return 0;
     }
     const float scale = context.actor.radius_xz; // Actor +0x38.
-    const i16 key = i16(read_u16(context.actor_bytes, 0x1FC));
+    const i16 key = i16(actor_marker_id(context.actor_bytes));
     std::memcpy(clone.bytes.get() + 8, &position, 12);
     std::memcpy(clone.bytes.get() + 0x14, &euler, 12);
     std::memcpy(clone.bytes.get() + 0x20, &scale, 4);
@@ -170,31 +165,31 @@ void burst_into_bits(u32 address, float lifetime, const char* name, RuntimeTrans
 }
 
 // The morph actor bursts and its bind tree goes (message 0x7C's release without the burst).
-void release_morph(std::span<u8> state, bool burst, RuntimeTransformStateContext& context)
+void release_morph(TransformState& state, bool burst, RuntimeTransformStateContext& context)
 {
-    const u32 morph = get(state, field::morph);
+    const u32 morph = state.morph;
     if (morph == 0)
     {
         return;
     }
     if (burst)
     {
-        burst_into_bits(morph, 5.f, field_data(state, field::bits_effect), context); // 0x0013B1F0, ESI state +0x24
+        burst_into_bits(morph, 5.f, state.bits_effect.data(), context); // 0x0013B1F0, ESI state +0x24
     }
     activate_actor_bind_tree(actor_of(morph, context)); // 0x00112CC0, ESI the morph
-    set(state, field::morph, 0u);
+    state.morph = 0u;
 }
 
 bool construct_transform_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_transform_state(state, parameters, transform_context_of(body_address_of(state)));
+    TransformState& state = body_state_view<TransformState>({object.bytes.get(), object.size});
+    return initialize_runtime_transform_state(state, parameters, transform_context_of(state.base.body));
 }
 
 void destroy_transform_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_transform_state(state, transform_context_of(body_address_of(state)));
+    TransformState& state = body_state_view<TransformState>({object.bytes.get(), object.size});
+    destroy_runtime_transform_state(state, transform_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* transform_state_lifecycle()
@@ -208,84 +203,84 @@ const ObjectFactoryVtable* transform_state_lifecycle()
 // Xbox 0x000A4380
 void transform_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(TransformState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x000A4400
-bool initialize_runtime_transform_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_transform_state(TransformState& state, std::span<const u8> parameters,
     RuntimeTransformStateContext& context)
 {
     context.bits.bytes[6] |= 0x10;
     RuntimeBodyStateContext shape = context.state();
     set_runtime_body_shape_mode(4, shape); // 0x0001FEB0, BL 4, EDI body
     const u32 morph = create_morph(field_data(parameters, parameter::morph), context); // 0x000A4B00
-    set(state, field::morph, morph);
-    copy_name(field_data(state, field::bits_effect), field_data(parameters, parameter::bits_effect));
-    auto& records = transform_records[state.data()];
+    state.morph = morph;
+    copy_name(state.bits_effect.data(), field_data(parameters, parameter::bits_effect));
+    auto& records = transform_records[body_state_key(state)];
     records = {};
     if (get(parameters, parameter::body_animation) != 0)
     {
         // The inlined 0x0003AAA0 pair: the held actor's +0xDB0 variant first, then the plain name.
         records.body = find_runtime_body_animation(context.image_string(get(parameters, parameter::body_animation)),
             context.actions);
-        set(state, field::body_animation, records.body != nullptr ? 1u : 0u);
+        state.body_animation = records.body != nullptr ? 1u : 0u;
     }
     if (get(parameters, parameter::morph_animation) != 0)
     {
         records.morph = find_actor_record(morph, context.image_string(get(parameters, parameter::morph_animation)),
             context);
-        set(state, field::morph_animation, records.morph != nullptr ? 1u : 0u);
+        state.morph_animation = records.morph != nullptr ? 1u : 0u;
     }
     if (get(parameters, parameter::third_animation) != 0)
     {
         records.third = find_actor_record(morph, context.image_string(get(parameters, parameter::third_animation)),
             context);
-        set(state, field::third_animation, records.third != nullptr ? 1u : 0u);
+        state.third_animation = records.third != nullptr ? 1u : 0u;
     }
     if (get(parameters, parameter::second_animation) != 0)
     {
         records.second = find_actor_record(morph, context.image_string(get(parameters, parameter::second_animation)),
             context);
-        set(state, field::second_animation, records.second != nullptr ? 1u : 0u);
+        state.second_animation = records.second != nullptr ? 1u : 0u;
     }
-    copy_name(field_data(state, field::first_sound), field_data(parameters, parameter::first_sound));
-    copy_name(field_data(state, field::second_sound), field_data(parameters, parameter::second_sound));
-    copy_name(field_data(state, field::third_sound), field_data(parameters, parameter::third_sound));
-    copy_name(field_data(state, field::result_sound), field_data(parameters, parameter::result_sound));
-    copy_name(field_data(state, field::hit_sound), field_data(parameters, parameter::hit_sound));
-    set(state, field::second_hold, roll(context) * 0.f + 1.25f); // DAT_0032B114.
-    set(state, field::third_hold, roll(context) * 0.f + 1.25f);
-    copy_name(field_data(state, field::result), field_data(parameters, parameter::result));
-    set(state, field::shown, 0u);
-    set(state, field::phase, 1u);
-    request_actor_sound(context.actor, 1, field_data(state, field::first_sound), context.sounds); // 0x00041D00
-    if (records.body != nullptr && records.morph != nullptr && get(state, field::morph) != 0)
+    copy_name(state.first_sound.data(), field_data(parameters, parameter::first_sound));
+    copy_name(state.second_sound.data(), field_data(parameters, parameter::second_sound));
+    copy_name(state.third_sound.data(), field_data(parameters, parameter::third_sound));
+    copy_name(state.result_sound.data(), field_data(parameters, parameter::result_sound));
+    copy_name(state.hit_sound.data(), field_data(parameters, parameter::hit_sound));
+    state.second_hold = roll(context) * 0.f + 1.25f; // DAT_0032B114.
+    state.third_hold = roll(context) * 0.f + 1.25f;
+    copy_name(state.result.data(), field_data(parameters, parameter::result));
+    state.shown = 0u;
+    state.phase = 1u;
+    request_actor_sound(context.actor, 1, state.first_sound.data(), context.sounds); // 0x00041D00
+    if (records.body != nullptr && records.morph != nullptr && state.morph != 0)
     {
         start_runtime_body_animation_record(*records.body, context.actions); // 0x0001AFA0, ECX +0x1C
-        start_actor_record(get(state, field::morph), *records.morph, context); // 0x0003A9E0, ECX +0xA4
+        start_actor_record(state.morph, *records.morph, context); // 0x0003A9E0, ECX +0xA4
     }
     return true;
 }
 
 // Xbox 0x000A4690
-void destroy_runtime_transform_state(std::span<u8> state, RuntimeTransformStateContext& context)
+void destroy_runtime_transform_state(TransformState& state, RuntimeTransformStateContext& context)
 {
     context.bits.bytes[6] |= 0x10;
     release_morph(state, false, context);
-    transform_records.erase(state.data());
+    transform_records.erase(body_state_key(state));
 }
 
 // Xbox 0x000A46D0
-void tick_runtime_transform_state(std::span<u8> state, RuntimeTransformStateContext& context)
+void tick_runtime_transform_state(TransformState& state, RuntimeTransformStateContext& context)
 {
-    const auto& records = transform_records.at(state.data());
-    switch (get(state, field::phase))
+    const auto& records = transform_records.at(body_state_key(state));
+    switch (state.phase)
     {
     case 1:
     {
         const MinaPlayer* player = first_player(context.animation); // Actor +0x50 -> +0x58 -> [0].
-        if (get(state, field::shown) == 0 && get(state, field::morph) != 0)
+        if (state.shown == 0 && state.morph != 0)
         {
             float shown = player != nullptr ? player->position : 0.f; // Player +0x14.
             shown = shown * 1.3333333730697632f * 32.f; // DAT_0032B3C0, DAT_0032B458.
@@ -300,11 +295,11 @@ void tick_runtime_transform_state(std::span<u8> state, RuntimeTransformStateCont
             const i32 nodes = _mm_cvttss_si32(_mm_set_ss(shown));
             for (i32 node = 0; node < nodes; ++node)
             {
-                set_actor_node(get(state, field::morph), u8(node), 0, context); // 0x000F96F0, AL 0
+                set_actor_node(state.morph, u8(node), 0, context); // 0x000F96F0, AL 0
             }
             if (nodes == 0x20)
             {
-                set(state, field::shown, 1u);
+                state.shown = 1u;
                 unregister_actor_render_bins(context.render); // 0x0003CBB0, EDI the actor
             }
         }
@@ -329,45 +324,45 @@ void tick_runtime_transform_state(std::span<u8> state, RuntimeTransformStateCont
                 return;
             }
         }
-        set(state, field::phase, 2u);
-        request_actor_sound(context.actor, 4, field_data(state, field::second_sound), context.sounds); // 0x00041D00
-        if (records.second != nullptr && get(state, field::morph) != 0)
+        state.phase = 2u;
+        request_actor_sound(context.actor, 4, state.second_sound.data(), context.sounds); // 0x00041D00
+        if (records.second != nullptr && state.morph != 0)
         {
-            start_actor_record(get(state, field::morph), *records.second, context); // The tail jump to 0x0003A9E0.
+            start_actor_record(state.morph, *records.second, context); // The tail jump to 0x0003A9E0.
             return;
         }
-        set(state, field::second_hold, 0.f);
+        state.second_hold = 0.f;
         return;
     }
     case 2:
     {
-        float hold = get(state, field::second_hold);
+        float hold = state.second_hold;
         const bool done = count_down(hold, context);
-        set(state, field::second_hold, hold);
+        state.second_hold = hold;
         if (!done)
         {
             return;
         }
-        set(state, field::phase, 3u);
-        request_actor_sound(context.actor, 4, field_data(state, field::third_sound), context.sounds); // 0x00041D00
-        if (records.third != nullptr && get(state, field::morph) != 0)
+        state.phase = 3u;
+        request_actor_sound(context.actor, 4, state.third_sound.data(), context.sounds); // 0x00041D00
+        if (records.third != nullptr && state.morph != 0)
         {
-            start_actor_record(get(state, field::morph), *records.third, context); // The jump to 0x0003A9E0.
+            start_actor_record(state.morph, *records.third, context); // The jump to 0x0003A9E0.
             return;
         }
-        set(state, field::third_hold, 0.f);
+        state.third_hold = 0.f;
         return;
     }
     case 3:
     {
-        float hold = get(state, field::third_hold);
+        float hold = state.third_hold;
         const bool done = count_down(hold, context);
-        set(state, field::third_hold, hold);
+        state.third_hold = hold;
         if (!done)
         {
             return;
         }
-        set(state, field::phase, 4u);
+        state.phase = 4u;
         const u32 created = create_result(state, context); // 0x000A4BB0
         if (created == 0)
         {
@@ -377,7 +372,7 @@ void tick_runtime_transform_state(std::span<u8> state, RuntimeTransformStateCont
         context.message(created, emerge); // 0x000A4CA0: the new actor's vtable +0xC.
         release_morph(state, true, context); // 0x0013B1F0 and 0x00112CC0 on the morph actor
         activate_actor_bind_tree(context.actor); // 0x00112CC0, ESI the body's actor
-        request_actor_sound(actor_of(created, context), 1, field_data(state, field::result_sound),
+        request_actor_sound(actor_of(created, context), 1, state.result_sound.data(),
             context.sounds); // The tail jump to 0x00041D00, EDX the new actor
         return;
     }
@@ -387,7 +382,7 @@ void tick_runtime_transform_state(std::span<u8> state, RuntimeTransformStateCont
 }
 
 // Xbox 0x000A49D0
-void message_runtime_transform_state(std::span<u8> state, std::span<const u32> message,
+void message_runtime_transform_state(TransformState& state, std::span<const u32> message,
     RuntimeTransformStateContext& context)
 {
     switch (message[0])
@@ -398,7 +393,7 @@ void message_runtime_transform_state(std::span<u8> state, std::span<const u32> m
     case 0x1B:
     case 0x1D:
     {
-        const char* sound = field_data(state, field::hit_sound);
+        const char* sound = state.hit_sound.data();
         if (sound[0] != 0)
         {
             queue_actor_sound(context.actor.sound_slots[1], 0, &context.actor, 1, nullptr, nullptr, 1.f, sound,
@@ -410,7 +405,7 @@ void message_runtime_transform_state(std::span<u8> state, std::span<const u32> m
         return;
     }
     case 0x7C:
-        if (message[1] == get(state, field::morph))
+        if (message[1] == state.morph)
         {
             release_morph(state, false, context); // 0x00112CC0 on the morph actor
         }

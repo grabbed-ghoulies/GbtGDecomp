@@ -1,5 +1,10 @@
 #include "body_damage_motion.h"
+#include "mind_fields.h"
+#include <cstddef>
+#include "body_fields.h"
+#include "player_mind_targets.h"
 #include "player_mind_events.h"
+#include "body_damage_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -27,8 +32,9 @@ float wrap_target_remainder(long double remainder)
 u32 runtime_body_target_direction(const Actor& actor, std::span<const u8> target, float heading)
 {
     const Vec3 position = actor_world_position(actor);
-    const Vec3 direction{read_f32(target, 0x20) - position.x,
-        read_f32(target, 0x24) - position.y, read_f32(target, 0x28) - position.z};
+    const Vec3 direction{mind_target_record(target).shape.position.x - position.x,
+        mind_target_record(target).shape.position.y - position.y, mind_target_record(target).shape.position.z
+            - position.z};
     float angle;
     runtime_direction_angle(direction, angle);
     const float reference = heading + std::bit_cast<float>(0x3F490FDBu);
@@ -54,8 +60,9 @@ i32 runtime_body_target_turn_direction(const Actor& actor,
     std::span<const u8> target, u32* within_angle)
 {
     const Vec3 position = actor_world_position(actor);
-    const Vec3 direction{read_f32(target, 0x20) - position.x,
-        read_f32(target, 0x24) - position.y, read_f32(target, 0x28) - position.z};
+    const Vec3 direction{mind_target_record(target).shape.position.x - position.x,
+        mind_target_record(target).shape.position.y - position.y, mind_target_record(target).shape.position.z
+            - position.z};
     float angle;
     runtime_direction_angle(direction, angle);
     const float difference = float(static_cast<long double>(angle) - actor.euler.y);
@@ -185,16 +192,17 @@ void turn_runtime_body_toward_damage(Actor& actor, const Actor& source, std::spa
 
 // Xbox 0x00022400
 void push_runtime_body_from_damage(Actor& actor, u32 actor_address,
-    std::span<const u8> damage, std::span<const u8> attributes, u32 key,
+    const BodyDamage& damage, std::span<const u8> attributes, u32 key,
     RuntimeBodyAttachedActor* first_source, RuntimeBodyAttachedActor* second_source,
     const RuntimeBodyDamageTables& tables, std::span<const u8> keys)
 {
-    const float value = runtime_body_damage_push_amount(actor, read_u16(damage, 0x64), key, tables, keys);
+    const float value =
+        runtime_body_damage_push_amount(actor, damage.source_class, key, tables, keys);
     const float factor = attributes.data() == nullptr ? 1.f : read_f32(attributes, 0x19C);
     const float amount = factor * value;
     if (amount != 0.f)
     {
-        const Vec3 direction{read_f32(damage, 0x4C), read_f32(damage, 0x50), read_f32(damage, 0x54)};
+        const Vec3 direction = damage.direction;
         float angle;
         runtime_direction_angle(direction, angle);
         const float x = float(retail_sin(angle) * static_cast<long double>(amount));
@@ -213,14 +221,14 @@ void push_runtime_body_from_damage(Actor& actor, u32 actor_address,
 void set_runtime_body_damage_motion(std::span<u8> body, const Vec3& direction,
     float first, float second, float third, float fourth)
 {
-    const u16 count = u16(read_u16(body, 0x160) + 1);
-    std::memcpy(body.data() + 0x160, &count, 2);
-    const u16 secondary = u16(read_u16(body, 0x162) + 1);
-    std::memcpy(body.data() + 0x162, &secondary, 2);
-    std::memcpy(body.data() + 0x220, &first, 4);
-    std::memcpy(body.data() + 0x224, &second, 4);
-    std::memcpy(body.data() + 0x228, &third, 4);
-    std::memcpy(body.data() + 0x22C, &fourth, 4);
-    std::memcpy(body.data() + 0x230, &direction, 12);
+    const u16 count = u16(body_record(body).unk_160 + 1);
+    body_record(body).unk_160 = count;
+    const u16 secondary = u16(body_record(body).unk_162 + 1);
+    body_record(body).unk_162 = secondary;
+    body_record(body).unk_220 = first;
+    body_record(body).unk_224 = second;
+    body_record(body).unk_228 = third;
+    body_record(body).unk_22C = fourth;
+    std::memcpy(body.data() + offsetof(BodyRecord, unk_230.x), &direction, 12);
 }
 }

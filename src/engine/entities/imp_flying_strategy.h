@@ -1,34 +1,52 @@
 #pragma once
+#include <array>
+#include "strategy_fields.h"
 #include "spider_strategy.h"
 
 namespace gbtg
 {
+// DAT_00303124, read through the strategy's +0x38. Nothing in the dumps writes it.
+struct ImpFlyingParameters
+{
+    float evade_reach; // +0x0, A target this close is evaded.
+    float hover_reach; // +0x4, A target this close is hovered around.
+    float hover_height; // +0x8
+    float unstuck_hover_height; // +0xC
+    float hold_time; // +0x10
+    float unk_14; // +0x14
+    float unk_18; // +0x18
+    float unk_1C; // +0x1C
+    float unk_20; // +0x20
+    float lunge_time; // +0x24
+};
+static_assert(sizeof(ImpFlyingParameters) == 0x28);
+
 // entityStrategyImpFlying (factory type 0x48, getter 0x000B6B70, vtable 0x00505EDC; the factory table's row 0x47
 // carries the name) over the base strategy (type 8): the flying imp. It hovers to clear points 30 units around itself
 // at a random height ("evade" when its target is near), whacks a queued target with its wings ("wingwhackprepare",
 // state 0x3ED) or arrow-dives at it ("arrowdive", 0x3EF): the dive's effect, a hold, then a lunge to its model's
 // marker 0 and a climb back ("arrowdiveunstuck"). A hit sets it down (0x409), and state 0x417 flies to its hover
 // height.
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace imp_flying_strategy_field
+struct ImpFlyingStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // DAT_00303124: +0 near reach, +4 far reach, +8 hover height, +0xC
-                                               // climb height, +0x10 the dive's hold seconds, +0x24 its lunge seconds
-constexpr RetailField<u32, 0x3C> effect_name{}; // The dive's effect template, copied from parameters +0x18
-constexpr RetailField<u32, 0xBC> effect{}; // The dive's effect object
-constexpr RetailField<u32, 0xC0> dive_phase{}; // State 0x3EF: 1 dive, 2 hold, 3 lunge and climb
-constexpr RetailField<float, 0xC4> hold{}; // Seconds left in dive phase 2
-constexpr RetailField<u32, 0xC8> lunging{}; // Dive phase 3 has taken its start and end points
-constexpr RetailField<Vec3, 0xCC> lunge_end{}; // The model's marker 0 in the world (0x0003AE60)
-constexpr RetailField<Vec3, 0xD8> lunge_start{}; // The actor's position when the lunge began
-constexpr RetailField<float, 0xE4> lunge{}; // Seconds left in the lunge, from parameters +0x24
-constexpr RetailField<u32, 0xE8> whack_step{}; // State 0x3ED: 1 preparing, 2 evading
-constexpr RetailField<u32, 0xEC> landing_step{}; // State 0x409: 1 waits for body bit 0x31, 2 rises
-constexpr RetailField<float, 0xF0> rise{}; // State 0x417's seconds left
-constexpr RetailField<u32, 0xF4> high{}; // The next hover height is drawn from the higher bands (0x000B6A30)
-constexpr u32 kSize = 0xF8;
-static_assert(retail_fits(kSize, high));
-} // namespace imp_flying_strategy_field
+    StrategyBase base{}; // +0
+    // +0x38: DAT_00303124: +0 near reach, +4 far reach, +8 hover height, +0xC climb height, +0x10 the dive's hold
+    // seconds, +0x24 its lunge seconds.
+    u32 parameters = 0;
+    std::array<char, 0x80> effect_name{}; // +0x3C, the dive's effect template, copied from parameters +0x18
+    u32 effect = 0; // +0xBC, the dive's effect object
+    u32 dive_phase = 0; // +0xC0, state 0x3EF: 1 dive, 2 hold, 3 lunge and climb
+    float hold = 0.f; // +0xC4, seconds left in dive phase 2
+    u32 lunging = 0; // +0xC8, dive phase 3 has taken its start and end points
+    Vec3 lunge_end{}; // +0xCC, the model's marker 0 in the world (0x0003AE60)
+    Vec3 lunge_start{}; // +0xD8, the actor's position when the lunge began
+    float lunge = 0.f; // +0xE4, seconds left in the lunge, from parameters +0x24
+    u32 whack_step = 0; // +0xE8, state 0x3ED: 1 preparing, 2 evading
+    u32 landing_step = 0; // +0xEC, state 0x409: 1 waits for body bit 0x31, 2 rises
+    float rise = 0.f; // +0xF0, state 0x417's seconds left
+    u32 high = 0; // +0xF4, the next hover height is drawn from the higher bands (0x000B6A30)
+};
+static_assert(sizeof(ImpFlyingStrategyState) == 0xF8);
 struct RuntimeImpFlyingStrategy
 {
     // The instance's spider views over the same strategy: base goals, target checks, queue and actor views.

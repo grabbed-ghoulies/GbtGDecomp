@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "body_action_selection.h"
@@ -26,15 +27,15 @@ constexpr RetailField<u32, 0x14> animation{}; // an XBE string
 constexpr u32 kSize = 0x18;
 static_assert(retail_fits(kSize, animation));
 } // namespace hover_state_parameter
-namespace hover_state_field
+struct HoverState
 {
-constexpr RetailField<u16, 0x18> next{}; // parameters +0xC
-constexpr RetailField<u16, 0x1A> next_with_target{}; // parameters +0xE
-constexpr RetailField<u32, 0x1C> turns{}; // parameters +0x10
-constexpr RetailField<u32, 0x20> animation{}; // set when the animation's record was found
-constexpr u32 kSize = 0x24;
-static_assert(retail_fits(kSize, animation));
-} // namespace hover_state_field
+    BodyStateBase base{}; // +0
+    u16 next = 0; // +0x18, parameters +0xC
+    u16 next_with_target = 0; // +0x1A, parameters +0xE
+    u32 turns = 0; // +0x1C, parameters +0x10
+    u32 animation = 0; // +0x20, set when the animation's record was found
+};
+static_assert(sizeof(HoverState) == 0x24);
 struct RuntimeHoverStateContext
 {
     std::span<u8> body;
@@ -50,12 +51,13 @@ struct RuntimeHoverStateContext
     std::function<const char*(u32)> image_string; // An XBE string, or null for 0.
 };
 void hover_state_object_sizes(ObjectSizes& output); // Xbox 0x00097B00
-bool initialize_runtime_hover_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_hover_state(HoverState& state, std::span<const u8> parameters,
     RuntimeHoverStateContext& context); // Xbox 0x00097B80
-void destroy_runtime_hover_state(std::span<const u8> state, RuntimeHoverStateContext& context); // Xbox 0x00097C60
-void tick_runtime_hover_state(std::span<u8> state, RuntimeHoverStateContext& context); // Xbox 0x00097CF0
+void destroy_runtime_hover_state(const HoverState& state, RuntimeHoverStateContext& context); // Xbox 0x00097C60
+void tick_runtime_hover_state(HoverState& state, RuntimeHoverStateContext& context); // Xbox 0x00097CF0
 // The stick ends the hover: the next action by whether the mind has chosen an actor.
-void check_runtime_hover_stick(std::span<u8> state, RuntimeHoverStateContext& context); // Xbox 0x00097DC0, ESI input, EBX state
+void check_runtime_hover_stick(HoverState& state,
+    RuntimeHoverStateContext& context); // Xbox 0x00097DC0, ESI input, EBX state
 // The body faces the point at body +0x3C, its heading set when that point is more than 50 degrees off.
 void turn_runtime_hover_state(RuntimeHoverStateContext& context); // Xbox 0x00097E60, EAX actor
 // Type 0x77 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).

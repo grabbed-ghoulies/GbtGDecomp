@@ -4,6 +4,26 @@
 
 namespace gbtg
 {
+// One tracking joint's motion (0x30 bytes, from a player body's block, 0x00073A90): its yaw and pitch ease toward their
+// targets, within their limits. A limit of -1 leaves that axis alone (0x0002F060).
+struct RuntimeBodyJointMotion
+{
+    u16 bone = 0; // +0
+    std::array<u8, 2> unk_2{}; // +2
+    float max_speed = 0.f; // +4
+    float acceleration = 0.f; // +8
+    float weight = 0.f; // +0xC
+    float yaw_target = 0.f; // +0x10
+    float yaw = 0.f; // +0x14
+    float yaw_speed = 0.f; // +0x18
+    float yaw_limit = 0.f; // +0x1C
+    float pitch_target = 0.f; // +0x20
+    float pitch = 0.f; // +0x24
+    float pitch_speed = 0.f; // +0x28
+    float pitch_limit = 0.f; // +0x2C
+};
+static_assert(sizeof(RuntimeBodyJointMotion) == 0x30);
+
 using RuntimeBodyMotionCallback = void (*)(float*, const float*, float*, u16, void*, float);
 struct RuntimeBodyMotionCallbacks
 {

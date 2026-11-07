@@ -1,4 +1,8 @@
 #include "skeleton_strategy.h"
+#include "weapon_fields.h"
+#include "body_fields.h"
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
 #include "player_mind_events.h"
@@ -8,6 +12,7 @@
 #include "player_strategy.h"
 #include "../navigation/spawn_candidates.h"
 #include "gbtg/anim.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -15,14 +20,14 @@ namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
+SkeletonStrategyState& fields_of(std::span<u8> strategy)
 {
-    std::memcpy(bytes.data() + offset, &value, 4);
+    return strategy_view<SkeletonStrategyState>(strategy);
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
+const SkeletonStrategyState& fields_of(std::span<const u8> strategy)
 {
-    std::memcpy(bytes.data() + offset, &value, 4);
+    return strategy_view<SkeletonStrategyState>(strategy);
 }
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeSkeletonStrategy& context)
@@ -49,7 +54,7 @@ bool requests_pending(RuntimeSkeletonStrategy& context)
 // Body +0x48: the actor the skeleton holds.
 u32 held_actor(RuntimeSkeletonStrategy& context)
 {
-    return read_u32(body_of_actor(context), 0x48);
+    return body_record(body_of_actor(context)).attached;
 }
 
 void change_state(u16 state, RuntimeSkeletonStrategy& context)
@@ -85,7 +90,7 @@ bool runtime_skeleton_delay_runs(RuntimeSkeletonStrategy& context)
     {
         return false;
     }
-    return get(strategy_of(context), strategy_field::state) != 0x405;
+    return strategy_base(strategy_of(context)).state != 0x405;
 }
 
 // Xbox 0x000C0170
@@ -142,21 +147,20 @@ void reposition_runtime_skeleton(RuntimeSkeletonStrategy& context)
     }
     const std::span<const u8> actor = goals.entry.actor_bytes;
     Vec3 position;
-    if (!entity_detail::select_navigation_spawn_position(i32(read_u32(actor, 0xCEC)), nullptr, flank, 0.f, 60.f,
-        goals.room, goals.entry.allowed, 0xC, actor_tag(context), position, goals.random,
-        0.f)) // Flag 0x10 is clear, so the retained occupancy scratch is not read.
+    if (!entity_detail::select_navigation_spawn_position(
+            i32(player_record(actor).floor), nullptr, flank, 0.f, 60.f, goals.room, goals.entry.allowed, 0xC,
+            actor_tag(context), position, goals.random,
+            0.f)) // Flag 0x10 is clear, so the retained occupancy scratch is not read.
     {
         return;
     }
     change_state(0x3FE, context);
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest* request = allocate_runtime_mind_request(mind.anchor, 0x2E, mind.sizes);
-    put_float(request->bytes, 0x1C, 1.f); // DAT_0032B0F8.
-    put_float(request->bytes, 0x20, 1.f);
-    put_float(request->bytes, 0x28, 30.f); // DAT_0032B108.
-    put_float(request->bytes, 0x10, position.x);
-    put_float(request->bytes, 0x14, position.y);
-    put_float(request->bytes, 0x18, position.z);
+    set(request->bytes, navigation_request::speed_low, 1.f); // DAT_0032B0F8.
+    set(request->bytes, navigation_request::speed_high, 1.f);
+    set(request->bytes, navigation_request::approach, 30.f); // DAT_0032B108.
+    set(request->bytes, navigation_request::point, position);
 }
 
 // Xbox 0x000C03D0
@@ -166,10 +170,11 @@ bool runtime_skeleton_target_crowded(const RuntimeMindTarget* target, RuntimeSke
     {
         return false;
     }
-    const Vec3 point{read_f32(target->bytes, 0x20), read_f32(target->bytes, 0x24), read_f32(target->bytes, 0x28)};
+    const Vec3 point{mind_target_record(target->bytes).shape.position.x,
+        mind_target_record(target->bytes).shape.position.y, mind_target_record(target->bytes).shape.position.z};
     float distance;
     return find_nearest_runtime_script_actor(&point, goals_of(context).entry.actor, actor_tag(context),
-        read_f32(target->bytes, 0x38) + 30.f, &distance, 0x88, nullptr, context.base.query) != nullptr;
+        mind_target_record(target->bytes).shape.radius + 30.f, &distance, 0x88, nullptr, context.base.query) != nullptr;
 }
 
 // Xbox 0x000C0430
@@ -181,16 +186,16 @@ u16 choose_runtime_skeleton_attack(const RuntimeMindTarget& target, RuntimeSkele
     {
         return 0x3EF;
     }
-    if (get(strategy, skeleton_strategy_field::fetch_delay) == 0.f
+    if (fields_of(strategy).fetch_delay == 0.f
         && roll_runtime_actor_attack(context.checks.attributes, goals.random)
-        && get(strategy, skeleton_strategy_field::no_spawn_in_reach) == 0)
+        && fields_of(strategy).no_spawn_in_reach == 0)
     {
         float distance;
         if (find_runtime_player_nearest_spawn(goals.entry.actor, &distance, 0x17) == nullptr)
         {
-            set(strategy, skeleton_strategy_field::no_spawn_in_reach, 1);
+            fields_of(strategy).no_spawn_in_reach = 1;
         }
-        set(strategy, skeleton_strategy_field::fetch_delay, context.fetch_delay);
+        fields_of(strategy).fetch_delay = context.fetch_delay;
         return 0x405;
     }
     if (runtime_mind_target_requires_action(target, context.views.body_of(target.actor).bytes))
@@ -217,7 +222,7 @@ void engage_runtime_skeleton(RuntimeSkeletonStrategy& context)
 // Xbox 0x000C0590
 void set_runtime_skeleton_stance(u8 stance, RuntimeSkeletonStrategy& context)
 {
-    body_of_actor(context)[0x328] = held_actor(context) != 0 ? 6 : stance;
+    body_record(body_of_actor(context)).move_class = held_actor(context) != 0 ? 6 : stance;
 }
 
 // Xbox 0x000BFE10
@@ -225,7 +230,7 @@ void dispatch_runtime_skeleton_message(std::span<const u32> message, RuntimeSkel
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(goals.entry.strategy, 8);
+    const u32 actor = strategy_base(goals.entry.strategy).actor;
     if (react_runtime_strategy_message(message, context.checks) != 0 || message[0] - 0x31 > 0x53)
     {
         dispatch_runtime_base_strategy_message(message, context.base);
@@ -251,7 +256,7 @@ void dispatch_runtime_skeleton_message(std::span<const u32> message, RuntimeSkel
         {
             clear_runtime_player_mind_requests(*goals.setup.mind);
         }
-        if (retaliated != 0 || get(strategy, strategy_field::state) == 0x405)
+        if (retaliated != 0 || strategy_base(strategy).state == 0x405)
         {
             return;
         }
@@ -275,19 +280,19 @@ void update_runtime_skeleton_strategy(RuntimeSkeletonStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals);
     if (runtime_skeleton_delay_runs(context))
     {
         const float step = runtime_frame_step(goals.clock);
-        const float delay = get(strategy, skeleton_strategy_field::fetch_delay);
+        const float delay = fields_of(strategy).fetch_delay;
         if (0.f < delay)
         {
             const float remaining = delay - step;
-            set(strategy, skeleton_strategy_field::fetch_delay, remaining);
+            fields_of(strategy).fetch_delay = remaining;
             if (remaining <= 0.f)
             {
-                set(strategy, skeleton_strategy_field::fetch_delay, 0.f);
+                fields_of(strategy).fetch_delay = 0.f;
             }
         }
     }
@@ -381,7 +386,7 @@ void update_runtime_skeleton_strategy(RuntimeSkeletonStrategy& context)
         }
         else
         {
-            put(goals.entry.events.mind, 0xC, 0);
+            mind_record(goals.entry.events.mind).target = 0;
         }
         if (requests_pending(context))
         {
@@ -403,9 +408,9 @@ void update_runtime_skeleton_strategy(RuntimeSkeletonStrategy& context)
         }
         reposition_runtime_skeleton(context);
         const Vec3 position = actor_world_position(goals.entry.actor); // 0x000415A0, EBX target.
-        const float dx = position.x - read_f32(target->bytes, 0x20);
-        const float dy = position.y - read_f32(target->bytes, 0x24);
-        const float dz = position.z - read_f32(target->bytes, 0x28);
+        const float dx = position.x - mind_target_record(target->bytes).shape.position.x;
+        const float dy = position.y - mind_target_record(target->bytes).shape.position.y;
+        const float dz = position.z - mind_target_record(target->bytes).shape.position.z;
         if (dz * dz + dx * dx + dy * dy > 6400.f) // DAT_0032B6C8.
         {
             change_state(0x3EC, context);
@@ -428,8 +433,8 @@ void enter_runtime_skeleton_state(u16 state, u16 previous, RuntimeSkeletonStrate
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     std::span<u8> strategy = strategy_of(context);
     RuntimeMindGoalContext& mind = goals.entry.goals;
-    body_of_actor(context)[0x328] = 2;
-    strategy[0x1A] = 0;
+    body_record(body_of_actor(context)).move_class = 2;
+    strategy_base(strategy).attacking = 0;
     switch (state)
     {
     case 0x3EC:
@@ -438,22 +443,22 @@ void enter_runtime_skeleton_state(u16 state, u16 previous, RuntimeSkeletonStrate
         return;
     case 0x3ED:
         set_runtime_skeleton_stance(4, context);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_runtime_mind_goal(context.goal_attack, mind);
         return;
     case 0x3EE:
         set_runtime_skeleton_stance(5, context);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         load_runtime_mind_goal(context.goal_knockdown, mind);
         return;
     case 0x3EF:
     {
         set_runtime_skeleton_stance(6, context);
-        strategy[0x1A] = 1;
+        strategy_base(strategy).attacking = 1;
         const u32 held = held_actor(context);
         if (held != 0)
         {
-            const u8 kind = context.views.actor_bytes_at(held)[0x93D];
+            const u8 kind = weapon_base(context.views.actor_bytes_at(held)).unk_93D;
             if (kind >= 2 && kind <= 3)
             {
                 load_runtime_mind_goal(context.goal_projectile, mind);
@@ -496,7 +501,7 @@ void leave_runtime_skeleton_state(u16 state, RuntimeSkeletonStrategy& context)
     }
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy_of(context)[0x1C];
+        --strategy_base(strategy_of(context)).pause_count;
     }
 }
 }

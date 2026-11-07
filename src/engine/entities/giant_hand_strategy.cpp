@@ -1,4 +1,8 @@
 #include "giant_hand_strategy.h"
+#include <cstddef>
+#include "body_fields.h"
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "actor_live_attachments.h"
 #include "actor_model_anchors.h"
 #include "actor_render_registration.h"
@@ -21,9 +25,18 @@
 
 namespace gbtg
 {
-namespace field = giant_hand_strategy_field;
 namespace
 {
+GiantHandStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<GiantHandStrategyState>(strategy);
+}
+
+const GiantHandStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<GiantHandStrategyState>(strategy);
+}
+
 RuntimePlayerStrategyGoals& goals_of(RuntimeGiantHandStrategy& context)
 {
     return context.base.goals;
@@ -57,13 +70,14 @@ const RuntimeMindTarget* mind_target(RuntimeGiantHandStrategy& context)
     {
         return nullptr;
     }
-    const u32 target = read_u32(mind, 0x10);
+    const u32 target = mind_record(mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
 Vec3 target_position(const RuntimeMindTarget& target)
 {
-    return Vec3{read_f32(target.bytes, 0x20), read_f32(target.bytes, 0x24), read_f32(target.bytes, 0x28)};
+    return Vec3{mind_target_record(target.bytes).shape.position.x, mind_target_record(target.bytes).shape.position.y,
+        mind_target_record(target.bytes).shape.position.z};
 }
 
 // A one-word notice to every active actor (0x00122C70, EDI the message) and to the script (0x00116810).
@@ -87,10 +101,10 @@ RuntimeBodyStateContext body_state(RuntimeGiantHandStrategy& context)
 void hide(RuntimeGiantHandStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::shown) != 0)
+    if (fields_of(strategy).shown != 0)
     {
         hide_runtime_actor(context.actor_view, body_bits(context)); // 0x001364B0, EBX actor
-        set(strategy, field::shown, 0u);
+        fields_of(strategy).shown = 0u;
     }
 }
 
@@ -98,14 +112,14 @@ void hide(RuntimeGiantHandStrategy& context)
 void leave_world(RuntimeGiantHandStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::solid) != 0)
+    if (fields_of(strategy).solid != 0)
     {
         Actor& actor = actor_of(context);
-        set(strategy, field::model_flags, actor.model_flags); // Actor +0x1F0.
-        set(strategy, field::model_mode, actor.model_mode); // Actor +0x118.
+        fields_of(strategy).model_flags = actor.model_flags; // Actor +0x1F0.
+        fields_of(strategy).model_mode = actor.model_mode; // Actor +0x118.
         RuntimeBodyStateContext body = body_state(context);
         remove_runtime_actor_collision(context.actor_view, body); // 0x00136540, ESI actor
-        set(strategy, field::solid, 0u);
+        fields_of(strategy).solid = 0u;
     }
 }
 
@@ -113,7 +127,7 @@ void leave_world(RuntimeGiantHandStrategy& context)
 void show(RuntimeGiantHandStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::shown) != 0)
+    if (fields_of(strategy).shown != 0)
     {
         return;
     }
@@ -125,14 +139,14 @@ void show(RuntimeGiantHandStrategy& context)
     }
     register_actor_model_anchors(actor_of(context), view.anchors); // 0x0003EEB0
     body_bits(context).bytes[7] &= 0xEF;
-    set(strategy, field::shown, 1u);
+    fields_of(strategy).shown = 1u;
 }
 
 // Xbox 0x000AC590, EAX strategy
 bool target_can_be_grabbed(RuntimeGiantHandStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::held) != 0 || get(strategy, field::other_grabbing) != 0
+    if (fields_of(strategy).held != 0 || fields_of(strategy).other_grabbing != 0
         || (context.runtime_flags & 0x400) != 0)
     {
         return false;
@@ -236,12 +250,12 @@ void start_grab(RuntimeGiantHandStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = actor_of(context);
     const RuntimeMindTarget* target = mind_target(context);
-    if (get(strategy, field::solid) == 0)
+    if (fields_of(strategy).solid == 0)
     {
         RuntimeBodyStateContext body = body_state(context);
-        restore_runtime_actor_collision(get(strategy, field::model_flags), get(strategy, field::model_mode),
-            u8(get(strategy, field::shape_mode)), context.actor_view, body); // 0x001365C0, ESI actor
-        set(strategy, field::solid, 1u);
+        restore_runtime_actor_collision(fields_of(strategy).model_flags, fields_of(strategy).model_mode,
+            u8(fields_of(strategy).shape_mode), context.actor_view, body); // 0x001365C0, ESI actor
+        fields_of(strategy).solid = 1u;
     }
     show(context); // 0x000ACCA0
     load_runtime_mind_goal(context.goal_grab, goals.entry.goals); // 0x0002A8E0
@@ -254,7 +268,7 @@ void start_grab(RuntimeGiantHandStrategy& context)
         }
         actor_set_world_position(actor, target_position(*target)); // 0x00041730, ESI point, EDI actor
         const Vec3 position = actor_world_position(actor); // 0x000412A0 into body +0x18
-        std::memcpy(goals.entry.body.data() + 0x18, &position, 12);
+        std::memcpy(goals.entry.body.data() + offsetof(BodyRecord, position.x), &position, 12);
     }
 }
 
@@ -265,16 +279,16 @@ void start_challenge(RuntimeGiantHandStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     std::array<u8, 0x1D8> parameters{};
     build_runtime_scene_challenge_parameters(parameters,
-        reinterpret_cast<const char*>(strategy.data() + field::challenge_first.offset),
+        fields_of(strategy).challenge_first.data(),
         goals.address_of(goals.entry.actor_bytes.data()), -1.f, -1.f, nullptr, nullptr, 0, nullptr, 0, 2, 0,
-        reinterpret_cast<const char*>(strategy.data() + field::challenge_second.offset),
+        fields_of(strategy).challenge_second.data(),
         context.runtime_flags); // 0x000873A0
     if (!context.create_object)
     {
         throw Error("giant hand strategy: 0x00107520 is not bound");
     }
     context.create_object(parameters); // 0x00107520
-    set(strategy, field::challenged, 1u);
+    fields_of(strategy).challenged = 1u;
 }
 
 // Xbox 0x000AC870, ESI strategy: without a challenge, the grab's end goes straight back to waiting.
@@ -282,13 +296,13 @@ void return_to_waiting(RuntimeGiantHandStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::challenged) != 0)
+    if (fields_of(strategy).challenged != 0)
     {
         return;
     }
-    const u16 previous = get(strategy, strategy_field::state);
+    const u16 previous = strategy_base(strategy).state;
     goals.setup.leaving(goals.strategy, previous, 0x401); // Vtable +0x18.
-    set(strategy, strategy_field::state, u16(0x401));
+    strategy_base(strategy).state = u16(0x401);
     if (goals.setup.mind == nullptr)
     {
         throw Error("0x000AC870 clears the requests of a mind it does not have");
@@ -301,7 +315,7 @@ void return_to_waiting(RuntimeGiantHandStrategy& context)
 // Xbox 0x000AC8C0
 void giant_hand_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(GiantHandStrategyState);
     output.parameters = 0x118;
 }
 
@@ -312,20 +326,20 @@ bool initialize_runtime_giant_hand_strategy(std::span<u8> strategy, std::span<co
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     Actor& actor = actor_of(context);
     const std::span<u8> body = goals.entry.body; // Actor +0x95C.
-    set(strategy, field::parameters, 0x00302B78u);
-    set(strategy, field::model_flags, actor.model_flags); // Actor +0x1F0.
-    set(strategy, field::model_mode, actor.model_mode); // Actor +0x118.
-    set(strategy, field::shape_mode, u32(body[0x244]));
-    set(strategy, field::solid, 1u);
-    set(strategy, field::shown, 1u);
-    set(strategy, field::held, 0);
-    set(strategy, field::other_grabbing, 0u);
-    set(strategy, field::latched, 0u);
-    set(strategy, field::challenged, 0u);
+    fields_of(strategy).parameters = 0x00302B78u;
+    fields_of(strategy).model_flags = actor.model_flags; // Actor +0x1F0.
+    fields_of(strategy).model_mode = actor.model_mode; // Actor +0x118.
+    fields_of(strategy).shape_mode = u32(body_record(body).push_mode);
+    fields_of(strategy).solid = 1u;
+    fields_of(strategy).shown = 1u;
+    fields_of(strategy).held = 0;
+    fields_of(strategy).other_grabbing = 0u;
+    fields_of(strategy).latched = 0u;
+    fields_of(strategy).challenged = 0u;
     const char* first = reinterpret_cast<const char*>(parameters.data() + 0x18);
-    std::memcpy(strategy.data() + field::challenge_first.offset, first, std::strlen(first) + 1);
+    std::memcpy(fields_of(strategy).challenge_first.data(), first, std::strlen(first) + 1);
     const char* second = reinterpret_cast<const char*>(parameters.data() + 0x98);
-    std::memcpy(strategy.data() + field::challenge_second.offset, second, std::strlen(second) + 1);
+    std::memcpy(fields_of(strategy).challenge_second.data(), second, std::strlen(second) + 1);
     if (context.chapter_mode == 1)
     {
         const float chance = context.attributes.data() != nullptr ? read_f32(context.attributes, 8) : 0.f;
@@ -344,14 +358,14 @@ bool initialize_runtime_giant_hand_strategy(std::span<u8> strategy, std::span<co
 void update_runtime_giant_hand_strategy(RuntimeGiantHandStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
+    const u16 state = strategy_base(strategy).state;
     EntityBitBlock& bits = body_bits(context);
     const bool bit_23 = (bits.bytes[4] & 8) != 0;
-    if (bit_23 && get(strategy, field::latched) == 0)
+    if (bit_23 && fields_of(strategy).latched == 0)
     {
-        set(strategy, field::latched, 1u);
+        fields_of(strategy).latched = 1u;
     }
-    else if (!bit_23 && get(strategy, field::latched) != 0)
+    else if (!bit_23 && fields_of(strategy).latched != 0)
     {
         activate_actor_bind_tree(actor_of(context)); // 0x00112CC0, ESI actor
         return;
@@ -359,7 +373,7 @@ void update_runtime_giant_hand_strategy(RuntimeGiantHandStrategy& context)
     update_runtime_base_strategy(goals_of(context)); // 0x0002C130
     if (state == 0x3EF)
     {
-        if (get(strategy, field::challenged) == 0 && (body_bits(context).bytes[5] & 0x20) != 0)
+        if (fields_of(strategy).challenged == 0 && (body_bits(context).bytes[5] & 0x20) != 0)
         {
             start_challenge(context); // 0x000AC820
         }
@@ -379,10 +393,10 @@ void dispatch_runtime_giant_hand_message(std::span<const u32> message, RuntimeGi
     switch (message[0])
     {
     case 0x6C:
-        set(strategy, field::other_grabbing, 1u);
+        fields_of(strategy).other_grabbing = 1u;
         return;
     case 0x6D:
-        set(strategy, field::other_grabbing, 0u);
+        fields_of(strategy).other_grabbing = 0u;
         return;
     case 0x7D:
         hide(context); // 0x000ACC40
@@ -391,13 +405,13 @@ void dispatch_runtime_giant_hand_message(std::span<const u32> message, RuntimeGi
     case 0x86:
         if (message[2] == 7)
         {
-            set(strategy, field::held, get(strategy, field::held) + 1);
+            fields_of(strategy).held = fields_of(strategy).held + 1;
         }
         return;
     case 0x87:
         if (message[2] == 7)
         {
-            set(strategy, field::held, get(strategy, field::held) - 1);
+            fields_of(strategy).held = fields_of(strategy).held - 1;
         }
         return;
     default:
@@ -426,7 +440,7 @@ void leave_runtime_giant_hand_state(u16 state, RuntimeGiantHandStrategy& context
     const std::span<u8> strategy = strategy_of(context);
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
     if (state == 0x3EF)
     {
@@ -505,11 +519,11 @@ void hide_runtime_actor(NativeActorFactoryInstance& view, EntityBitBlock& bits)
 // Xbox 0x00124760
 const OccupancyRecord* find_nearest_occupancy_record(const Vec3& point, u32 mask)
 {
-    if (g_512344 == nullptr)
+    if (g_occupancy_pool == nullptr)
     {
         return nullptr;
     }
-    const auto& pool = *static_cast<const OccupancyPool*>(g_512344);
+    const auto& pool = *static_cast<const OccupancyPool*>(g_occupancy_pool);
     const OccupancyRecord* nearest = nullptr;
     float nearest_distance = 0.f;
     // The stack slot both shapes write; a record of another kind compares the last value it held.

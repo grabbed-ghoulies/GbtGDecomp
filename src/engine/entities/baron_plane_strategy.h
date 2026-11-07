@@ -19,7 +19,6 @@ struct SceneCutsceneRuntime;
 // {0xB9, his tag} and the next wave of ghoulies comes; at 60 energy or less with none left he spins (0x414). His
 // effect (the parameters' +0x18 object, holding all six body latches) is on while he waits and lands, and by body
 // bit 0x35 when his energy is low. Message 0x3B starts his cutscene (the parameters' +0x118), which follows him.
-// Strategy bytes: +0x1A attacking, +0x1C pause count.
 namespace baron_plane_parameter
 {
 constexpr RetailField<std::array<char, 0x80>, 0x18> effect{};
@@ -28,32 +27,33 @@ constexpr RetailField<std::array<char, 0x80>, 0x118> cutscene{};
 constexpr u32 kSize = 0x198;
 static_assert(retail_fits(kSize, cutscene));
 } // namespace baron_plane_parameter
-namespace baron_plane_strategy_field
+struct BaronPlaneStrategyState
 {
-constexpr RetailField<u32, 0x38> hit_target{}; // the mind target was hit by him (message 0x6E); 0x3EE celebrates
-constexpr RetailField<float, 0x40> hit_pause{}; // 1 s from a hit while the actor is paused; no flying while it runs
-constexpr RetailField<float, 0x44> wait{}; // 0x40C's wait, between the energy row's +0 and +4
-constexpr RetailField<u32, 0x48> dives{}; // dives left (the row's +8)
-constexpr RetailField<u32, 0x4C> spawns{}; // landings left, 4 from the constructor
-constexpr RetailField<u32, 0x50> knocked{}; // message 0x6E's +0xC: the knock-down lands him
-constexpr RetailField<u32, 0x54> landed{}; // 0x404 told the script ({0xB9, tag}) once
-constexpr RetailField<u32, 0x58> cutscene{}; // his cutscene (message 0x3B) plays
-constexpr RetailField<u32, 0x5C> crowd_wait{}; // with other ghoulies out: 2 s (+0x60) before he moves on
-constexpr RetailField<float, 0x60> crowd_time{};
-constexpr RetailField<u32, 0x64> spinning{}; // 0x414 entered: the last spin
-constexpr RetailField<u32, 0x68> effect_mode{}; // 0 off, 1 on, 2 by body bit 0x35
-constexpr RetailField<float, 0x6C> linger{}; // 0.25 s the effect outlives a mode ending
-constexpr RetailField<u32, 0x70> effect{}; // the effect object (0x0003DF40), or 0
-constexpr RetailField<std::array<char, 0x80>, 0x74> effect_name{};
-constexpr RetailField<u32, 0xF4> flying{}; // contact shapes 0x13 and the attack row are live (0x000A9BE0)
-constexpr RetailField<u32, 0xF8> fly{}; // the state flies (entered with it set)
-constexpr RetailField<u32, 0xFC> sounding{}; // the engine loop plays (0x000A9CF0)
-constexpr RetailField<u32, 0x100> sound{}; // the state plays the engine loop
-constexpr RetailField<std::array<char, 0x80>, 0x104> sound_name{};
-constexpr RetailField<std::array<char, 0x80>, 0x184> cutscene_name{};
-constexpr u32 kSize = 0x204;
-static_assert(retail_fits(kSize, cutscene_name));
-} // namespace baron_plane_strategy_field
+    StrategyBase base{}; // +0
+    u32 hit_target = 0; // +0x38, the mind target was hit by him (message 0x6E); 0x3EE celebrates
+    std::array<u8, 4> unk_3C{}; // +0x3C, never read or written by translated code
+    float hit_pause = 0.f; // +0x40, 1 s from a hit while the actor is paused; no flying while it runs
+    float wait = 0.f; // +0x44, 0x40C's wait, between the energy row's +0 and +4
+    u32 dives = 0; // +0x48, dives left (the row's +8)
+    u32 spawns = 0; // +0x4C, landings left, 4 from the constructor
+    u32 knocked = 0; // +0x50, message 0x6E's +0xC: the knock-down lands him
+    u32 landed = 0; // +0x54, 0x404 told the script ({0xB9, tag}) once
+    u32 cutscene = 0; // +0x58, his cutscene (message 0x3B) plays
+    u32 crowd_wait = 0; // +0x5C, with other ghoulies out: 2 s (+0x60) before he moves on
+    float crowd_time = 0.f; // +0x60
+    u32 spinning = 0; // +0x64, 0x414 entered: the last spin
+    u32 effect_mode = 0; // +0x68, 0 off, 1 on, 2 by body bit 0x35
+    float linger = 0.f; // +0x6C, 0.25 s the effect outlives a mode ending
+    u32 effect = 0; // +0x70, the effect object (0x0003DF40), or 0
+    std::array<char, 0x80> effect_name{}; // +0x74
+    u32 flying = 0; // +0xF4, contact shapes 0x13 and the attack row are live (0x000A9BE0)
+    u32 fly = 0; // +0xF8, the state flies (entered with it set)
+    u32 sounding = 0; // +0xFC, the engine loop plays (0x000A9CF0)
+    u32 sound = 0; // +0x100, the state plays the engine loop
+    std::array<char, 0x80> sound_name{}; // +0x104
+    std::array<char, 0x80> cutscene_name{}; // +0x184
+};
+static_assert(sizeof(BaronPlaneStrategyState) == 0x204);
 struct RuntimeBaronPlaneStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

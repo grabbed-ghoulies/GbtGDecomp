@@ -1,4 +1,7 @@
 #include "vampire_strategy.h"
+#include <cstddef>
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_transform.h"
 #include "body_damage_motion.h"
@@ -12,6 +15,8 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "../graphics/actor_effect_stream.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <string>
@@ -20,7 +25,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = vampire_strategy_field;
+VampireStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<VampireStrategyState>(strategy);
+}
+
+const VampireStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<VampireStrategyState>(strategy);
+}
+
 
 constexpr u32 kRecordAddress = 0x003034D0;
 // The record at 0x003034D0: +0 the dot past which a hit lands from behind, +4 the knocked walk's spread in degrees,
@@ -81,7 +95,7 @@ RuntimeMindTarget* selected_target(RuntimeVampireStrategy& context, bool& found)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeVampireStrategy& context)
 {
-    const u32 target = read_u32(goals_of(context).entry.events.mind, 0x10);
+    const u32 target = mind_record(goals_of(context).entry.events.mind).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -104,19 +118,17 @@ bool mind_present(RuntimeVampireStrategy& context)
 }
 
 // A timer run down by the actor's rate and the frame step, held at zero once it is spent.
-template <u32 Offset>
-void run_down(RuntimeVampireStrategy& context, const RetailField<float, Offset>& timer)
+void run_down(RuntimeVampireStrategy& context, float& timer)
 {
-    const std::span<u8> strategy = strategy_of(context);
-    const float left = get(strategy, timer);
+    const float left = timer;
     if (0.f < left)
     {
         const float next = left - runtime_actor_rate(goals_of(context).entry.actor)
             * runtime_frame_step(goals_of(context).clock);
-        set(strategy, timer, next);
+        timer = next;
         if (!(0.f < next)) // COMISS; JC keeps a positive timer.
         {
-            set(strategy, timer, 0.f);
+            timer = 0.f;
         }
     }
 }
@@ -134,26 +146,26 @@ bool open_ends(RuntimeVampireStrategy& context)
     {
         return true;
     }
-    if (target->bytes[0x14] == 0)
+    if (mind_target_record(target->bytes).kind == 0)
     {
         const u32 holder = read_u32(context.views.body_of(target->actor).bytes, 0x718);
-        if (holder != 0 && holder != read_u32(strategy_of(context), 8))
+        if (holder != 0 && holder != strategy_base(strategy_of(context)).actor)
         {
             return true;
         }
     }
-    return !(kEpsilon <= get(strategy_of(context), field::open_time)); // COMISS; JBE returns 0.
+    return !(kEpsilon <= fields_of(strategy_of(context)).open_time); // COMISS; JBE returns 0.
 }
 
 // Xbox 0x000C1CE0, EAX strategy, ECX stage
 void set_knockdown_stage(u32 stage, RuntimeVampireStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::knockdown_stage) == stage)
+    if (fields_of(strategy).knockdown_stage == stage)
     {
         return;
     }
-    set(strategy, field::knockdown_stage, stage);
+    fields_of(strategy).knockdown_stage = stage;
     if (stage == 1)
     {
         load_goal(context.goal_knockdown, context);
@@ -170,11 +182,11 @@ void set_knocked_stage(u32 stage, RuntimeVampireStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::knocked_stage) == stage)
+    if (fields_of(strategy).knocked_stage == stage)
     {
         return;
     }
-    set(strategy, field::knocked_stage, stage);
+    fields_of(strategy).knocked_stage = stage;
     if (stage == 1)
     {
         context.knock_back(); // 0x00020690, actor +0x95C
@@ -211,28 +223,28 @@ void update_knockback(RuntimeVampireStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     bool found = false;
     selected_target(context, found); // Its result is not read.
-    switch (get(strategy, field::knockback_stage))
+    switch (fields_of(strategy).knockback_stage)
     {
     case 1:
         if (requests_pending(context))
         {
             return;
         }
-        if (get(strategy, field::struck) != 0 && actor_event_chance(goals_of(context).random, kFollowupChance))
+        if (fields_of(strategy).struck != 0 && actor_event_chance(goals_of(context).random, kFollowupChance))
         {
             // 0x00019200, XMM1 the record's +0x14.
-            if (get(strategy, field::knockback_stage) != 2)
+            if (fields_of(strategy).knockback_stage != 2)
             {
-                set(strategy, field::knockback_stage, 2u);
+                fields_of(strategy).knockback_stage = 2u;
                 load_goal(context.goal_knockback_followup, context);
             }
             return;
         }
-        if (get(strategy, field::knockback_stage) == 3)
+        if (fields_of(strategy).knockback_stage == 3)
         {
             return;
         }
-        set(strategy, field::knockback_stage, 3u);
+        fields_of(strategy).knockback_stage = 3u;
         load_goal(context.goal_close_knockback, context);
         return;
     case 2:
@@ -240,7 +252,7 @@ void update_knockback(RuntimeVampireStrategy& context)
         {
             return;
         }
-        set(strategy, field::knockback_stage, 3u);
+        fields_of(strategy).knockback_stage = 3u;
         load_goal(context.goal_close_knockback, context);
         return;
     case 3:
@@ -260,7 +272,7 @@ void update_knockdown(RuntimeVampireStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     bool found = false;
     selected_target(context, found); // Its result is not read.
-    const u32 stage = get(strategy, field::knockdown_stage);
+    const u32 stage = fields_of(strategy).knockdown_stage;
     if (stage == 1)
     {
         if (!requests_pending(context))
@@ -280,21 +292,21 @@ void update_open(RuntimeVampireStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     bool found = false;
     selected_target(context, found); // Its result is not read.
-    const u32 stage = get(strategy, field::open_stage);
+    const u32 stage = fields_of(strategy).open_stage;
     if (stage == 1)
     {
-        run_down(context, field::open_time);
+        run_down(context, fields_of(strategy).open_time);
         if ((body_bits(context, "0x000C1DC0").bytes[3] & 4) != 0)
         {
-            if (get(strategy, field::open_stage) != 2)
+            if (fields_of(strategy).open_stage != 2)
             {
-                set(strategy, field::open_stage, 2u);
+                fields_of(strategy).open_stage = 2u;
             }
             return;
         }
-        if (open_ends(context) && get(strategy, field::open_stage) != 3) // 0x000C1EE0
+        if (open_ends(context) && fields_of(strategy).open_stage != 3) // 0x000C1EE0
         {
-            set(strategy, field::open_stage, 3u);
+            fields_of(strategy).open_stage = 3u;
             clear_runtime_player_mind_requests(*goals_of(context).setup.mind); // 0x00029E80
             load_goal(context.goal_close, context);
         }
@@ -310,12 +322,13 @@ void update_open(RuntimeVampireStrategy& context)
 void update_knocked(RuntimeVampireStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    switch (get(strategy, field::knocked_stage))
+    switch (fields_of(strategy).knocked_stage)
     {
     case 1:
     {
         const std::span<const u8> body = body_of_actor(context);
-        if (read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f) // DAT_0032B100; LAHF; JP.
+        if (body_record(body).move_holds == 0 &&
+            body_record(body).move_hold_time == 0.f) // DAT_0032B100; LAHF; JP.
         {
             set_knocked_stage(2, context);
         }
@@ -324,7 +337,7 @@ void update_knocked(RuntimeVampireStrategy& context)
     case 2:
         if (!requests_pending(context))
         {
-            set(strategy, field::knocked_stage, 3u);
+            fields_of(strategy).knocked_stage = 3u;
             load_goal(context.goal_look, context);
         }
         return;
@@ -356,7 +369,7 @@ void update_waiting(RuntimeVampireStrategy& context)
             return;
         }
     }
-    run_down(context, field::delay);
+    run_down(context, fields_of(strategy_of(context)).delay);
     if (runtime_vampire_reaches_target(context)) // 0x000C17C0
     {
         choose_runtime_vampire_attack(context); // 0x000C1890
@@ -376,21 +389,21 @@ void update_waiting(RuntimeVampireStrategy& context)
 // Xbox 0x000C1FE0
 void vampire_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(VampireStrategyState);
     output.parameters = 0x18;
 }
 
 // Xbox 0x000C2050
 bool initialize_runtime_vampire_strategy(std::span<u8> strategy)
 {
-    set(strategy, field::record, kRecordAddress);
+    fields_of(strategy).record = kRecordAddress;
     return true;
 }
 
 // Xbox 0x000C17C0, EAX strategy
 bool runtime_vampire_reaches_target(RuntimeVampireStrategy& context)
 {
-    if (get(strategy_of(context), field::delay) > kEpsilon)
+    if (fields_of(strategy_of(context)).delay > kEpsilon)
     {
         return false;
     }
@@ -431,9 +444,9 @@ bool runtime_vampire_reaches_target(RuntimeVampireStrategy& context)
         return false;
     }
     // 0x001381C0 / 0x001381F0: the target is held (+0x14 clear, its body's +0x718 set), and then by him.
-    if (target->bytes[0x14] == 0 && read_u32(body.bytes, 0x718) != 0)
+    if (mind_target_record(target->bytes).kind == 0 && read_u32(body.bytes, 0x718) != 0)
     {
-        return read_u32(body.bytes, 0x718) == read_u32(strategy_of(context), 8);
+        return read_u32(body.bytes, 0x718) == strategy_base(strategy_of(context)).actor;
     }
     return true;
 }
@@ -442,7 +455,7 @@ bool runtime_vampire_reaches_target(RuntimeVampireStrategy& context)
 void choose_runtime_vampire_attack(RuntimeVampireStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    if (!mind_present(context) || read_u32(goals.entry.events.mind, 0x10) == 0)
+    if (!mind_present(context) || mind_record(goals.entry.events.mind).target_record == 0)
     {
         return;
     }
@@ -476,9 +489,9 @@ bool runtime_vampire_hit_from_behind(RuntimeVampireStrategy& context)
         az = float(az * scale);
     }
     const std::span<const u8> body = body_of_actor(context);
-    float bx = read_f32(body, 0x1D8); // +0x1CC +0xC.
+    float bx = body_record(body).contact_push.x; // +0x1CC +0xC.
     float by = 0.f;
-    float bz = read_f32(body, 0x1E0); // +0x1CC +0x14.
+    float bz = body_record(body).contact_push.z; // +0x1CC +0x14.
     if (bx == 0.f && bz == 0.f)
     {
         return true;
@@ -499,8 +512,8 @@ bool runtime_vampire_hit_from_behind(RuntimeVampireStrategy& context)
 void update_runtime_vampire_strategy(RuntimeVampireStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = get(strategy, strategy_field::state);
-    set(strategy, field::shut, 0u);
+    const u16 state = strategy_base(strategy).state;
+    fields_of(strategy).shut = 0u;
     update_runtime_base_strategy(goals_of(context)); // 0x0002C130
     switch (state)
     {
@@ -536,11 +549,11 @@ void dispatch_runtime_vampire_message(std::span<const u32> message, RuntimeVampi
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     switch (message[0])
     {
     case 0x1A:
-        set(strategy, field::shut, 1u);
+        fields_of(strategy).shut = 1u;
         change_state(0x416, context);
         break;
     case 0x2C:
@@ -560,14 +573,15 @@ void dispatch_runtime_vampire_message(std::span<const u32> message, RuntimeVampi
         }
         if (message[2] == actor)
         {
-            set(strategy, field::struck, 1u);
+            fields_of(strategy).struck = 1u;
         }
-        if (message[1] != actor || strategy[0x1C] != 0)
+        if (message[1] != actor || strategy_base(strategy).pause_count != 0)
         {
             break;
         }
         const std::span<const u8> actor_bytes = goals.entry.actor_bytes;
-        const u32 kind = read_u16(actor_bytes, 0xCDC) == 2 || read_u32(actor_bytes, 0x93C) != 0 ? 1u : 0u;
+        const u32 kind =
+            player_record(actor_bytes).mode == 2 || player_record(actor_bytes).case_link != 0 ? 1u : 0u;
         if (goals.resume.references[kind] != 0 || goals.resume.decay_enabled[goals.resume.decay_index] == 0)
         {
             break; // DAT_0050E764, DAT_0030F144[DAT_0051248C].
@@ -581,7 +595,7 @@ void dispatch_runtime_vampire_message(std::span<const u32> message, RuntimeVampi
         {
             break;
         }
-        if (get(strategy, field::shut) == 0)
+        if (fields_of(strategy).shut == 0)
         {
             change_state(0x401, context);
         }
@@ -611,39 +625,39 @@ void enter_runtime_vampire_state(u16 state, u16 previous, RuntimeVampireStrategy
     {
     case 0x3ED:
         // Xbox 0x000C1B30, ESI strategy
-        if (get(strategy, field::knockback_stage) != 1)
+        if (fields_of(strategy).knockback_stage != 1)
         {
-            set(strategy, field::knockback_stage, 1u);
-            set(strategy, field::struck, 0u);
+            fields_of(strategy).knockback_stage = 1u;
+            fields_of(strategy).struck = 0u;
             load_goal(context.goal_knockback, context);
         }
-        strategy[0x1A] = 1;
-        body[0x328] = 4;
+        strategy_base(strategy).attacking = 1;
+        body_record(body).move_class = 4;
         return;
     case 0x3EE:
         // Xbox 0x000C1C40, EAX strategy
-        strategy[0x1A] = 1;
-        body[0x328] = 5;
-        if (get(strategy, field::knockdown_stage) != 1)
+        strategy_base(strategy).attacking = 1;
+        body_record(body).move_class = 5;
+        if (fields_of(strategy).knockdown_stage != 1)
         {
-            set(strategy, field::knockdown_stage, 1u);
+            fields_of(strategy).knockdown_stage = 1u;
             load_goal(context.goal_knockdown, context);
         }
         return;
     case 0x3EF:
         // Xbox 0x000C1D70, ESI strategy
-        if (get(strategy, field::open_stage) != 1)
+        if (fields_of(strategy).open_stage != 1)
         {
-            set(strategy, field::open_stage, 1u);
-            set(strategy, field::open_time, kOpenTime);
+            fields_of(strategy).open_stage = 1u;
+            fields_of(strategy).open_time = kOpenTime;
             load_goal(context.goal_special, context);
         }
-        strategy[0x1A] = 1;
-        body[0x328] = 6;
+        strategy_base(strategy).attacking = 1;
+        body_record(body).move_class = 6;
         return;
     case 0x401:
-        set(strategy, field::delay, kAttackDelay);
-        body[0x328] = 2;
+        fields_of(strategy).delay = kAttackDelay;
+        body_record(body).move_class = 2;
         return;
     case 0x406:
         // Xbox 0x000C1920, EAX strategy
@@ -655,7 +669,7 @@ void enter_runtime_vampire_state(u16 state, u16 previous, RuntimeVampireStrategy
         load_goal(context.goal_waiting, context);
         body_bits(context, "0x000C1F40").bytes[8] |= 1;
         constexpr char open[] = "opencoffin"; // 0x0032431C, copied to body +0x288.
-        std::memcpy(body.data() + 0x288, open, sizeof(open));
+        std::memcpy(body.data() + offsetof(BodyRecord, variant), open, sizeof(open));
         return;
     }
     default:
@@ -669,44 +683,44 @@ void leave_runtime_vampire_state(u16 state, RuntimeVampireStrategy& context)
     const std::span<u8> strategy = strategy_of(context);
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
     }
     switch (state)
     {
     case 0x3ED:
-        if (get(strategy, field::knockback_stage) != 0)
+        if (fields_of(strategy).knockback_stage != 0)
         {
-            set(strategy, field::knockback_stage, 0u);
+            fields_of(strategy).knockback_stage = 0u;
         }
         detach_runtime_strategy_link(context.base.link); // 0x00112A20, EAX strategy +0x20.
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x3EE:
-        if (get(strategy, field::knockdown_stage) != 0)
+        if (fields_of(strategy).knockdown_stage != 0)
         {
-            set(strategy, field::knockdown_stage, 0u);
+            fields_of(strategy).knockdown_stage = 0u;
         }
         detach_runtime_strategy_link(context.base.link);
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x3EF:
-        if (get(strategy, field::open_stage) != 0)
+        if (fields_of(strategy).open_stage != 0)
         {
-            set(strategy, field::open_stage, 0u);
+            fields_of(strategy).open_stage = 0u;
         }
         detach_runtime_strategy_link(context.base.link);
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x406:
-        if (get(strategy, field::knocked_stage) != 0)
+        if (fields_of(strategy).knocked_stage != 0)
         {
-            set(strategy, field::knocked_stage, 0u);
+            fields_of(strategy).knocked_stage = 0u;
         }
         return;
     case 0x416:
     {
         body_bits(context, "0x000C2420").bytes[8] &= 0xFE;
-        body_of_actor(context)[0x288] = 0;
+        body_record(body_of_actor(context)).variant[0] = 0;
         return;
     }
     default:

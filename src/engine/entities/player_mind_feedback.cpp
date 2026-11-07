@@ -1,7 +1,13 @@
 #include "player_mind_feedback.h"
+#include <cstddef>
+#include "player_mind_control.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "entity_heap.h"
 #include "gbtg/entity.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <new>
 #include <bit>
 #include <cstring>
@@ -33,7 +39,7 @@ void set_runtime_player_actor_rotation(Actor& actor, const Actor& body_actor,
     normalize_euler_angles(actor.euler, rotation);
     actor.xform_valid = 0;
     const Vec3 world_rotation = actor_world_euler(body_actor);
-    std::memcpy(body.data() + 0x72C, &world_rotation, sizeof(world_rotation));
+    std::memcpy(body.data() + offsetof(BodyRecord, euler.x), &world_rotation, sizeof(world_rotation));
 }
 
 // Xbox 0x00140A40
@@ -67,38 +73,38 @@ u8 runtime_player_mind_active(const std::span<const u8>* mind)
 void select_runtime_player_mind_alert(std::span<u8> mind, std::span<const u8> body,
     const EntityBitBlock& flags, u32 player_link)
 {
-    if (read_f32(mind, 0x50) > 0.f)
+    if (mind_record(mind).alert_timer > 0.f)
     {
-        put(mind, 0x4C, 0x41);
+        mind_record(mind).alert_mode = 0x41;
         return;
     }
-    if (mind[0x20] != 0)
+    if (mind_record(mind).target_mode != 0)
     {
-        put(mind, 0x4C, 0x42);
+        mind_record(mind).alert_mode = 0x42;
         return;
     }
-    const u16 maximum = read_u16(body, 0x96);
+    const u16 maximum = body_record(body).max_energy;
     const bool low_health = maximum != 0 &&
-        float(read_u16(body, 0x94)) / float(maximum) <= 0.25f;
+        float(body_record(body).energy) / float(maximum) <= 0.25f;
     if (player_link == 0)
     {
         if ((flags.bytes[4] & 0x40) != 0)
         {
-            put(mind, 0x4C, 0x45);
+            mind_record(mind).alert_mode = 0x45;
             return;
         }
         if (!low_health)
         {
-            put(mind, 0x4C, 0x44);
+            mind_record(mind).alert_mode = 0x44;
             return;
         }
     }
     else if (!low_health)
     {
-        put(mind, 0x4C, 0x40);
+        mind_record(mind).alert_mode = 0x40;
         return;
     }
-    put(mind, 0x4C, 0x46);
+    mind_record(mind).alert_mode = 0x46;
 }
 
 // Xbox 0x00136700
@@ -116,7 +122,7 @@ bool initialize_runtime_player_mind_navigation(std::span<u8> mind, i32 floor,
             auto* search = new (allocation) RuntimeMindStorage{};
             entity_detail::reset_navigation_path_search(*search, nodes, grid, count);
             storage = search;
-            put(mind, 0x1C, address_of(search));
+            mind_record(mind).path_search = address_of(search);
             return true;
         }
     }
@@ -127,20 +133,21 @@ bool initialize_runtime_player_mind_navigation(std::span<u8> mind, i32 floor,
 void update_runtime_player_mind_health_display(std::span<const u8> mind,
     std::span<const u8> body, const EntityBitBlock& flags, RuntimePlayerHealthDisplay& display)
 {
-    if (mind[0x20] != 0 || (flags.bytes[5] & 1) != 0 || display.override_health != 0 ||
-        read_u16(body, 0x94) <= 10)
+    if (mind_record(mind).target_mode != 0 || (flags.bytes[5] & 1) != 0 || display.override_health != 0 ||
+        body_record(body).energy <= 10)
     {
         display.intensity = 2.f;
         acquire_runtime_player_health_textures(display);
     }
-    set_runtime_player_health_display(display, read_u16(body, 0x94), read_f32(mind, 0x15C) > 0.f ? 1 : 0);
+    set_runtime_player_health_display(display, body_record(body).energy,
+        player_mind_record(mind).control_lock > 0.f ? 1 : 0);
 }
 
 // Xbox 0x0007FB10
 void tick_runtime_player_mind(RuntimePlayerMindTick& context, std::span<u8> input)
 {
     auto& base = context.base;
-    if (read_u32(base.events.mind, 0x7C) != 0)
+    if (player_mind_record(base.events.mind).unk_7C != 0)
     {
         switch (read_u32(input, 0))
         {
@@ -163,11 +170,10 @@ void tick_runtime_player_mind(RuntimePlayerMindTick& context, std::span<u8> inpu
     update_runtime_mind_events(base);
     const float step = runtime_frame_step(base.clock);
     const float rate = runtime_actor_rate(base.actor);
-    put(base.events.mind, 0x34,
-        std::bit_cast<u32>(rate * step + read_f32(base.events.mind, 0x34)));
+    mind_record(base.events.mind).unk_34 = rate * step + mind_record(base.events.mind).unk_34;
     update_runtime_mind_alert(base);
-    const size_t group = read_u16(context.actor_bytes, 0xCDC) == 2 ||
-        read_u32(context.actor_bytes, 0x93C) != 0 ? 1 : 0;
+    const size_t group = player_record(context.actor_bytes).mode == 2 ||
+        player_record(context.actor_bytes).case_link != 0 ? 1 : 0;
     if ((context.references[group] == 0 && base.clock.decay_enabled[base.clock.decay_index] != 0) ||
         (context.flags->bytes[3] & 8) != 0)
     {
@@ -178,9 +184,9 @@ void tick_runtime_player_mind(RuntimePlayerMindTick& context, std::span<u8> inpu
 // Xbox 0x0007DAC0
 void clear_runtime_player_mind_body_event(std::span<u8> body)
 {
-    if (body[0x6A] == 0)
+    if (body_record(body).unk_6A == 0)
     {
-        put(body, 0x88, 0);
+       body_record(body).unk_88 = 0;
     }
 }
 
@@ -294,24 +300,24 @@ void shake_runtime_player_mind_camera(RuntimePlayerMindFeedback& context, const 
 void reset_runtime_player_mind_body_event(RuntimePlayerMindFeedback& context,
     std::span<const u8> target, const std::span<const u8>* actor_mind)
 {
-    if (read_u32(context.mind, 0x10) != 0)
+    if (mind_record(context.mind).target_record != 0)
     {
         const Vec3 position = actor_world_position(context.actor);
-        const float z = position.z - read_f32(target, 0x28);
-        const float x = position.x - read_f32(target, 0x20);
-        const float y = position.y - read_f32(target, 0x24);
+        const float z = position.z - mind_target_record(target).shape.position.z;
+        const float x = position.x - mind_target_record(target).shape.position.x;
+        const float y = position.y - mind_target_record(target).shape.position.y;
         if (900.f > (z * z + x * x) + y * y)
         {
-            put(context.body, 0x88, 0);
+           body_record(context.body).unk_88 = 0;
             return;
         }
     }
     const u8 state = actor_mind == nullptr ? 0 : (*actor_mind)[0x20];
-    if (read_f32(context.mind, 0x9C) == 0.f && state == 0)
+    if (player_mind_record(context.mind).stick.press_timer == 0.f && state == 0)
     {
-        put(context.mind, 0xA0, 0x3F666666u);
+        player_mind_record(context.mind).stick.unk_0C = std::bit_cast<float>(0x3F666666u);
     }
-    put(context.body, 0x88, 0);
+   body_record(context.body).unk_88 = 0;
 }
 
 // Xbox 0x0007DEE0
@@ -323,13 +329,13 @@ void track_runtime_player_mind_source(std::span<u8> mind,
         // Body +0x84 zero (an empty view) reads as 0.
         const u8 state = body_state == nullptr || body_state->empty() ? 0 : (*body_state)[3];
         if (state == 3 || state == 5 ||
-            (read_u32(mind, 0x84) != 0 && source != read_u32(mind, 0x84)))
+            (player_mind_record(mind).unk_84 != 0 && source != player_mind_record(mind).unk_84))
         {
-            put(mind, 0x8C, 0);
-            mind[0x90] = 0;
+            player_mind_record(mind).target_timer = 0.f;
+            player_mind_record(mind).target_count = 0;
         }
-        put(mind, 0x84, source);
-        put(mind, 0x8C, 0x3FC00000u);
+        player_mind_record(mind).unk_84 = source;
+        player_mind_record(mind).target_timer = std::bit_cast<float>(0x3FC00000u);
     }
 }
 
@@ -338,15 +344,15 @@ void record_runtime_player_mind_distance(std::span<u8> mind, float distance)
 {
     if (!(distance > 50.f))
     {
-        if (read_u32(mind, 0x124) == 0)
+        if (player_mind_record(mind).unk_124 == 0)
         {
-            put(mind, 0x124, 1);
-            put(mind, 0x120, std::bit_cast<u32>(distance));
+            player_mind_record(mind).unk_124 = 1;
+            player_mind_record(mind).unk_120 = distance;
             return;
         }
-        if (read_f32(mind, 0x120) > distance)
+        if (player_mind_record(mind).unk_120 > distance)
         {
-            put(mind, 0x120, std::bit_cast<u32>(distance));
+            player_mind_record(mind).unk_120 = distance;
         }
     }
 }
@@ -355,23 +361,23 @@ void record_runtime_player_mind_distance(std::span<u8> mind, float distance)
 void record_runtime_player_mind_position(std::span<u8> mind, const Actor& actor,
     u32 source, const Vec3& position)
 {
-    if (read_u32(mind, 0x134) != 0)
+    if (player_mind_record(mind).unk_134 != 0)
     {
         const Vec3 world = actor_world_position(actor);
         const float x = position.x - world.x;
         const float y = position.y - world.y;
         const float z = position.z - world.z;
-        const float old_x = read_f32(mind, 0x138) - world.x;
-        const float old_y = read_f32(mind, 0x13C) - world.y;
-        const float old_z = read_f32(mind, 0x140) - world.z;
+        const float old_x = player_mind_record(mind).unk_138.x - world.x;
+        const float old_y = player_mind_record(mind).unk_138.y - world.y;
+        const float old_z = player_mind_record(mind).unk_138.z - world.z;
         if ((old_z * old_z + old_y * old_y) + old_x * old_x < (z * z + x * x) + y * y)
         {
             return;
         }
     }
-    put(mind, 0x134, source);
-    put(mind, 0x138, std::bit_cast<u32>(position.x));
-    put(mind, 0x13C, std::bit_cast<u32>(position.y));
-    put(mind, 0x140, std::bit_cast<u32>(position.z));
+    player_mind_record(mind).unk_134 = source;
+    player_mind_record(mind).unk_138.x = position.x;
+    player_mind_record(mind).unk_138.y = position.y;
+    player_mind_record(mind).unk_138.z = position.z;
 }
 }

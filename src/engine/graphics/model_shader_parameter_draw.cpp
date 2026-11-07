@@ -69,7 +69,7 @@ u32 runtime_model_material_texture_key(u32 node, RuntimeModelMaterialBind& conte
     const RuntimeModelRenderState& state = runtime_render_state(context.tree.renderer);
     const auto& image = context.tree.image;
     u32 hash = 0;
-    const u32 name = image.word(image.word(node, 0x20), 0x20);
+    const u32 name = image.get(image.get(node, shader_node::primary), model_material_field::name);
     if (name != 0)
     {
         hash_runtime_model_name(image.pointer(name + 1), 1, hash);
@@ -114,20 +114,20 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
     // DAT_0032B154 is 1/255.
     const float byte_scale = std::bit_cast<float>(0x3B808081u);
     u32 index = 0;
-    if (image.word(material, 0x14) != 0)
+    if (image.get(material, model_material_field::colour_count) != 0)
     {
         do
         {
-            const u32 color = image.word(material) + index * 4;
+            const u32 color = image.get(material, model_material_field::colours) + index * 4;
             const std::array<float, 4> constant{float(image.byte(color)) * byte_scale,
                 float(image.byte(color, 1)) * byte_scale, float(image.byte(color, 2)) * byte_scale,
                 float(image.byte(color, 3)) * byte_scale};
             context.pixel_constants(index, constant.data(), 1);
             ++index;
-        } while (index < image.word(material, 0x14));
+        } while (index < image.get(material, model_material_field::colour_count));
     }
     index = 0;
-    if (image.word(material, 0xC) != 0)
+    if (image.get(material, model_material_field::stage_count) != 0)
     {
         u32 offset = 0;
         u32& dirty = context.deferred[0];
@@ -138,27 +138,32 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
                 throw Error("model material stage lies outside the deferred texture states");
             }
             u32* stage = context.deferred.data() + 2 + index * 0x20;
+            const u32 record = image.get(material, model_material_field::stages) + offset;
             const u32 bit = 1u << (index & 0x1F);
-            stage[0] = image.byte(image.word(material, 8), offset + 4);
+            stage[0] = image.get(record, model_material_stage_field::address_u);
             dirty |= bit;
-            stage[1] = image.byte(image.word(material, 8), offset + 5);
+            stage[1] = image.get(record, model_material_stage_field::address_v);
             dirty |= bit;
-            stage[2] = image.byte(image.word(material, 8), offset + 6);
+            stage[2] = image.get(record, model_material_stage_field::address_w);
             stage[7] = 0;
             stage[4] = 2;
             stage[5] = 2;
             dirty |= bit;
             stage[3] = 2;
-            if (image.half(image.word(material, 8), offset + 0xA) == 0)
+            if (image.get(record, model_material_stage_field::unk_0A) == 0)
             {
                 dirty |= bit;
                 stage[10] = 0;
-                if (i16(image.half(image.word(material, 8), offset + 8)) >= 0)
+                if (i16(image.get(record, model_material_stage_field::bump_stage)) >= 0)
                 {
-                    context.bump_environment(index, 0x16, image.word(image.word(material, 8), offset + 0xC));
-                    context.bump_environment(index, 0x17, image.word(image.word(material, 8), offset + 0x10));
-                    context.bump_environment(index, 0x19, image.word(image.word(material, 8), offset + 0x14));
-                    context.bump_environment(index, 0x18, image.word(image.word(material, 8), offset + 0x18));
+                    context.bump_environment(index, 0x16,
+                        image.get(record, model_material_stage_field::bump_matrix_00));
+                    context.bump_environment(index, 0x17,
+                        image.get(record, model_material_stage_field::bump_matrix_01));
+                    context.bump_environment(index, 0x19,
+                        image.get(record, model_material_stage_field::bump_matrix_11));
+                    context.bump_environment(index, 0x18,
+                        image.get(record, model_material_stage_field::bump_matrix_10));
                 }
             }
             else
@@ -166,18 +171,18 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
                 dirty |= bit;
                 stage[10] = 0xF0000000u;
             }
-            if (image.byte(image.word(material, 8), offset + 7) == 0)
+            if (image.get(record, model_material_stage_field::keyed) == 0)
             {
-                if (image.word(material, 0x40) == index && image.byte(material, 0x1B) != 0 &&
-                    context.globals.shadow_texture != 0)
+                if (image.get(material, model_material_field::shadow_stage) == index &&
+                    image.get(material, model_material_field::takes_shadow) != 0 && context.globals.shadow_texture != 0)
                 {
                     context.set_texture(index, context.globals.shadow_texture);
-                    context.vertex_constants(image.word(material, 0x34) + 0x60,
+                    context.vertex_constants(image.get(material, model_material_field::shadow_register) + 0x60,
                         reinterpret_cast<const float*>(image.pointer(0x00336120)), 1);
                 }
                 else
                 {
-                    const u32 texture = image.word(image.word(material, 8), offset);
+                    const u32 texture = image.get(record, model_material_stage_field::texture);
                     if (texture != 0xFFFFFFFFu)
                     {
                         if (instance == nullptr || index >= instance->zero_words.size())
@@ -200,16 +205,16 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
                 context.set_texture(index, texture);
             }
             ++index;
-            offset += 0x1C;
-        } while (index < image.word(material, 0xC));
+            offset += model_material_stage_field::kSize;
+        } while (index < image.get(material, model_material_field::stage_count));
     }
     index = 0;
-    if (image.word(material, 0x10) != 0)
+    if (image.get(material, model_material_field::constant_count) != 0)
     {
         u32 entry = 0;
         do
         {
-            const u32 table = image.word(material, 4);
+            const u32 table = image.get(material, model_material_field::constants);
             const float* source = nullptr;
             if (instance != nullptr)
             {
@@ -224,7 +229,7 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
             }
             if (source == nullptr)
             {
-                const u32 mode = image.word(table, entry + 0x44);
+                const u32 mode = image.get(table + entry, model_material_constant_field::source);
                 if (mode == 1)
                 {
                     source = reinterpret_cast<const float*>(context.environment_primary.data());
@@ -235,15 +240,17 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
                 }
                 else
                 {
-                    source = reinterpret_cast<const float*>(image.pointer(table + entry));
+                    source = reinterpret_cast<const float*>(
+                        image.pointer(table + entry + model_material_constant_field::values_offset));
                 }
             }
-            context.vertex_constants(image.word(table, entry + 0x40) + 0x60, source, 4);
+            context.vertex_constants(image.get(table + entry, model_material_constant_field::constant_register) + 0x60,
+                source, 4);
             ++index;
-            entry += 0x48;
-        } while (index < image.word(material, 0x10));
+            entry += model_material_constant_field::kSize;
+        } while (index < image.get(material, model_material_field::constant_count));
     }
-    if (image.byte(material, 0x18) == 0)
+    if (image.get(material, model_material_field::alpha_reference) == 0)
     {
         context.simple(0x40300, 0);
         context.alpha_test = 0;
@@ -254,7 +261,7 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
         context.alpha_test = 1;
         context.simple(0x4033C, 0x204);
         context.alpha_function = 0x204;
-        const u8 reference = image.byte(material, 0x18);
+        const u8 reference = image.get(material, model_material_field::alpha_reference);
         context.simple(0x40340, reference);
         context.alpha_reference = reference;
     }
@@ -284,7 +291,7 @@ void dispatch_runtime_model_shader_parameters(u32 node, RuntimeModelInstanceStor
 {
     auto& renderer = context.tree.renderer;
     const auto& image = context.tree.image;
-    const u32 copy = image.word(node, 0xC);
+    const u32 copy = image.get(node, model_node_field::instance_offset);
     RuntimeModelRenderState& state = runtime_render_state(renderer);
     runtime_render_frame(renderer);
     if (state.material != 0)
@@ -299,7 +306,7 @@ void dispatch_runtime_model_shader_parameters(u32 node, RuntimeModelInstanceStor
     set_runtime_model_material_camera(reinterpret_cast<const u32*>(camera->data()), context.globals);
     set_runtime_model_normalized_combined(context.tree.combined[size_t(renderer.frame_index)].data(), context.globals);
     set_runtime_model_material_vector(state.material_vector.data(), context.globals);
-    if (image.word(node, 0x24) != 0)
+    if (image.get(node, shader_node::secondary) != 0)
     {
         set_runtime_model_texture_key(runtime_model_material_texture_key(node, context), context.globals);
     }
@@ -309,7 +316,7 @@ void dispatch_runtime_model_shader_parameters(u32 node, RuntimeModelInstanceStor
     {
         throw Error("model shader parameters have no instance copy");
     }
-    bind_runtime_model_material(image.word(node, 0x20), found->second.primary, context);
+    bind_runtime_model_material(image.get(node, shader_node::primary), found->second.primary, context);
     std::array<float, 8> colors;
     std::memcpy(colors.data(), state.base_color.data(), 0x10);
     std::memcpy(colors.data() + 4, state.ambient_color.data(), 0x10);
@@ -323,13 +330,14 @@ void classify_runtime_model_bound_nodes(u32 node, const float* frustum, u32& vis
 {
     do
     {
-        while (image.byte(image.word(node, 0), 2) != 'B')
+        while (image.byte(image.get(node, model_node_field::type_name), 2) != 'B')
         {
-            if (image.word(node, 0x14) != 0)
+            if (image.get(node, model_node_field::child) != 0)
             {
-                classify_runtime_model_bound_nodes(image.word(node, 0x14), frustum, visible, plane, image);
+                classify_runtime_model_bound_nodes(image.get(node, model_node_field::child), frustum, visible, plane,
+                    image);
             }
-            node = image.word(node, 0x18);
+            node = image.get(node, model_node_field::next);
             if (node == 0)
             {
                 return;
@@ -341,14 +349,14 @@ void classify_runtime_model_bound_nodes(u32 node, const float* frustum, u32& vis
         std::memcpy(&second, image.pointer(node + 0x54), 0xC);
         if (classify_runtime_box_frustum(std::span<const float, 42>(frustum, 42), first, second, plane) == 0)
         {
-            image.set_byte(node, 0x3F, 1);
+            image.set(node, push_buffer_node::culled, 1);
         }
         else
         {
-            image.set_byte(node, 0x3F, 0);
+            image.set(node, push_buffer_node::culled, 0);
             visible = 1;
         }
-        node = image.word(node, 0x18);
+        node = image.get(node, model_node_field::next);
     } while (node != 0);
 }
 
@@ -360,14 +368,15 @@ void dispatch_runtime_background_shader_parameters(u32 node, RuntimeModelInstanc
     const auto& image = context.tree.image;
     ++culling.tested;
     u32 visible = 0;
-    const u32 copy = image.word(node, 0xC);
+    const u32 copy = image.get(node, model_node_field::instance_offset);
     RuntimeModelRenderState& state = runtime_render_state(renderer);
     runtime_render_frame(renderer);
     if (state.frustum == nullptr)
     {
         throw Error("background shader parameters need the render state +0x64 frustum");
     }
-    classify_runtime_model_bound_nodes(image.word(node, 0x14), state.frustum, visible, culling.plane, image);
+    classify_runtime_model_bound_nodes(image.get(node, model_node_field::child), state.frustum, visible, culling.plane,
+        image);
     if (visible == 0)
     {
         ++culling.culled;
@@ -386,7 +395,7 @@ void dispatch_runtime_background_shader_parameters(u32 node, RuntimeModelInstanc
     set_runtime_model_material_camera(reinterpret_cast<const u32*>(camera->data()), context.globals);
     set_runtime_model_normalized_combined(context.tree.combined[size_t(renderer.frame_index)].data(), context.globals);
     set_runtime_model_material_vector(state.material_vector.data(), context.globals);
-    if (image.word(node, 0x24) != 0)
+    if (image.get(node, shader_node::secondary) != 0)
     {
         set_runtime_model_texture_key(runtime_model_material_texture_key(node, context), context.globals);
     }
@@ -396,7 +405,7 @@ void dispatch_runtime_background_shader_parameters(u32 node, RuntimeModelInstanc
     {
         throw Error("model shader parameters have no instance copy");
     }
-    bind_runtime_model_material(image.word(node, 0x20), found->second.primary, context);
+    bind_runtime_model_material(image.get(node, shader_node::primary), found->second.primary, context);
     std::array<float, 8> colors;
     std::memcpy(colors.data(), state.base_color.data(), 0x10);
     std::memcpy(colors.data() + 4, state.ambient_color.data(), 0x10);

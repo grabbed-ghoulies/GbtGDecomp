@@ -68,7 +68,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     ambient_initialize_beds(); // 0x0011C3F0 -> 0x0011C480 -> 0x00118470
     factory_scene->actor_services->hold_boot_scene_order(); // 0x0011C3F0 -> 0x0011C480 -> 0x001234B0
     save_initialize_name_scan(); // 0x0011C3F0 -> 0x0011C480 -> 0x0010D3B0: the saved games on drive U.
-    g_50e7a0 = g_50e7a0 + 1; // 0x0011C3F0's last store (DAT_0050E7A0); the first scene's state 1 takes it back.
+    g_scene_active_count = g_scene_active_count + 1; // 0x0011C3F0's last store (DAT_0050E7A0); the first scene's state 1 takes it back.
     movie_set_root(game_dir);
     movie_boot_probe();
     log::verbose("fs_init: %s common.bnl entries %zu", aids.game_dir.string().c_str(), aids.common.entries.size());
@@ -184,7 +184,7 @@ void frame_tick(Game& g, float dt, const InputState& in)
     {
         tick_app_error_screen(); // 0x00032AB0
     }
-    tick_native_audio(g.clock.dt, g_4e02e8); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
+    tick_native_audio(g.clock.dt, g_stream_slot_gate); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
     // 0x00033B50: the file rows (0x000E9E60), the movie list (0x00107420 over DAT_0050E0B8) and the finished
     // movie event slots (0x00106C70).
     auto& movies = *g.native_movies;

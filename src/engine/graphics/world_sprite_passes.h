@@ -19,7 +19,9 @@ void draw_world_sprite_quad(i32 frame, u8* texture, const Vec3* position, const 
     u32 color, RuntimeDisplaySetupContext& context); // Xbox 0x0005CF90, ECX texture, EDI position, EBX euler
 // The debris records (DAT_005068EC, 50 of 0x74 bytes) drawn as textured quads; nothing without the pool.
 // `textures` are the type rows' +0x80 textures (RuntimeEffectDebrisStorage::textures).
-void draw_effect_debris(std::span<const u8> particles, std::span<const std::span<const u8>, 10> textures,
+struct EffectDebrisRecord;
+void draw_effect_debris(std::span<const EffectDebrisRecord> particles,
+    std::span<const std::span<const u8>, 10> textures,
     RuntimeDisplaySetupContext& context); // Xbox 0x000EC470
 // The bound projection and view, the sprite render states with depth writes and the line texture's frame (EDI).
 void begin_world_line_draw(u8 frame, u8* texture, RuntimeDisplaySetupContext& context); // Xbox 0x00065460

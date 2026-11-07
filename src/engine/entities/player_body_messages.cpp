@@ -1,6 +1,9 @@
 #include "player_body_messages.h"
+#include "weapon_fields.h"
+#include <cstddef>
 #include "actor_transform.h"
 #include "player_mind_events.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -10,57 +13,54 @@ namespace gbtg
 void begin_runtime_player_body_control(std::span<u8> body, std::span<const u8> message,
     RuntimePlayerBodyControlMessages& context)
 {
-    if (read_u32(message, 4) != read_u32(body, 8))
+    if (get(message, control_message::actor) != body_record(body).actor)
     {
         return;
     }
-    switch (read_u32(message, 8))
+    switch (get(message, control_message::kind))
     {
     case 3:
     {
-        const u16 health = read_u16(body, 0x94);
-        const u16 maximum = u16(read_u16(body, 0x96) + read_u32(message, 0xC));
-        std::memcpy(body.data() + 0x94, &maximum, 2);
-        std::memcpy(body.data() + 0x96, &maximum, 2);
-        const u16 updated = u16(health + read_u16(message, 0xC));
-        std::memcpy(body.data() + 0x94, &updated, 2);
-        if (read_u32(body, 0x94C) != 0)
+        const u16 health = body_record(body).energy;
+        const u16 maximum = u16(body_record(body).max_energy + get(message, control_message::amount));
+        body_record(body).energy = maximum;
+        body_record(body).max_energy = maximum;
+        const u16 updated = u16(health + u16(get(message, control_message::amount)));
+        body_record(body).energy = updated;
+        if (player_body_record(body).energy_saved != 0)
         {
-            const u32 saved = read_u32(body, 0x948) + read_u32(message, 0xC);
-            std::memcpy(body.data() + 0x948, &saved, 4);
+            player_body_record(body).saved_energy = player_body_record(body).saved_energy + get(message,
+                control_message::amount);
         }
         return;
     }
     case 4:
     {
-        const u16 health = read_u16(body, 0x94);
+        const u16 health = body_record(body).energy;
         const u32 zero = 0;
         if (health != 0)
         {
-            if (read_u32(body, 0x94C) == 0)
+            if (player_body_record(body).energy_saved == 0)
             {
-                const u32 saved = health;
-                const u32 one = 1;
-                std::memcpy(body.data() + 0x948, &saved, 4);
-                std::memcpy(body.data() + 0x94C, &one, 4);
+                player_body_record(body).saved_energy = health;
+                player_body_record(body).energy_saved = 1;
             }
-            const u16 one = 1;
-            std::memcpy(body.data() + 0x94, &one, 2);
+            body_record(body).energy = 1;
             return;
         }
-        std::memcpy(body.data() + 0x948, &zero, 4);
+        player_body_record(body).saved_energy = zero;
         return;
     }
     case 8:
-        if (read_u32(message, 0x10) == 0)
+        if (get(message, control_message::unk_10) == 0)
         {
-            context.events.command_attachments = body.subspan(0x924, 36);
+            context.events.command_attachments = retail_bytes(player_body_record(body).control_tokens);
             request_runtime_player_attachment_events(context.resource.resource.data(),
-                context.events, 0x2E, context.body_address + 0x924);
+                context.events, 0x2E, context.body_address + offsetof(PlayerBodyRecord, control_tokens));
         }
         return;
     case 9:
-        if (read_u32(message, 0x10) == 0)
+        if (get(message, control_message::unk_10) == 0)
         {
             ++context.hidden;
             clear_actor_model_anchors(context.anchors);
@@ -89,26 +89,24 @@ void begin_runtime_player_body_control(std::span<u8> body, std::span<const u8> m
 void end_runtime_player_body_control(std::span<u8> body, std::span<const u8> message,
     RuntimePlayerBodyControlMessages& context)
 {
-    if (read_u32(message, 4) != read_u32(body, 8))
+    if (get(message, control_message::actor) != body_record(body).actor)
     {
         return;
     }
-    switch (read_u32(message, 8))
+    switch (get(message, control_message::kind))
     {
     case 4:
     {
-        if (read_u16(body, 0x94) != 0 && read_u32(body, 0x948) != 0)
+        if (body_record(body).energy != 0 && player_body_record(body).saved_energy != 0)
         {
-            const u16 health = u16(read_u32(body, 0x948));
-            std::memcpy(body.data() + 0x94, &health, 2);
+            body_record(body).energy = u16(player_body_record(body).saved_energy);
         }
-        const u32 zero = 0;
-        std::memcpy(body.data() + 0x948, &zero, 4);
-        std::memcpy(body.data() + 0x94C, &zero, 4);
+        player_body_record(body).saved_energy = 0;
+        player_body_record(body).energy_saved = 0;
         return;
     }
     case 8:
-        clear_runtime_player_attachment_events(body.subspan(0x924, 36), context.lists);
+        clear_runtime_player_attachment_events(retail_bytes(player_body_record(body).control_tokens), context.lists);
         return;
     case 9:
         --context.hidden;
@@ -136,12 +134,12 @@ void dispatch_runtime_player_body(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context,
     RuntimePlayerBodyControlMessages& controls)
 {
-    if (read_u32(message, 0) == 0x86)
+    if (get(message, body_message_field::id) == 0x86)
     {
         begin_runtime_player_body_control(body, message, controls);
         return;
     }
-    if (read_u32(message, 0) == 0x87)
+    if (get(message, body_message_field::id) == 0x87)
     {
         end_runtime_player_body_control(body, message, controls);
         return;
@@ -154,11 +152,11 @@ void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> me
     const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context, const EntityBitBlock& bits,
     std::span<const u8> actor, u32 body_address)
 {
-    if (read_u32(message, 0) == 0x19 && views.impact == nullptr)
+    if (get(message, body_message_field::id) == 0x19 && views.impact == nullptr)
     {
         throw Error("vampire body message 0x19 has no contact views");
     }
-    if (read_u32(message, 0) != 0x19 || views.impact->source.bytes[0xDAC] != 0xC) // Message +0x1C's +0xDAC.
+    if (get(message, body_message_field::id) != 0x19 || views.impact->source.bytes[offsetof(WeaponBase, hit_kind)] != 0xC) // Message +0x1C's weapon.
     {
         dispatch_runtime_player_body_message(body, message, views, context);
         return;
@@ -167,8 +165,7 @@ void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> me
     {
         // 0x00105F90 writes the stack slot that held the body argument, and leaves it for a zero direction.
         float angle = std::bit_cast<float>(body_address);
-        Vec3 direction;
-        std::memcpy(&direction, message.data() + 0x20, 12);
+        Vec3 direction = get(message, impact_message::velocity);
         runtime_direction_angle(direction, angle);
         constexpr float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148
         constexpr float minus_pi = std::bit_cast<float>(0xC0490FDBu); // DAT_0032B29C
@@ -186,21 +183,19 @@ void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> me
             return;
         }
     }
-    const u32 one = 1;
-    const u32 zero = 0;
-    std::memcpy(message.data() + 0x10, &one, 4);
-    std::memcpy(message.data() + 0x14, &zero, 4);
-    std::memcpy(message.data() + 0x18, &one, 4);
+    set(message, impact_message::handled, 1);
+    set(message, impact_message::result, 0);
+    set(message, impact_message::standing, 1);
 }
 
 // Xbox 0x00074080
 void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context)
 {
-    const u32 actor_address = read_u32(body, 8);
+    const u32 actor_address = body_record(body).actor;
     auto& parent = context.parent;
     auto& processor = context.damage.processor;
-    switch (read_u32(message, 0))
+    switch (get(message, body_message_field::id))
     {
     case 0xF:
         request_runtime_body_timer_contact(body, message, *views.source,
@@ -250,7 +245,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         return;
     case 0x23:
         dispatch_runtime_parent_body_message(body, message, views.parent, parent);
-        if (read_u32(body, 0x258) == 0)
+        if (body_record(body).holds == 0)
         {
             separate_runtime_player_body_contacts(body, parent.actor, processor.flags,
                 context.mask, context.floor, parent.default_position);
@@ -262,7 +257,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
             context.goals, processor.flags, context.address_zero))
         {
             const u16 key = parent.actions.attachment.body_action_key();
-            if (key != read_u16(body, 0x748))
+            if (key != body_record(body).action_key)
             {
                 select_runtime_body_action(body, key, parent.actions.actions);
             }
@@ -271,7 +266,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
     case 0x2A:
     {
         dispatch_runtime_parent_body_message(body, message, views.parent, parent);
-        const Vec3 position{read_f32(message, 8), read_f32(message, 0xC), read_f32(message, 0x10)};
+        const Vec3 position = get(message, point_message::point);
         receive_runtime_body_direct_hit(body, *views.source, position, context.damage);
         return;
     }
@@ -289,7 +284,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         request_runtime_body_action_7b(body, message, processor.flags, parent.actions);
         return;
     case 0x43:
-        if (read_u32(message, 8) == actor_address)
+        if (get(message, point_message::actor) == actor_address)
         {
             clear_runtime_body_bit(processor.flags, 0x28);
         }
@@ -297,7 +292,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         return;
     case 0x44:
         dispatch_runtime_parent_body_message(body, message, views.parent, parent);
-        if (read_u32(message, 8) == actor_address)
+        if (get(message, point_message::actor) == actor_address)
         {
             reset_runtime_body_action(body, context.settings, parent.actions);
             set_runtime_body_bit(processor.flags, 0x28);
@@ -305,18 +300,18 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         return;
     case 0x45:
     {
-        const Vec3 normal{read_f32(message, 0x10), read_f32(message, 0x14), read_f32(message, 0x18)};
-        const Vec3 position{read_f32(message, 0x1C), read_f32(message, 0x20), read_f32(message, 0x24)};
+        const Vec3 normal = get(message, collision_hit_message::normal);
+        const Vec3 position = get(message, collision_hit_message::position);
         u32 handled;
         const u32 result = receive_runtime_body_collision_hit(body, *views.source,
-            views.source_body, parent.actor_bytes, normal, position, message[0x29],
-            u8(read_u16(message, 0x2A)), handled, context.damage);
-        std::memcpy(message.data() + 8, &handled, 4);
-        std::memcpy(message.data() + 4, &result, 4);
+            views.source_body, parent.actor_bytes, normal, position, get(message, collision_hit_message::joint),
+            u8(get(message, collision_hit_message::kind)), handled, context.damage);
+        set(message, collision_hit_message::handled, handled);
+        set(message, collision_hit_message::result, result);
         return;
     }
     case 0x4A:
-        if (read_u32(body, 0x258) == 0)
+        if (body_record(body).holds == 0)
         {
             separate_runtime_player_body_contacts(body, parent.actor, processor.flags,
                 context.mask, context.floor, parent.default_position);
@@ -324,20 +319,20 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
         return;
     case 0x4C:
     {
-        const Vec3 position{read_f32(message, 8), read_f32(message, 0xC), read_f32(message, 0x10)};
+        const Vec3 position = get(message, point_message::point);
         request_runtime_body_action_6e(body, position, parent.actions);
         return;
     }
     case 0x60:
     {
-        const Vec3 push{read_f32(message, 8), read_f32(message, 0xC), read_f32(message, 0x10)};
+        const Vec3 push = get(message, point_message::point);
         receive_runtime_body_push(body, parent.actor, parent.actor_bytes,
             views.source->bytes, context.hit.data(), push);
         return;
     }
     case 0x9E:
     {
-        const Vec3 movement{read_f32(message, 4), read_f32(message, 8), read_f32(message, 0xC)};
+        const Vec3 movement = get(message, movement_message::movement);
         add_runtime_player_body_movement(body, movement, parent.actor, context.clock);
         return;
     }

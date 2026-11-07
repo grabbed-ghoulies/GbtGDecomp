@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "strategy_fields.h"
 #include "spider_strategy.h"
 
 namespace gbtg
@@ -8,15 +10,14 @@ namespace gbtg
 // 0x000CFFD0, the empty destructor 0x001628B0 and the spider's leave slot 0x000B5AF0. A flying imp: it roams to clear
 // points 30 units out, closes on its target to one side (25 degrees off) and, queued on it, throws a fireball
 // ("fireball", state 0x3ED) or, by its aggression, breathes fire ("flamethrower", 0x3EF).
-// Strategy bytes: +0x1A attacking, +0x1C pause count, +0x20 target queue link.
-namespace imp_flamethrower_strategy_field
+struct ImpFlamethrowerStrategyState
 {
-constexpr RetailField<float, 0x38> delay{}; // the roam or wait countdown (states 0x401 and 0x40D)
-constexpr RetailField<u32, 0x3C> fast{}; // the moves' +0x18 is 25 rather than 5
-constexpr RetailField<u32, 0x40> in_reach{}; // state 0x3ED's approach ended within 45 of the target
-constexpr u32 kSize = 0x44;
-static_assert(retail_fits(kSize, in_reach));
-} // namespace imp_flamethrower_strategy_field
+    StrategyBase base{}; // +0
+    float delay = 0.f; // +0x38, the roam or wait countdown (states 0x401 and 0x40D)
+    u32 fast = 0; // +0x3C, the moves' +0x18 is 25 rather than 5
+    u32 in_reach = 0; // +0x40, state 0x3ED's approach ended within 45 of the target
+};
+static_assert(sizeof(ImpFlamethrowerStrategyState) == 0x44);
 struct RuntimeImpFlamethrowerStrategy
 {
     // The instance's spider views over the same strategy: 0x000C0AF0, 0x00141650 and the shared leave 0x000B5AF0.

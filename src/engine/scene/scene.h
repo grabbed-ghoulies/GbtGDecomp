@@ -7,20 +7,20 @@ namespace gbtg
 // DAT_00510E58. +0x80 is DAT_00510ED8. +0x100 is DAT_00510F58.
 // +0x108 is DAT_00510F60. +0x124 is DAT_00510F7C. +0x128 is DAT_00510F80.
 // The Xbox dword at +0x230 is the object 0x00109470 takes in EAX.
-// DAT_0051108C (g_51108c) is the next symbol, kept separate. The host
+// DAT_0051108C (g_marker_records) is the next symbol, kept separate. The host
 // pointer at +0x230 is wider than that Xbox dword.
-extern u8 g_510e58[0x230 + sizeof(void*)];
+extern u8 g_scene_record[0x230 + sizeof(void*)];
 
 // DAT_00510ED8. 0x80-byte aid. entity.cpp keeps a private copy of 0x0011EB30.
-extern char (&g_510ed8)[0x80];
+extern char (&g_scene_requested_aid)[0x80];
 
 // DAT_00430D0C. Cleared with DAT_00430D08 and DAT_00430D10.
 extern i32 g_script_30d0c;
 extern i32 g_script_30d94; // DAT_00430D94: a restart keeps DAT_00506C8C.
 
-extern i32 g_4312e0; // DAT_004312E0, motion integration steps from 0x0011E7F0.
-extern u8 g_4312c8[0x14];
-extern i32 g_4e02e8; // DAT_004E02E8, the stream slot gate 0x0011E4C0 sets and 0x0011E7F0 clears. // DAT_004312C8..DAT_004312D8, the scene times 0x0012B1F0 advances.
+extern i32 g_motion_steps; // DAT_004312E0, motion integration steps from 0x0011E7F0.
+extern u8 g_scene_times[0x14]; // DAT_004312C8..DAT_004312D8, the scene times 0x0012B1F0 advances.
+extern i32 g_stream_slot_gate; // DAT_004E02E8, the stream slot gate 0x0011E4C0 sets and 0x0011E7F0 clears.
 
 // 0x0011EB30. EAX is the source aid. The stack dword is the mode. A first
 // dword of 'aid_' clears the lead byte, then the source is copied through

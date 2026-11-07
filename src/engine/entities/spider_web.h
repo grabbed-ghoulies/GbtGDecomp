@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_clock.h"
 #include "body_contacts.h"
 #include "gbtg/object_factory.h"
@@ -25,15 +27,15 @@ namespace spider_web_parameter
 {
 constexpr u32 kSize = 0x334;
 } // namespace spider_web_parameter
-namespace spider_web_field
+struct SpiderWebState
 {
-constexpr RetailField<u32, 0x934> state{}; // 0 expanding, 1 holding, 2 shrinking
-constexpr RetailField<i32, 0x938> joint{}; // the model's joint 0 (0x00052FC0), -1 without one
-constexpr RetailField<float, 0x93C> timer{}; // state 1's hold
-constexpr RetailField<u32, 0x940> flat{}; // the surface faces up (normal y above 0.9)
-constexpr u32 kSize = 0x944;
-static_assert(retail_fits(kSize, flat));
-} // namespace spider_web_field
+    ActorBase base{}; // +0
+    u32 state = 0; // +0x934, 0 expanding, 1 holding, 2 shrinking
+    i32 joint = 0; // +0x938, the model's joint 0 (0x00052FC0), -1 without one
+    float timer = 0.f; // +0x93C, state 1's hold
+    u32 flat = 0; // +0x940, the surface faces up (normal y above 0.9)
+};
+static_assert(sizeof(SpiderWebState) == 0x944);
 struct RuntimeSpiderWeb
 {
     std::span<u8> bytes;

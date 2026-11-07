@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "body_state_fields.h"
 #include "body_knockdown_state.h"
 #include "../audio/bank_streams.h"
 #include "../camera/camera_pulse.h"
@@ -12,11 +14,31 @@ struct LiveScript;
 // and +0x30, shape mode 2), drops what it holds, plays the dying animation (+0x34) then the dead one (+0x38) and starts
 // the scene's transition; a live player whose run allows it is offered a brew (state 4), every other way restarts the
 // scene (0x0008F650, 0x00134AE0). +0xC and +0x14/+0x18 are the empty 0x000D4179 case and +0x1C is 0x0002B620.
-//
-// State words: +0xC the next key, +0x10 the state clock, +0x18 the phase (0 dying, 1 dead, 2 waiting, 3 done, 4 the
-// brew offer), +0x1C the wait timer, +0x20 the saved shape mode, +0x24 message 0x34's word (parameters +0x14), +0x28
-// body +0x715 raised, +0x2C the fail stream plays, +0x30 the saved body +0x717, +0x34 / +0x38 the dying and dead
-// animations (found or not; the records stay on the host).
+// State +0xC is the next key and +0x10 the state clock (`BodyStateBase`).
+namespace player_death_state_parameter
+{
+constexpr RetailField<u32, 0x0C> dying{}; // the animation's name, an XBE string, or 0 to start dead
+constexpr RetailField<u32, 0x10> dead{}; // the animation's name, an XBE string
+constexpr RetailField<u32, 0x14> death_word{};
+constexpr u32 kSize = 0x18;
+static_assert(retail_fits(kSize, death_word));
+} // namespace player_death_state_parameter
+struct PlayerDeathState
+{
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 0 dying, 1 dead, 2 waiting, 3 done, 4 the brew offer
+    float wait_timer = 0.f; // +0x1C
+    u8 saved_shape_mode = 0; // +0x20
+    std::array<u8, 3> unk_21{}; // +0x21, padding
+    u32 death_word = 0; // +0x24, the word message 0x34 carries to the actor
+    u32 contacts_raised = 0; // +0x28, body +0x715 / +0x717 are raised
+    u32 fail_stream = 0; // +0x2C, the fail stream plays
+    u32 saved_717 = 0; // +0x30, body +0x717 at entry
+    // +0x34: Whether the dying and dead animations were found; the records stay on the host.
+    u32 dying_found = 0;
+    u32 dead_found = 0; // +0x38
+};
+static_assert(sizeof(PlayerDeathState) == 0x3C);
 struct RuntimePlayerDeathContext
 {
     RuntimeKnockdownContext& knockdown; // Body, actor, attachment, shape, actions, death effects and flags.
@@ -42,14 +64,14 @@ struct RuntimePlayerDeathContext
 };
 
 void player_death_state_object_sizes(ObjectSizes& output); // Xbox 0x0008EEB0
-bool initialize_runtime_player_death_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_player_death_state(PlayerDeathState& state, std::span<const u8> parameters,
     RuntimePlayerDeathContext& context); // Xbox 0x0008EF30
-void destroy_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathContext& context); // Xbox 0x0008F1A0
-void enter_runtime_player_death_phase(std::span<u8> state, u32 phase,
+void destroy_runtime_player_death_state(PlayerDeathState& state, RuntimePlayerDeathContext& context); // Xbox 0x0008F1A0
+void enter_runtime_player_death_phase(PlayerDeathState& state, u32 phase,
     RuntimePlayerDeathContext& context); // Xbox 0x0008F4D0, EAX phase, EDI state
-void restart_runtime_player_death(std::span<u8> state, RuntimePlayerDeathContext& context); // Xbox 0x0008F650
-void start_runtime_player_fail_stream(std::span<u8> state, RuntimePlayerDeathContext& context); // Xbox 0x0008F6A0
+void restart_runtime_player_death(PlayerDeathState& state, RuntimePlayerDeathContext& context); // Xbox 0x0008F650
+void start_runtime_player_fail_stream(PlayerDeathState& state, RuntimePlayerDeathContext& context); // Xbox 0x0008F6A0
 // ECX timer, EAX the state: counts the timer down by the body's step; true on the step it reaches 0.
 bool count_runtime_state_timer(float& timer, const Actor& actor, const RuntimeActorClock& clock); // Xbox 0x0002B630
-void tick_runtime_player_death_state(std::span<u8> state, RuntimePlayerDeathContext& context); // Xbox 0x0008F290
+void tick_runtime_player_death_state(PlayerDeathState& state, RuntimePlayerDeathContext& context); // Xbox 0x0008F290
 }

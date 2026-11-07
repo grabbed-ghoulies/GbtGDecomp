@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "trigger_actor.h"
 #include "actor_clock.h"
 
@@ -28,20 +30,22 @@ constexpr RetailField<u32, 0x3C0> camera_mode{};
 constexpr u32 kSize = 0x3C4;
 static_assert(retail_fits(kSize, camera_mode));
 } // namespace ghouly_cutscene_parameter
-namespace ghouly_cutscene_field
+struct GhoulyCutsceneState
 {
-constexpr RetailField<u16, 0x934> spawn_tag{}; // the tag the cutscene's spawns get (0x0006B390)
-constexpr RetailField<u32, 0x938> hold_last_frame{}; // set: the cutscene holds its last frame
-// 0 no camera, 2 always bind the cutscene's view; otherwise bind it until the cutscene ends.
-constexpr RetailField<u32, 0x93C> camera_mode{};
-constexpr RetailField<u32, 0x940> anchor{}; // the anchor actor message 0x7D looks up by actor +0x1FE
-constexpr RetailField<std::array<char, 0x24>, 0x9AC> camera_name{}; // "spawnId%d" (0x00323E08)
-constexpr RetailField<u32, 0x9D0> ended{}; // the cutscene has ended
-constexpr RetailField<u32, 0x9D4> running{}; // the cutscene runs
-constexpr RetailField<u32, 0x9D8> pending_spawns{}; // spawns the cutscene's events (event 0x13) have released
-constexpr u32 kSize = 0x9DC;
-static_assert(retail_fits(kSize, pending_spawns));
-} // namespace ghouly_cutscene_field
+    ActorBase base{}; // +0
+    u16 spawn_tag = 0; // +0x934, the tag the cutscene's spawns get (0x0006B390)
+    std::array<u8, 2> unk_936{}; // +0x936, padding
+    u32 hold_last_frame = 0; // +0x938, set: the cutscene holds its last frame
+    // +0x93C: 0 no camera, 2 always bind the cutscene's view; otherwise bind it until the cutscene ends.
+    u32 camera_mode = 0;
+    u32 anchor = 0; // +0x940, the anchor actor message 0x7D looks up by actor +0x1FE
+    std::array<u8, 0x68> unk_944{}; // +0x944, never read or written by translated code
+    std::array<char, 0x24> camera_name{}; // +0x9AC, "spawnId%d" (0x00323E08)
+    u32 ended = 0; // +0x9D0, the cutscene has ended
+    u32 running = 0; // +0x9D4, the cutscene runs
+    u32 pending_spawns = 0; // +0x9D8, spawns the cutscene's events (event 0x13) have released
+};
+static_assert(sizeof(GhoulyCutsceneState) == 0x9DC);
 struct RuntimeGhoulyCutsceneSetup
 {
     std::span<u8> bytes;

@@ -1,4 +1,5 @@
 #pragma once
+#include "scene_control_fields.h"
 
 #include "gbtg/actor_runtime.h"
 #include "gbtg/object_factory.h"
@@ -119,17 +120,17 @@ u32 retire_runtime_scene_control(SceneControlInstance& control, SceneControlList
 void dispose_runtime_scene_control(SceneControlInstance& control, SceneControlLists& lists); // Xbox 0x00116140, EAX
 void message_runtime_scene_control(SceneControlInstance& control, std::span<const u32> message,
     SceneControlLists& lists); // Xbox 0x00115EE0
-void tick_runtime_scene_control(std::span<u8> state, const RuntimeActorClock& clock); // Xbox 0x00115E30
-void build_runtime_scene_playlist(std::span<u8> state, std::vector<u16>& playlist, u32 count,
+void tick_runtime_scene_control(SceneControlBase& state, const RuntimeActorClock& clock); // Xbox 0x00115E30
+void build_runtime_scene_playlist(WalkaboutControlState& state, std::vector<u16>& playlist, u32 count,
     u32& random); // Xbox 0x00080670, state +0x24
-bool construct_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
+bool construct_runtime_walkabout_control(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context); // Xbox 0x00080570
-void stop_runtime_walkabout_track(std::span<u8> state, SceneControlContext& context); // Xbox 0x00080810, ESI
-void play_runtime_walkabout_track(std::span<u8> state, SceneControlInstance& control,
+void stop_runtime_walkabout_track(WalkaboutControlState& state, SceneControlContext& context); // Xbox 0x00080810, ESI
+void play_runtime_walkabout_track(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context); // Xbox 0x000808B0, EAX
-void destroy_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
+void destroy_runtime_walkabout_control(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context); // Xbox 0x000805B0
-void tick_runtime_walkabout_control(std::span<u8> state, SceneControlInstance& control,
+void tick_runtime_walkabout_control(WalkaboutControlState& state, SceneControlInstance& control,
     SceneControlContext& context); // Xbox 0x00080600
 // 0x0011E7F0's walk of DAT_0050E438: each active control's vtable +0x10.
 void tick_runtime_scene_control_list();

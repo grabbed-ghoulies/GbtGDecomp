@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gbtg/types.h"
+#include "gbtg/retail_field.h"
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -182,6 +183,47 @@ struct RuntimeModelResourceBlock
     const u8* data; // +4
     u32 word = 0; // +4 as stored after relocation; type 1 is not relocated and holds the node mask 0x000320F0 reads.
 };
+// A scene light record (0x98 bytes, 0x00051BC0; registered in DAT_00509B7C). 0x000FDDA0 animates the colour and
+// the range from the flags.
+struct LightRecord
+{
+    std::array<u8, 0x40> unk_0{}; // +0
+    Vec3 position{}; // +0x40
+    Vec3 direction{}; // +0x4C, kind 2: from the position toward the origin
+    Vec3 local_point{}; // +0x58, with flag 8: where `joint` carries the light (0x00120FE0)
+    u8 kind = 0; // +0x64
+    u8 unk_65 = 0; // +0x65
+    u8 flags = 0; // +0x66, 1 changed this frame; 8 follows the actor; 0x40 flickers the colour, 0x80 the range; 0x10 is tested before an fx drops its light
+    u8 swing_flags = 0; // +0x67, 2 swings the colour, 4 the range, on sine periods
+    u8 joint = 0; // +0x68, a signed joint for `local_point`, 0xFF (none: the actor itself) when initialized
+    std::array<u8, 3> unk_69{}; // +0x69
+    float inner_range = 0.f; // +0x6C
+    float range = 0.f; // +0x70
+    u32 unk_74 = 0; // +0x74
+    u32 colour = 0; // +0x78
+    u32 unk_7C = 0; // +0x7C, 0xFF000000 when initialized
+    u32 colour_low = 0; // +0x80
+    u32 colour_high = 0; // +0x84
+    float colour_period = 0.f; // +0x88, a frame mask for the flicker, seconds for the swing
+    float range_low = 0.f; // +0x8C
+    float range_high = 0.f; // +0x90
+    float range_period = 0.f; // +0x94
+
+    // Both flag bytes as one word, as an fx's parameters set them.
+    u16 flag_bits() const { return u16(flags | swing_flags << 8); }
+    void set_flag_bits(u16 bits)
+    {
+        flags = u8(bits);
+        swing_flags = u8(bits >> 8);
+    }
+};
+static_assert(sizeof(LightRecord) == 0x98);
+
+inline LightRecord& light_record(u8* record)
+{
+    return *reinterpret_cast<LightRecord*>(record);
+}
+
 struct RuntimeShaderRegistrationState
 {
     std::array<u8*, 40> records{}; // 0x00509B7C

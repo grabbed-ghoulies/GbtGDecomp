@@ -10,18 +10,18 @@ namespace
 void queue_transform_children(u32 node, u32 restore, ModelTreeDispatchContext& tree)
 {
     const auto& image = tree.image;
-    const u32 sibling = image.word(node, 0x18);
+    const u32 sibling = image.get(node, model_node_field::next);
     if (sibling != 0)
     {
-        const u32 callback = runtime_model_node_callback(image.word(sibling, 0x10), image);
-        push_runtime_model_node(callback, image.word(node, 0x18), tree);
+        const u32 callback = runtime_model_node_callback(image.get(sibling, model_node_field::descriptor), image);
+        push_runtime_model_node(callback, image.get(node, model_node_field::next), tree);
     }
     push_runtime_model_node(restore, node, tree);
-    const u32 child = image.word(node, 0x14);
+    const u32 child = image.get(node, model_node_field::child);
     if (child != 0)
     {
-        const u32 callback = runtime_model_node_callback(image.word(child, 0x10), image);
-        push_runtime_model_node(callback, image.word(node, 0x14), tree);
+        const u32 callback = runtime_model_node_callback(image.get(child, model_node_field::descriptor), image);
+        push_runtime_model_node(callback, image.get(node, model_node_field::child), tree);
     }
 }
 }
@@ -52,12 +52,10 @@ void translate_runtime_model_joint_matrix(u32 joint, const RuntimeShaderMatrix& 
     {
         output = input;
     }
-    const float x = std::bit_cast<float>(image.word(joint, 0x10));
-    const float y = std::bit_cast<float>(image.word(joint, 0x14));
-    const float z = std::bit_cast<float>(image.word(joint, 0x18));
-    output[12] = ((input[8] * z + input[4] * y) + x * input[0]) + output[12];
-    output[13] = ((input[9] * z + input[1] * x) + input[5] * y) + output[13];
-    output[14] = ((input[10] * z + input[2] * x) + input[6] * y) + output[14];
+    const Vec3 world = image.get(joint, skeleton_joint_field::world);
+    output[12] = ((input[8] * world.z + input[4] * world.y) + world.x * input[0]) + output[12];
+    output[13] = ((input[9] * world.z + input[1] * world.x) + input[5] * world.y) + output[13];
+    output[14] = ((input[10] * world.z + input[2] * world.x) + input[6] * world.y) + output[14];
 }
 
 // Xbox 0x00156540
@@ -81,13 +79,13 @@ void apply_runtime_model_node_transform(u32 node, std::span<const u8> storage,
     RuntimeModelTransformDraw& context)
 {
     const auto& image = context.tree.image;
-    const u32 offset = image.word(node, 0xC);
+    const u32 offset = image.get(node, model_node_field::instance_offset);
     auto& frame = runtime_render_frame(context.tree.renderer);
     auto& state = runtime_render_state(context.tree.renderer);
     RuntimeShaderMatrix matrix;
-    if ((image.byte(node, 0x20) & 0xF) == 2)
+    if ((image.get(node, transform_node::mode) & 0xF) == 2)
     {
-        const u32 joint = image.half(node, 0x22);
+        const u32 joint = image.get(node, transform_node::joint);
         translate_runtime_model_joint_matrix(state.skeleton_matrices + joint * 0x20,
             state.skeleton_pose->packed_matrices[joint], matrix, image);
     }
@@ -96,7 +94,7 @@ void apply_runtime_model_node_transform(u32 node, std::span<const u8> storage,
         const u8* source;
         if ((storage[offset + 4] & 1) == 0)
         {
-            source = image.pointer(node + 0x24);
+            source = image.pointer(node + transform_node::matrix_offset);
         }
         else
         {

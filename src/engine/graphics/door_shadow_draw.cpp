@@ -1,4 +1,6 @@
 #include "door_shadow_draw.h"
+#include "door_shape_row.h"
+#include "boot_shader_tables.h"
 #include "../audio/listener_settings.h"
 
 #include <bit>
@@ -30,11 +32,11 @@ u32 select_runtime_door_shadow_bounds(std::span<const u8> row, const Vec3& camer
     {
         return 0;
     }
-    const u32 definition = 0x00424998 + read_u32(row, 0) * 0x94;
-    const float depth = std::bit_cast<float>(image.word(definition));
-    const float margin = std::bit_cast<float>(image.word(0x0032B214));
-    const float near_opacity = std::bit_cast<float>(image.word(definition, 4)); // DAT_0042499C.
-    const float far_opacity = std::bit_cast<float>(image.word(definition, 8)); // DAT_004249A0.
+    const u32 shape = kDoorShapes + read_u32(row, 0) * u32(sizeof(DoorShapeRow));
+    const float depth = std::bit_cast<float>(image.word(shape + offsetof(DoorShapeRow, z)));
+    const float margin = 15.f; // DAT_0032B214.
+    const float near_opacity = std::bit_cast<float>(image.word(shape + offsetof(DoorShapeRow, near_opacity))); // DAT_0042499C.
+    const float far_opacity = std::bit_cast<float>(image.word(shape + offsetof(DoorShapeRow, far_opacity))); // DAT_004249A0.
     const float first = scalar(0xA8) - z;
     const float second = scalar(0xB4) - z;
     if (second * second > first * first)
@@ -63,8 +65,8 @@ void draw_runtime_door_shadow(std::span<const u8> row, const float* view, const 
 {
     RuntimeDoorShadowBounds bounds;
     // The quads' x: the shape's centre (DAT_00424994) less and plus the half width DAT_0032B234 (EDI, EBX).
-    const float centre = std::bit_cast<float>(image.word(0x00424994 + read_u32(row, 0) * 0x94));
-    const float half_width = std::bit_cast<float>(image.word(0x0032B234));
+    const float centre = std::bit_cast<float>(image.word(kDoorShapes + read_u32(row, 0) * u32(sizeof(DoorShapeRow))));
+    const float half_width = 20.f; // DAT_0032B234.
     const u32 left = std::bit_cast<u32>(centre - half_width);
     const u32 right = std::bit_cast<u32>(centre + half_width);
     if (select_runtime_door_shadow_bounds(row, camera, bounds, image) == 0)
@@ -97,8 +99,8 @@ void draw_runtime_door_shadow(std::span<const u8> row, const float* view, const 
             left, top, std::bit_cast<u32>(depth), color};
         std::memcpy(push, vertices.data(), sizeof(vertices));
         push += vertices.size();
-        fraction += std::bit_cast<float>(image.word(0x0032B1F8));
-    } while (std::bit_cast<float>(image.word(0x0032B0F8)) > fraction);
+        fraction += 0.0625f; // DAT_0032B1F8.
+    } while (1.f > fraction); // DAT_0032B0F8.
     *push++ = 0x417FC;
     *push++ = 0;
     d3d.end_push(push);
@@ -141,7 +143,7 @@ void draw_runtime_door_shadows(RuntimeDoorShadowDraw& context)
     context.deferred[0] |= 1;
     context.deferred[7] = 2;
     context.vertex_shader(0x13);
-    context.pixel_shader(context.image.word(0x00425F1C));
+    context.pixel_shader(context.image.word(kDiffusePixelShader));
     std::array<float, 16> view, projection;
     context.d3d.get_transform(0, view.data());
     context.d3d.get_transform(1, projection.data());

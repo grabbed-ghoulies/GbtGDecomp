@@ -1,4 +1,7 @@
 #include "chicken_strategy.h"
+#include "gbtg/retail_field.h"
+#include "body_fields.h"
+#include "strategy_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
 #include "player_messages.h"
@@ -12,7 +15,11 @@ namespace gbtg
 {
 namespace
 {
-namespace field = chicken_strategy_field;
+ChickenStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<ChickenStrategyState>(strategy);
+}
+
 
 RuntimePlayerStrategyGoals& goals_of(RuntimeChickenStrategy& context)
 {
@@ -39,8 +46,8 @@ void load_goal(const char* name, RuntimeChickenStrategy& context)
 // Xbox 0x000AA030
 bool initialize_runtime_chicken_strategy(std::span<u8> strategy)
 {
-    set(strategy, field::parameters, 0x00302B5Cu);
-    set(strategy, field::provoked, 0u);
+    fields_of(strategy).parameters = 0x00302B5Cu;
+    fields_of(strategy).provoked = 0u;
     return true;
 }
 
@@ -49,7 +56,7 @@ void update_runtime_chicken_strategy(RuntimeChickenStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     if (state != 0x401)
     {
@@ -62,7 +69,7 @@ void update_runtime_chicken_strategy(RuntimeChickenStrategy& context)
     {
         return;
     }
-    if (get(strategy, field::provoked) != 0)
+    if (fields_of(strategy).provoked != 0)
     {
         const EntityBitBlock* bits = goals.body_bits; // Body +0x15C.
         if (bits == nullptr)
@@ -92,10 +99,10 @@ void dispatch_runtime_chicken_message(std::span<const u32> message, RuntimeChick
     case 0x6E:
     {
         const u32 sender = message[1];
-        const u32 actor = read_u32(strategy, 8);
+        const u32 actor = strategy_base(strategy).actor;
         if (sender == actor)
         {
-            set(strategy, field::provoked, 1u);
+            fields_of(strategy).provoked = 1u;
         }
         else if (read_u16(shared.views.actor_bytes_at(sender), 6) == 7)
         {
@@ -105,9 +112,9 @@ void dispatch_runtime_chicken_message(std::span<const u32> message, RuntimeChick
             const long double dy = (long double)own.y - other.y;
             const long double dz = (long double)own.z - other.z;
             const long double distance = std::sqrt(dz * dz + dy * dy + dx * dx);
-            if ((long double)read_f32(context.parameters, 0) > distance) // FCOMPI; JBE keeps it unarmed.
+            if ((long double)retail_view<ChickenParameters>(context.parameters).provoke_reach > distance) // FCOMPI; JBE keeps it unarmed.
             {
-                set(strategy, field::provoked, 1u);
+                fields_of(strategy).provoked = 1u;
             }
         }
         break;
@@ -128,18 +135,18 @@ void dispatch_runtime_chicken_message(std::span<const u32> message, RuntimeChick
 void enter_runtime_chicken_state(u16 state, RuntimeChickenStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    switch (read_u16(strategy_of(context), 0xE))
+    switch (strategy_base(strategy_of(context)).state)
     {
     case 0x3EF:
         clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
         load_goal(context.goal_transform, context);
         return;
     case 0x3F4:
-        goals.entry.body[0x328] = 6;
+        body_record(goals.entry.body).move_class = 6;
         enter_runtime_base_strategy_state(goals.entry, state); // The jump to 0x0002BAF0.
         return;
     case 0x401:
-        goals.entry.body[0x328] = 2;
+        body_record(goals.entry.body).move_class = 2;
         load_goal(context.goal_far, context);
         return;
     default:

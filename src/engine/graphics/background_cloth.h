@@ -19,65 +19,88 @@ struct ListHead;
 // bytes, then the points (stride 0x30), the edges (stride 0x1C), one colour word per point and one normal per point.
 // The header starts with the point graph descriptor the solver steps (0x00102500, 0x00102030); the rest is the
 // cloth's grid, bounds, hooks and draw state. Hooks are retail function addresses called with the cloth.
-namespace background_cloth_field
+struct BackgroundClothHeader
 {
-constexpr RetailField<u32, 0x00> points{};
-constexpr RetailField<u32, 0x04> points_address{};
-constexpr RetailField<u32, 0x08> edges{};
-constexpr RetailField<u32, 0x0C> edge_capacity{};
-constexpr RetailField<u32, 0x10> free_edges{};
-constexpr RetailField<u32, 0x14> edges_address{};
-constexpr RetailField<u8, 0x18> sorted{};
-constexpr RetailField<u8, 0x19> squared{};
-constexpr RetailField<float, 0x1C> damping{};
-constexpr RetailField<u32, 0x20> points_address_copy{};
-constexpr RetailField<u32, 0x24> edges_address_copy{};
-constexpr RetailField<u32, 0x28> normals_address{}; // One Vec3 per point (the quads' shading normals).
-constexpr RetailField<u32, 0x2C> colors_address{}; // One D3DCOLOR per point.
-constexpr RetailField<u16, 0x30> rows{};
-constexpr RetailField<u16, 0x32> columns{};
-constexpr RetailField<float, 0x34> row_step{};
-constexpr RetailField<float, 0x38> column_step{};
-constexpr RetailField<Vec3, 0x3C> light{}; // (1, 0, 0) unless the part faces its room (0x00050880's kinds)
-constexpr RetailField<u32, 0x40> unk_40{};
-constexpr RetailField<u32, 0x44> unk_44{};
-constexpr RetailField<Vec3, 0x48> low{}; // Bounds of every first (or third) point, 0x0004C0E0.
-constexpr RetailField<Vec3, 0x54> high{};
-constexpr RetailField<Vec3, 0x60> view_low{}; // 0x00114090: the bounds' centre less 60.
-constexpr RetailField<Vec3, 0x6C> view_high{}; // ...plus 60.
-constexpr RetailField<Vec3, 0x78> center{};
-constexpr RetailField<Vec3, 0x84> normal{};
-constexpr RetailField<float, 0x90> radius{};
-constexpr RetailField<u32, 0x94> constrain_hook{}; // Called after each relaxation while +0xA4 is set.
-constexpr RetailField<u32, 0x98> asleep_hook{};
-constexpr RetailField<u32, 0x9C> awake_hook{};
-constexpr RetailField<u32, 0xA0> before_hook{};
-constexpr RetailField<u32, 0xA4> constrain_enabled{};
-constexpr RetailField<u32, 0xA8> texture{}; // The part table's texture for the row's +0x32 index, or 0.
-constexpr RetailField<u32, 0xAC> shadow_texture{};
-constexpr RetailField<u32, 0xB0> shadow_surface{};
-constexpr RetailField<std::array<float, 16>, 0xB4> shadow_view{};
-constexpr RetailField<std::array<float, 16>, 0xF4> shadow_projection{};
-constexpr RetailField<Vec3, 0x134> shadow_eye{};
-constexpr RetailField<Vec3, 0x140> shadow_at{};
-constexpr RetailField<float, 0x14C> shadow_radius{};
-constexpr RetailField<float, 0x154> sound_wait{};
-constexpr RetailField<u16, 0x158> sound_voice{};
-constexpr RetailField<std::array<char, 0x80>, 0x15A> sound{};
-constexpr RetailField<u32, 0x1DC> always_stepped{}; // Stepped even when its bounds are off screen.
-constexpr RetailField<u32, 0x1E0> always_drawn{};
-constexpr RetailField<u8, 0x1E4> unk_1e4{};
-constexpr RetailField<u8, 0x1E5> unk_1e5{};
-constexpr RetailField<u8, 0x1E6> awake{};
-constexpr RetailField<u8, 0x1E7> casts_shadow{};
-constexpr RetailField<u8, 0x1E9> faces_room{}; // Flips the shading's sign.
-constexpr RetailField<u8, 0x1EA> rustles{}; // Plays +0x15A when it moves hard.
-constexpr RetailField<u8, 0x1EB> own_shaders{}; // 0: the strip draw binds its own shaders.
-constexpr RetailField<u8, 0x1EC> second_draw{}; // Drawn by 0x0005D710 instead of 0x0005D470.
-constexpr RetailField<u8, 0x1ED> layer{};
-constexpr RetailField<u8, 0x1EE> specular{}; // Shaded by 0x0004BA90.
-constexpr u32 kHeader = 0x1F0;
-} // namespace background_cloth_field
+    u32 points = 0; // +0
+    u32 points_address = 0; // +4
+    u32 edges = 0; // +8
+    u32 edge_capacity = 0; // +0xC
+    u32 free_edges = 0; // +0x10
+    u32 edges_address = 0; // +0x14
+    u8 sorted = 0; // +0x18
+    u8 squared = 0; // +0x19
+    std::array<u8, 2> unk_1A{}; // +0x1A
+    float damping = 0.f; // +0x1C
+    u32 points_address_copy = 0; // +0x20
+    u32 edges_address_copy = 0; // +0x24
+    u32 normals_address = 0; // +0x28, one Vec3 per point (the quads' shading normals)
+    u32 colors_address = 0; // +0x2C, one D3DCOLOR per point
+    u16 rows = 0; // +0x30
+    u16 columns = 0; // +0x32
+    float row_step = 0.f; // +0x34
+    float column_step = 0.f; // +0x38
+    Vec3 light{}; // +0x3C, (1, 0, 0) unless the part faces its room (0x00050880's kinds)
+    Vec3 low{}; // +0x48, bounds of every first (or third) point, 0x0004C0E0
+    Vec3 high{}; // +0x54
+    Vec3 view_low{}; // +0x60, 0x00114090: the bounds' centre less 60
+    Vec3 view_high{}; // +0x6C, ...plus 60
+    Vec3 center{}; // +0x78
+    Vec3 normal{}; // +0x84
+    float radius = 0.f; // +0x90
+    u32 constrain_hook = 0; // +0x94, called after each relaxation while `constrain_enabled` is set
+    u32 asleep_hook = 0; // +0x98
+    u32 awake_hook = 0; // +0x9C
+    u32 before_hook = 0; // +0xA0
+    u32 constrain_enabled = 0; // +0xA4
+    u32 texture = 0; // +0xA8, the part table's texture for the row's +0x32 index, or 0
+    u32 shadow_texture = 0; // +0xAC
+    u32 shadow_surface = 0; // +0xB0
+    std::array<float, 16> shadow_view{}; // +0xB4
+    std::array<float, 16> shadow_projection{}; // +0xF4
+    Vec3 shadow_eye{}; // +0x134
+    Vec3 shadow_at{}; // +0x140
+    float shadow_radius = 0.f; // +0x14C
+    std::array<u8, 4> planes_word{}; // +0x150, the host keeps RuntimeBackgroundCloth::planes
+    float sound_wait = 0.f; // +0x154
+    u16 sound_voice = 0; // +0x158
+    std::array<char, 0x80> sound{}; // +0x15A
+    std::array<u8, 2> unk_1DA{}; // +0x1DA
+    u32 always_stepped = 0; // +0x1DC, stepped even when its bounds are off screen
+    u32 always_drawn = 0; // +0x1E0
+    u8 unk_1e4 = 0; // +0x1E4
+    u8 unk_1e5 = 0; // +0x1E5
+    u8 awake = 0; // +0x1E6
+    u8 casts_shadow = 0; // +0x1E7
+    u8 unk_1E8 = 0; // +0x1E8
+    u8 faces_room = 0; // +0x1E9, flips the shading's sign
+    u8 rustles = 0; // +0x1EA, plays `sound` when it moves hard
+    u8 own_shaders = 0; // +0x1EB, 0: the strip draw binds its own shaders
+    u8 second_draw = 0; // +0x1EC, drawn by 0x0005D710 instead of 0x0005D470
+    u8 layer = 0; // +0x1ED
+    u8 specular = 0; // +0x1EE, shaded by 0x0004BA90
+    u8 unk_1EF = 0; // +0x1EF
+};
+static_assert(sizeof(BackgroundClothHeader) == 0x1F0);
+static_assert(offsetof(BackgroundClothHeader, points) == offsetof(PointGraphHeader, points));
+static_assert(offsetof(BackgroundClothHeader, edges) == offsetof(PointGraphHeader, edges));
+static_assert(offsetof(BackgroundClothHeader, free_edges) == offsetof(PointGraphHeader, free_edges));
+static_assert(offsetof(BackgroundClothHeader, sorted) == offsetof(PointGraphHeader, sorted));
+static_assert(offsetof(BackgroundClothHeader, squared) == offsetof(PointGraphHeader, squared));
+static_assert(offsetof(BackgroundClothHeader, damping) == offsetof(PointGraphHeader, damping));
+static_assert(offsetof(BackgroundClothHeader, sound) == 0x15A);
+static_assert(offsetof(BackgroundClothHeader, always_stepped) == 0x1DC);
+
+// The block's header. Every cloth's block starts with one, whatever its points and edges add.
+inline BackgroundClothHeader& cloth_header(std::span<u8> bytes)
+{
+    detail::check_retail_range(bytes.size(), 0, sizeof(BackgroundClothHeader));
+    return *reinterpret_cast<BackgroundClothHeader*>(bytes.data());
+}
+inline const BackgroundClothHeader& cloth_header(std::span<const u8> bytes)
+{
+    detail::check_retail_range(bytes.size(), 0, sizeof(BackgroundClothHeader));
+    return *reinterpret_cast<const BackgroundClothHeader*>(bytes.data());
+}
 struct RuntimeBackgroundCloth
 {
     std::span<u8> bytes; // The whole block.
@@ -87,9 +110,9 @@ struct RuntimeBackgroundCloth
     std::span<u8> normals;
     std::vector<std::array<float, 16>> planes; // +0x150's pool (stride 0x40, growth 2): planes it collides with.
     std::uintptr_t shadow_surface = 0; // +0xB0's surface handle.
-    float* point(u32 index)
+    PointGraphPoint& point(u32 index)
     {
-        return reinterpret_cast<float*>(graph.points.data() + size_t(index) * 0x30);
+        return graph.point(index);
     }
 };
 struct RuntimeBackgroundClothContext
@@ -162,7 +185,7 @@ void level_runtime_background_water(RuntimeBackgroundCloth& cloth); // Xbox 0x00
 void ripple_runtime_background_water(RuntimeBackgroundCloth& cloth,
     RuntimeBackgroundClothContext& context); // Xbox 0x001145F0
 // The point (ESI) pushed out of the capsule from `start` (ECX) to `end` (EDI); true when it was inside.
-bool push_runtime_point_from_capsule(float* point, const Vec3& start, const Vec3& end,
+bool push_runtime_point_from_capsule(PointGraphPoint& point, const Vec3& start, const Vec3& end,
     float radius); // Xbox 0x001025E0
 // The cloth's point (EAX) pushed out of the sphere at `center` (EDI).
 void push_runtime_cloth_point_from_sphere(RuntimeBackgroundCloth& cloth, u32 index, const Vec3& center,

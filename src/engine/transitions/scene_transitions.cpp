@@ -42,20 +42,20 @@ RuntimeSceneTransition g_scene_transition;
 EntityCamNode g_transition_camera{};
 SceneTransitionServices* g_transition_services = nullptr;
 
-i32& g_546328 = g_scene_transition.row;
-i32& g_54632c = g_scene_transition.phase;
-i32 g_50484c = 0; // DAT_0050484C
-i32 g_50e7a0 = 0; // DAT_0050E7A0
-i32 g_510cec = 0; // DAT_00510CEC
-i32 g_4dea24 = 0; // DAT_004DEA24
-i32& g_510f80 = *reinterpret_cast<i32*>(g_510e58 + 0x128);
-i32& g_510f7c = *reinterpret_cast<i32*>(g_510e58 + 0x124);
+i32& g_transition_row = g_scene_transition.row; // DAT_00546328
+i32& g_transition_phase = g_scene_transition.phase; // DAT_0054632C
+i32 g_transition_guard = 0; // DAT_0050484C
+i32 g_scene_active_count = 0; // DAT_0050E7A0
+i32 g_pause_count = 0; // DAT_00510CEC
+i32 g_transition_pause_count = 0; // DAT_004DEA24
+i32& g_510f80 = *reinterpret_cast<i32*>(g_scene_record + 0x128);
+i32& g_510f7c = *reinterpret_cast<i32*>(g_scene_record + 0x124);
 i32 g_507df4 = 0;
-i32 g_510ce8 = 0;
-i32 g_510e34 = 0;
+i32 g_scene_paused = 0; // DAT_00510CE8
+i32 g_pause_holds_transition = 0; // DAT_00510E34
 // DAT_005493DC: .bss; the player's death (0x0008F4D0) sets it and 0x0012C2D0 tests it.
-u32 g_5493dc = 0;
-char g_50e458[0x80]{};
+u32 g_transition_row_two_pending = 0;
+char g_scene_name_override[0x80]{};
 Game* g_transition_game = nullptr;
 
 namespace
@@ -126,8 +126,8 @@ void leave_phase(i32 phase)
 {
     if (phase == 0)
     {
-        g_510cec = g_510cec + 1;
-        g_4dea24 = g_4dea24 + 1;
+        g_pause_count = g_pause_count + 1;
+        g_transition_pause_count = g_transition_pause_count + 1;
         g_flags_ea9c = g_flags_ea9c | 0x100u;
     }
     else if (phase == 1)
@@ -152,8 +152,8 @@ void set_transition_phase(RuntimeSceneTransition& t, i32 phase)
     t.phase = phase;
     if (phase == 0)
     {
-        g_510cec = g_510cec - 1;
-        g_4dea24 = g_4dea24 - 1;
+        g_pause_count = g_pause_count - 1;
+        g_transition_pause_count = g_transition_pause_count - 1;
         g_flags_ea9c = g_flags_ea9c & 0xFFFFFEFFu;
     }
 }
@@ -163,10 +163,10 @@ void set_transition_phase(RuntimeSceneTransition& t, i32 phase)
 i32 find_scene_directory_row(const char* scene)
 {
     char name[0x80]{};
-    if (std::memcmp(g_50e458, "aid_", 4) == 0)
+    if (std::memcmp(g_scene_name_override, "aid_", 4) == 0)
     {
-        std::strcpy(name, g_50e458);
-        g_50e458[0] = 0;
+        std::strcpy(name, g_scene_name_override);
+        g_scene_name_override[0] = 0;
     }
     else
     {
@@ -192,10 +192,10 @@ i32 find_scene_directory_row(const char* scene)
 // Xbox 0x0012C2D0, EAX the scene, EDI the clip, ESI the route: the scene's transition row.
 i32 select_transition_row(const char* scene, i32& clip, i32& route)
 {
-    if (g_5493dc != 0)
+    if (g_transition_row_two_pending != 0)
     {
         clip = i32(image_word(row_address(2) + 0x108)); // DAT_004317A0
-        g_5493dc = 0;
+        g_transition_row_two_pending = 0;
         route = 0;
         return 2;
     }
@@ -271,7 +271,7 @@ i32 tick_fade(RuntimeSceneTransition& t)
 // Xbox 0x0012BCE0
 void begin_fade(RuntimeSceneTransition& t)
 {
-    const float duration = image_real(0x0032B150);
+    const float duration = 0.016666668f; // DAT_0032B150.
     leave_phase(t.phase);
     t.phase = 1;
     t.duration = duration;
@@ -281,7 +281,7 @@ void begin_fade(RuntimeSceneTransition& t)
 // Xbox 0x0012BD50
 void exit_fade(RuntimeSceneTransition& t)
 {
-    const float duration = image_real(0x0032B0F4);
+    const float duration = 0.5f; // DAT_0032B0F4.
     leave_phase(t.phase);
     t.phase = 3;
     t.duration = duration;
@@ -405,7 +405,7 @@ i32 tick_book_handler(RuntimeSceneTransition& t)
     const float second = transition_book_threshold(*t.book, 0x108, s.image);
     if (second <= position && position != second && t.title_released == 0)
     {
-        g_50484c = g_50484c - 1;
+        g_transition_guard = g_transition_guard - 1;
         t.title_released = 1;
     }
     {
@@ -582,7 +582,7 @@ void exit_book_handler(RuntimeSceneTransition& t)
     book.holding = 0;
     close_book_map(book, s.books); // 0x00047370, ESI the book
     capture_book_page(book, s);
-    g_50484c = g_50484c + 1;
+    g_transition_guard = g_transition_guard + 1;
     t.title_released = 0;
 }
 
@@ -614,7 +614,7 @@ i32 tick_slime(RuntimeSceneTransition& t)
             set_transition_phase(t, 0); // 0x0012C830
             return t.phase;
         }
-        const float off = t.duration * image_real(0x0032B244);
+        const float off = t.duration * 0.8f; // DAT_0032B244.
         if (off < previous && t.time <= off)
         {
             request_spatial_audio_event_voice(services().image.string(0x00431370), 1, 0.f, s.voices); // 0x00039510
@@ -658,8 +658,8 @@ void draw_slime(RuntimeSceneTransition& t)
     const float view_height = float(view.fitted_height); // +0x64
     const float view_width = float(view.fitted_width); // +0x60
     const float screen_width = float(i32(s.screen[0]));
-    const float half = image_real(0x0032B0F4);
-    const float one = image_real(0x0032B0F8);
+    const float half = 0.5f; // DAT_0032B0F4.
+    const float one = 1.f; // DAT_0032B0F8.
     std::array<float, 2> position{screen_width * half - one, view_height * half - one};
     std::array<float, 2> scale{};
     u8 frame = 0;
@@ -714,7 +714,7 @@ void draw_slime(RuntimeSceneTransition& t)
             value = slime_frame(t.time / t.duration * count, count);
         }
         frame = u8(truncate_runtime_float(value));
-        scale = {0.f - view_width / width(), image_real(0x0032B120) / height() * view_height};
+        scale = {0.f - view_width / width(), -1.f / height() * view_height}; // DAT_0032B120.
     }
     else
     {
@@ -756,13 +756,13 @@ void begin_slime(RuntimeSceneTransition& t)
     auto& s = services();
     t.slime_color = u32(t.clip);
     t.slime = t.aid != nullptr ? acquire_slime(t.aid) : std::span<const u8>{};
-    g_50484c = g_50484c + 1;
+    g_transition_guard = g_transition_guard + 1;
     t.slime_captured = 0;
     const i16 voice = allocate_audio_event_voice(1, s.voices); // 0x00039830, EBX 1
     if (voice != -1)
     {
         s.voices.voices[size_t(voice)].stop = 1; // DAT_004E0CEC
-        position_audio_event_voice_ahead(voice, image_real(0x0032B184), s.voices); // 0x00039B30
+        position_audio_event_voice_ahead(voice, 5.f, s.voices); // 0x00039B30, DAT_0032B184.
         prepare_audio_event_voice(voice, s.image.string(0x004313F8), s.voices); // 0x00039A20
     }
 }
@@ -872,7 +872,7 @@ void tick_scene_transition()
         if (allocation->limit <= allocation->cursor)
         {
             create_dialogue_text_record(*t.loading_pool, t.loading_text.data(),
-                float(i32(s.screen[0])) * image_real(0x0032B0F4), float(i32(s.screen[1])) * image_real(0x0032B244),
+                float(i32(s.screen[0])) * 0.5f, float(i32(s.screen[1])) * 0.8f, // DAT_0032B0F4, DAT_0032B244.
                 1.5f, 1.5f, 1.5f, 1, 0, 0, s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F580
             create_dialogue_text_record(*t.loading_pool, u"spam", -100.f, -100.f, 0.1f, 0.1f, 0.5f, 0, 0, 0,
                 s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F550
@@ -893,9 +893,9 @@ void tick_scene_transition()
                 g_flags_ea9c = g_flags_ea9c | 0x2000u;
             }
         }
-        if (g_50484c < 1 && 0 < t.loading_frames)
+        if (g_transition_guard < 1 && 0 < t.loading_frames)
         {
-            g_50484c = g_50484c + 1;
+            g_transition_guard = g_transition_guard + 1;
         }
         else
         {
@@ -930,8 +930,8 @@ void end_scene_transition()
     camera_unlink_view(&g_transition_camera); // 0x00048C70, EAX DAT_0054937C
     if (t.phase == 0)
     {
-        g_510cec = g_510cec + 1;
-        g_4dea24 = g_4dea24 + 1;
+        g_pause_count = g_pause_count + 1;
+        g_transition_pause_count = g_transition_pause_count + 1;
     }
     else if (t.phase == 1)
     {
@@ -941,8 +941,8 @@ void end_scene_transition()
     {
         g_510f7c = 0;
     }
-    g_510cec = g_510cec - 1;
-    g_4dea24 = g_4dea24 - 1;
+    g_pause_count = g_pause_count - 1;
+    g_transition_pause_count = g_transition_pause_count - 1;
     g_flags_ea9c = g_flags_ea9c & 0xFFFFFEFFu;
     t.phase = 0;
     if (t.loading_pool != nullptr)
@@ -951,7 +951,7 @@ void end_scene_transition()
         g_flags_ea9c = g_flags_ea9c & 0xFFFFDFFFu;
         t.loading_pool = nullptr;
     }
-    g_4dea24 = g_4dea24 - 1;
+    g_transition_pause_count = g_transition_pause_count - 1;
 }
 
 // Xbox 0x0012C5D0
@@ -978,7 +978,7 @@ void begin_scene_transition(const char* scene)
     request_namespaced_localtext("aid_loctext_ghoulies_gameselect_gameselecttext", "gameselect", "loading",
         t.loading_text.data(), s.localtext); // 0x000FF0A0 into DAT_00546350
     call_handler(row_handler(t.row), 4);
-    g_4dea24 = g_4dea24 + 1;
+    g_transition_pause_count = g_transition_pause_count + 1;
 }
 
 // Xbox 0x0012C770
@@ -988,29 +988,29 @@ void leave_scene_transition()
     leave_phase(t.phase);
     t.time = image_real(row_address(t.row) + 0x104);
     t.phase = 3;
-    if (0 < g_50484c)
+    if (0 < g_transition_guard)
     {
-        g_50484c = g_50484c - 1;
+        g_transition_guard = g_transition_guard - 1;
     }
     t.aid = row_aid(t.row, 0x84);
     t.duration = t.time;
     call_handler(row_handler(t.row), 5);
 }
 
-u32 g_5462e8 = 0;
+u32 g_scene_directory_row = 0; // DAT_005462E8
 
 // Xbox 0x001162D0, EAX the scene record
 void select_scene_directory_row(const char* scene)
 {
-    g_5462e8 = kDirectory + u32(find_scene_directory_row(scene)) * 0x90; // 0x00116220
+    g_scene_directory_row = kDirectory + u32(find_scene_directory_row(scene)) * 0x90; // 0x00116220
 }
 
 // Xbox 0x001162B0: the directory row's book clip (+0x88), or the first row's (DAT_0042AD08).
 i32 scene_directory_book_clip()
 {
-    if (g_5462e8 != 0)
+    if (g_scene_directory_row != 0)
     {
-        return i32(image_word(g_5462e8 + 0x88));
+        return i32(image_word(g_scene_directory_row + 0x88));
     }
     return i32(image_word(0x0042AD08));
 }

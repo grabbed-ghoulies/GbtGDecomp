@@ -1,8 +1,10 @@
 #include "player_avoidance.h"
+#include "../entities/player_mind_control.h"
 #include "../entities/actor_transform.h"
 #include "../entities/body_damage_motion.h"
 #include "../entities/player_mind_events.h"
 #include "gbtg/anim.h"
+#include "../entities/body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -90,7 +92,7 @@ float randomize_runtime_navigation_heading(float heading, float width, u32& rand
 // Xbox 0x0007F980
 bool avoid_runtime_player_navigation(RuntimePlayerNavigationAvoidance& context)
 {
-    if (read_u16(context.body, 0x30) != 0 || read_f32(context.body, 0x34) != 0.f)
+    if (body_record(context.body).move_holds != 0 || body_record(context.body).move_hold_time != 0.f)
     {
         return false;
     }
@@ -102,8 +104,8 @@ bool avoid_runtime_player_navigation(RuntimePlayerNavigationAvoidance& context)
         return false;
     }
     const Vec3 position = actor_world_position(context.actor);
-    const float heading = read_u32(context.mind, 0x194) == 0 ? context.actor.euler.y
-        : read_f32(context.mind, 0x190);
+    const float heading = player_mind_record(context.mind).unk_194 == 0 ? context.actor.euler.y
+        : player_mind_record(context.mind).unk_190;
     const float randomized = randomize_runtime_navigation_heading(heading, 0.f, context.random);
     Vec3 output;
     RuntimeNavigationHeadingSearch search{position, context.floor, 12.f, 15.5f,

@@ -1,4 +1,5 @@
 #include "player_health_display.h"
+#include "gbtg/retail_field.h"
 #include <bit>
 
 namespace gbtg
@@ -14,7 +15,7 @@ void update_runtime_hud_counter_digits(RuntimeHudCounter& counter, std::span<con
         if (digit != counter.digits[index])
         {
             counter.digits[index] = digit;
-            counter.timer = read_u32(preset, 8);
+            counter.timer = std::bit_cast<u32>(retail_view<HudCounterPreset>(preset).swell_time);
         }
     };
     update(7);
@@ -127,7 +128,7 @@ void set_runtime_player_health_display(RuntimePlayerHealthDisplay& context, i32 
         size_t row = 0;
         do
         {
-            if (context.counter.value <= std::bit_cast<i32>(read_u32(context.thresholds, row)))
+            if (context.counter.value <= retail_view<HealthBandRow>(context.thresholds.subspan(row)).limit)
             {
                 if (index == 0)
                 {

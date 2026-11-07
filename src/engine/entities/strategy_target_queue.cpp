@@ -1,6 +1,9 @@
 #include "strategy_target_queue.h"
+#include "player_fields.h"
+#include "mind_fields.h"
 #include "../runtime/link_exchange.h"
 #include "body_message_helpers.h"
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -60,17 +63,17 @@ void exchange_runtime_strategy_links(RuntimeStrategyLink& first, RuntimeStrategy
     exchange_runtime_links(first, second);
 }
 
-float g_50e280 = 0.f;
+float g_strategy_queue_resort_timer = 0.f; // DAT_0050E280
 
 // Xbox 0x001128A0
 void resort_runtime_strategy_target_queues(float step, std::span<ActorAttachmentSlot, 20> slots)
 {
-    g_50e280 = g_50e280 - step;
-    if (0.f < g_50e280)
+    g_strategy_queue_resort_timer = g_strategy_queue_resort_timer - step;
+    if (0.f < g_strategy_queue_resort_timer)
     {
         return;
     }
-    g_50e280 = g_50e280 + 1.f; // DAT_0032B0F8
+    g_strategy_queue_resort_timer = g_strategy_queue_resort_timer + 1.f; // DAT_0032B0F8
     for (ActorAttachmentSlot& slot : slots)
     {
         if (slot.owner != nullptr)
@@ -173,7 +176,7 @@ ActorLiveAttachment* runtime_strategy_link_target(RuntimeStrategyLink& link, con
         return record;
     }
     const std::span<const u8> actor = context.actor_bytes(link.owner);
-    if (actor[0x96C] != 0 && record->mode == 0 && context.target_of(record)->body.case_actor != nullptr)
+    if (player_record(actor).unk_96C != 0 && record->mode == 0 && context.target_of(record)->body.case_actor != nullptr)
     {
         return record;
     }
@@ -282,8 +285,9 @@ bool runtime_strategy_target_attackable(float range, RuntimeStrategyLink& link, 
     RuntimePlayerStrategyGoals& goals = checks.goals;
     const std::span<const u8> body = goals.entry.body;
     const EntityBitBlock& bits = *goals.body_bits;
-    if (body[0x6B] != 0 || body[0x6A] != 0 || read_f32(body, 0x70) > 0.f || read_u16(body, 0x30) != 0
-        || read_f32(body, 0x34) != 0.f || (bits.bytes[3] & 8) != 0)
+    if (body_record(body).unk_6B != 0 || body_record(body).unk_6A != 0 || body_record(body).unk_70 > 0.f ||
+        body_record(body).move_holds != 0 || body_record(body).move_hold_time != 0.f ||
+        (bits.bytes[3] & 8) != 0)
     {
         return false;
     }
@@ -292,12 +296,12 @@ bool runtime_strategy_target_attackable(float range, RuntimeStrategyLink& link, 
         return false;
     }
     const std::span<const u8> mind = goals.entry.events.mind;
-    if (read_u32(mind, 0x10) == 0)
+    if (mind_record(mind).target_record == 0)
     {
         return false;
     }
-    RuntimeMindTarget* target = goals.target_at(read_u32(mind, 0x10));
-    if (target->bytes[0x15] != 0 || runtime_strategy_abandons_target(*target, checks) != 0)
+    RuntimeMindTarget* target = goals.target_at(mind_record(mind).target_record);
+    if (mind_target_record(target->bytes).hold != 0 || runtime_strategy_abandons_target(*target, checks) != 0)
     {
         return false;
     }

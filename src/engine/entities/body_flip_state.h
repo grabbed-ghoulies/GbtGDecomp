@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "body_action_selection.h"
@@ -25,17 +26,17 @@ constexpr RetailField<float, 0x10> steer_speed{};
 constexpr u32 kSize = 0x14;
 static_assert(retail_fits(kSize, steer_speed));
 } // namespace flip_state_parameter
-namespace flip_state_field
+struct FlipState
 {
-constexpr RetailField<u32, 0x18> phase{}; // 1 in the air, 2 landing
-constexpr RetailField<float, 0x1C> gravity{}; // body +0x324 before the flip
-constexpr RetailField<float, 0x20> steer_speed{}; // parameters +0x10
-constexpr RetailField<u32, 0x24> airborne{}; // the body has left the ground (body +0x15C bit 0x29 clear)
-constexpr RetailField<u32, 0x28> latched{}; // latch 0 is held
-constexpr RetailField<u32, 0x2C> landing{}; // set when the landing animation's record was found
-constexpr u32 kSize = 0x30;
-static_assert(retail_fits(kSize, landing));
-} // namespace flip_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 1 in the air, 2 landing
+    float gravity = 0.f; // +0x1C, body +0x324 before the flip
+    float steer_speed = 0.f; // +0x20, parameters +0x10
+    u32 airborne = 0; // +0x24, the body has left the ground (body +0x15C bit 0x29 clear)
+    u32 latched = 0; // +0x28, latch 0 is held
+    u32 landing = 0; // +0x2C, set when the landing animation's record was found
+};
+static_assert(sizeof(FlipState) == 0x30);
 struct RuntimeFlipStateContext
 {
     std::span<u8> body;
@@ -53,12 +54,13 @@ struct RuntimeFlipStateContext
     std::function<const char*(u32)> image_string; // An XBE string, or null for 0.
 };
 void flip_state_object_sizes(ObjectSizes& output); // Xbox 0x00090410
-bool initialize_runtime_flip_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_flip_state(FlipState& state, std::span<const u8> parameters,
     RuntimeFlipStateContext& context); // Xbox 0x00090490
-void destroy_runtime_flip_state(std::span<u8> state, RuntimeFlipStateContext& context); // Xbox 0x00090650
-void tick_runtime_flip_state(std::span<u8> state, RuntimeFlipStateContext& context); // Xbox 0x00090760
+void destroy_runtime_flip_state(FlipState& state, RuntimeFlipStateContext& context); // Xbox 0x00090650
+void tick_runtime_flip_state(FlipState& state, RuntimeFlipStateContext& context); // Xbox 0x00090760
 // In the air the stick (when the body is settled) sets the body's motion (+0x318 / +0x320) at the steer speed.
-void steer_runtime_flip_state(std::span<const u8> state, RuntimeFlipStateContext& context); // Xbox 0x000908D0, ECX input, ESI body
+void steer_runtime_flip_state(const FlipState& state,
+    RuntimeFlipStateContext& context); // Xbox 0x000908D0, ECX input, ESI body
 // Type 0x6B (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_flip_state_class(std::span<ObjectFactoryType> types,
     std::function<RuntimeFlipStateContext&(u32 body_address)> context_of);

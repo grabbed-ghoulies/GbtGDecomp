@@ -1,7 +1,11 @@
 #include "player_mind_messages.h"
+#include "body_fields.h"
+#include "player_mind_control.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "../scripts/script_conditions.h"
 #include "../scripts/script_vm.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -9,11 +13,6 @@ namespace gbtg
 {
 namespace
 {
-void put(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 Vec3 message_point(std::span<const u32> message, size_t index)
 {
     return {std::bit_cast<float>(message[index]), std::bit_cast<float>(message[index + 1]),
@@ -27,7 +26,7 @@ std::span<const u8> message_bytes(std::span<const u32> message)
 
 void notify_health_event(RuntimePlayerMindMessages& context)
 {
-    const u16 health = read_u16(context.feedback.body, 0x94);
+    const u16 health = body_record(context.feedback.body).energy;
     bool warn;
     if (!scene_end_flag_set())
     {
@@ -92,7 +91,7 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
         break;
     case 0x2A:
         notify_runtime_player_mind_impact(feedback);
-        put(mind, 0x150, read_u32(mind, 0x150) + 1);
+        player_mind_record(mind).unk_150 = player_mind_record(mind).unk_150 + 1;
         break;
     case 0x2B:
         notify_runtime_player_mind_event(feedback, 6);
@@ -126,7 +125,7 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
         track_runtime_player_mind_source(mind, context.body_state, message[0xA], message[5]);
         break;
     case 0x42:
-        put(mind, 0x7C, message[1]);
+        player_mind_record(mind).unk_7C = message[1];
         break;
     case 0x44:
         if (message[2] == context.actor_address)
@@ -164,13 +163,13 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
         if (message[1] == context.actor_address)
         {
             notify_runtime_player_mind_contact(feedback, message[5], message[4]);
-            put(mind, 0x150, read_u32(mind, 0x150) + 1);
+            player_mind_record(mind).unk_150 = player_mind_record(mind).unk_150 + 1;
             const float limit = 15.f; // DAT_0032B214.
-            const float alert = read_f32(mind, 0x50) + 5.f; // DAT_0032B184.
-            put(mind, 0x50, std::bit_cast<u32>(alert));
+            const float alert = mind_record(mind).alert_timer + 5.f; // DAT_0032B184.
+            mind_record(mind).alert_timer = alert;
             if (alert > limit)
             {
-                put(mind, 0x50, std::bit_cast<u32>(limit));
+                mind_record(mind).alert_timer = limit;
             }
         }
         else if (message[2] == context.actor_address)
@@ -185,18 +184,18 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
         }
         break;
     case 0x75:
-        if (read_u32(mind, 0x88) != 0 && read_u32(*context.event_source, 0x10) == message[1])
+        if (player_mind_record(mind).target != 0 && read_u32(*context.event_source, 0x10) == message[1])
         {
             clear_runtime_player_mind_body_event(feedback.body);
         }
         break;
     case 0x7C:
-        clear_runtime_player_mind_reference(mind, 0x84, message[1]);
-        clear_runtime_player_mind_reference(mind, 0x134, message[1]);
+        clear_runtime_player_mind_reference(mind, offsetof(PlayerMindRecord, unk_84), message[1]);
+        clear_runtime_player_mind_reference(mind, offsetof(PlayerMindRecord, unk_134), message[1]);
         break;
     case 0x7D:
-        initialize_runtime_player_mind_navigation(mind, i32(read_u32(context.actor_bytes, 0xCEC)), context.grids,
-            context.nodes, context.storage, context.address_of);
+        initialize_runtime_player_mind_navigation(mind, i32(player_record(context.actor_bytes).floor),
+                                                  context.grids, context.nodes, context.storage, context.address_of);
         if (context.chapter_mode == 1)
         {
             std::array<u32, 9> goal;
@@ -222,9 +221,9 @@ void dispatch_runtime_player_mind_message(RuntimePlayerMindMessages& context, st
         }
         break;
     case 0x8D:
-        if (read_u32(mind, 0x88) == message[1])
+        if (player_mind_record(mind).target == message[1])
         {
-            put(mind, 0x88, 0);
+            player_mind_record(mind).target = 0;
             clear_runtime_player_mind_body_event(feedback.body);
         }
         break;

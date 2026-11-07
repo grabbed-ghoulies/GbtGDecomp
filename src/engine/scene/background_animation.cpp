@@ -21,11 +21,10 @@ void publish_background_graph_matrices(RuntimeBackgroundAnimation& animation, st
         {
             do
             {
-                const auto fields = animation.rows[index].fields;
-                if (fields[0x1D5] != 0)
+                const PointGraphRecord& record = animation.rows[index].record();
+                if (record.active != 0)
                 {
-                    RuntimeShaderMatrix matrix;
-                    std::memcpy(matrix.data(), fields.data() + 0xB0, 64);
+                    const RuntimeShaderMatrix matrix = record.placed_matrix;
                     write_runtime_model_matrix(animation.matrix_node, instance, index, matrix);
                 }
                 ++index;
@@ -65,9 +64,8 @@ void initialize_background_animation(RuntimeBackgroundAnimation* first,
                 {
                     for (u32 index = 0; index < count; ++index)
                     {
-                        const u32 zero = 0;
-                        std::memcpy(first->rows[index].fields.data() + 0x28, &zero, 4);
-                        std::memcpy(first->rows[index].fields.data() + 0x20, &zero, 4);
+                        first->rows[index].record().edges_address_copy = 0;
+                        first->rows[index].record().points_address_copy = 0;
                         first->rows[index].allocation = nullptr;
                     }
                 }
@@ -75,7 +73,7 @@ void initialize_background_animation(RuntimeBackgroundAnimation* first,
                 {
                     const u32 points = read_u32(table, index * 8);
                     const auto source = resolve(read_u32(table, index * 8 + 4));
-                    auto& output = *reinterpret_cast<Vec3*>(first->rows[index].fields.data() + 0x1B0);
+                    Vec3& output = first->rows[index].record().center;
                     average_runtime_model_points(output,
                         {reinterpret_cast<const Vec3*>(source.data()), points});
                 }
@@ -84,21 +82,17 @@ void initialize_background_animation(RuntimeBackgroundAnimation* first,
                     for (i32 index = 0; index < first->matrix_count; ++index)
                     {
                         const auto source = resolve(runtime_matrix_array_matrix_offset(first->matrix_node, index));
-                        const auto row = first->rows[index].fields;
-                        for (size_t target : {0x30u, 0xB0u, 0x70u})
+                        PointGraphRecord& row = first->rows[index].record();
+                        for (auto* target : {&row.bind_matrix, &row.placed_matrix, &row.rest_matrix})
                         {
                             for (size_t word = 0; word < 16; ++word)
                             {
                                 const u32 value = read_u32(source, word * 4);
-                                std::memcpy(row.data() + target + word * 4, &value, 4);
+                                std::memcpy(target->data() + word, &value, 4);
                             }
                         }
-                        invert_runtime_graphics_matrix(
-                            std::span<float, 16>{reinterpret_cast<float*>(row.data() + 0x170), 16}, nullptr,
-                            std::span<const float, 16>{reinterpret_cast<const float*>(row.data() + 0xB0), 16});
-                        invert_runtime_graphics_matrix(
-                            std::span<float, 16>{reinterpret_cast<float*>(row.data() + 0x130), 16}, nullptr,
-                            std::span<const float, 16>{reinterpret_cast<const float*>(row.data() + 0x30), 16});
+                        invert_runtime_graphics_matrix(row.placed_inverse, nullptr, row.placed_matrix);
+                        invert_runtime_graphics_matrix(row.bind_inverse, nullptr, row.bind_matrix);
                     }
                 }
             }
@@ -129,19 +123,12 @@ void push_background_graph(const Vec3& impulse, u32 graph, RuntimeBackgroundGrap
     float x = impulse.x * scale;
     float y = impulse.y * scale;
     float z = impulse.z * scale;
-    for (u32 index = 0; index < read_u32(row.fields, 0); ++index)
+    for (u32 index = 0; index < row.header().points; ++index)
     {
-        u8* point = row.points.data() + size_t(index) * 0x30;
-        float value;
-        std::memcpy(&value, point, 4);
-        value = value - x;
-        std::memcpy(point + 0xC, &value, 4);
-        std::memcpy(&value, point + 4, 4);
-        value = value - y;
-        std::memcpy(point + 0x10, &value, 4);
-        std::memcpy(&value, point + 8, 4);
-        value = value - z;
-        std::memcpy(point + 0x14, &value, 4);
+        PointGraphPoint& point = row.point(index);
+        point.previous.x = point.position.x - x;
+        point.previous.y = point.position.y - y;
+        point.previous.z = point.position.z - z;
     }
     context.random = context.random * 0x19660D + 0x3C6EF35F;
     const float unit = std::bit_cast<float>((context.random & 0x7FFFFF) | 0x3F800000);
@@ -149,17 +136,10 @@ void push_background_graph(const Vec3& impulse, u32 graph, RuntimeBackgroundGrap
     x = x * share;
     y = y * share;
     z = z * share;
-    u8* first = row.points.data() + 0xC;
-    float value;
-    std::memcpy(&value, first, 4);
-    value = value - x;
-    std::memcpy(first, &value, 4);
-    std::memcpy(&value, first + 4, 4);
-    value = value - y;
-    std::memcpy(first + 4, &value, 4);
-    std::memcpy(&value, first + 8, 4);
-    value = value - z;
-    std::memcpy(first + 8, &value, 4);
+    Vec3& first = row.point(0).previous;
+    first.x = first.x - x;
+    first.y = first.y - y;
+    first.z = first.z - z;
     const std::span<const u8> grid = context.resolve(read_u32(block, 0x14), 0x48);
     step_runtime_point_graph_collision(row, step * 6.f, grid, context.resolve);
     recover_runtime_point_graph_transform(row);

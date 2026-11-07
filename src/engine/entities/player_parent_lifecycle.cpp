@@ -1,4 +1,6 @@
 #include "player_parent_lifecycle.h"
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "entity_heap.h"
 #include <bit>
 #include <cstring>
@@ -40,9 +42,9 @@ void base_strategy_object_sizes(ObjectSizes& output)
 void initialize_runtime_mind_settings(std::span<u8> mind, std::span<const u8> parameters,
     u16 actor_class, const RuntimeMindClassSettings& settings)
 {
-    write_word(mind, 0x64, read_u32(parameters, 0x90));
-    write_word(mind, 0x68, read_u32(parameters, 0x94));
-    write_word(mind, 0x6C, read_u32(parameters, 0x98));
+    mind_record(mind).target_flags = get(parameters, mind_parameter::target_flags);
+    mind_record(mind).target_categories = get(parameters, mind_parameter::target_categories);
+    mind_record(mind).target_range = get(parameters, mind_parameter::target_range);
     i32 index = 0;
     if (settings.count > 0)
     {
@@ -54,7 +56,8 @@ void initialize_runtime_mind_settings(std::span<u8> mind, std::span<const u8> pa
                 return;
             }
         }
-        write_float(mind, 0x6C, static_cast<float>(read_u16(settings.rows, static_cast<size_t>(index) * 4 + 2)));
+        mind_record(mind).target_range = static_cast<float>(read_u16(settings.rows, static_cast<size_t>(index) * 4
+            + 2));
     }
 }
 
@@ -63,13 +66,13 @@ bool initialize_runtime_base_mind(std::span<u8> mind, std::span<const u8> parame
     u16 actor_class, const RuntimeMindClassSettings& settings, u32& random,
     std::span<ExecutableResourcePool> resources, std::span<const u8>& script_table)
 {
-    write_word(mind, 8, read_u32(parameters, 0x9C));
+    mind_record(mind).actor = get(parameters, mind_parameter::actor);
     const float fraction = random_fraction(random);
-    const float low = read_f32(parameters, 0x88);
-    write_float(mind, 0x2C, (read_f32(parameters, 0x8C) - low) * fraction + low);
+    const float low = get(parameters, mind_parameter::unk_2C_low);
+    mind_record(mind).unk_2C = (get(parameters, mind_parameter::unk_2C_high) - low) * fraction + low;
     initialize_runtime_mind_settings(mind, parameters, actor_class, settings);
-    write_word(mind, 0x3C, 0);
-    write_word(mind, 0x4C, 0x40);
+    mind_record(mind).gaze_point_set = 0;
+    mind_record(mind).alert_mode = 0x40;
     if (read_u32(parameters, 8) == 0x5F646961)
     {
         const char* name = reinterpret_cast<const char*>(parameters.data() + 8);
@@ -87,11 +90,11 @@ bool initialize_runtime_base_mind(std::span<u8> mind, std::span<const u8> parame
 // Xbox 0x00029EC0
 bool initialize_runtime_mind_request(std::span<u8> request, u32& random)
 {
-    if (read_u16(request, 8) == 0x29)
+    if (get(request, mind_request_field::kind) == 0x29)
     {
         const float fraction = random_fraction(random);
-        const float low = read_f32(request, 0x10);
-        write_float(request, 0x18, (read_f32(request, 0x14) - low) * fraction + low);
+        const float low = get(request, wait_request::duration_low);
+        set(request, wait_request::duration, (get(request, wait_request::duration_high) - low) * fraction + low);
     }
     return true;
 }
@@ -201,17 +204,16 @@ bool sample_runtime_strategy_class_range(std::span<u8, 4> output, u16 actor_clas
 bool initialize_runtime_base_strategy(std::span<u8> strategy, std::span<const u8> parameters,
     u16 actor_class, const RuntimeStrategyClassRanges& ranges, u32& random)
 {
-    write_word(strategy, 8, read_u32(parameters, 8));
-    const u16 state = read_u16(parameters, 0xC);
-    std::memcpy(strategy.data() + 0xC, &state, 2);
-    for (size_t index = 0; index < 5; ++index)
-    {
-        const u16 value = read_u16(parameters, 0xE + index * 2);
-        std::memcpy(strategy.data() + 0x10 + index * 2, &value, 2);
-    }
+    StrategyBase& base = strategy_base(strategy);
+    base.actor = get(parameters, strategy_parameter::actor);
+    base.unk_0C = get(parameters, strategy_parameter::unk_0C);
+    base.unk_10 = get(parameters, strategy_parameter::unk_0E);
+    base.after_wait_state = get(parameters, strategy_parameter::after_wait_state);
+    base.resume_state = get(parameters, strategy_parameter::resume_state);
+    base.flagged_resume_state = get(parameters, strategy_parameter::flagged_resume_state);
+    base.unk_18 = get(parameters, strategy_parameter::unk_16);
     // A miss preserves +0x34; the retail caller ignores the sampler's result.
-    sample_runtime_strategy_class_range(std::span<u8, 4>{strategy.data() + 0x34, 4},
-        actor_class, ranges, random);
+    sample_runtime_strategy_class_range(retail_bytes(base.wait_timer).first<4>(), actor_class, ranges, random);
     return true;
 }
 
@@ -256,10 +258,10 @@ void destroy_runtime_base_strategy(FactoryObject& strategy, RuntimeStrategyLink&
     RuntimePlayerStrategySetup& context)
 {
     detach_runtime_strategy_link(link);
-    context.leaving(strategy, read_u16({strategy.bytes.get(), strategy.size}, 0xE), 1000);
-    const u16 previous = read_u16({strategy.bytes.get(), strategy.size}, 0xE);
+    context.leaving(strategy, read_u16({strategy.bytes.get(), strategy.size}, offsetof(StrategyBase, state)), 1000);
+    const u16 previous = read_u16({strategy.bytes.get(), strategy.size}, offsetof(StrategyBase, state));
     const u16 next = 1000;
-    std::memcpy(strategy.bytes.get() + 0xE, &next, 2);
+    std::memcpy(strategy.bytes.get() + offsetof(StrategyBase, state), &next, 2);
     clear_runtime_player_mind_requests(*context.mind);
     context.entering(strategy, next, previous);
 }
@@ -269,7 +271,7 @@ void leave_runtime_base_strategy_state(std::span<u8> strategy, u16 state)
 {
     if (state == 0x3FC || state == 0x3FF || state == 0x415)
     {
-        --strategy[0x1C];
+        --strategy_base(strategy).pause_count;
     }
 }
 }

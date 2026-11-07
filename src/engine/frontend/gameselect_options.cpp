@@ -1,4 +1,5 @@
 #include "gameselect_options.h"
+#include "gameselect_page_layout.h"
 #include "app_error_screen.h"
 #include "button_bat_menu.h"
 #include "dialogue_activation.h"
@@ -30,7 +31,8 @@ namespace gbtg
 {
 namespace
 {
-constexpr u32 kLayout = 0x00429958; // The page's floats, laid out as the replay pages' blocks.
+constexpr u32 kLayout = 0x00429958;
+constexpr u32 kOptionX = 0x004299B0; // After the page's block, 500.
 constexpr u32 kStandardRows = 0x00308C20; // "OptionsMenuStandard"
 constexpr u32 kBrewRows = 0x00308F30; // "OptionsMenuButlersBrew"
 
@@ -49,9 +51,9 @@ float exe_real(const GameSelectControlServices& s, u32 address)
     return std::bit_cast<float>(read_u32(s.image.memory(address, 4), 0));
 }
 
-float layout_real(u32 offset, const GameSelectControlServices& s)
+const GameSelectPageLayout& layout(const GameSelectControlServices& s)
 {
-    return exe_real(s, kLayout + offset);
+    return gameselect_page_layout(s, kLayout);
 }
 
 float frame_step(const GameSelectControlServices& s)
@@ -98,7 +100,7 @@ constexpr std::array<Setting, 3> kSettings{{
 
 u32 setting_record(GameOptionsWidget& w, GameOptionsWidget::Option& option, GameSelectControlServices& s)
 {
-    const float scale = exe_real(s, 0x004299A0);
+    const float scale = layout(s).menu_text_scale;
     return create_dialogue_text_record(*w.pool, option.text.data(), option.x, option.y, scale, scale, 1.f, 1, 0, 1,
         s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0, EAX 1
 }
@@ -115,7 +117,7 @@ void show_setting(size_t index, GameSelectControlServices& s)
     const float y = option.item->position[1]; // Item +0x228
     const Setting& setting = kSettings[index];
     gameselect_text((unlocks(s) & setting.bit) != 0 ? setting.set : setting.clear, option.text.data(), s);
-    option.x = exe_real(s, 0x004299B0);
+    option.x = exe_real(s, kOptionX);
     option.y = y;
     option.record = setting_record(w, option, s);
 }
@@ -299,20 +301,20 @@ void open_runtime_game_options(std::span<u8> owner, GameSelectControlState& cont
     s.plate_flags[0] = 1; // DAT_00510F7C
     s.plate_flags[1] = 1; // DAT_00510F80
     allocate_dialogue_text_pool(w.pool, 0, 1, 0x400C0, s.text_pools); // 0x0005F390, ESI +0x41C
-    w.pool->origin = {layout_real(0x30, s), layout_real(0x34, s), std::bit_cast<float>(3u)};
+    w.pool->origin = {layout(s).pool_origin[0], layout(s).pool_origin[1], std::bit_cast<float>(3u)};
     copy_wide(w.title.text.data(), w.name); // lstrcpyW(+4, +0x48C)
-    w.title.x = layout_real(0x10, s);
-    w.title.y = layout_real(0x14, s);
+    w.title.x = layout(s).title_position[0];
+    w.title.y = layout(s).title_position[1];
     w.title.record = 0;
     gameselect_text("options_optionsbanner", w.banner.text.data(), s); // 0x000FF120, EDI 0x00325184
-    w.banner.x = layout_real(8, s);
-    w.banner.y = layout_real(0xC, s);
+    w.banner.x = layout(s).banner_position[0];
+    w.banner.y = layout(s).banner_position[1];
     w.banner.record = 0;
-    const std::array<float, 2> anchor{s.hud.center_x + layout_real(0x38, s),
-        s.hud.center_y + layout_real(0x3C, s)}; // DAT_00509730, DAT_00509734
-    create_runtime_button_bat_menu(anchor, i32(read_u32(s.image.memory(kLayout + 0x40, 4), 0)), layout_real(0x44, s),
-        layout_real(0x48, s), 0, layout_real(0x50, s), layout_real(0x54, s), std::bit_cast<float>(3u),
-        read_u32(s.image.memory(kLayout + 0x4C, 4), 0), 0, 1, s); // 0x00143550: the widget keeps its items
+    const std::array<float, 2> anchor{s.hud.center_x + layout(s).menu_offset[0],
+        s.hud.center_y + layout(s).menu_offset[1]}; // DAT_00509730, DAT_00509734
+    create_runtime_button_bat_menu(anchor, layout(s).menu_visible_rows, layout(s).menu_row_spacing,
+        layout(s).menu_text_scale, 0, layout(s).menu_origin[0], layout(s).menu_origin[1], std::bit_cast<float>(3u),
+        layout(s).menu_wrap, 0, 1, s); // 0x00143550: the widget keeps its items
     set_runtime_game_options_state(w, 1, s); // 0x000E1A80(1)
 }
 
@@ -424,20 +426,20 @@ void set_runtime_game_options_state(GameOptionsWidget& w, i32 state, GameSelectC
     std::memcpy(resource, "aid_loctext_ghoulies_gameselect_gameselecttext", 47); // 0x0020A574
     if (w.state == 1)
     {
-        const float icon = layout_real(0x28, s);
-        const float text = layout_real(0x2C, s);
-        const float spacing = layout_real(0x20, s);
-        const std::array<float, 2> anchor{s.hud.inner_left + layout_real(0x18, s),
-            s.hud.inner_bottom - layout_real(0x1C, s)}; // DAT_00509740, DAT_0050974C
+        const float icon = layout(s).prompts_icon_scale;
+        const float text = layout(s).prompts_text_scale;
+        const float spacing = layout(s).prompts_spacing;
+        const std::array<float, 2> anchor{s.hud.inner_left + layout(s).prompts_left,
+            s.hud.inner_bottom - layout(s).prompts_bottom}; // DAT_00509740, DAT_0050974C
         const std::array<float, 2> row_step{icon * 0.f, 0.f - icon * spacing};
-        const float half = spacing * exe_real(s, 0x0032B0F4) * icon;
-        const std::array<float, 2> origin{half + layout_real(0x24, s), 0.f - half};
+        const float half = spacing * 0.5f * icon; // DAT_0032B0F4.
+        const std::array<float, 2> origin{half + layout(s).prompts_origin_x, 0.f - half};
         // The column is as wide as the wider of the two prompt sets.
         std::array<char16_t, 0x200> scratch{};
         float width = 0.f;
         const float standard = measure_dialogue_widget_width(resource, s.image.memory(kStandardRows, 0x310).data(),
             icon, text, "gameselect", scratch.data(), s.widgets); // 0x001428F0, ECX 0x00308C20
-        if (exe_real(s, 0x0032B100) < standard)
+        if (0.f < standard) // DAT_0032B100.
         {
             width = standard;
         }
@@ -449,10 +451,10 @@ void set_runtime_game_options_state(GameOptionsWidget& w, i32 state, GameSelectC
         }
         const std::array<float, 2> column{width, 0.f};
         w.title.record = create_dialogue_text_record(*w.pool, w.title.text.data(), w.title.x, w.title.y,
-            layout_real(0, s), layout_real(0, s), 1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id,
+            layout(s).title_text_scale, layout(s).title_text_scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id,
             s.random); // 0x0005F5C0, EAX 1
         w.banner.record = create_dialogue_text_record(*w.pool, w.banner.text.data(), w.banner.x, w.banner.y,
-            layout_real(4, s), layout_real(4, s), 1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random);
+            layout(s).banner_text_scale, layout(s).banner_text_scale, 1.f, 1, 0, 1, s.metrics, s.viewport_width, s.next_text_id, s.random);
         if (s.text.data() == nullptr) // IsBadReadPtr(DAT_005462C4, 1)
         {
             return;
@@ -460,14 +462,14 @@ void set_runtime_game_options_state(GameOptionsWidget& w, i32 state, GameSelectC
         create_dialogue_widget(w.prompts, 1, s.image.memory(kStandardRows, 0x310).data(), anchor, row_step, origin,
             &column, icon, text, "gameselect", s.text, 0x400C0, s.widget_allocation); // 0x00141E20, +0x494
         auto& prompts = *w.prompts;
-        const float fade = exe_real(s, 0x0032B1AC);
+        const float fade = 0.2f; // DAT_0032B1AC.
         prompts.duration = fade;
         if (prompts.progress > fade)
         {
             prompts.progress = fade;
         }
         prompts.pool->end_time = fade;
-        prompts.pool->origin = {layout_real(0x30, s), layout_real(0x34, s), std::bit_cast<float>(3u)};
+        prompts.pool->origin = {layout(s).pool_origin[0], layout(s).pool_origin[1], std::bit_cast<float>(3u)};
         add_options(s); // 0x000E18D0
         open_runtime_button_bat_menu(s); // 0x00143B10
     }

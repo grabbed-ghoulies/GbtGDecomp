@@ -11,8 +11,31 @@ struct RuntimeHudCounter
     std::array<i32, 8> digits; // +8 through +0x24, highest first.
     u32 word_28;
     u32 word_2c;
-    u32 timer; // +0x30, bits copied from preset +8.
+    u32 timer; // +0x30, bits of the preset's swell_time.
 };
+// A counter's digits' look: DAT_00314170, DAT_00314184, DAT_00312A1C, DAT_00312F8C, DAT_00313A18, DAT_00313A2C.
+struct HudCounterPreset
+{
+    float scale; // +0x0, the digits' size and how far each advances.
+    float swell_amplitude; // +0x4
+    float swell_time; // +0x8
+    i32 digit_gap; // +0xC
+    u32 colour; // +0x10
+};
+static_assert(sizeof(HudCounterPreset) == 0x14);
+
+// One band of the health display, DAT_00313A40: the first whose limit the health is at or under.
+struct HealthBandRow
+{
+    i32 limit; // +0x0
+    float pulse_6; // +0x4, the pulse's seventh word (DAT_00433C0C).
+    float pulse_1; // +0x8, its second (DAT_00433BF8).
+    float amplitude; // +0xC
+    float changed_amplitude; // +0x10
+    float unk_14; // +0x14
+};
+static_assert(sizeof(HealthBandRow) == 0x18);
+
 struct RuntimePlayerHealthDisplay
 {
     i32& active; // DAT_00433BE0.
@@ -24,7 +47,7 @@ struct RuntimePlayerHealthDisplay
     std::span<u32, 5> widths; // DAT_00433C90..A0.
     const u32& override_health; // DAT_00512230.
     const u8& story_flags; // DAT_00506C6C -> bytes +4.
-    std::span<const u8> thresholds; // DAT_00313A40, stride 0x18, 5 entries.
+    std::span<const u8> thresholds; // DAT_00313A40, five HealthBandRow.
     std::span<const u8> normal_preset; // DAT_00313A18.
     std::span<const u8> active_preset; // DAT_00313A2C.
     AnimationResourceRegistry& registry;

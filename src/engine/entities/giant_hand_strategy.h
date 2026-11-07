@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "actor_factory_owner.h"
 #include "body_state_actions.h"
 #include "player_strategy_goals.h"
@@ -14,23 +15,24 @@ namespace gbtg
 // target stands in it: it shows itself, takes its collision back and, on the grab's body bit 0x2D, starts the scene
 // challenge its parameters name (0x000873A0). Every hand hears another's grab (message 0x6C) and its end (0x6D).
 // Strategy bytes: +0x1C pause count (states 0x3FC, 0x3FF and 0x415 leave it one lower).
-namespace giant_hand_strategy_field
+struct GiantHandStrategyState
 {
-constexpr RetailField<u32, 0x38> parameters{}; // 0x00302B78
-constexpr RetailField<u32, 0x3C> other_grabbing{}; // another hand grabs (message 0x6C, cleared by 0x6D)
-constexpr RetailField<std::array<char, 0x80>, 0x40> challenge_first{}; // parameters +0x18
-constexpr RetailField<std::array<char, 0x80>, 0xC0> challenge_second{}; // parameters +0x98
-constexpr RetailField<i32, 0x140> held{}; // messages 0x86 / 0x87 whose +8 is 7
-constexpr RetailField<u32, 0x144> shown{}; // drawn (0x000ACCA0), hidden by 0x001364B0
-constexpr RetailField<u32, 0x148> solid{}; // in the world's collision (0x001365C0), out by 0x00136540
-constexpr RetailField<u32, 0x14C> model_flags{}; // actor +0x1F0 kept while out of the world
-constexpr RetailField<i32, 0x150> model_mode{}; // actor +0x118 kept while out of the world
-constexpr RetailField<u32, 0x154> shape_mode{}; // body +0x244 at construction
-constexpr RetailField<u32, 0x15C> challenged{}; // the grab started its challenge
-constexpr RetailField<u32, 0x160> latched{}; // body bit 0x23 has been seen
-constexpr u32 kSize = 0x164;
-static_assert(retail_fits(kSize, latched));
-} // namespace giant_hand_strategy_field
+    StrategyBase base{}; // +0
+    u32 parameters = 0; // +0x38, 0x00302B78
+    u32 other_grabbing = 0; // +0x3C, another hand grabs (message 0x6C, cleared by 0x6D)
+    std::array<char, 0x80> challenge_first{}; // +0x40, parameters +0x18
+    std::array<char, 0x80> challenge_second{}; // +0xC0, parameters +0x98
+    i32 held = 0; // +0x140, messages 0x86 / 0x87 whose +8 is 7
+    u32 shown = 0; // +0x144, drawn (0x000ACCA0), hidden by 0x001364B0
+    u32 solid = 0; // +0x148, in the world's collision (0x001365C0), out by 0x00136540
+    u32 model_flags = 0; // +0x14C, actor +0x1F0 kept while out of the world
+    i32 model_mode = 0; // +0x150, actor +0x118 kept while out of the world
+    u32 shape_mode = 0; // +0x154, body +0x244 at construction
+    std::array<u8, 4> unk_158{}; // +0x158, never read or written by translated code
+    u32 challenged = 0; // +0x15C, the grab started its challenge
+    u32 latched = 0; // +0x160, body bit 0x23 has been seen
+};
+static_assert(sizeof(GiantHandStrategyState) == 0x164);
 struct RuntimeGiantHandStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

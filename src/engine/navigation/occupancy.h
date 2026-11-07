@@ -25,8 +25,8 @@ struct OccupancyPool
     OccupancyRecord* cursor; // +8: used end
     OccupancyRecord* limit; // +0xC
 };
-extern void* g_512344;
-extern i32 g_512348;
+extern void* g_occupancy_pool; // DAT_00512344, the block 0x000663E0 releases.
+extern i32 g_occupancy_mask; // DAT_00512348.
 bool occupancy_sphere_contains(const OccupancyRecord& record, const Vec3& point,
     float& distance); // Xbox 0x00124640
 bool occupancy_box_contains(const OccupancyRecord& record, const Vec3& point,

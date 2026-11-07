@@ -1,4 +1,10 @@
 #include "haunted_picture_strategy.h"
+#include "gbtg/retail_field.h"
+#include "actor_fields.h"
+#include "body_fields.h"
+#include "strategy_fields.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_clock.h"
 #include "actor_live_attachments.h"
 #include "actor_transform.h"
@@ -23,7 +29,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = haunted_picture_strategy_field;
+HauntedPictureStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<HauntedPictureStrategyState>(strategy);
+}
+
+const HauntedPictureStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<HauntedPictureStrategyState>(strategy);
+}
+
 namespace parameter = haunted_picture_parameter;
 
 constexpr u32 kMovementAddress = 0x00302E80; // The movement table B0680 passes.
@@ -81,25 +96,6 @@ const RuntimeMindTarget& require_target(const RuntimeMindTarget* target, const c
     return *target;
 }
 
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    if (offset + 4 > bytes.size())
-    {
-        throw Error("haunted picture mind request field lies outside the request");
-    }
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void step_byte(std::span<u8> bytes, size_t offset, i32 step)
-{
-    bytes[offset] = u8(bytes[offset] + step);
-}
-
 // Each of the actor's live attachment records (+0x8F8) holds `step` more (0x00042090 / 0x000420B0).
 void adjust_live_holds(i32 step, RuntimeHauntedPictureStrategy& context)
 {
@@ -124,8 +120,8 @@ float roll_attack_wait(RuntimeHauntedPictureStrategy& context)
 float step_phase(RuntimeHauntedPictureStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    float phase = runtime_actor_step(actor_of(context), goals_of(context).clock) + get(strategy, field::phase);
-    set(strategy, field::phase, phase);
+    float phase = runtime_actor_step(actor_of(context), goals_of(context).clock) + fields_of(strategy).phase;
+    fields_of(strategy).phase = phase;
     const float period = std::bit_cast<float>(0x400CCCCDu);
     if (period < phase)
     {
@@ -133,9 +129,9 @@ float step_phase(RuntimeHauntedPictureStrategy& context)
         {
             phase -= period;
         } while (period < phase);
-        set(strategy, field::phase, phase);
+        fields_of(strategy).phase = phase;
     }
-    return get(strategy, field::phase);
+    return fields_of(strategy).phase;
 }
 
 // value held within [0, 2 pi] (DAT_0032B298).
@@ -159,11 +155,11 @@ float clamp_angle(float value)
 float runtime_haunted_picture_range_fraction(std::span<const u8> target, RuntimeHauntedPictureStrategy& context)
 {
     const Vec3 position = actor_world_position(actor_of(context)); // 0x000412A0
-    const float dx = position.x - read_f32(target, 0x20);
-    const float dy = position.y - read_f32(target, 0x24);
-    const float dz = position.z - read_f32(target, 0x28);
-    const float nearest = read_f32(context.movement, 0x1C);
-    const float farthest = read_f32(context.movement, 0x20);
+    const float dx = position.x - mind_target_record(target).shape.position.x;
+    const float dy = position.y - mind_target_record(target).shape.position.y;
+    const float dz = position.z - mind_target_record(target).shape.position.z;
+    const float nearest = retail_view<HauntedPictureMovement>(context.movement).nearest;
+    const float farthest = retail_view<HauntedPictureMovement>(context.movement).farthest;
     if (farthest == nearest)
     {
         return 1.f; // DAT_0032B0F8.
@@ -189,8 +185,9 @@ float select_runtime_haunted_picture_heading(std::span<const u8> target, Runtime
     const Actor& actor = actor_of(context);
     const float fraction = runtime_haunted_picture_range_fraction(target, context); // 0x000B0AC0
     const Vec3 position = actor_world_position(actor); // 0x000412A0
-    const Vec3 direction{read_f32(target, 0x20) - position.x, read_f32(target, 0x24) - position.y,
-        read_f32(target, 0x28) - position.z};
+    const Vec3 direction{mind_target_record(target).shape.position.x - position.x,
+        mind_target_record(target).shape.position.y - position.y,
+        mind_target_record(target).shape.position.z - position.z};
     // The output reuses the caller's argument slot, which holds the movement table's address.
     float angle = std::bit_cast<float>(kMovementAddress);
     runtime_direction_angle(direction, angle); // 0x00105F90
@@ -206,7 +203,7 @@ float select_runtime_haunted_picture_heading(std::span<const u8> target, Runtime
     {
         scale = fraction * 2.f;
     }
-    const float width = read_f32(context.movement, 0x24) * scale * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
+    const float width = retail_view<HauntedPictureMovement>(context.movement).heading_spread * scale * std::bit_cast<float>(0x3C8EFA35u); // DAT_0032B0FC.
     return randomize_runtime_navigation_heading(chosen, width, goals_of(context).random); // 0x00100C70
 }
 
@@ -216,12 +213,13 @@ void circle_runtime_haunted_picture_target(const RuntimeMindTarget& target, floa
     RuntimeHauntedPictureStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
-    const std::span<const u8> movement = context.movement;
+    const HauntedPictureMovement& movement = retail_view<HauntedPictureMovement>(context.movement);
     const float heading = select_runtime_haunted_picture_heading(target.bytes, context); // 0x000B09C0
     const Vec3 origin = actor_world_position(actor_of(context)); // 0x000412A0
-    const float ring = read_f32(movement, 8);
+    const float ring = movement.move.range;
     Vec3 point{};
-    RuntimeNavigationHeadingSearch search{origin, i32(target.bytes[0x19]), ring - .5f, ring + .5f, nullptr,
+    RuntimeNavigationHeadingSearch search{origin, i32(mind_target_record(target.bytes).floor), ring - .5f, ring
+        + .5f, nullptr,
         goals.entry.allowed, &point, 0, 0x1C, i16(read_u16(goals.entry.actor_bytes, 6)), goals.random,
         context.occupancy_initial};
     if (!search_runtime_navigation_headings(search, heading, std::bit_cast<float>(0x3E9C61AAu), 10)) // 0x0013AA50
@@ -229,12 +227,12 @@ void circle_runtime_haunted_picture_target(const RuntimeMindTarget& target, floa
         return;
     }
     const float tau = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298.
-    const float period = read_f32(movement, 0x2C);
+    const float period = movement.sway_period;
     const float angle = period == 0.f ? tau : clamp_angle(phase / period * tau);
-    const float amplitude = read_f32(movement, 0x30);
+    const float amplitude = movement.sway_amplitude;
     const float sway = float(retail_sin(angle) * static_cast<long double>(amplitude)); // 0x00153320
     clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
-    request_runtime_strategy_sway(point, movement.subspan(4), sway, amplitude, goals); // 0x0013A000, ESI table +4
+    request_runtime_strategy_sway(point, movement.move, sway, amplitude, goals); // 0x0013A000, ESI table +4
 }
 
 // Xbox 0x000B0680, EAX strategy
@@ -261,26 +259,26 @@ void wander_runtime_haunted_picture(RuntimeHauntedPictureStrategy& context)
     const float lift = float(retail_sin(angle) * 8.0L); // 0x00153320, DAT_0032B26C
     RuntimeMindGoalContext& mind = goals.entry.goals;
     RuntimePlayerMindRequest& bob = *allocate_runtime_mind_request(mind.anchor, 0xF, mind.sizes); // 0x00029D90
-    put_float(bob.bytes, 0x24, 30.f); // DAT_0032B108.
-    put_float(bob.bytes, 0x10, 1.f); // DAT_0032B0F8.
-    put_float(bob.bytes, 0x14, 1.f);
-    put_float(bob.bytes, 0x1C, 1.f);
-    put_float(bob.bytes, 0x18, 10.f); // DAT_0032B10C.
-    put_float(bob.bytes, 0x28, .25f); // DAT_0032B104.
-    put_float(bob.bytes, 0x10, 1.f);
-    put_float(bob.bytes, 0x14, 1.f);
-    put_float(bob.bytes, 0x20, 10.f);
-    put_float(bob.bytes, 0x18, lift);
-    put_float(bob.bytes, 0x24, 0.f);
-    put_float(bob.bytes, 0x1C, 8.f); // DAT_0032B26C.
-    put_float(bob.bytes, 0x28, .25f);
+    set(bob.bytes, vertical_position_request::approach, 30.f); // DAT_0032B108.
+    set(bob.bytes, vertical_position_request::speed_low, 1.f); // DAT_0032B0F8.
+    set(bob.bytes, vertical_position_request::speed_high, 1.f);
+    set(bob.bytes, vertical_position_request::tolerance, 1.f);
+    set(bob.bytes, vertical_position_request::height, 10.f); // DAT_0032B10C.
+    set(bob.bytes, vertical_position_request::vertical_speed, .25f); // DAT_0032B104.
+    set(bob.bytes, vertical_position_request::speed_low, 1.f);
+    set(bob.bytes, vertical_position_request::speed_high, 1.f);
+    set(bob.bytes, vertical_position_request::radius, 10.f);
+    set(bob.bytes, vertical_position_request::height, lift);
+    set(bob.bytes, vertical_position_request::approach, 0.f);
+    set(bob.bytes, vertical_position_request::tolerance, 8.f); // DAT_0032B26C.
+    set(bob.bytes, vertical_position_request::vertical_speed, .25f);
 }
 
 // Xbox 0x000B1320, EAX strategy, EDI target: while the attack wait runs the picture leaves its target's queue,
 // else it joins it (0x0002B910).
 bool runtime_haunted_picture_attack_ready(RuntimeMindTarget* target, RuntimeHauntedPictureStrategy& context)
 {
-    if (get(strategy_of(context), field::attack_wait) > 0.f) // DAT_0032B100.
+    if (fields_of(strategy_of(context)).attack_wait > 0.f) // DAT_0032B100.
     {
         detach_runtime_strategy_link(context.base.link); // 0x00112A20, EAX strategy +0x20
         return false;
@@ -307,18 +305,18 @@ void wake_runtime_haunted_picture(RuntimeHauntedPictureStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    if (get(strategy, field::awake) != 0)
+    if (fields_of(strategy).awake != 0)
     {
         return;
     }
-    set(strategy, field::awake, 1u);
-    if (get(strategy, field::latched) != 0)
+    fields_of(strategy).awake = 1u;
+    if (fields_of(strategy).latched != 0)
     {
         adjust_live_holds(-1, context); // The inlined 0x000420B0.
-        set(strategy, field::latched, 0u);
+        fields_of(strategy).latched = 0u;
     }
-    put_u16(strategy, 0x18, 0x401);
-    strategy[0x1B] = 1;
+    strategy_base(strategy).unk_18 = 0x401;
+    strategy_base(strategy).unk_1B = 1;
     const std::array<u32, 2> event{0xB4, read_u16(goals.entry.actor_bytes, 6)};
     script_queue_event(goals.game, {reinterpret_cast<const u8*>(event.data()), sizeof(event)}); // 0x00116810, EDI
     restore_runtime_player_script_overrides(context.self, context.overrides); // 0x00138030, ESI actor
@@ -328,7 +326,7 @@ void wake_runtime_haunted_picture(RuntimeHauntedPictureStrategy& context)
 // Xbox 0x000B0B90
 void haunted_picture_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(HauntedPictureStrategyState);
     output.parameters = parameter::kSize;
 }
 
@@ -337,16 +335,16 @@ void update_runtime_haunted_picture_strategy(RuntimeHauntedPictureStrategy& cont
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
-    const float wait = get(strategy, field::attack_wait);
+    const float wait = fields_of(strategy).attack_wait;
     if (wait > 0.f)
     {
         const float left = wait - runtime_actor_step(actor_of(context), goals.clock);
-        set(strategy, field::attack_wait, left);
+        fields_of(strategy).attack_wait = left;
         if (0.f >= left)
         {
-            set(strategy, field::attack_wait, 0.f);
+            fields_of(strategy).attack_wait = 0.f;
         }
     }
     bool found = false;
@@ -388,9 +386,9 @@ void update_runtime_haunted_picture_strategy(RuntimeHauntedPictureStrategy& cont
         {
             choose_runtime_haunted_picture_attack(context); // 0x000B1350
         }
-        if (get(strategy, field::attack_wait) == 0.f) // DAT_0032B100.
+        if (fields_of(strategy).attack_wait == 0.f) // DAT_0032B100.
         {
-            set(strategy, field::attack_wait, roll_attack_wait(context));
+            fields_of(strategy).attack_wait = roll_attack_wait(context);
         }
         return;
     }
@@ -402,7 +400,7 @@ void update_runtime_haunted_picture_strategy(RuntimeHauntedPictureStrategy& cont
             return;
         }
         const float distance = runtime_squared_target_distance(actor_of(context), target->bytes); // 0x000415A0
-        if (2500.f >= distance || read_u16(goals.entry.actor_bytes, 0x1FC) == 0) // DAT_0032B40C.
+        if (2500.f >= distance || actor_marker_id(goals.entry.actor_bytes) == 0) // DAT_0032B40C.
         {
             goals.room = nullptr; // Actor +0xCA0.
             change_state(0x417, context);
@@ -434,7 +432,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
         return;
     }
-    const u32 actor = read_u32(strategy, 8);
+    const u32 actor = strategy_base(strategy).actor;
     // LAB 0x000B105E: a target found wakes it.
     const auto wake_on = [&](bool woken)
     {
@@ -456,10 +454,10 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
     {
     case 1:
     {
-        const u16 state = read_u16(strategy, 0xE);
+        const u16 state = strategy_base(strategy).state;
         if (state == 0x3E9)
         {
-            if (get(strategy, field::awake) != 0)
+            if (fields_of(strategy).awake != 0)
             {
                 return;
             }
@@ -475,7 +473,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
     }
     case 0x26:
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x413 || read_u16(strategy, 0xE) == 0x417)
+        if (strategy_base(strategy).state == 0x413 || strategy_base(strategy).state == 0x417)
         {
             return;
         }
@@ -485,7 +483,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         wake_runtime_haunted_picture(context); // 0x000B1420
         return;
     case 0x31:
-        if (get(strategy, field::awake) != 0)
+        if (fields_of(strategy).awake != 0)
         {
             react_runtime_strategy_watched_actor(message, context.checks, context.views); // 0x001397B0
         }
@@ -499,10 +497,10 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         {
             return;
         }
-        if (message[1] == actor && get(strategy, field::awake) == 0 && read_u16(strategy, 0xE) == 0x413)
+        if (message[1] == actor && fields_of(strategy).awake == 0 && strategy_base(strategy).state == 0x413)
         {
             const std::span<const u8> mind = goals.entry.events.mind; // Actor +0x958.
-            if (read_u32(mind, 0x10) != 0)
+            if (mind_record(mind).target_record != 0)
             {
                 goals.room = nullptr; // Actor +0xCA0.
             }
@@ -512,7 +510,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
                 context); // 0x0002B7F0
             return;
         }
-        if (get(strategy, field::awake) == 0)
+        if (fields_of(strategy).awake == 0)
         {
             return;
         }
@@ -520,7 +518,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
         return;
     case 0x70:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
-        if (read_u16(strategy, 0xE) != 0x413)
+        if (strategy_base(strategy).state != 0x413)
         {
             return;
         }
@@ -529,7 +527,7 @@ void dispatch_runtime_haunted_picture_message(std::span<const u32> message, Runt
     case 0x7D:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
         adjust_live_holds(1, context); // 0x00042090, EAX actor
-        set(strategy, field::latched, 1u);
+        fields_of(strategy).latched = 1u;
         return;
     default:
         dispatch_runtime_base_strategy_message(message, context.base); // 0x0002BC10
@@ -544,26 +542,26 @@ void enter_runtime_haunted_picture_state(u16 state, u16 previous, RuntimeHaunted
     const std::span<u8> strategy = strategy_of(context);
     const std::span<u8> body = body_of(context);
     (void)previous; // Forwarded to 0x0002BAF0, which does not read it.
-    body[0x328] = 2;
-    strategy[0x1A] = 0;
-    strategy[0x1B] = 0;
+    body_record(body).move_class = 2;
+    strategy_base(strategy).attacking = 0;
+    strategy_base(strategy).unk_1B = 0;
     switch (state)
     {
     case 0x3ED:
-        body[0x328] = 4;
-        strategy[0x1A] = 1;
+        body_record(body).move_class = 4;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack, context);
         return;
     case 0x3EF:
-        body[0x328] = 6;
-        strategy[0x1A] = 1;
+        body_record(body).move_class = 6;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_attack_special, context);
         return;
     case 0x401:
         return;
     case 0x40C:
-        body[0x328] = 3;
-        set(strategy, field::attack_wait, roll_attack_wait(context));
+        body_record(body).move_class = 3;
+        fields_of(strategy).attack_wait = roll_attack_wait(context);
         return;
     case 0x413:
         load_goal(context.goal_sleep, context);
@@ -594,7 +592,7 @@ void leave_runtime_haunted_picture_state(u16 state, RuntimeHauntedPictureStrateg
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        step_byte(strategy, 0x1C, -1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

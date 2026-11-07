@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "body_knockdown_state.h"
 #include "body_state_fields.h"
@@ -19,14 +20,15 @@ constexpr RetailField<u8, 0x10> shape_mode{}; // 0x0001FEB0's mode while dying
 constexpr u32 kSize = 0x14;
 static_assert(retail_fits(kSize, shape_mode));
 } // namespace death_state_parameter
-namespace death_state_field
+struct DeathState
 {
-constexpr RetailField<u32, 0x18> waiting{}; // 0 while the death animation plays, 1 for the second after it
-constexpr RetailField<float, 0x1C> delay{}; // seconds left before 0x00134AE0
-constexpr RetailField<u8, 0x20> shape_mode{}; // the shape mode 0x0001FEB0 replaced, restored on release
-constexpr u32 kSize = 0x28;
-static_assert(retail_fits(kSize, shape_mode));
-} // namespace death_state_field
+    BodyStateBase base{}; // +0
+    u32 waiting = 0; // +0x18, 0 while the death animation plays, 1 for the second after it
+    float delay = 0.f; // +0x1C, seconds left before 0x00134AE0
+    u8 shape_mode = 0; // +0x20, the shape mode 0x0001FEB0 replaced, restored on release
+    std::array<u8, 7> unk_21{}; // +0x21, never read or written by translated code
+};
+static_assert(sizeof(DeathState) == 0x28);
 struct RuntimeDeathStateContext
 {
     RuntimeKnockdownContext& knockdown; // Body, actor, bits, animation, shape, live attachments and death effects.
@@ -35,10 +37,10 @@ struct RuntimeDeathStateContext
     LiveScript* mind_events; // Mind +0x24's anchor; its next (mind +0x28) is the first event.
 };
 void death_state_object_sizes(ObjectSizes& output); // Xbox 0x00076BC0
-bool initialize_runtime_death_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_death_state(DeathState& state, std::span<const u8> parameters,
     RuntimeDeathStateContext& context); // Xbox 0x0008C600
-void destroy_runtime_death_state(std::span<u8> state, RuntimeDeathStateContext& context); // Xbox 0x0008C750
-void tick_runtime_death_state(std::span<u8> state, RuntimeDeathStateContext& context); // Xbox 0x0008C7E0
+void destroy_runtime_death_state(DeathState& state, RuntimeDeathStateContext& context); // Xbox 0x0008C750
+void tick_runtime_death_state(DeathState& state, RuntimeDeathStateContext& context); // Xbox 0x0008C7E0
 // Type 0x63 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_death_state_class(std::span<ObjectFactoryType> types,
     std::function<RuntimeDeathStateContext&(u32 body_address)> context_of);

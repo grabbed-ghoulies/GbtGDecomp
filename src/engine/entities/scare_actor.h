@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 #include "actor_clock.h"
 #include "../audio/bank_streams.h"
 #include "../camera/camera_pulse.h"
@@ -34,22 +36,22 @@ constexpr RetailField<std::array<char, 0x80>, 0x440> effect{}; // the effect str
 constexpr u32 kSize = 0x4C0;
 static_assert(retail_fits(kSize, effect));
 } // namespace scare_actor_parameter
-namespace scare_actor_field
+struct ScareActorState
 {
-constexpr RetailField<u32, 0x934> pulsing{}; // 1 while pulses remain
-constexpr RetailField<i32, 0x938> pulses{}; // 3 at the start
-constexpr RetailField<float, 0x93C> pulse_time{}; // counts down by the actor step, then half a second more
-constexpr RetailField<u32, 0x940> texture{}; // shader_lambert3's colour0 texture, a native address, or 0
-constexpr RetailField<u32, 0x944> player_flag{}; // the case player's body +0x15C byte 5 bit 4
-constexpr RetailField<u32, 0x948> camera_inside{}; // the view is within `reach`
-constexpr RetailField<float, 0x94C> unk_94C{}; // 0.2 when `player_flag` turns on
-constexpr RetailField<float, 0x950> reach{}; // 0x00070410: joint 0's scale times the actor's
-constexpr RetailField<std::array<char, 0x80>, 0x954> effect{}; // copied from the parameters' +0x440
-constexpr RetailField<u32, 0x9D4> silence{}; // the parameters' +0x33C
-constexpr RetailField<u32, 0x9D8> silenced{}; // XACT_SILENCE is held
-constexpr u32 kSize = 0x9DC;
-static_assert(retail_fits(kSize, silenced));
-} // namespace scare_actor_field
+    ActorBase base{}; // +0
+    u32 pulsing = 0; // +0x934, 1 while pulses remain
+    i32 pulses = 0; // +0x938, 3 at the start
+    float pulse_time = 0.f; // +0x93C, counts down by the actor step, then half a second more
+    u32 texture = 0; // +0x940, shader_lambert3's colour0 texture, a native address, or 0
+    u32 player_flag = 0; // +0x944, the case player's body +0x15C byte 5 bit 4
+    u32 camera_inside = 0; // +0x948, the view is within `reach`
+    float unk_94C = 0.f; // +0x94C, 0.2 when `player_flag` turns on
+    float reach = 0.f; // +0x950, 0x00070410: joint 0's scale times the actor's
+    std::array<char, 0x80> effect{}; // +0x954, copied from the parameters' +0x440
+    u32 silence = 0; // +0x9D4, the parameters' +0x33C
+    u32 silenced = 0; // +0x9D8, XACT_SILENCE is held
+};
+static_assert(sizeof(ScareActorState) == 0x9DC);
 struct RuntimeScareActor
 {
     std::span<u8> bytes;

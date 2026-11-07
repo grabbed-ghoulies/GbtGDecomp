@@ -1,7 +1,11 @@
 #include "body_damage_tables.h"
+#include "body_damage_curve.h"
+#include <cstddef>
 #include "gbtg/anim.h"
 #include "player_mind_events.h"
 #include "actor_shape_bounds.h"
+#include "body_fields.h"
+#include "body_damage_fields.h"
 #include <bit>
 #include <immintrin.h>
 #include <cstring>
@@ -67,18 +71,18 @@ u32 nearest_contact_flags(const entity_detail::SegmentPool& contacts, const Acto
 
 // Xbox 0x000226C0
 bool runtime_body_damage_classified(std::span<const u8> body, const Actor& actor,
-    std::span<const u8> damage, const entity_detail::SegmentPool* contacts,
+    const BodyDamage& damage, const entity_detail::SegmentPool* contacts,
     const Actor* contact_actor, const Actor* source, u32 source_live,
     u32 player_damage, const RuntimeBodyDamageTables& tables,
     std::span<const u8> keys)
 {
-    if (contacts == nullptr || damage[0] == 0x12)
+    if (contacts == nullptr || damage.kind == 0x12)
     {
         return false;
     }
     if ((runtime_actor_physical_shape_flags(actor) & 0x20000) != 0 &&
         runtime_body_damage_amount(body, actor, source, source_live, player_damage,
-            damage[1], read_u16(damage, 0x64), tables, keys) == 0)
+            damage.key, damage.source_class, tables, keys) == 0)
     {
         return true;
     }
@@ -95,7 +99,8 @@ bool runtime_body_damage_classified(std::span<const u8> body, const Actor& actor
     {
         return true;
     }
-    return ((nearest_contact_flags(*contacts, *contact_actor, read_f32(damage, 0x1C)) >> 0x11) & 1) != 0;
+    return ((nearest_contact_flags(*contacts, *contact_actor, damage.position.y) >> 0x11) &
+            1) != 0;
 }
 
 // Xbox 0x000244E0
@@ -192,11 +197,11 @@ bool runtime_body_contact_damage_blocked(const EntityBitBlock& flags,
 // Xbox 0x001339C0
 float interpolate_runtime_damage_value(u8 key, u8 value, const RuntimeBodyDamageTables& tables)
 {
-    const size_t offset = size_t(key) * 0xC;
-    const float first = float(tables.values[offset]);
-    const float last = float(tables.values[offset + 1]);
-    const float upper = read_f32(tables.values, offset + 8);
-    const float lower = read_f32(tables.values, offset + 4);
+    const BodyDamageCurve& curve = retail_row<BodyDamageCurve>(tables.values, key);
+    const float first = float(curve.key_first);
+    const float last = float(curve.key_last);
+    const float upper = curve.value_last;
+    const float lower = curve.value_first;
     if (last == first)
     {
         return upper;
@@ -232,7 +237,7 @@ float runtime_class_damage_value(u8 key, u16 actor_class, const RuntimeBodyDamag
 {
     if (actor_class == 0)
     {
-        return read_f32(tables.values, size_t(key) * 0xC + 8);
+        return retail_row<BodyDamageCurve>(tables.values, key).value_last;
     }
     const u32 index = u32(actor_class) * 0x87 + u32(key) - 0x48;
     return interpolate_runtime_damage_value(key, tables.classes[index], tables);
@@ -243,7 +248,7 @@ i32 runtime_actor_damage_value(u8 key, u16 actor_class, const RuntimeBodyDamageT
 {
     if (actor_class == 0)
     {
-        return truncate_damage_value(read_f32(tables.values, size_t(key) * 0xC + 8));
+        return truncate_damage_value(retail_row<BodyDamageCurve>(tables.values, key).value_last);
     }
     const u32 index = u32(actor_class) * 0x87 + u32(key) - 0x48;
     return truncate_damage_value(interpolate_runtime_damage_value(key, tables.classes[index], tables));
@@ -293,7 +298,7 @@ u32 runtime_body_damage_amount(std::span<const u8> body, const Actor& actor,
     }
     if (amount != 0 && live_player)
     {
-        return read_u16(body, 0x94);
+        return body_record(body).energy;
     }
     if (key == 0x3F)
     {
@@ -306,7 +311,7 @@ u32 runtime_body_damage_amount(std::span<const u8> body, const Actor& actor,
                 amount = u32(half);
             }
         }
-        if (read_u32(body, 0x750) != 0)
+        if (body_record(body).unk_750 != 0)
         {
             amount = 0;
         }
@@ -359,22 +364,21 @@ void reduce_runtime_body_damage_pulse(std::span<u8> body, const Actor& actor, i3
         if (actor.mask_mode == 2 || actor.mask_flag != 0)
         {
             const u32 duration = 0x40000000;
-            std::memcpy(body.data() + 0x168, &duration, 4);
+            std::memcpy(body.data() + offsetof(BodyRecord, unk_168), &duration, 4);
         }
-        if (read_f32(body, 0x16C) > 0.f)
+        if (body_record(body).stagger > 0.f)
         {
-            const float value = read_f32(body, 0x16C) - std::bit_cast<float>(0x3F7D70A4u) / float(count);
-            std::memcpy(body.data() + 0x16C, &value, 4);
+            const float value = body_record(body).stagger - std::bit_cast<float>(0x3F7D70A4u) / float(count);
+            body_record(body).stagger = value;
             if (value <= 0.f)
             {
                 const u32 zero = 0;
-                std::memcpy(body.data() + 0x16C, &zero, 4);
+                body_record(body).stagger = 0.f;
             }
         }
-        if (std::bit_cast<float>(0x3A83126Fu) > read_f32(body, 0x16C))
+        if (std::bit_cast<float>(0x3A83126Fu) > body_record(body).stagger)
         {
-            const u32 zero = 0;
-            std::memcpy(body.data() + 0x16C, &zero, 4);
+            body_record(body).stagger = 0.f;
         }
     }
 }

@@ -1,4 +1,6 @@
 #include "trophy_heads_control.h"
+#include <cstddef>
+#include "../entities/body_fields.h"
 #include "scene_controls.h"
 #include "scene_control_fields.h"
 #include "gbtg/sound_runtime.h"
@@ -16,17 +18,13 @@ namespace gbtg
 {
 namespace
 {
-constexpr u32 kAid = 0x5F646961u; // "aid_"
 
-namespace field = trophy_heads_field;
 namespace parameter = trophy_heads_parameter;
 namespace challenge_parameter = super_scary_parameter;
 
 // The strcpy into a char field.
-template <typename Bytes, typename Field>
-void copy_string(Bytes&& bytes, Field field, const char* text)
+void copy_string(char* target, const char* text)
 {
-    char* target = field_data(bytes, field);
     size_t at = 0;
     char copied;
     do
@@ -38,35 +36,37 @@ void copy_string(Bytes&& bytes, Field field, const char* text)
     while (copied != 0);
 }
 
+template <typename Bytes, typename Field>
+void copy_string(Bytes&& bytes, Field field, const char* text)
+{
+    copy_string(field_data(bytes, field), text);
+}
+
 // The trophy-heads state's per-head flags.
-u32 attacked(std::span<const u8> state, u32 id)
+u32 attacked(const TrophyHeadsControlState& control, u32 id)
 {
-    return get(state, field::attacked).at(id);
+    return control.attacked.at(id);
 }
 
-u32 roaring(std::span<const u8> state, u32 id)
+u32 roaring(const TrophyHeadsControlState& control, u32 id)
 {
-    return get(state, field::roaring).at(id);
+    return control.roaring.at(id);
 }
 
-void set_attacked(std::span<u8> state, u32 id, u32 value)
+void set_attacked(TrophyHeadsControlState& control, u32 id, u32 value)
 {
-    auto flags = get(state, field::attacked);
-    flags.at(id) = value;
-    set(state, field::attacked, flags);
+    control.attacked.at(id) = value;
 }
 
-void set_roaring(std::span<u8> state, u32 id, u32 value)
+void set_roaring(TrophyHeadsControlState& control, u32 id, u32 value)
 {
-    auto flags = get(state, field::roaring);
-    flags.at(id) = value;
-    set(state, field::roaring, flags);
+    control.roaring.at(id) = value;
 }
 
 // The attacking head's id as the byte 0x00081B00 and 0x00081CE0 read (MOV DL, [+0xF4]).
-std::int8_t head_track_id(std::span<const u8> state)
+std::int8_t head_track_id(const TrophyHeadsControlState& control)
 {
-    return std::int8_t(get(state, field::head_id));
+    return std::int8_t(control.head_id);
 }
 
 // The step the tick adds twice: nothing while frozen (DAT_004312DC > 0), else DAT_005096C0 * DAT_004312C4.
@@ -142,33 +142,33 @@ void trophy_heads_control_object_sizes(ObjectSizes& output)
 }
 
 // Xbox 0x00081710
-bool construct_runtime_trophy_heads_control(std::span<u8> state, std::span<const u8> parameters,
+bool construct_runtime_trophy_heads_control(std::span<const u8> parameters,
     TrophyHeadsControlState& control, TrophyHeadsControlServices& services)
 {
-    copy_string(state, field::head_events, field_data(parameters, parameter::head_events));
-    set(state, field::pause_held, 0);
-    set(state, field::attacks, 0);
+    copy_string(control.head_events.data(), field_data(parameters, parameter::head_events));
+    control.pause_held = 0;
+    control.attacks = 0;
     if ((services.scene_flags & 8) == 0 && (services.runtime_flags & 0x200000) == 0)
     {
-        set(state, field::health, 0x32);
+        control.health = 0x32;
     }
     else
     {
-        set(state, field::health, 10);
+        control.health = 10;
     }
     for (u32 slot = 0; slot < 0x15; ++slot)
     {
-        set_attacked(state, slot + 1, 0);
-        set_roaring(state, slot + 1, 0);
+        set_attacked(control, slot + 1, 0);
+        set_roaring(control, slot + 1, 0);
     }
-    choose_runtime_trophy_heads(state, services);
+    choose_runtime_trophy_heads(control, services);
     control.cutscene = start_scene_cutscene(field_data(parameters, parameter::cutscene), 0, 1, services.cutscenes);
     --services.pause_count;
     --services.transition_pause_count;
-    set(state, field::pause_held, 1);
-    set_runtime_trophy_heads_state(state, 1, control, services);
+    control.pause_held = 1;
+    set_runtime_trophy_heads_state(1, control, services);
     services.story_byte |= 8;
-    set(state, field::challenge_won, (services.challenge_bits[0] >> 1) & 1);
+    control.challenge_won = (services.challenge_bits[0] >> 1) & 1;
     if (((services.scene_flags & 8) != 0 || (services.runtime_flags & 0x200000) != 0)
         && services.chapter_mode == 1)
     {
@@ -191,33 +191,33 @@ bool construct_runtime_trophy_heads_control(std::span<u8> state, std::span<const
 }
 
 // Xbox 0x00081AD0
-void destroy_runtime_trophy_heads_control(std::span<u8> state, TrophyHeadsControlServices& services)
+void destroy_runtime_trophy_heads_control(TrophyHeadsControlState& control, TrophyHeadsControlServices& services)
 {
-    if (get(state, field::pause_held) != 0)
+    if (control.pause_held != 0)
     {
         ++services.pause_count;
         ++services.transition_pause_count;
-        set(state, field::pause_held, 0);
+        control.pause_held = 0;
     }
 }
 
 // Xbox 0x00081B00
-void message_runtime_trophy_heads_control(std::span<u8> state, std::span<const u32> message,
+void message_runtime_trophy_heads_control(std::span<const u32> message,
     const void* reference, TrophyHeadsControlState& control, SceneControlInstance& instance,
     SceneControlLists& lists, TrophyHeadsControlServices& services)
 {
     if (message[0] == 0x7F)
     {
-        if (reference == control.cutscene && get(state, field::pause_held) != 0)
+        if (reference == control.cutscene && control.pause_held != 0)
         {
             ++services.pause_count;
             ++services.transition_pause_count;
-            set(state, field::pause_held, 0);
+            control.pause_held = 0;
         }
     }
     else if (message[0] == 0x8E)
     {
-        const std::int8_t id = head_track_id(state);
+        const std::int8_t id = head_track_id(control);
         switch (message[1])
         {
         case 0:
@@ -228,7 +228,7 @@ void message_runtime_trophy_heads_control(std::span<u8> state, std::span<const u
             auto& runtime = services.cutscenes.bindings.runtime;
             set_runtime_cutscene_actor_animation(current_cutscene(services), id, nullptr, nullptr,
                 services.default_euler, runtime);
-            const auto& row = head_row(i32(get(state, field::head_id)), services);
+            const auto& row = head_row(i32(control.head_id), services);
             format_dialogue_resource_name(animation, "aid_anim_ghoulies_actor_trophyheads_%s", row.animation);
             format_dialogue_resource_name(events, "aid_animevents_ghoulies_actor_trophyheads_%s", row.events);
             set_runtime_cutscene_actor_animation(current_cutscene(services), id, animation, events,
@@ -236,9 +236,9 @@ void message_runtime_trophy_heads_control(std::span<u8> state, std::span<const u
             break;
         }
         case 8:
-            if (get(state, field::health) - 10 <= 0)
+            if (control.health - 10 <= 0)
             {
-                set_runtime_trophy_heads_state(state, 5, control, services);
+                set_runtime_trophy_heads_state(5, control, services);
                 break;
             }
             [[fallthrough]];
@@ -246,7 +246,6 @@ void message_runtime_trophy_heads_control(std::span<u8> state, std::span<const u
         {
             services.retire_actor(control.player);
             control.player = 0;
-            set(state, field::player, 0);
             auto& runtime = services.cutscenes.bindings.runtime;
             set_runtime_cutscene_actor_animation(current_cutscene(services), id, nullptr, nullptr,
                 services.default_euler, runtime);
@@ -256,8 +255,8 @@ void message_runtime_trophy_heads_control(std::span<u8> state, std::span<const u
                     services.voices, runtime.resume_callbacks};
                 pause_cutscene_events(instance_now, 0, pause); // 0x0004E640, EAX 0
             }
-            set_runtime_trophy_heads_state(state, 1, control, services);
-            const std::int8_t index = find_runtime_cutscene_track(services.cutscenes, head_track_id(state));
+            set_runtime_trophy_heads_state(1, control, services);
+            const std::int8_t index = find_runtime_cutscene_track(services.cutscenes, head_track_id(control));
             auto& instance_now = current_cutscene(services);
             Actor* actor = row_of(instance_now, index, services).actor;
             if (actor == nullptr)
@@ -267,7 +266,7 @@ void message_runtime_trophy_heads_control(std::span<u8> state, std::span<const u
             hold_runtime_actor_animation_slot(animation_of(*actor, services), 1);
             if (message[1] == 8)
             {
-                set(state, field::health, get(state, field::health) - 10);
+                control.health = control.health - 10;
             }
             break;
         }
@@ -282,7 +281,7 @@ void message_runtime_trophy_heads_control(std::span<u8> state, std::span<const u
 }
 
 // Xbox 0x00081890
-void tick_runtime_trophy_heads_control(std::span<u8> state, TrophyHeadsControlState& control,
+void tick_runtime_trophy_heads_control(SceneControlBase& base, TrophyHeadsControlState& control,
     TrophyHeadsControlServices& services)
 {
     if ((services.runtime_flags & 0x400) == 0 && services.gameplay_tick != services.gameplay_mark)
@@ -290,20 +289,20 @@ void tick_runtime_trophy_heads_control(std::span<u8> state, TrophyHeadsControlSt
         services.gameplay_time += frame_step(services);
         services.gameplay_mark = services.gameplay_tick;
     }
-    const u16 current = get(state, field::phase);
+    const u16 current = control.phase;
     if (current == 1)
     {
-        if (0.f < get(state, field::seek_time))
+        if (0.f < control.seek_time)
         {
             auto& instance = current_cutscene(services);
-            seek_runtime_cutscene(instance, get(state, field::seek_time) / instance.duration, 0.f, 0,
+            seek_runtime_cutscene(instance, control.seek_time / instance.duration, 0.f, 0,
                 services.cutscenes.bindings.runtime);
-            set(state, field::seek_time, 0.f);
+            control.seek_time = 0.f;
         }
         const auto& cutscenes = services.cutscenes;
         if (-1 < cutscenes.index && !(current_cutscene(services).time < current_cutscene(services).duration))
         {
-            set_runtime_trophy_heads_state(state, 3, control, services);
+            set_runtime_trophy_heads_state(3, control, services);
         }
         else
         {
@@ -318,18 +317,18 @@ void tick_runtime_trophy_heads_control(std::span<u8> state, TrophyHeadsControlSt
                     {
                         if (row_of(*instance, index, services).previous == 0)
                         {
-                            if (roaring(state, id) != 0)
+                            if (roaring(control, id) != 0)
                             {
-                                set_roaring(state, id, 0);
+                                set_roaring(control, id, 0);
                             }
                         }
-                        else if (runtime_trophy_head_chosen(state, std::int8_t(id)) != 0
-                            && roaring(state, id) == 0 && attacked(state, id) == 0)
+                        else if (runtime_trophy_head_chosen(control, std::int8_t(id)) != 0
+                            && roaring(control, id) == 0 && attacked(control, id) == 0)
                         {
-                            set(state, field::head_id, id);
-                            set_roaring(state, id, 1);
-                            set_attacked(state, id, 1);
-                            set_runtime_trophy_heads_state(state, 2, control, services);
+                            control.head_id = id;
+                            set_roaring(control, id, 1);
+                            set_attacked(control, id, 1);
+                            set_runtime_trophy_heads_state(2, control, services);
                         }
                     }
                     instance = &current_cutscene(services);
@@ -346,26 +345,26 @@ void tick_runtime_trophy_heads_control(std::span<u8> state, TrophyHeadsControlSt
     }
     else if (current == 4 && services.prompt_owner == 0)
     {
-        set_runtime_trophy_heads_state(state, 1, control, services);
+        set_runtime_trophy_heads_state(1, control, services);
     }
-    if (get(state, field::challenge_won) == 0 && get(state, field::phase) == 1
+    if (control.challenge_won == 0 && control.phase == 1
         && (services.runtime_flags & 0x4400) == 0)
     {
         const auto& instance = current_cutscene(services);
         if (0.985f < instance.time / instance.duration) // DAT_0032B6DC
         {
-            set_runtime_trophy_heads_state(state, 4, control, services);
+            set_runtime_trophy_heads_state(4, control, services);
         }
     }
-    set(state, scene_control_field::elapsed, get(state, scene_control_field::elapsed) + frame_step(services));
+    base.elapsed = base.elapsed + frame_step(services);
 }
 
 // Xbox 0x00081CE0
-void set_runtime_trophy_heads_state(std::span<u8> state, u8 next, TrophyHeadsControlState& control,
+void set_runtime_trophy_heads_state(u8 next, TrophyHeadsControlState& control,
     TrophyHeadsControlServices& services)
 {
     auto& runtime = services.cutscenes.bindings.runtime;
-    if (get(state, field::phase) == 4)
+    if (control.phase == 4)
     {
         auto& instance = current_cutscene(services);
         CutsceneEventPauseContext pause{runtime.instances.at(&instance).actors.data(), runtime.animations,
@@ -432,17 +431,16 @@ void set_runtime_trophy_heads_state(std::span<u8> state, u8 next, TrophyHeadsCon
     else if (next == 2)
     {
         control.player = services.spawn_player(); // 0x00134920, EAX 0, the position and euler DAT_0050DD80
-        set(state, field::player, control.player);
         std::span<u8> body = services.player_body(control.player); // +0x95C
-        const u16 health = u16(get(state, field::health)); // MOV DX, [+0x34]: the word's low half
-        std::memcpy(body.data() + 0x94, &health, 2); // Body +0x94, which waits for the body's layout.
-        const std::int8_t index = find_runtime_cutscene_track(services.cutscenes, head_track_id(state));
+        const u16 health = u16(control.health); // MOV DX, [+0x34]: the word's low half
+        body_record(body).energy = health; // Body +0x94.
+        const std::int8_t index = find_runtime_cutscene_track(services.cutscenes, head_track_id(control));
         Actor* head = row_of(current_cutscene(services), index, services).actor;
-        const i32 count = get(state, field::attacks);
-        set(state, field::attacks, count + 1);
+        const i32 count = control.attacks;
+        control.attacks = count + 1;
         control.head = head;
-        start_runtime_trophy_head_attack(count, i32(get(state, field::head_id)), head, services);
-        set(state, field::phase, 2);
+        start_runtime_trophy_head_attack(count, i32(control.head_id), head, services);
+        control.phase = 2;
         return;
     }
     else if (next == 4)
@@ -514,54 +512,55 @@ void set_runtime_trophy_heads_state(std::span<u8> state, u8 next, TrophyHeadsCon
         {
             award_runtime_powerup(1, 0, 1, 0.f, 0, services.powerups); // 0x00123E70, EDX 1
         }
-        set(state, field::challenge_won, 1);
-        set(state, field::phase, 4);
+        control.challenge_won = 1;
+        control.phase = 4;
         return;
     }
-    set(state, field::phase, next);
+    control.phase = next;
 }
 
 // Xbox 0x000821A0
-void choose_runtime_trophy_heads(std::span<u8> state, TrophyHeadsControlServices& services)
+void choose_runtime_trophy_heads(TrophyHeadsControlState& control, TrophyHeadsControlServices& services)
 {
-    set(state, field::chosen, {-1, -1, -1, -1});
+    control.chosen = {-1, -1, -1, -1};
     std::int8_t id;
     do
     {
         id = std::int8_t(i32((random_unit(services.random) - 1.f) * 2.f + 1.f)); // DAT_0032B110
     }
-    while (accept_runtime_trophy_head(state, id, services) == 0);
-    field_data(state, field::chosen)[0] = id;
+    while (accept_runtime_trophy_head(control, id, services) == 0);
+    control.chosen[0] = id;
     do
     {
         id = std::int8_t(i32((random_unit(services.random) - 1.f) * 8.f + 4.f)); // DAT_0032B26C, DAT_0032B1B0
     }
-    while (accept_runtime_trophy_head(state, id, services) == 0);
-    field_data(state, field::chosen)[1] = id;
+    while (accept_runtime_trophy_head(control, id, services) == 0);
+    control.chosen[1] = id;
     do
     {
         id = std::int8_t(i32((random_unit(services.random) - 1.f) * 8.f + 14.f)); // DAT_0032B5B0
     }
-    while (accept_runtime_trophy_head(state, id, services) == 0);
-    field_data(state, field::chosen)[2] = id;
+    while (accept_runtime_trophy_head(control, id, services) == 0);
+    control.chosen[2] = id;
     if (random_unit(services.random) - 1.f < 0.5f) // DAT_0032B0F4
     {
         do
         {
             id = std::int8_t(i32((random_unit(services.random) - 1.f) * 21.f + 1.f)); // DAT_0032B1BC
         }
-        while (accept_runtime_trophy_head(state, id, services) == 0);
-        field_data(state, field::chosen)[3] = id;
+        while (accept_runtime_trophy_head(control, id, services) == 0);
+        control.chosen[3] = id;
     }
 }
 
 // Xbox 0x000820D0
-u32 accept_runtime_trophy_head(std::span<const u8> state, std::int8_t id, TrophyHeadsControlServices& services)
+u32 accept_runtime_trophy_head(const TrophyHeadsControlState& control, std::int8_t id,
+    TrophyHeadsControlServices& services)
 {
     u32 slot = 0;
     do
     {
-        const std::int8_t chosen = get(state, field::chosen)[slot];
+        const std::int8_t chosen = control.chosen[slot];
         if (chosen == -1)
         {
             break;
@@ -579,16 +578,17 @@ u32 accept_runtime_trophy_head(std::span<const u8> state, std::int8_t id, Trophy
         ++slot;
     }
     while (slot < 4);
-    return runtime_trophy_head_has_event(state, id, services);
+    return runtime_trophy_head_has_event(control, id, services);
 }
 
 // Xbox 0x00082440
-u32 runtime_trophy_head_has_event(std::span<const u8> state, std::int8_t id, TrophyHeadsControlServices& services)
+u32 runtime_trophy_head_has_event(const TrophyHeadsControlState& control, std::int8_t id,
+    TrophyHeadsControlServices& services)
 {
     std::span<const u8> events;
-    if (read_u32(state, field::head_events.offset) == kAid) // The name's first word against "aid_".
+    if (std::memcmp(control.head_events.data(), "aid_", 4) == 0) // The name's first word against "aid_".
     {
-        events = acquire_animation_resource(services.resources, field_data(state, field::head_events));
+        events = acquire_animation_resource(services.resources, control.head_events.data());
         if (events.data() == nullptr)
         {
             resource_error(services.error, 2);
@@ -620,9 +620,9 @@ u32 runtime_trophy_head_has_event(std::span<const u8> state, std::int8_t id, Tro
 }
 
 // Xbox 0x00082170
-u32 runtime_trophy_head_chosen(std::span<const u8> state, std::int8_t id)
+u32 runtime_trophy_head_chosen(const TrophyHeadsControlState& control, std::int8_t id)
 {
-    const auto chosen = get(state, field::chosen);
+    const auto chosen = control.chosen;
     size_t at = 0;
     while (true)
     {

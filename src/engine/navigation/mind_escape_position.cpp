@@ -1,7 +1,10 @@
 #include "mind_escape_position.h"
+#include "../entities/mind_fields.h"
+#include "../entities/player_mind_targets.h"
 #include "../scene/scene_markers.h"
 #include "../entities/actor_transform.h"
 #include "gbtg/anim.h"
+#include "../entities/player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -18,9 +21,9 @@ Vec3 marker_position(const u8* row)
 float distance_to_target(const u8* row, std::span<const u8> target)
 {
     const Vec3 point = marker_position(row);
-    const float x = point.x - read_f32(target, 0x20);
-    const float y = point.y - read_f32(target, 0x24);
-    const float z = point.z - read_f32(target, 0x28);
+    const float x = point.x - mind_target_record(target).shape.position.x;
+    const float y = point.y - mind_target_record(target).shape.position.y;
+    const float z = point.z - mind_target_record(target).shape.position.z;
     return (z * z + y * y) + x * x;
 }
 }
@@ -29,7 +32,7 @@ float distance_to_target(const u8* row, std::span<const u8> target)
 bool select_runtime_mind_escape_position(RuntimeMindEscapePosition& context,
     float heading, float minimum, float maximum, Vec3& output)
 {
-    if (read_u32(context.actor_bytes, 0x958) == 0 || context.target.data() == nullptr)
+    if (player_record(context.actor_bytes).mind == 0 || context.target.data() == nullptr)
     {
         return false;
     }
@@ -38,8 +41,9 @@ bool select_runtime_mind_escape_position(RuntimeMindEscapePosition& context,
     const u8* chosen = nullptr;
     if (count != 0)
     {
-        Vec3 direction{read_f32(context.target, 0x20) - position.x,
-            read_f32(context.target, 0x24) - position.y, read_f32(context.target, 0x28) - position.z};
+        Vec3 direction{mind_target_record(context.target).shape.position.x - position.x,
+            mind_target_record(context.target).shape.position.y - position.y,
+                mind_target_record(context.target).shape.position.z - position.z};
         const float length = (direction.y * direction.y + direction.z * direction.z) + direction.x * direction.x;
         const u8* farthest = nullptr;
         if (length != 0.f)
@@ -99,7 +103,7 @@ bool select_runtime_mind_escape_position(RuntimeMindEscapePosition& context,
             return true;
         }
     }
-    const i32 floor = i32(read_u32(context.actor_bytes, 0xCEC));
+    const i32 floor = i32(player_record(context.actor_bytes).floor);
     const i32 cell = entity_detail::navigation_cell_index(floor, position);
     if (cell == -1 || (entity_detail::g_nav_grids[floor]->cells[size_t(cell)].flags_7 & 8) != 0)
     {
@@ -116,8 +120,7 @@ bool select_runtime_mind_escape_position(RuntimeMindEscapePosition& context,
             ++index;
         }
         while (index < 5);
-        position = {read_f32(context.actor_bytes, 0xCC0), read_f32(context.actor_bytes, 0xCC4),
-            read_f32(context.actor_bytes, 0xCC8)};
+        position = {player_record(context.actor_bytes).start_position};
         return entity_detail::select_navigation_spawn_position(floor, nullptr, position, 0.f,
             maximum, nullptr, context.allowed, 0xE, i16(context.actor.class_key), output,
             context.random, context.occupancy_initial);

@@ -2,6 +2,7 @@
 
 #include "gbtg/entity.h"
 #include "gbtg/model_runtime.h"
+#include "gbtg/retail_field.h"
 
 namespace gbtg
 {
@@ -16,9 +17,23 @@ struct RuntimeActorCreationOptions
     void* user = nullptr; // +0x30
 };
 extern RuntimeActorCreationOptions g_actor_creation_options; // DAT_004E1C5C
+// An actor's model matrix record (0x48 bytes, one per ndMtxArray matrix; 0x00040200 builds the matrix from it).
+struct ActorMatrixRecord
+{
+    u32 binding = 0; // +0, the joint it follows, -1 for none (0x00040640)
+    Vec3 translation{}; // +4
+    Vec3 euler{}; // +0x10
+    Vec3 scale{}; // +0x1C
+    Vec3 center{}; // +0x28
+    u32 has_second_euler = 0; // +0x34
+    Vec3 second_euler{}; // +0x38, applied after the center
+    u32 active = 0; // +0x44, set: the record's matrix is written (0x00040200)
+};
+static_assert(sizeof(ActorMatrixRecord) == 0x48);
+
 struct RuntimeActorMatrixState
 {
-    std::span<const u8> records; // actor +0x288, stride 0x48
+    std::span<ActorMatrixRecord> records; // actor +0x288
     i32 count = 0; // +0x28C
     std::span<const u8> node; // +0x290
     std::span<u8> instance; // +0x294

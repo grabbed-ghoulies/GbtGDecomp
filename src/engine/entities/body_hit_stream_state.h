@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_attachment_events.h"
 #include "actor_clock.h"
@@ -30,21 +31,24 @@ constexpr RetailField<u32, 0x194> unk_194{}; // state +0x130
 constexpr u32 kSize = 0x198;
 static_assert(retail_fits(kSize, unk_194));
 } // namespace hit_stream_state_parameter
-namespace hit_stream_state_field
+struct HitStreamState
 {
-constexpr RetailField<u16, 0x18> unk_18{}; // parameters +0x10
-constexpr RetailField<std::array<char, 0x80>, 0x1A> sound{}; // parameters +0x12
-constexpr RetailField<std::array<char, 0x80>, 0x9A> start_sound{}; // parameters +0x92, played on slot 4 at entry
-constexpr RetailField<float, 0x11C> push_speed{}; // parameters +0xC
-constexpr RetailField<float, 0x120> stream_left{}; // 0.5 s (DAT_0032B0F4) after each hit
-constexpr RetailField<float, 0x128> drained{}; // the energy fraction not yet taken
-constexpr RetailField<u32, 0x12C> hit{}; // set by a hit this tick (and at entry)
-constexpr RetailField<u32, 0x130> unk_130{}; // parameters +0x194: an emptied body takes vtable +0x4C, not key 0x82
-constexpr RetailField<u32, 0x134> sounding{}; // the stream's sound plays
-constexpr RetailField<u32, 0x138> effect{}; // the object made from parameters +0x112, or 0
-constexpr u32 kEffects = 0x13C; // Callout 0x36's tokens: a count, then up to eight words (0x0013B8B0).
-constexpr u32 kSize = 0x160;
-} // namespace hit_stream_state_field
+    BodyStateBase base{}; // +0
+    u16 unk_18 = 0; // +0x18, parameters +0x10
+    std::array<char, 0x80> sound{}; // +0x1A, parameters +0x12
+    std::array<char, 0x80> start_sound{}; // +0x9A, parameters +0x92, played on slot 4 at entry
+    std::array<u8, 2> unk_11A{}; // +0x11A, padding
+    float push_speed = 0.f; // +0x11C, parameters +0xC
+    float stream_left = 0.f; // +0x120, 0.5 s (DAT_0032B0F4) after each hit
+    std::array<u8, 4> unk_124{}; // +0x124, never read or written by translated code
+    float drained = 0.f; // +0x128, the energy fraction not yet taken
+    u32 hit = 0; // +0x12C, set by a hit this tick (and at entry)
+    u32 unk_130 = 0; // +0x130, parameters +0x194: an emptied body takes vtable +0x4C, not key 0x82
+    u32 sounding = 0; // +0x134, the stream's sound plays
+    u32 effect = 0; // +0x138, the object made from parameters +0x112, or 0
+    std::array<u8, 36> effect_tokens{}; // +0x13C, callout 0x36's tokens: a count, then up to eight words (0x0013B8B0)
+};
+static_assert(sizeof(HitStreamState) == 0x160);
 struct RuntimeHitStreamStateContext
 {
     std::span<u8> body;
@@ -67,15 +71,15 @@ struct RuntimeHitStreamStateContext
     RuntimeBodyTimerRecipient* first_timer; // Body +0x760.
 };
 void hit_stream_state_object_sizes(ObjectSizes& output); // Xbox 0x000971E0
-bool initialize_runtime_hit_stream_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_hit_stream_state(HitStreamState& state, std::span<const u8> parameters,
     RuntimeHitStreamStateContext& context); // Xbox 0x00097260
-void destroy_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateContext& context); // Xbox 0x00097400
-void tick_runtime_hit_stream_state(std::span<u8> state, RuntimeHitStreamStateContext& context); // Xbox 0x00097500
+void destroy_runtime_hit_stream_state(HitStreamState& state, RuntimeHitStreamStateContext& context); // Xbox 0x00097400
+void tick_runtime_hit_stream_state(HitStreamState& state, RuntimeHitStreamStateContext& context); // Xbox 0x00097500
 // Message 0x18 renews the stream and points the callout effects along its velocity at its point.
-void message_runtime_hit_stream_state(std::span<u8> state, std::span<const u32> message,
+void message_runtime_hit_stream_state(HitStreamState& state, std::span<const u32> message,
     RuntimeHitStreamStateContext& context); // Xbox 0x00097890
 // The energy the stream takes this tick (whole units of body +0x280 a second, into `taken`); the body's energy left.
-u16 drain_runtime_hit_stream(std::span<u8> state, u32& taken,
+u16 drain_runtime_hit_stream(HitStreamState& state, u32& taken,
     RuntimeHitStreamStateContext& context); // Xbox 0x000979F0, EAX state, EDI body
 // Type 0x76 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_hit_stream_state_class(std::span<ObjectFactoryType> types,

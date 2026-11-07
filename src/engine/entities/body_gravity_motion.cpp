@@ -1,6 +1,9 @@
 #include "body_gravity_motion.h"
+#include <cstddef>
 #include "actor_sound_pose.h"
 #include "player_overlay.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -30,13 +33,13 @@ float motion_angle(float value)
 float runtime_body_motion_speed(std::span<const u8> body, std::span<const u8> actor,
     const RuntimeBodyDamageTables& tables)
 {
-    const u16 tag = read_u16(actor, 0xCF4);
-    const u8 key = body[0x328];
+    const u16 tag = player_record(actor).damage_class;
+    const u8 key = body_record(body).move_class;
     if (tag == 0)
     {
-        return read_f32(body, 0x32C) * read_f32(tables.values, size_t(key) * 12 + 8);
+        return body_record(body).step_speed * read_f32(tables.values, size_t(key) * 12 + 8);
     }
-    return read_f32(body, 0x32C) * interpolate_runtime_damage_value(key,
+    return body_record(body).step_speed * interpolate_runtime_damage_value(key,
         tables.classes[size_t(tag) * 0x87 + key - 0x48], tables);
 }
 
@@ -45,12 +48,12 @@ void limit_runtime_body_backward_motion(Vec3& motion, std::span<const u8> body,
     const EntityBitBlock& flags, float lower)
 {
     if ((motion.x != 0.f || motion.y != 0.f || motion.z != 0.f)
-        && (flags.bytes[5] & 2) != 0 && body[0x19E] != 0)
+        && (flags.bytes[5] & 2) != 0 && body_record(body).has_ground != 0)
     {
         Vec3 direction{motion.x, 0.f, motion.z};
         normalize_vector_in_place(&direction.x);
-        float dot = (direction.z * read_f32(body, 0x18C) + direction.y * read_f32(body, 0x188))
-            + direction.x * read_f32(body, 0x184);
+        float dot = (direction.z * body_record(body).ground_normal.z + direction.y * body_record(body).ground_normal.y)
+            + direction.x * body_record(body).ground_normal.x;
         if (dot < 0.f)
         {
             if (dot < lower)
@@ -71,13 +74,13 @@ void step_runtime_gravity_motion(std::span<u8> body, std::span<const u8> actor_b
     std::span<float, 8> phases, float ratio_scale, float backward_lower,
     float turn_threshold, u32 limit, u32 reverse)
 {
-    const Vec3 start{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+    const Vec3 start = body_record(body).position;
     const Vec3 velocity = actor.anchor;
     const float elapsed = runtime_frame_step(clock) * runtime_actor_rate(actor);
     const auto* controller = animation.controller.get();
     const MinaPlayer* player = controller == nullptr ? nullptr : controller->slots.at(0).player.get();
     Vec3 motion;
-    if (player != nullptr && !player->mina.empty() && read_u16(player->mina, 0x1A) != 0)
+    if (player != nullptr && !player->mina.empty() && mina_root_motion(player->mina) != 0)
     {
         if (controller->selected_root == nullptr)
         {
@@ -86,7 +89,7 @@ void step_runtime_gravity_motion(std::span<u8> body, std::span<const u8> actor_b
         const float scale = actor.scale_200 * actor.radius_xz;
         const Vec3 root{scale * controller->selected_root->translation.x, 0.f,
             scale * controller->selected_root->translation.z};
-        float yaw = motion_angle(read_f32(body, 0x33C));
+        float yaw = motion_angle(body_record(body).heading);
         if (reverse != 0)
         {
             const float delta = motion_angle(float(static_cast<long double>(yaw) - actor.euler.y));
@@ -173,6 +176,6 @@ void step_runtime_gravity_motion(std::span<u8> body, std::span<const u8> actor_b
         limit_runtime_body_backward_motion(motion, body, flags, backward_lower);
     }
     const Vec3 result{motion.x + start.x, start.y + motion.y, motion.z + start.z};
-    std::memcpy(body.data() + 0x18, &result, sizeof(result));
+    std::memcpy(body.data() + offsetof(BodyRecord, position.x), &result, sizeof(result));
 }
 }

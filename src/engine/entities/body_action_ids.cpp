@@ -1,8 +1,11 @@
 #include "body_action_ids.h"
+#include "weapon_fields.h"
+#include "player_fields.h"
 #include "player_mind_events.h"
 #include <bit>
 #include "actor_transform.h"
 #include "../runtime/name_lookup.h"
+#include "body_fields.h"
 
 namespace gbtg
 {
@@ -12,7 +15,7 @@ u16 runtime_player_body_primary_id(std::span<const u8> body, const RuntimeBodyAc
     const RuntimePlayerGoalRing* goals, std::span<const u8> address_zero,
     const std::function<u16()>& primary_id, u16 retained_key)
 {
-    if (read_u16(body, 0x94) == 0 && table != nullptr)
+    if (body_record(body).energy == 0 && table != nullptr)
     {
         u32 output;
         if (find_runtime_script_table_row(table, 0x6A, output) != nullptr)
@@ -61,13 +64,13 @@ u32 runtime_player_goal_flag_name_id(const char* name, const char* const* names)
 // Xbox 0x00024C20
 bool runtime_body_timer_is_idle(std::span<const u8> body)
 {
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f;
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f;
 }
 
 // Xbox 0x00145FF0
 u16 classify_runtime_attached_actor(std::span<const u8> attached, u16 tag)
 {
-    const i16 count = std::bit_cast<i16>(read_u16(attached, 0x944));
+    const i16 count = std::bit_cast<i16>(weapon_base(attached).accepted_class_count);
     for (i32 index = 0; index < count; ++index)
     {
         const size_t row = 0x948 + size_t(index) * 0x10;
@@ -87,7 +90,7 @@ u16 classify_runtime_attached_actor(std::span<const u8> attached, u16 tag)
 u16 classify_runtime_attached_owner(std::span<const u8> attached, const Actor* owner)
 {
     const u16 tag = owner != nullptr ? owner->class_key : 0;
-    const i16 count = std::bit_cast<i16>(read_u16(attached, 0x944));
+    const i16 count = std::bit_cast<i16>(weapon_base(attached).accepted_class_count);
     for (i32 index = 0; index < count; ++index)
     {
         const size_t row = 0x948 + size_t(index) * 0x10;
@@ -117,11 +120,11 @@ bool runtime_body_has_action_id(const RuntimeScriptLookupTable* table, u16 key)
 // Xbox 0x001460C0
 bool runtime_attached_actor_allows_range(const RuntimeBodyAttachedActor& attached)
 {
-    if (attached.bytes[0x93F] == 1)
+    if (weapon_base(attached.bytes).unk_93F == 1)
     {
         return true;
     }
-    if (attached.bytes[0x93F] != 2)
+    if (weapon_base(attached.bytes).unk_93F != 2)
     {
         return false;
     }
@@ -129,8 +132,8 @@ bool runtime_attached_actor_allows_range(const RuntimeBodyAttachedActor& attache
     {
         return true;
     }
-    return read_u16(attached.host->bytes, 0xCDC) != 2
-        && read_u32(attached.host->bytes, 0x93C) == 0;
+    return player_record(attached.host->bytes).mode != 2
+        && player_record(attached.host->bytes).case_link == 0;
 }
 
 namespace
@@ -138,7 +141,7 @@ namespace
 void action_pair(const RuntimeBodyActionIds& context, u16& key, u16& fallback,
     const std::array<u16, 7>& keys, const std::array<u16, 7>& fallbacks)
 {
-    const u8 state = context.attached != nullptr ? context.attached->bytes[0x93D] : 0;
+    const u8 state = context.attached != nullptr ? weapon_base(context.attached->bytes).unk_93D : 0;
     if (state > 4)
     {
         key = 0;
@@ -177,7 +180,7 @@ u16 gated_id(const RuntimeBodyActionIds& context, const RuntimeScriptLookupTable
     u8 state = 0;
     if (context.attached != nullptr)
     {
-        state = context.attached->bytes[0x93D];
+        state = weapon_base(context.attached->bytes).unk_93D;
         if (state > 4)
         {
             return 0;
@@ -235,7 +238,7 @@ u32 direct_id(const RuntimeBodyActionIds& context, u32 idle, u32 active,
     u8 state = 0;
     if (context.attached != nullptr)
     {
-        state = context.attached->bytes[0x93D];
+        state = weapon_base(context.attached->bytes).unk_93D;
         if (state > 4)
         {
             return 0;
@@ -303,7 +306,7 @@ u32 runtime_body_attachment_action_id(const RuntimeBodyActionIds& context)
     u8 state = 0;
     if (context.attached != nullptr)
     {
-        state = context.attached->bytes[0x93D];
+        state = weapon_base(context.attached->bytes).unk_93D;
         if (state > 4)
         {
             return 0;
@@ -335,7 +338,7 @@ u32 runtime_body_attachment_action_id(const RuntimeBodyActionIds& context)
 // Xbox 0x00026A70
 u32 runtime_body_idle_action_id(const RuntimeBodyActionIds& context)
 {
-    if (context.attached != nullptr && context.attached->bytes[0x93D] != 0)
+    if (context.attached != nullptr && weapon_base(context.attached->bytes).unk_93D != 0)
     {
         return 0;
     }
@@ -344,7 +347,7 @@ u32 runtime_body_idle_action_id(const RuntimeBodyActionIds& context)
 // Xbox 0x000272D0
 u32 runtime_body_range_action_id(const RuntimeBodyActionIds& context)
 {
-    const u8 state = context.attached != nullptr ? context.attached->bytes[0x93D] : 0;
+    const u8 state = context.attached != nullptr ? weapon_base(context.attached->bytes).unk_93D : 0;
     if (state != 0)
     {
         if (state == 1)
@@ -447,7 +450,7 @@ u16 runtime_zombie_body_primary_parameter_id(std::span<const u8> body, const Run
     const u8* parameters, const EntityBitBlock& bits,
     const RuntimeScriptLookupTable* table, u16 retained_key)
 {
-    if (body[0x2D0] != 0 && body[0x2D0] == 1 && body[0x2D2] != 0)
+    if (body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == 1 && body_record(body).unk_2D2 != 0)
     {
         return 0x116;
     }
@@ -459,7 +462,7 @@ u16 runtime_zombie_body_secondary_parameter_id(std::span<const u8> body, const R
     const u8* parameters, const EntityBitBlock& bits,
     const RuntimeScriptLookupTable* table, u16 retained_key)
 {
-    if (body[0x2D0] != 0 && body[0x2D0] == 1 && body[0x2D2] != 0)
+    if (body_record(body).unk_2D0 != 0 && body_record(body).unk_2D0 == 1 && body_record(body).unk_2D2 != 0)
     {
         return 0x16D;
     }
@@ -562,7 +565,7 @@ u16 runtime_body_death_action_key()
 u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
     RuntimeBodyAttachedActor& attached, const RuntimeScriptLookupTable* table)
 {
-    const u8 state = attached.bytes[0x93D];
+    const u8 state = weapon_base(attached.bytes).unk_93D;
     if (state == 1)
     {
         const u16 classification = classify_runtime_attached_owner(attached.bytes, &owner);
@@ -573,11 +576,11 @@ u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
         case 2:
             return 0xC9;
         case 3:
-            if (attached.bytes[0x942] != 0)
+            if (weapon_base(attached.bytes).unk_942 != 0)
             {
                 const Vec3 source = actor_world_position(owner);
                 const Vec3 target = actor_world_position(*attached.actor);
-                const float height = (read_f32(body, 0x884) * owner.radius_y)
+                const float height = (body_record(body).height_scale * owner.radius_y)
                     * std::bit_cast<float>(0x3F59999Au);
                 if (target.y - source.y >= height && runtime_body_has_action_id(table, 0xC7))
                 {
@@ -595,11 +598,11 @@ u16 runtime_body_near_action_id(std::span<const u8> body, Actor& owner,
     {
         if (state == 2)
         {
-            if (attached.bytes[0x942] != 0)
+            if (weapon_base(attached.bytes).unk_942 != 0)
             {
                 const Vec3 source = actor_world_position(owner);
                 const Vec3 target = actor_world_position(*attached.actor);
-                const float height = (read_f32(body, 0x884) * owner.radius_y)
+                const float height = (body_record(body).height_scale * owner.radius_y)
                     * std::bit_cast<float>(0x3EB33333u);
                 if (target.y - source.y >= height && runtime_body_has_action_id(table, 0xC4))
                 {

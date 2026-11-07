@@ -1,4 +1,8 @@
 #include <unordered_set>
+#include "../src/engine/entities/player_fields.h"
+#include <cstddef>
+#include "../src/engine/entities/body_fields.h"
+#include "../src/engine/entities/strategy_fields.h"
 #include "gbtg/engine_internal.h"
 #include "../src/engine/runtime/throw_trace.h"
 #include "../src/engine/scene/cutscene_scene_runtime.h"
@@ -6,6 +10,9 @@
 #include "../src/engine/scene/scene_controls.h"
 #include "../src/engine/frontend/gameselect_slots.h"
 #include "../src/engine/frontend/app_error_screen.h"
+#include "../src/engine/frontend/gameselect_delete.h"
+#include "../src/engine/frontend/gameselect_naming.h"
+#include "../src/engine/frontend/gameselect_options.h"
 #include "../src/engine/audio/native_audio.h"
 #include "../src/engine/video/file_copy.h"
 #include "../src/engine/frontend/gameselect_stream_wait.h"
@@ -180,8 +187,8 @@
 
 namespace gbtg
 {
-extern i32& g_546328;
-extern i32& g_54632c;
+extern i32& g_transition_row;
+extern i32& g_transition_phase;
 extern i32 g_flag_2474;
 extern i32 g_draw_e1ec;
 extern i32 g_script_30d0c;
@@ -194,6 +201,106 @@ void check_scene_render();
 namespace
 {
 // The game-select control's widget while it is slot select (mode-table row 1), or null.
+// Whether the game select screen on top takes input now: the states that hand its prompts the front-end device
+// (0x00142460), with the prompts up. Between two screens game select isn't listening. Nothing holds outside its
+// scene: a challenge's run keeps the challenges widget open underneath it.
+bool gameselect_listening(const gbtg::Game& game)
+{
+    if (game.scene_script.name.find("gameselect") == std::string::npos)
+    {
+        return true;
+    }
+    if (gbtg::find_runtime_scene_control(0x9F) != nullptr) // The Gallery reads its own device.
+    {
+        return true;
+    }
+    if (game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0) // A closes a page.
+    {
+        return true;
+    }
+    const auto& frontend = gbtg::g_frontend;
+    const auto prompts_up = [](const auto* widget)
+    {
+        return widget->prompts != nullptr && widget->prompts->mode == 2 && 0 < widget->prompts->count;
+    };
+    const auto idle = [&prompts_up](const auto* widget)
+    {
+        return widget->state == 2 && prompts_up(widget);
+    };
+    if (frontend.naming_widget != nullptr)
+    {
+        return frontend.naming_widget->state == 2 && frontend.naming_widget->keyboard != nullptr;
+    }
+    if (frontend.bat_menu != nullptr && frontend.bat_menu->state != 2)
+    {
+        return false;
+    }
+    if (frontend.deletion_widget != nullptr)
+    {
+        return idle(frontend.deletion_widget);
+    }
+    if (frontend.scene_replay_widget != nullptr)
+    {
+        return idle(frontend.scene_replay_widget);
+    }
+    if (frontend.chapter_replay_widget != nullptr)
+    {
+        return idle(frontend.chapter_replay_widget);
+    }
+    if (frontend.bonus_book_replay_widget != nullptr)
+    {
+        return idle(frontend.bonus_book_replay_widget);
+    }
+    if (frontend.story_book_widget != nullptr)
+    {
+        return idle(frontend.story_book_widget);
+    }
+    if (frontend.options_widget != nullptr)
+    {
+        return idle(frontend.options_widget);
+    }
+    if (frontend.challenges_widget != nullptr)
+    {
+        return idle(frontend.challenges_widget);
+    }
+    if (frontend.features_widget != nullptr)
+    {
+        return idle(frontend.features_widget);
+    }
+    if (frontend.contents_widget != nullptr)
+    {
+        const auto* contents = frontend.contents_widget;
+        return 2 <= contents->state && contents->state <= 5 && prompts_up(contents);
+    }
+    if (frontend.slot_widget != nullptr)
+    {
+        return frontend.slot_widget->state == 5 && prompts_up(frontend.slot_widget);
+    }
+    return false;
+}
+
+// A scheduled press waits for the screen: the frame numbers below count from when game select opened, and a press
+// that lands while the screen isn't listening is lost, which leaves the rest of the sequence one press behind. While
+// it waits, `ready` moves up so the schedule holds at this press.
+void hold_gameselect_press(const gbtg::Game& game, gbtg::InputState& input, int& ready)
+{
+    bool pressed = input.up || input.down || input.left || input.right || input.accept || input.back || input.page;
+    for (const auto& pad : input.pads)
+    {
+        pressed = pressed || pad.buttons != 0;
+    }
+    if (ready < 0 || !pressed || gameselect_listening(game))
+    {
+        return;
+    }
+    input.up = input.down = input.left = input.right = input.accept = input.back = input.page = false;
+    for (auto& pad : input.pads)
+    {
+        pad.buttons = 0;
+    }
+    ++ready;
+}
+
 gbtg::SlotSelectWidget* native_slot_select()
 {
     gbtg::SceneControlInstance* control = gbtg::find_runtime_scene_control(0x9A);
@@ -1385,7 +1492,8 @@ void check_spawn_trigger_and_lifecycle()
     }
     // The swap setup (type 0x26) over its own +0x934..+0xA54 words: 0x0006BCA0, 0x0006C0A0 and 0x0006BC70.
     RequestProbe controller;
-    std::vector<u8> setup_bytes(ghouly_swap_field::kSize);
+    std::vector<u8> setup_bytes(sizeof(GhoulySwapState));
+    GhoulySwapState& setup_state = actor_record_view<GhoulySwapState>(std::span<u8>(setup_bytes));
     Actor setup_actor;
     Actor source;
     source.position = Vec3{5.f, 6.f, 7.f};
@@ -1408,7 +1516,7 @@ void check_spawn_trigger_and_lifecycle()
         {
             return address == 0x5000 ? &source : nullptr;
         }};
-    set(setup_bytes, ghouly_swap_field::source, 0x5000u);
+    setup_state.source = 0x5000u;
     Vec3 source_position;
     Vec3 source_euler;
     Vec3 position;
@@ -1418,10 +1526,10 @@ void check_spawn_trigger_and_lifecycle()
     {
         throw Error("swap setup pose query lost its actual spawn source");
     }
-    set(setup_bytes, ghouly_swap_field::radius, 2.f);
-    set(setup_bytes, ghouly_swap_field::chance, 1.f);
-    std::strcpy(field_data(setup_bytes, ghouly_swap_field::box), "aid_ghoulybox_trigger_test");
-    std::strcpy(field_data(setup_bytes, ghouly_swap_field::attributes), "attributes");
+    setup_state.radius = 2.f;
+    setup_state.chance = 1.f;
+    std::strcpy(setup_state.box.data(), "aid_ghoulybox_trigger_test");
+    std::strcpy(setup_state.attributes.data(), "attributes");
     update_runtime_ghouly_swap_setup(setup);
     if (requests.size() != 1 || requests[0][0] != 0xA8 ||
         std::strcmp(reinterpret_cast<const char*>(requests[0].data() + 1), "aid_ghoulybox_trigger_test") != 0 ||
@@ -1429,25 +1537,25 @@ void check_spawn_trigger_and_lifecycle()
     {
         throw Error("swap setup update did not send its actual queued request");
     }
-    set(setup_bytes, ghouly_swap_field::swapped, 1u);
+    setup_state.swapped = 1u;
     update_runtime_ghouly_swap_setup(setup);
     if (requests.size() != 1)
     {
         throw Error("swap setup update retriggered after its ghouly was made");
     }
     load = allocate_ghouly_spawn_record();
-    set(setup_bytes, ghouly_swap_field::load, 1u);
+    setup_state.load = 1u;
     update_runtime_ghouly_swap_setup(setup);
-    if (load != nullptr || get(setup_bytes, ghouly_swap_field::load) != 0)
+    if (load != nullptr || setup_state.load != 0)
     {
         throw Error("swap setup update retained a completed spawn record");
     }
     const size_t count = g_ghouly_controllers.size();
     g_ghouly_controllers.push_back({123, &controller});
     load = allocate_ghouly_spawn_record();
-    set(setup_bytes, ghouly_swap_field::load, 1u);
+    setup_state.load = 1u;
     destroy_runtime_ghouly_swap_setup(setup);
-    if (load != nullptr || get(setup_bytes, ghouly_swap_field::load) != 0 || g_ghouly_controllers.size() != count)
+    if (load != nullptr || setup_state.load != 0 || g_ghouly_controllers.size() != count)
     {
         throw Error("swap setup shutdown retained its record or registration");
     }
@@ -2331,10 +2439,10 @@ void check_actor_occupancy_and_paths()
     records[2].extent_z = 2.f;
     records[3] = records[2];
     OccupancyPool pool{0x38, 4, records.data(), records.data() + 3, records.data() + 4};
-    void* saved_pool = g_512344;
-    const i32 saved_mask = g_512348;
-    g_512344 = &pool;
-    g_512348 = 4;
+    void* saved_pool = g_occupancy_pool;
+    const i32 saved_mask = g_occupancy_mask;
+    g_occupancy_pool = &pool;
+    g_occupancy_mask = 4;
     if (find_occupancy_record(Vec3{}, 0.f, 4, nullptr, 7) != &records[1] ||
         find_occupancy_record(Vec3{}, 0.f, 4, &records[1], 7) != &records[2] ||
         find_occupancy_record(Vec3{}, 0.f, 4, nullptr, 9) != &records[2] ||
@@ -2481,8 +2589,8 @@ void check_actor_occupancy_and_paths()
         g_nav_min_y[index] = saved_min[index];
         g_nav_max_y[index] = saved_max[index];
     }
-    g_512344 = saved_pool;
-    g_512348 = saved_mask;
+    g_occupancy_pool = saved_pool;
+    g_occupancy_mask = saved_mask;
 }
 
 void check_native_audio_preparation(const char* directory)
@@ -2687,7 +2795,7 @@ void check_spawn_receiver_dependencies()
     {
         // Player dispatch 0x00028F60/0x00028FC0 through the same base receiver; ids 0xA9, 0xF,
         // 0x2D and 9 are ignored by 0x0003EF70.
-        std::vector<u8> player_bytes(0xE00);
+        std::vector<u8> player_bytes(0xF00);
         std::vector<std::vector<u32>> self_messages;
         RuntimeBodyAttachedActor self{player_bytes, 0x4000, [&](std::span<const u32> message)
             {
@@ -2731,7 +2839,7 @@ void check_spawn_receiver_dependencies()
             }};
         RuntimeScriptActorQueryContext query{[] { return std::vector<RuntimeScriptActorQueryView>{}; },
             zero.data()}; // An empty DAT_00511B38.
-        std::vector<u8> body_storage(0x900);
+        std::vector<u8> body_storage(0x950);
         std::span<u8> body_view = body_storage;
         entity_detail::LatchNode* latch = nullptr;
         RuntimePlayerGoalCleanup goals{self, ring, body_view, player_actor, latch, zero, overrides};
@@ -2755,7 +2863,8 @@ void check_spawn_receiver_dependencies()
         GhoulyVariantMessage variant;
         std::strcpy(variant.name, "variant");
         dispatch_runtime_player_message(&variant, player, children);
-        if (variant.result != 1 || read_u16(player_bytes, 0xB9C) != 1 || forwarded.size() != 2 || forwarded[0].first != &strategy
+        if (variant.result != 1 || gbtg::player_record(std::span<gbtg::u8>(player_bytes)).ghouly_kind != 1 || forwarded.size() != 2
+            || forwarded[0].first != &strategy
             || forwarded[1].first != &body || forwarded[1].second != 0xA9)
         {
             throw Error("player dispatch must handle 0xA9, then forward to the present strategy and body only");
@@ -2764,7 +2873,8 @@ void check_spawn_receiver_dependencies()
         dispatch_runtime_player_message(&bit_message, player, children);
         u32 pause_message = 9;
         dispatch_runtime_player_message(&pause_message, player, children);
-        if (bit_bytes[0] != 2 || read_u32(player_bytes, 0xCD8) != 1 || player_actor.parked_gate != 1 || forwarded.size() != 6)
+        if (bit_bytes[0] != 2 || gbtg::player_record(std::span<gbtg::u8>(player_bytes)).pause_count != 1
+            || player_actor.parked_gate != 1 || forwarded.size() != 6)
         {
             throw Error("player dispatch must set the body bit, count pauses and forward each message");
         }
@@ -3008,7 +3118,7 @@ void check_actor_loading()
         unlink_actor_view(last);
     }
     {
-        std::array<u8, 0x964> owner{};
+        std::array<u8, 0xF00> owner{};
         char replacement_source[128];
         char replacement_target[128];
         std::memset(replacement_source, 0xA5, sizeof(replacement_source));
@@ -3065,7 +3175,7 @@ void check_actor_loading()
             {10, owner}, {11, pool}, {12, actor_input}};
         const RuntimeInputReleaseContext context{addresses};
         release_runtime_input_device(composite, context);
-        if (read_u32(owner, 0x960) != 0 || read_u32(pool, 16) != 0
+        if (gbtg::player_record(std::span<gbtg::u8>(owner)).input_device != 0 || read_u32(pool, 16) != 0
             || read_u32(unknown, 4) != 0x12345678)
         {
             throw Error("recursive input release lost actor ownership or changed unknown device kinds");
@@ -3215,9 +3325,9 @@ void check_actor_loading()
             throw Error("input stack name lookup lost retail folding or missing result");
         }
         activate_runtime_input_entry("dialogue", context);
-        std::array<u8, 0x964> player_actor{};
+        std::array<u8, 0xF00> player_actor{};
         const u32 player_device = 0x1234;
-        std::memcpy(player_actor.data() + 0x960, &player_device, 4);
+        gbtg::player_record(std::span<gbtg::u8>(player_actor)).input_device = player_device;
         const auto retained_rows = rows;
         destroy_runtime_player_mind(player_actor, 0x800, context);
         if (current != 2 || pool.cursor != rows.data() + rows.size() || rows != retained_rows)
@@ -3230,7 +3340,7 @@ void check_actor_loading()
         {
             throw Error("player mind without input changed the input stack");
         }
-        std::memcpy(player_actor.data() + 0x960, &player_device, 4);
+        gbtg::player_record(std::span<gbtg::u8>(player_actor)).input_device = player_device;
         destroy_runtime_player_mind(player_actor, 0x1000, context);
         if (current != 1 || pool.cursor != rows.data() + 2 * 0x50
             || read_u32(rows, 0x50) != 103 || read_u32(rows, 0x48) != 1
@@ -6269,10 +6379,10 @@ void check_actor_loading()
         state.flags = 77;
         if (!initialize_actor_model_matrices(actor, state, types, views) ||
             state.matrices.count != 2 || state.matrices.node.data() != bytes.data() ||
-            read_u32(state.matrices.records, 0) != 0xFFFFFFFFu ||
-            read_u32(state.matrices.records, 0x48) != 7 ||
-            read_f32(state.matrices.records, 0x1C) != 1.f ||
-            read_u32(state.matrices.records, 0x48 + 0x44) != 0 ||
+            state.matrices.records[0].binding != 0xFFFFFFFFu ||
+            state.matrices.records[1].binding != 7 ||
+            state.matrices.records[0].scale.x != 1.f ||
+            state.matrices.records[1].active != 0 ||
             state.progress != 0.f || state.flags != 0)
         {
             throw Error("actor matrix setup lost first-match binding rejection or matrix defaults");
@@ -6346,27 +6456,28 @@ void check_actor_loading()
     parameter_word(0x440, 34);
     parameter_word(0x444, 56);
     u32 random_state = 0;
-    std::vector<u8> probe_bytes(ghouly_swap_field::kSize);
+    std::vector<u8> probe_bytes(sizeof(GhoulySwapState));
+    GhoulySwapState& probe_state = actor_record_view<GhoulySwapState>(std::span<u8>(probe_bytes));
     Actor probe_actor;
     GhoulySpawnRecord* probe_load = nullptr;
     RuntimeGhoulySwapSetup probe_setup{probe_bytes, probe_actor, probe, random_state, probe_load, {}, {}, {}, {}};
-    auto setup_word = [&](auto descriptor)
+    auto setup_word = [&](auto member)
     {
-        return std::bit_cast<u32>(get(probe_bytes, descriptor));
+        return std::bit_cast<u32>(probe_state.*member);
     };
-    set(probe_bytes, ghouly_swap_field::load, 0x1234u);
-    set(probe_bytes, ghouly_swap_field::anchor, 0x1234u);
-    set(probe_bytes, ghouly_swap_field::source, 0x1234u);
+    probe_state.load = 0x1234u;
+    probe_state.anchor = 0x1234u;
+    probe_state.source = 0x1234u;
     g_ghouly_controllers.clear();
     if (!initialize_runtime_ghouly_swap_setup(probe_setup, parameters) ||
         g_ghouly_controllers.size() != 1 || g_ghouly_controllers[0].key != 7 ||
         g_ghouly_controllers[0].controller != &probe || random_state != 0x3C6EF35Fu ||
-        get(probe_bytes, ghouly_swap_field::anchor) != 0 || get(probe_bytes, ghouly_swap_field::source) != 0 ||
-        get(probe_bytes, ghouly_swap_field::load) != 0x1234u ||
-        std::strcmp(field_data(probe_bytes, ghouly_swap_field::box), initial_box) != 0 ||
-        std::strcmp(field_data(probe_bytes, ghouly_swap_field::attributes), initial_attributes) != 0 ||
-        setup_word(ghouly_swap_field::radius) != 12 || setup_word(ghouly_swap_field::chance) != 34 ||
-        setup_word(ghouly_swap_field::unk_A50) != 56)
+        probe_state.anchor != 0 || probe_state.source != 0 ||
+        probe_state.load != 0x1234u ||
+        std::strcmp(probe_state.box.data(), initial_box) != 0 ||
+        std::strcmp(probe_state.attributes.data(), initial_attributes) != 0 ||
+        setup_word(&GhoulySwapState::radius) != 12 || setup_word(&GhoulySwapState::chance) != 34 ||
+        setup_word(&GhoulySwapState::unk_A50) != 56)
     {
         throw Error("swap setup initialization lost registry, random, or parameter fields");
     }
@@ -6379,8 +6490,8 @@ void check_actor_loading()
     random_state = 0;
     initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
     if (g_ghouly_controllers.size() != 1 || random_state != 0x3C6EF35Fu ||
-        setup_word(ghouly_swap_field::radius) != 12 || setup_word(ghouly_swap_field::unk_A50) != 78 ||
-        std::strcmp(field_data(probe_bytes, ghouly_swap_field::box), initial_box) != 0)
+        setup_word(&GhoulySwapState::radius) != 12 || setup_word(&GhoulySwapState::unk_A50) != 78 ||
+        std::strcmp(probe_state.box.data(), initial_box) != 0)
     {
         throw Error("unkeyed or rejected-chance initialization changed the wrong fields");
     }
@@ -6388,7 +6499,7 @@ void check_actor_loading()
     parameter_word(0x438, std::bit_cast<u32>(boundary));
     random_state = 0;
     initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
-    if (setup_word(ghouly_swap_field::radius) != 99)
+    if (setup_word(&GhoulySwapState::radius) != 99)
     {
         throw Error("swap setup chance equality was rejected");
     }
@@ -6396,7 +6507,7 @@ void check_actor_loading()
     parameter_word(0x43C, 100);
     random_state = 0;
     initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
-    if (setup_word(ghouly_swap_field::radius) != 99)
+    if (setup_word(&GhoulySwapState::radius) != 99)
     {
         throw Error("NaN swap setup chance selected a ghoulybox");
     }
@@ -6404,7 +6515,7 @@ void check_actor_loading()
     parameter_word(0x338, 0);
     random_state = 0;
     initialize_runtime_ghouly_swap_setup(probe_setup, parameters);
-    if (setup_word(ghouly_swap_field::radius) != 99 || random_state != 0x3C6EF35Fu)
+    if (setup_word(&GhoulySwapState::radius) != 99 || random_state != 0x3C6EF35Fu)
     {
         throw Error("non-AID box selected parameters or skipped its random draw");
     }
@@ -7403,9 +7514,9 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
             actor.radius_y = 3.f;
             actor.radius_xz = 4.f;
             actor.class_key = 42;
-            std::array<u8, 0x890> body_bytes{};
+            std::array<u8, 0x950> body_bytes{};
             const float factors[]{2.f, 3.f};
-            std::memcpy(body_bytes.data() + 0x884, factors, 8);
+            std::memcpy(body_bytes.data() + offsetof(gbtg::BodyRecord, height_scale), factors, 8);
             std::array<u8, 0x970> link{};
             const i16 count = 2;
             const u16 slots[]{11, 3, 42, 2};
@@ -7531,7 +7642,7 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
             {
                 throw Error("player intro reset failed to stop the selected voice");
             }
-            std::array<u8, 0xCE4> actor_bytes{};
+            std::array<u8, 0xF00> actor_bytes{};
             std::array<u8, 0x198> mind_bytes;
             std::array<u8, 0xA4> mind_parameters{};
             const u32 setting = 0x89ABCDEF;
@@ -7559,17 +7670,18 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
                 setup.animation_table = variant == 3 ? nullptr : &animations;
                 mind_bytes.fill(0xA6);
                 const u16 prior_health = 0xA6A6;
-                std::memcpy(body_bytes.data() + 0x94, &prior_health, 2);
-                std::memcpy(body_bytes.data() + 0x96, &prior_health, 2);
+                gbtg::body_record(std::span<gbtg::u8>(body_bytes)).energy = prior_health;
+                gbtg::body_record(std::span<gbtg::u8>(body_bytes)).max_energy = prior_health;
                 intro_enabled = 0;
                 if (!initialize_runtime_player_mind(mind_bytes, mind_parameters, setup))
                 {
                     throw Error("translated player mind constructor changed its return");
                 }
                 const u16 expected_health = variant == 1 || variant == 2 ? 10 : variant == 3 ? prior_health : 7;
-                if (read_u16(body_bytes, 0x94) != expected_health || read_u16(body_bytes, 0x96) != expected_health
+                if (gbtg::body_record(std::span<gbtg::u8>(body_bytes)).energy != expected_health
+                    || gbtg::body_record(std::span<gbtg::u8>(body_bytes)).max_energy != expected_health
                     || intro_enabled != (variant == 0 ? 1u : 0u)
-                    || read_u32(actor_bytes, 0xCE0) != 1 || actor_bytes[0x331] != 1
+                    || gbtg::player_record(std::span<gbtg::u8>(actor_bytes)).live != 1 || actor_bytes[0x331] != 1
                     || read_u32(mind_bytes, 0x144) != (variant == 3 ? 0u : 1u)
                     || read_u32(mind_bytes, 0x80) != setting || read_f32(mind_bytes, 0x12C) != 1.f
                     || read_u32(mind_bytes, 0x174) != 1 || read_u32(mind_bytes, 0x18C) != 1
@@ -8079,7 +8191,7 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
                 cooper = gbtg::actor_world_position(*mark.actor);
             }
             else if (mark.actor->class_key == 52 && !mark.strategy.empty() && !mark.body.empty()
-                && gbtg::read_u16(mark.body, 0x94) != 0)
+                && gbtg::body_record(mark.body).energy != 0)
             {
                 // The skeletons (class 52, strategy type 0x51) with energy left.
                 skeletons.push_back(mark);
@@ -8093,7 +8205,7 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
         }
         for (const auto& skeleton : skeletons)
         {
-            const gbtg::u16 state = gbtg::read_u16(skeleton.strategy, 0xE);
+            const gbtg::u16 state = gbtg::strategy_base(skeleton.strategy).state;
             auto [found, inserted] = skeleton_states.try_emplace(skeleton.address, state);
             if (inserted || found->second != state)
             {
@@ -8300,9 +8412,9 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
                     }
                 }
             }
-            if (!goal && gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+            if (!goal && gbtg::g_gate_2518 != 0 && gbtg::g_occupancy_pool != nullptr)
             {
-                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                 for (const auto* record = pool.begin; record < pool.cursor; ++record)
                 {
                     if ((record->mask & 1) != 0)
@@ -8536,8 +8648,6 @@ void log_scene_objects(gbtg::Game& game, const std::string& label, int frame)
 // Scene 4_2's breakables: the bg-break keys (type 0x1E), the bg-break setups (type 0x24) and Cooper.
 void log_scene4_breakables(gbtg::Game& game, const std::string& label, int frame)
 {
-    namespace key = gbtg::bg_break_key_field;
-    namespace setup = gbtg::ghouly_bg_break_field;
     if (const auto* steps = gbtg::g_event_sequence.steps; steps != nullptr)
     {
         std::cout << label << " frame " << frame << ": event state " << gbtg::g_event_sequence_state << ", steps";
@@ -8563,16 +8673,16 @@ void log_scene4_breakables(gbtg::Game& game, const std::string& label, int frame
         }
         if (object.type == 0x1E)
         {
-            std::cout << " background 0x" << std::hex << gbtg::get(bytes, key::background) << std::dec << " part "
-                      << gbtg::get(bytes, key::part) << " armed " << gbtg::get(bytes, key::armed) << " active "
-                      << gbtg::get(bytes, key::active);
+            std::cout << " background 0x" << std::hex << gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).background << std::dec << " part "
+                      << gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).part << " armed " << gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).armed << " active "
+                      << gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).active;
         }
         else if (object.type == 0x24)
         {
-            std::cout << " box '" << gbtg::field_data(bytes, setup::box) << "' background 0x" << std::hex
-                      << gbtg::get(bytes, setup::background) << std::dec << " part " << gbtg::get(bytes, setup::part)
-                      << " broken " << gbtg::get(bytes, setup::broken) << " radius " << gbtg::get(bytes, setup::radius)
-                      << " grouped " << gbtg::get(bytes, setup::grouped) << " hold " << gbtg::get(bytes, setup::hold_part);
+            std::cout << " box '" << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).box.data() << "' background 0x" << std::hex
+                      << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).background << std::dec << " part " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).part
+                      << " broken " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).broken << " radius " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).radius
+                      << " grouped " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).grouped << " hold " << gbtg::actor_record_view<gbtg::GhoulyBgBreakState>(bytes).hold_part;
         }
         std::cout << "\n";
     }
@@ -8649,7 +8759,7 @@ void play_scene4_run(gbtg::Game& game, const std::string& label, bool drive)
             if (object.type == 0x1E && object.bytes != nullptr)
             {
                 const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
-                key_active = gbtg::get(bytes, gbtg::bg_break_key_field::active) != 0;
+                key_active = gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).active != 0;
                 if (const gbtg::Actor* actor = actor_of_object(game, object); actor != nullptr)
                 {
                     key_at = gbtg::actor_world_position(*actor);
@@ -8686,9 +8796,9 @@ void play_scene4_run(gbtg::Game& game, const std::string& label, bool drive)
                           << ", the key's part " << std::sqrt(dx * dx + dz * dz) << " away\n";
             }
         }
-        else if (drive && !page && cooper && key_out >= 0 && !key_active && gbtg::g_512344 != nullptr)
+        else if (drive && !page && cooper && key_out >= 0 && !key_active && gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             for (const auto* record = pool.begin; record < pool.cursor; ++record)
             {
                 if ((record->mask & 1) != 0)
@@ -8804,13 +8914,13 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
             {
                 cooper = gbtg::actor_world_position(*mark.actor);
                 // A lost skeleton fight: Cooper's energy (body +0x94) runs out and the event goes back to Free Play.
-                fainted = fainted || (picked >= 0 && !mark.body.empty() && gbtg::read_u16(mark.body, 0x94) == 0);
+                fainted = fainted || (picked >= 0 && !mark.body.empty() && gbtg::body_record(mark.body).energy == 0);
             }
         }
         for (const auto& mark : actors.marked_actors())
         {
             if (cooper && mark.actor != nullptr && mark.actor->class_key == 52 && !mark.body.empty()
-                && gbtg::read_u16(mark.body, 0x94) != 0)
+                && gbtg::body_record(mark.body).energy != 0)
             {
                 const gbtg::Vec3 at = gbtg::actor_world_position(*mark.actor);
                 const float d = (at.x - cooper->x) * (at.x - cooper->x) + (at.z - cooper->z) * (at.z - cooper->z);
@@ -8849,9 +8959,9 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
             // Stage 2's skeleton waves keep coming while its section holds at its end with the exit open
             // (g_gate_2518): leave through the exit volume, by a waypoint in front of it, rather than fight on.
             std::optional<gbtg::Vec3> exit;
-            if (gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+            if (gbtg::g_gate_2518 != 0 && gbtg::g_occupancy_pool != nullptr)
             {
-                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                 for (const auto* record = pool.begin; record < pool.cursor; ++record)
                 {
                     if ((record->mask & 1) != 0)
@@ -8957,9 +9067,9 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                 goal = cue;
                 grab = cue_distance < 12.f * 12.f;
             }
-            else if (gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+            else if (gbtg::g_gate_2518 != 0 && gbtg::g_occupancy_pool != nullptr)
             {
-                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                 for (const auto* record = pool.begin; record < pool.cursor; ++record)
                 {
                     if ((record->mask & 1) != 0)
@@ -9068,7 +9178,7 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                         continue;
                     }
                     const gbtg::u32 body = game.factory_scene->address_of(mark.body.data());
-                    std::cout << label << " frame " << frame << ": Cooper energy " << gbtg::read_u16(mark.body, 0x94)
+                    std::cout << label << " frame " << frame << ": Cooper energy " << gbtg::body_record(mark.body).energy
                               << ", states";
                     std::span<const gbtg::u8> second_bytes;
                     const auto [first_action, second_action] = actors.player_action_types(*mark.actor, &second_bytes);
@@ -9078,9 +9188,9 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                         std::cout << " cutscenes " << stack->index << " stop " << stack->stop << " linked " << stack->linked;
                     }
                     std::cout << " bound " << (mark.actor->bind != nullptr && mark.actor->bind->parent != nullptr)
-                              << " held 0x" << std::hex << gbtg::read_u32(mark.body, 0x48) << " +0x4C 0x"
-                              << gbtg::read_u32(mark.body, 0x4C) << std::dec << " +0x30 " << gbtg::read_u16(mark.body, 0x30)
-                              << " +0x258 " << gbtg::read_u32(mark.body, 0x258) << " +0x6A " << int(mark.body[0x6A]);
+                              << " held 0x" << std::hex << gbtg::body_record(mark.body).attached << " +0x4C 0x"
+                              << gbtg::body_record(mark.body).unk_4C << std::dec << " +0x30 " << gbtg::body_record(mark.body).move_holds
+                              << " +0x258 " << gbtg::body_record(mark.body).holds << " +0x6A " << int(gbtg::body_record(mark.body).unk_6A);
                     if (second_action == 0x7A && second_bytes.size() > 0x60)
                     {
                         std::cout << " knockdown phase " << gbtg::read_u32(second_bytes, 0x18) << " +0x34 "
@@ -9090,15 +9200,16 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                                   << " rate " << mark.actor->animation_rate << " pause " << mark.actor->animation_pause
                                   << " +0x5E " << gbtg::read_u16(second_bytes, 0x5E) << " +0xC "
                                   << gbtg::read_u16(second_bytes, 0xC) << " body +0x73C "
-                                  << gbtg::read_u32(mark.body, 0x73C);
+                                  << gbtg::body_record(mark.body).unk_73C;
                     }
                     for (const auto& object : game.factory_scene->objects)
                     {
                         const gbtg::u32 at = object.bytes == nullptr ? 0 : game.factory_scene->address_of(object.bytes.get());
-                        if (at != 0 && (at == gbtg::read_u32(mark.body, 0x740) || at == gbtg::read_u32(mark.body, 0x744)))
+                        if (at != 0 && (at == gbtg::body_record(mark.body).unk_740
+                            || at == gbtg::body_record(mark.body).unk_744))
                         {
                             std::cout << " 0x" << std::hex << object.type << std::dec
-                                      << (at == gbtg::read_u32(mark.body, 0x744) ? " (+0x744)" : " (+0x740)");
+                                      << (at == gbtg::body_record(mark.body).unk_744 ? " (+0x744)" : " (+0x740)");
                         }
                     }
                     std::cout << "\n";
@@ -9207,7 +9318,7 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
             for (const auto& mark : actors.marked_actors())
             {
                 if (mark.actor == nullptr || mark.actor->class_key == 4 || mark.body.empty()
-                    || gbtg::read_u16(mark.body, 0x94) == 0)
+                    || gbtg::body_record(mark.body).energy == 0)
                 {
                     continue;
                 }
@@ -9223,9 +9334,9 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
         // A section held at its end (type 0xF, DAT_00512518) waits for the player to leave: walk into the exit volume
         // (mask 1), lined up with it across x first, rather than fight the generator's spiders on.
         std::optional<gbtg::Vec3> exit;
-        if (cooper && title == "Ghouly Generator Introduction" && gbtg::g_gate_2518 != 0 && gbtg::g_512344 != nullptr)
+        if (cooper && title == "Ghouly Generator Introduction" && gbtg::g_gate_2518 != 0 && gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             for (const auto* record = pool.begin; record < pool.cursor; ++record)
             {
                 if ((record->mask & 1) != 0)
@@ -9367,9 +9478,9 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
     std::cout << label << ": pages " << pages << ", title " << title << "\n";
     if (moved_on < 0)
     {
-        if (gbtg::g_512344 != nullptr)
+        if (gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             for (const auto* record = pool.begin; record < pool.cursor; ++record)
             {
                 std::cout << label << " volume mask " << int(record->mask) << " value " << record->value_0 << " at "
@@ -9501,9 +9612,10 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             if (mark.actor != nullptr && mark.actor->class_key == player_class)
             {
                 cooper = gbtg::actor_world_position(*mark.actor);
-                holding = !mark.body.empty() && gbtg::read_u32(mark.body, 0x48) != 0; // Body +0x48, the held weapon.
-                held_weapon = mark.body.empty() ? 0u : gbtg::read_u32(mark.body, 0x48);
-                energy = mark.body.empty() ? 0 : gbtg::read_u16(mark.body, 0x94); // Body +0x94.
+                // Body +0x48, the held weapon.
+                holding = !mark.body.empty() && gbtg::body_record(mark.body).attached != 0;
+                held_weapon = mark.body.empty() ? 0u : gbtg::body_record(mark.body).attached;
+                energy = mark.body.empty() ? 0 : gbtg::body_record(mark.body).energy; // Body +0x94.
                 // A driver cheat, not game behaviour: with `invincible`, Cooper's energy goes back to the most he has
                 // had each frame, so a fight the driver cannot win safely still reaches its later phases.
                 if (invincible && !mark.body.empty())
@@ -9533,9 +9645,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         std::optional<gbtg::Vec3> goal;
         std::string goal_name;
         bool to_exit = false; // The live region is off the navigation grid.
-        if (cooper && !page && gbtg::g_512344 != nullptr)
+        if (cooper && !page && gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             // With `doors_first`, a live PlayerApproachesDoor (condition 6, its +8 word the door) sends Cooper to the
             // door's actor (its clip's first track, 0x0005BEC0) before any region.
             for (const auto& condition : gbtg::g_script_conds)
@@ -9720,7 +9832,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 // Cooper goes on to the goal when he is the only one (scene 5_13's front gate).
                 if (mark.actor == nullptr || unreachable.contains(mark.actor) || mark.actor->class_key == player_class
                     || mark.body.empty()
-                    || gbtg::read_u16(mark.body, 0x94) == 0
+                    || gbtg::body_record(mark.body).energy == 0
                     || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37
                     || mark.actor->class_key == 8 || mark.actor->class_key == 6 || mark.actor->class_key == 0xB
                     || (mark.actor->class_key == 0x33 && goal))
@@ -9736,7 +9848,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     ghouly = at;
                     ghouly_class = mark.actor->class_key;
                     ghouly_actor = mark.actor;
-                    ghouly_energy = gbtg::read_u16(mark.body, 0x94);
+                    ghouly_energy = gbtg::body_record(mark.body).energy;
                 }
             }
         }
@@ -9754,8 +9866,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 {
                     continue;
                 }
-                const gbtg::u32 dropped = gbtg::read_u32(mark.strategy, 0x38);
-                if (dropped == 0 || gbtg::read_u32(mark.body, 0x48) == dropped)
+                const gbtg::u32 dropped = gbtg::strategy_view<gbtg::CarriedWeaponStrategy>(mark.strategy).weapon;
+                if (dropped == 0 || gbtg::body_record(mark.body).attached == dropped)
                 {
                     continue;
                 }
@@ -9787,8 +9899,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             {
                 if (mark.actor != nullptr && mark.actor->class_key == player_class && !mark.body.empty())
                 {
-                    health = gbtg::read_u16(mark.body, 0x94);
-                    full = gbtg::read_u16(mark.body, 0x96);
+                    health = gbtg::body_record(mark.body).energy;
+                    full = gbtg::body_record(mark.body).max_energy;
                 }
             }
             std::optional<gbtg::Vec3> soup;
@@ -10015,7 +10127,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     continue;
                 }
                 const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
-                if (gbtg::get(bytes, gbtg::bg_break_key_field::active) != 0)
+                if (gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).active != 0)
                 {
                     std::cout << label << " frame " << frame << ": the key comes out\n";
                     key_found = true;
@@ -10023,7 +10135,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     break;
                 }
                 const gbtg::Actor* actor = actor_of_object(game, object);
-                if (actor != nullptr && gbtg::get(bytes, gbtg::bg_break_key_field::armed) != 0)
+                if (actor != nullptr && gbtg::actor_record_view<gbtg::BgBreakKeyState>(bytes).armed != 0)
                 {
                     key_at = gbtg::actor_world_position(*actor);
                 }
@@ -10305,14 +10417,13 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         }
         // With `answer_challenges`, a Super Scary challenge (factory type 0x98) waiting on Cooper (states 5 and 6)
         // gets the next button in its row, as A..Y (0x100 << button).
-        namespace challenge_field = gbtg::super_scary_field;
         if (const auto* challenge = gbtg::find_runtime_scene_control(0x98); answer_challenges && challenge != nullptr)
         {
-            const gbtg::u32 phase = gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+            const gbtg::u32 phase = gbtg::u32(challenge->super_scary->phase);
             if ((phase == 5 || phase == 6) && frame % 8 < 3)
             {
-                const gbtg::i32 presses = gbtg::get(challenge->state, challenge_field::presses);
-                const gbtg::u32 button = gbtg::field_data(challenge->state, challenge_field::buttons)[size_t(presses)];
+                const gbtg::i32 presses = challenge->super_scary->presses;
+                const gbtg::u32 button = challenge->super_scary->buttons[size_t(presses)];
                 input.pads[0].buttons = gbtg::u16(0x100u << button);
             }
         }
@@ -10321,7 +10432,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         for (const auto& mark : actors.marked_actors())
         {
             if (mark.actor != nullptr && mark.actor->class_key == player_class && !mark.body.empty()
-                && gbtg::read_u32(mark.body, 0x718) != 0)
+                && gbtg::body_record(mark.body).rider != 0)
             {
                 input.pads[0].lx = frame % 2 == 0 ? gbtg::i16(32767) : gbtg::i16(-32767);
                 input.pads[0].ly = 0;
@@ -10332,7 +10443,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         {
             const auto* challenge = gbtg::find_runtime_scene_control(0x98);
             const gbtg::u32 now =
-                challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+                challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(challenge->super_scary->phase);
             if (now != last_challenge)
             {
                 std::cout << label << " frame " << frame << ": Super Scary state " << int(now) << "\n";
@@ -10385,10 +10496,10 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             if (frame == 0)
             {
                 log_scene_objects(game, label, frame);
-                if (gbtg::g_512344 != nullptr)
+                if (gbtg::g_occupancy_pool != nullptr)
                 {
                     // The occupancy records (DAT_00512344): the regions PlayerEntersRegion names and the exit volume.
-                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                     for (const auto* record = pool.begin; record < pool.cursor; ++record)
                     {
                         std::cout << label << " frame 0: region " << record->value_0 << " mask " << record->mask
@@ -10415,9 +10526,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     std::cout << label << ": pages " << pages << ", title " << title << "\n";
     if (moved_on < 0)
     {
-        if (gbtg::g_512344 != nullptr)
+        if (gbtg::g_occupancy_pool != nullptr)
         {
-            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+            const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
             for (const auto* record = pool.begin; record < pool.cursor; ++record)
             {
                 std::cout << label << " volume mask " << int(record->mask) << " value " << record->value_0 << " at "
@@ -10507,7 +10618,7 @@ void play_pause_run(gbtg::Game& game)
     auto& actors = game.factory_scene->start_actors(game);
     const auto scene_state = []()
     {
-        return gbtg::read_u32({gbtg::g_510e58, 0x108}, 0x104); // DAT_00510F5C
+        return gbtg::read_u32({gbtg::g_scene_record, 0x108}, 0x104); // DAT_00510F5C
     };
     int cooper_frame = -1;
     int free_frame = -1;
@@ -10544,7 +10655,7 @@ void play_pause_run(gbtg::Game& game)
             }
         }
         // The walk-in holds DAT_00510CEC until Free Play, and the scene tick ignores Start while it is held.
-        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_510cec == 0)
+        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_pause_count == 0)
         {
             free_frame = frame;
             std::cout << "pause frame " << frame << ": nothing holds the scene (DAT_00510CEC 0)\n";
@@ -10763,7 +10874,7 @@ void play_pause_rules_run(gbtg::Game& game)
             reopened_frame = frame;
             std::cout << "pause-rules frame " << frame << ": the rules closed and the book holds open\n";
         }
-        if (reopened_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_510e58, 0x108}, 0x104) == 1)
+        if (reopened_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_scene_record, 0x108}, 0x104) == 1)
         {
             resumed_frame = frame;
         }
@@ -10813,7 +10924,7 @@ void play_pause_map_run(gbtg::Game& game)
                 }
             }
         }
-        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_510cec == 0)
+        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_pause_count == 0)
         {
             free_frame = frame;
         }
@@ -10871,7 +10982,7 @@ void play_pause_map_run(gbtg::Game& game)
             std::cout << "pause-map frame " << frame << ": back from the map, prompt row "
                       << gbtg::g_scene_pause.prompt << "\n";
         }
-        if (returned_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_510e58, 0x108}, 0x104) == 1)
+        if (returned_frame >= 0 && resumed_frame < 0 && gbtg::read_u32({gbtg::g_scene_record, 0x108}, 0x104) == 1)
         {
             resumed_frame = frame;
         }
@@ -10917,7 +11028,7 @@ void play_pause_quit_run(gbtg::Game& game)
                 }
             }
         }
-        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_510cec == 0)
+        if (cooper_frame >= 0 && free_frame < 0 && gbtg::g_pause_count == 0)
         {
             free_frame = frame;
             std::cout << "pause-quit frame " << frame << ": nothing holds the scene\n";
@@ -11165,13 +11276,14 @@ void start_saved_game(gbtg::Game& game, const std::string& label)
         }
         gbtg::InputState input;
         input.start = frame == 120;
-        if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+        if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
         {
             ready = frame;
             std::cout << label << ": game select ready at frame " << frame << "\n";
         }
         const int at = ready < 0 ? -1 : frame - ready;
         input.accept = at == 180 || at == 900;
+        hold_gameselect_press(game, input, ready);
         gbtg::gfx_begin_frame();
         game.tick(1.f / 59.f, input); // Game select's tests step the wall-clock path.
         gbtg::gfx_end_frame();
@@ -11191,6 +11303,8 @@ int main(int argc, char** argv)
     open_test_run(argc, argv);
     // Tests play at 10% master volume (AGENTS.md); the master voice takes it when it is created.
     gbtg::pcm_set_master_volume(0.1f);
+    // Test frames don't run in real time: cue state follows game time, so runs of one build are identical.
+    gbtg::pcm_use_virtual_audio_clock();
 #if !defined(GBTG_RETAIL_GAME_ONLY)
     // GBTG_PLUGINS_DIR loads that folder's plugins as gbtg does (docs/PLUGINS.md), for --gameselect-feature on a
     // plugin's story. Without it the tests load none.
@@ -11727,7 +11841,7 @@ int main(int argc, char** argv)
                 }
             }
         }
-        if (loading_test)
+        if (loading_test && std::filesystem::is_directory(gbtg::utility_root()))
         {
             for (const auto& entry : std::filesystem::recursive_directory_iterator(gbtg::utility_root()))
             {
@@ -12908,10 +13022,6 @@ int main(int argc, char** argv)
             // later ones (state 8). A closes Crivens' page after each; the heads' cutscene then resumes (state 1).
             std::string title = game.scene_name;
             const std::string scene_script = game.scene_script.name;
-            const auto words = [](const gbtg::SceneControlInstance& control, size_t offset)
-            {
-                return gbtg::read_u32(control.state, offset);
-            };
             int challenges = 0;
             int failures = 0;
             int successes = 0;
@@ -12928,15 +13038,14 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 const auto* challenge = gbtg::find_runtime_scene_control(0x98);
-                namespace challenge_field = gbtg::super_scary_field;
                 const gbtg::u32 phase =
-                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(challenge->super_scary->phase);
                 if (challenge != nullptr && (phase == 5 || phase == 6) && challenges > 1)
                 {
                     // Cooper's press: the next button in the row, as A..Y (0x100 << button).
-                    const gbtg::i32 presses = gbtg::get(challenge->state, challenge_field::presses);
+                    const gbtg::i32 presses = challenge->super_scary->presses;
                     const gbtg::u32 button =
-                        gbtg::field_data(challenge->state, challenge_field::buttons)[size_t(presses)];
+                        challenge->super_scary->buttons[size_t(presses)];
                     if (frame % 8 < 3)
                     {
                         input.pads[0].buttons = gbtg::u16(0x100u << button);
@@ -12948,7 +13057,7 @@ int main(int argc, char** argv)
                 game.tick(1.f / 60.f, input);
                 challenge = gbtg::find_runtime_scene_control(0x98);
                 const gbtg::u32 now =
-                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(gbtg::get(challenge->state, challenge_field::phase));
+                    challenge == nullptr ? 0xFFFFFFFFu : gbtg::u32(challenge->super_scary->phase);
                 if (now != last_challenge)
                 {
                     std::cout << "scene6 frame " << frame << ": Super Scary state " << int(now) << "\n";
@@ -12979,11 +13088,11 @@ int main(int argc, char** argv)
                 }
                 if (const auto* heads = gbtg::find_runtime_scene_control(0x92); heads != nullptr)
                 {
-                    const gbtg::u32 state = gbtg::read_u16(heads->state, 0x44);
+                    const gbtg::u32 state = heads->trophy_heads->phase;
                     if (state != last_heads)
                     {
                         std::cout << "scene6 frame " << frame << ": trophy heads state " << state << ", health "
-                                  << words(*heads, 0x34) << ", attacks " << words(*heads, 0x30) << "\n";
+                                  << heads->trophy_heads->health << ", attacks " << heads->trophy_heads->attacks << "\n";
                         resumed += state == 1 && last_heads != 0xFFFFFFFFu ? 1 : 0;
                         last_heads = state;
                     }
@@ -13118,7 +13227,7 @@ int main(int argc, char** argv)
             };
             const auto strategy_state = [](const gbtg::RuntimeDirectorActor& mark)
             {
-                return mark.strategy.empty() ? 0 : gbtg::read_u16(mark.strategy, 0xE);
+                return mark.strategy.empty() ? 0 : gbtg::strategy_base(mark.strategy).state;
             };
             // Script type 0x2F sends Cooper goal 7 (message 0x4D): his strategy holds in its goal state 0x3FB until
             // type 0x30 (message 0x32) releases him after the tutorial.
@@ -13592,11 +13701,11 @@ int main(int argc, char** argv)
                 // The centre of the first region record named by a live PlayerEntersRegion condition.
                 const auto region_goal = [&]() -> std::optional<gbtg::Vec3>
                 {
-                    if (gbtg::g_512344 == nullptr)
+                    if (gbtg::g_occupancy_pool == nullptr)
                     {
                         return std::nullopt;
                     }
-                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_512344);
+                    const auto& pool = *static_cast<const gbtg::OccupancyPool*>(gbtg::g_occupancy_pool);
                     for (const auto& condition : gbtg::g_script_conds)
                     {
                         if (gbtg::cond_u32(condition, 0) != 8)
@@ -13795,7 +13904,7 @@ int main(int argc, char** argv)
                     {
                         if (mark.actor->class_key == 4)
                         {
-                            const int health = gbtg::read_u16(mark.body, 0x94);
+                            const int health = gbtg::body_record(mark.body).energy;
                             if (cooper_start_health < 0)
                             {
                                 cooper_start_health = health;
@@ -13806,8 +13915,8 @@ int main(int argc, char** argv)
                         {
                             continue;
                         }
-                        const gbtg::u16 action = gbtg::read_u16(mark.body, 0x748);
-                        const gbtg::u16 health = gbtg::read_u16(mark.body, 0x94);
+                        const gbtg::u16 action = gbtg::body_record(mark.body).action_key;
+                        const gbtg::u16 health = gbtg::body_record(mark.body).energy;
                         const auto found = reactions.find(mark.address);
                         if (found != reactions.end() && found->second.first == 0x7E && found->second.second != 0
                             && health == 0)
@@ -13836,7 +13945,7 @@ int main(int argc, char** argv)
                         {
                             if (mark.actor->class_key == 4)
                             {
-                                return gbtg::read_u16(mark.body, 0x94);
+                                return gbtg::body_record(mark.body).energy;
                             }
                         }
                         return -1;
@@ -13897,7 +14006,7 @@ int main(int argc, char** argv)
                             {
                                 if (mark.actor->class_key == 4)
                                 {
-                                    return mark.strategy.empty() ? 0 : gbtg::read_u16(mark.strategy, 0xE);
+                                    return mark.strategy.empty() ? 0 : gbtg::strategy_base(mark.strategy).state;
                                 }
                             }
                             return -1;
@@ -14392,7 +14501,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -14473,6 +14582,7 @@ int main(int argc, char** argv)
                         break;
                     }
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -14568,7 +14678,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -14640,6 +14750,7 @@ int main(int argc, char** argv)
                         gbtg::gfx_shutdown();
                         return 0;
                     }
+                    hold_gameselect_press(game, input, ready);
                     gbtg::gfx_begin_frame();
                     game.tick(1.f / 59.f, input);
                     gbtg::gfx_end_frame();
@@ -14760,6 +14871,7 @@ int main(int argc, char** argv)
                         back_at = frame;
                     }
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -14981,7 +15093,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -15055,6 +15167,7 @@ int main(int argc, char** argv)
                         }
                     }
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -15129,7 +15242,7 @@ int main(int argc, char** argv)
                     capture_as("stream_wait");
                 }
                 if (left_at >= 0 && returned_at < 0 && game.scene_script.name == "aid_script_ghoulies_gameselect_gameselect"
-                    && gbtg::g_54632c == 0)
+                    && gbtg::g_transition_phase == 0)
                 {
                     returned_at = frame;
                     std::cout << "back in game select at frame " << frame << "\n";
@@ -15183,7 +15296,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -15212,6 +15325,7 @@ int main(int argc, char** argv)
                 {
                     done_at = frame;
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -15265,7 +15379,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -15348,7 +15462,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.start = frame == 120;
-                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_54632c == 0)
+                if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                 }
@@ -15403,6 +15517,7 @@ int main(int argc, char** argv)
                         std::cout << "after page " << pages.size() << ": " << pages.back() << "\n";
                     }
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -15457,7 +15572,7 @@ int main(int argc, char** argv)
                 gbtg::InputState input;
                 input.start = frame == 120;
                 if (ready < 0 && game.scene_script.name.find("gameselect") != std::string::npos
-                    && gbtg::g_54632c == 0)
+                    && gbtg::g_transition_phase == 0)
                 {
                     ready = frame;
                     std::cout << "game select ready at frame " << frame << "\n";
@@ -15513,6 +15628,7 @@ int main(int argc, char** argv)
                     input.accept = at == 180;
                     input.back = at == 360;
                 }
+                hold_gameselect_press(game, input, ready);
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
@@ -15668,7 +15784,7 @@ int main(int argc, char** argv)
                         visited.push_back(game.scene_script.name);
                         std::cout << "replay run-on frame " << frame << ": scene " << game.scene_script.name << "\n";
                     }
-                    const bool running = gbtg::g_54632c == 0;
+                    const bool running = gbtg::g_transition_phase == 0;
                     if (game.scene_script.name == held[held.size() - 2] && running && played < 0)
                     {
                         played = frame;
@@ -15858,7 +15974,7 @@ int main(int argc, char** argv)
                 }
                 auto* slots = native_slot_select();
                 if (game.scene_script.name.find("gameselect") != std::string::npos && slots != nullptr
-                    && gbtg::g_54632c == 0)
+                    && gbtg::g_transition_phase == 0)
                 {
                     // Let the slot prompts come up, then press Right and give its callback (0x000E0210) time.
                     const auto tick = [&game](const gbtg::InputState& state, int frames)
@@ -15870,7 +15986,10 @@ int main(int argc, char** argv)
                             gbtg::gfx_end_frame();
                         }
                     };
-                    tick(gbtg::InputState{}, 90);
+                    for (int wait = 0; wait < 600 && !gameselect_listening(game); ++wait)
+                    {
+                        tick(gbtg::InputState{}, 1);
+                    }
                     slots = native_slot_select();
                     if (slots == nullptr)
                     {
@@ -15921,9 +16040,9 @@ int main(int argc, char** argv)
             game.tick(1.f / 60.f, input);
             gbtg::gfx_end_frame();
             saw_intro = saw_intro || game.scene_script.name.find("scene0_1book") != std::string::npos;
-            if (gbtg::g_546328 == 15 && (gbtg::g_54632c == 1 || gbtg::g_54632c == 3))
+            if (gbtg::g_transition_row == 15 && (gbtg::g_transition_phase == 1 || gbtg::g_transition_phase == 3))
             {
-                int& frames = gbtg::g_54632c == 1 ? goop_enter_frames : goop_exit_frames;
+                int& frames = gbtg::g_transition_phase == 1 ? goop_enter_frames : goop_exit_frames;
                 ++frames;
                 if (frames == 30)
                 {
@@ -15932,7 +16051,7 @@ int main(int argc, char** argv)
                     {
                         throw gbtg::Error("goop transition readback failed");
                     }
-                    gbtg::write_bmp(gbtg::g_54632c == 1 ? "cache/goop_enter_check.bmp" :
+                    gbtg::write_bmp(gbtg::g_transition_phase == 1 ? "cache/goop_enter_check.bmp" :
                                                                          "cache/goop_exit_check.bmp", image);
                 }
                 if (frames == 5 || frames == 15 || frames == 60)
@@ -15940,12 +16059,12 @@ int main(int argc, char** argv)
                     gbtg::RgbaImage image;
                     if (gbtg::gfx_readback(image))
                     {
-                        gbtg::write_bmp(std::string("cache/transition_goop_") + (gbtg::g_54632c == 1 ? "enter_" : "exit_")
+                        gbtg::write_bmp(std::string("cache/transition_goop_") + (gbtg::g_transition_phase == 1 ? "enter_" : "exit_")
                             + std::to_string(frames) + ".bmp", image);
                     }
                 }
             }
-            if (gbtg::g_546328 == 8 && gbtg::g_54632c != 0)
+            if (gbtg::g_transition_row == 8 && gbtg::g_transition_phase != 0)
             {
                 if (!saw_intro)
                 {
@@ -15953,8 +16072,8 @@ int main(int argc, char** argv)
                 }
                 saw_map = true;
                 ++map_frames;
-                saw_load_release = saw_load_release || gbtg::g_54632c == 2;
-                saw_close = saw_close || gbtg::g_54632c == 3;
+                saw_load_release = saw_load_release || gbtg::g_transition_phase == 2;
+                saw_close = saw_close || gbtg::g_transition_phase == 3;
                 if (map_frames == 5 || map_frames == 30 || map_frames == 90 || map_frames == 150 || map_frames == 270
                     || map_frames == 330 || map_frames == 400)
                 {
@@ -15982,13 +16101,13 @@ int main(int argc, char** argv)
                     throw gbtg::Error("next story started before the map load barrier");
                 }
                 saw_next = true;
-                if (gbtg::g_54632c == 0 && story->instances[size_t(story->index)]->time > 1.f)
+                if (gbtg::g_transition_phase == 0 && story->instances[size_t(story->index)]->time > 1.f)
                 {
                     break;
                 }
             }
         }
-        if (!saw_intro || !saw_map || !saw_load_release || !saw_close || !saw_next || gbtg::g_54632c != 0)
+        if (!saw_intro || !saw_map || !saw_load_release || !saw_close || !saw_next || gbtg::g_transition_phase != 0)
         {
             throw gbtg::Error("intro -> map -> next story did not complete");
         }
@@ -16010,7 +16129,7 @@ int main(int argc, char** argv)
                 gbtg::gfx_begin_frame();
                 game.tick(1.f / 59.f, {});
                 gbtg::gfx_end_frame();
-                if (gbtg::g_546328 == 15 && gbtg::g_54632c == 1)
+                if (gbtg::g_transition_row == 15 && gbtg::g_transition_phase == 1)
                 {
                     ++entering;
                     if (entering == 30)
@@ -16023,17 +16142,17 @@ int main(int argc, char** argv)
                         gbtg::write_bmp("cache/goop_second_check.bmp", image);
                     }
                 }
-                if (gbtg::g_546328 == 15 && gbtg::g_54632c == 3)
+                if (gbtg::g_transition_row == 15 && gbtg::g_transition_phase == 3)
                 {
                     ++exiting;
                 }
                 const auto* story = gbtg::find_scene_cutscene_runtime(game);
-                if (entering > 80 && exiting > 80 && gbtg::g_54632c == 0 && story != nullptr && -1 < story->index)
+                if (entering > 80 && exiting > 80 && gbtg::g_transition_phase == 0 && story != nullptr && -1 < story->index)
                 {
                     break;
                 }
             }
-            if (entering < 80 || exiting < 80 || gbtg::g_54632c != 0)
+            if (entering < 80 || exiting < 80 || gbtg::g_transition_phase != 0)
             {
                 throw gbtg::Error("second goop transition did not complete");
             }

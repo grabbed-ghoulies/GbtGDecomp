@@ -1,5 +1,9 @@
 #include "body_health.h"
+#include "body_damage_curve.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "../audio/listener_settings.h"
+#include "player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -8,15 +12,16 @@ namespace gbtg
 void initialize_runtime_body_health(std::span<u8> body, std::span<const u8> parameters,
     RuntimeBodyHealth& context)
 {
-    const u16 tag = read_u16(context.actor, 0xCF4);
+    const u16 tag = player_record(context.actor).damage_class;
+    const BodyDamageCurve& curve = retail_view<BodyDamageCurve>(context.curve);
     float health;
-    if (tag != 0 && context.curve[1] != context.curve[0])
+    if (tag != 0 && curve.key_last != curve.key_first)
     {
-        const float low = float(context.curve[0]);
-        const float high = float(context.curve[1]);
+        const float low = float(curve.key_first);
+        const float high = float(curve.key_last);
         const float value = float(context.tags[size_t(tag) * 0x87 - 0x47]);
-        const float maximum = read_f32(context.curve, 8);
-        const float minimum = read_f32(context.curve, 4);
+        const float maximum = curve.value_last;
+        const float minimum = curve.value_first;
         health = ((value - low) / (high - low)) * (maximum - minimum) + minimum;
         if (maximum > minimum)
         {
@@ -43,13 +48,13 @@ void initialize_runtime_body_health(std::span<u8> body, std::span<const u8> para
     }
     else
     {
-        health = read_f32(context.curve, 8);
+        health = curve.value_last;
     }
     const u16 integer = u16(truncate_runtime_float(health));
-    std::memcpy(body.data() + 0x94, &integer, 2);
-    std::memcpy(body.data() + 0x96, &integer, 2);
-    body[0xA4] = 0;
-    body[0xA6] = parameters[0x1A8];
+    body_record(body).energy = integer;
+    body_record(body).max_energy = integer;
+    body_record(body).overlay_state = 0;
+    body_record(body).overlay_enabled = parameters[0x1A8];
     const char* names[]
     {
         "aid_texture_ghoulies_scoreboard_energy_baddielowenergy",
@@ -97,13 +102,13 @@ void release_runtime_body_actions(std::span<u8> body, FactoryObject& first,
         second = {};
     }
     const u32 zero = 0;
-    std::memcpy(body.data() + 0x740, &zero, 4);
-    std::memcpy(body.data() + 0x748, &zero, 2);
+    body_record(body).unk_740 = zero;
+    body_record(body).action_key = 0;
     if (resource.data() != nullptr)
     {
         release_animation_resource(registry, resource);
         resource = {};
-        std::memcpy(body.data() + 0x740, &zero, 4);
+        body_record(body).unk_740 = zero;
     }
 }
 }

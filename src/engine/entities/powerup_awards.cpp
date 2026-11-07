@@ -1,4 +1,7 @@
 #include "powerup_awards.h"
+#include <cstddef>
+#include "strategy_fields.h"
+#include "mind_fields.h"
 #include "../scripts/script_event_sequence.h"
 #include "../frontend/app_error_screen.h"
 #include "actor_live_attachments.h"
@@ -9,6 +12,7 @@
 #include "body_message_helpers.h"
 #include "trigger_actor.h"
 #include "gbtg/actor_spawn_factory.h"
+#include "player_fields.h"
 #include <array>
 #include <bit>
 #include <cstring>
@@ -51,7 +55,7 @@ void extend_runtime_challenge_timers(float amount, std::vector<RuntimeChallengeR
 }
 
 // Xbox 0x000D0650
-u8* find_runtime_event_step(u32 type, const entity_detail::NavigationCellRegistration* steps)
+EventStep* find_runtime_event_step(u32 type, const entity_detail::NavigationCellRegistration* steps)
 {
     if (steps == nullptr)
     {
@@ -59,9 +63,9 @@ u8* find_runtime_event_step(u32 type, const entity_detail::NavigationCellRegistr
     }
     for (u8* step = steps->begin; step < steps->end; step += 0x88)
     {
-        if (read_u32(std::span<const u8>(step, 4), 0) == type)
+        if (reinterpret_cast<EventStep*>(step)->type == type)
         {
-            return step;
+            return reinterpret_cast<EventStep*>(step);
         }
     }
     return nullptr;
@@ -119,10 +123,11 @@ u32 spawn_runtime_placed_actor(const char* name, const Vec3& position, const Vec
         return created;
     }
     const std::span<u8> bytes = context.bytes_at(created);
-    std::memcpy(bytes.data() + 0x990, &word, 2);
+    player_record(bytes).goal_latch = word;
     if (attributes != nullptr)
     {
-        copy_runtime_trigger_attributes(bytes.data() + 0x998, attributes); // 0x000280D0, EAX +0x998
+        // 0x000280D0, EAX +0x998
+        copy_runtime_trigger_attributes(bytes.data() + offsetof(PlayerRecord, goal_names), attributes);
     }
     const std::array<u32, 9> message{0x4D, tag, std::bit_cast<u32>(message_position.x),
         std::bit_cast<u32>(message_position.y), std::bit_cast<u32>(message_position.z),
@@ -198,14 +203,13 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         cleared = true;
         sound = 0;
         // Event step type 4's +0x18 seconds, while some remain, and the challenge's timers gain the amount.
-        if (u8* step = find_runtime_event_step(4, g_event_sequence.steps); step != nullptr) // 0x000D0650, EDX 4
+        if (EventStep* step = find_runtime_event_step(4, g_event_sequence.steps); step != nullptr) // 0x000D0650, EDX 4
         {
-            float left;
-            std::memcpy(&left, step + 0x18, 4);
+            float left = step->timed.seconds;
             if (left > 0.f) // DAT_0032B100.
             {
                 left = amount + left;
-                std::memcpy(step + 0x18, &left, 4);
+                step->timed.seconds = left;
             }
         }
         extend_runtime_challenge_timers(amount, g_challenge_run.records.get()); // 0x0004A370, XMM0 amount
@@ -286,7 +290,7 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
         for (u32 address = actors.first(); address != 0; address = actors.next(address))
         {
             RuntimePowerupActor view = actors.actor_at(address);
-            if (read_u32(view.bytes, 0x98C) != 0) // Node +0x48.
+            if (player_record(view.bytes).goal_volume != 0) // Node +0x48.
             {
                 const u16 mask = script_actor_current_mask(view.actor, actors.query); // 0x00028360, EAX actor
                 if (mask == 3 || mask == 0x24)
@@ -297,12 +301,14 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
             bool frozen = true;
             if (!view.strategy.empty() && script_actor_current_mask(view.actor, actors.query) == 0) // 0x00028360
             {
-                if (view.strategy[0x1C] != 0)
+                if (strategy_base(view.strategy).pause_count != 0)
                 {
                     continue;
                 }
-                RuntimePowerupActor owner = actors.actor_at(read_u32(view.strategy, 8));
-                const u32 group = (read_u16(owner.bytes, 0xCDC) == 2 || read_u32(owner.bytes, 0x93C) != 0) ? 1u : 0u;
+                RuntimePowerupActor owner = actors.actor_at(strategy_base(view.strategy).actor);
+                const u32 group =
+                    (player_record(owner.bytes).mode == 2 || player_record(owner.bytes).case_link != 0) ? 1u
+                                                                                                                  : 0u;
                 if (actors.blocked[group] != 0 || actors.modes[actors.mode] == 0)
                 {
                     continue;
@@ -322,19 +328,18 @@ void award_runtime_powerup(i32 id, u32 player, u32 kind, float amount, u32 extra
             {
                 continue;
             }
-            std::memcpy(view.bytes.data() + 0x978, &amount, 4);
+            std::memcpy(view.bytes.data() + offsetof(PlayerRecord, countdown_56), &amount, 4);
             std::span<u8> mind = view.mind;
-            if (!mind.empty() && read_u32(mind, 0x10) != 0
+            if (!mind.empty() && mind_record(mind).target_record != 0
                 && !runtime_mind_target_is_eligible(mind, view.bytes, view.actor, address,
-                    actors.target_at(read_u32(mind, 0x10)), true)) // 0x00029C80, EDX 1
+                    actors.target_at(mind_record(mind).target_record), true)) // 0x00029C80, EDX 1
             {
-                if (read_u32(mind, 0x10) != 0)
+                if (mind_record(mind).target_record != 0)
                 {
                     const std::array<u32, 2> drop{0x64, 0};
-                    actors.message(read_u32(mind, 8), drop); // Mind +8's vtable +0xC.
+                    actors.message(mind_record(mind).actor, drop); // Mind +8's vtable +0xC.
                 }
-                const u32 zero = 0;
-                std::memcpy(mind.data() + 0x10, &zero, 4);
+                mind_record(mind).target_record = 0u;
             }
             actors.message(address, freeze); // Actor vtable +0xC with {1}.
         }

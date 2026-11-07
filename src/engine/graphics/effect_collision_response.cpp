@@ -4,6 +4,7 @@
 #include "../entities/direction_pitch.h"
 #include "../entities/player_mind_events.h"
 #include "../entities/euler_wrapping.h"
+#include "effect_particles.h"
 #include <bit>
 #include <cstring>
 
@@ -11,10 +12,6 @@ namespace gbtg
 {
 namespace
 {
-void store_response_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 float response_fraction(u32& random)
 {
     random = random * 0x19660Du + 0x3C6EF35Fu;
@@ -23,20 +20,20 @@ float response_fraction(u32& random)
 }
 
 // Xbox 0x000ECE50
-bool move_actor_effect_particle(std::span<u8> particle, RuntimeEffectCollisionContext& context,
+bool move_actor_effect_particle(EffectParticle& particle, RuntimeEffectCollisionContext& context,
     const std::function<void()>& hit_callback)
 {
     const float step = runtime_frame_step(context.clock);
-    if (particle[0x54] != 0)
+    if (particle.stopped != 0)
     {
         return false;
     }
-    Vec3 source{read_f32(particle, 0), read_f32(particle, 4), read_f32(particle, 8)};
-    Vec3 candidate{source.x + read_f32(particle, 0x18) * step,
-        source.y + read_f32(particle, 0x1C) * step,
-        source.z + read_f32(particle, 0x20) * step};
+    Vec3 source = particle.position;
+    Vec3 candidate{source.x + particle.velocity.x * step,
+        source.y + particle.velocity.y * step,
+        source.z + particle.velocity.z * step};
     bool hit = false;
-    if ((particle[0x56] & 0x10) != 0)
+    if ((particle.motion_flags & 0x10) != 0)
     {
         hit = clip_runtime_camera_plane(context.view, context.plane, source, candidate,
             &context.collision.normal, nullptr);
@@ -44,7 +41,7 @@ bool move_actor_effect_particle(std::span<u8> particle, RuntimeEffectCollisionCo
         {
             context.collision.kind = 2;
             context.collision.surface = 0;
-            particle[0x55] = 0;
+            particle.unk_55 = 0;
         }
     }
     if (!hit)
@@ -52,13 +49,13 @@ bool move_actor_effect_particle(std::span<u8> particle, RuntimeEffectCollisionCo
         hit = probe_actor_effect_particle(particle, candidate, context.collision);
         if (!hit)
         {
-            particle[0x55] = u8(particle[0x55] + 1);
+            particle.unk_55 = u8(particle.unk_55 + 1);
             context.collision.kind = 0;
         }
     }
     if (hit)
     {
-        std::memcpy(particle.data(), &candidate, 12);
+        particle.position = candidate;
         if (hit_callback)
         {
             hit_callback();
@@ -77,49 +74,49 @@ bool move_actor_effect_particle(std::span<u8> particle, RuntimeEffectCollisionCo
             || candidate.y < context.minimum.y || candidate.y >= top + 1.f
             || candidate.z < context.minimum.z || candidate.z >= context.maximum.z)
         {
-            particle[0x54] = 1;
+            particle.stopped = 1;
             outside = true;
         }
     }
     if (!outside)
     {
-        std::memcpy(particle.data(), &candidate, 12);
+        particle.position = candidate;
     }
-    Vec3 velocity{read_f32(particle, 0x18), read_f32(particle, 0x1C), read_f32(particle, 0x20)};
-    if ((particle[0x56] & 2) != 0)
+    Vec3 velocity = particle.velocity;
+    if ((particle.motion_flags & 2) != 0)
     {
         float pitch;
         if (runtime_direction_pitch(velocity, pitch))
         {
-            store_response_float(particle, 0xC, pitch);
+            particle.euler.x = pitch;
         }
     }
-    if ((particle[0x56] & 8) != 0)
+    if ((particle.motion_flags & 8) != 0)
     {
         float yaw;
         if (runtime_direction_angle(velocity, yaw))
         {
-            store_response_float(particle, 0x10, yaw);
+            particle.euler.y = yaw;
         }
     }
-    Vec3 euler{read_f32(particle, 0x24) * step + read_f32(particle, 0xC),
-        read_f32(particle, 0x28) * step + read_f32(particle, 0x10),
-        read_f32(particle, 0x2C) * step + read_f32(particle, 0x14)};
-    std::memcpy(particle.data() + 0xC, &euler, 12);
+    Vec3 euler{particle.spin.x * step + particle.euler.x,
+        particle.spin.y * step + particle.euler.y,
+        particle.spin.z * step + particle.euler.z};
+    particle.euler = euler;
     wrap_runtime_euler_angles(euler);
-    std::memcpy(particle.data() + 0xC, &euler, 12);
-    store_response_float(particle, 0x1C, read_f32(particle, 0x4C) * step + read_f32(particle, 0x1C));
-    if (read_f32(particle, 0x50) != 0.f)
+    particle.euler = euler;
+    particle.velocity.y = particle.gravity * step + particle.velocity.y;
+    if (particle.drag != 0.f)
     {
-        float drag = read_f32(particle, 0x50) * step;
+        float drag = particle.drag * step;
         if (!(1.f > drag))
         {
             drag = 1.f;
         }
         const float factor = 1.f - drag;
-        store_response_float(particle, 0x18, factor * read_f32(particle, 0x18));
-        store_response_float(particle, 0x1C, read_f32(particle, 0x1C) * factor);
-        store_response_float(particle, 0x20, read_f32(particle, 0x20) * factor);
+        particle.velocity.x = factor * particle.velocity.x;
+        particle.velocity.y = particle.velocity.y * factor;
+        particle.velocity.z = particle.velocity.z * factor;
     }
     return context.collision.kind != 0;
 }
@@ -194,24 +191,24 @@ i32 probe_actor_effect_world(Vec3& source, Vec3& candidate, float radius, i32 ki
 }
 
 // Xbox 0x000ECBD0
-bool probe_actor_effect_particle(std::span<u8> particle, Vec3& candidate,
+bool probe_actor_effect_particle(EffectParticle& particle, Vec3& candidate,
     RuntimeEffectCollision& collision)
 {
-    const u8 flags = particle[0x56];
+    const u8 flags = particle.motion_flags;
     if ((flags & 1) != 0)
     {
-        Vec3 source{read_f32(particle, 0), read_f32(particle, 4), read_f32(particle, 8)};
-        const float radius = read_f32(particle, 0x48) * read_f32(particle, 0x3C);
+        Vec3 source = particle.position;
+        const float radius = particle.size * particle.collision_radius;
         const i32 hit = probe_actor_effect_world(source, candidate, radius, 0, 0xC, flags & 0x20, collision);
-        std::memcpy(particle.data(), &source, 12);
+        particle.position = source;
         if (hit != 0)
         {
-            if (particle[0x55] == 0)
+            if (particle.unk_55 == 0)
             {
-                particle[0x54] = 1;
+                particle.stopped = 1;
             }
             collision.kind = 1;
-            particle[0x55] = 0;
+            particle.unk_55 = 0;
             return true;
         }
     }
@@ -219,46 +216,43 @@ bool probe_actor_effect_particle(std::span<u8> particle, Vec3& candidate,
 }
 
 // Xbox 0x000ECC30
-void reflect_actor_effect_particle(std::span<u8> particle, u32 surface_flags,
+void reflect_actor_effect_particle(EffectParticle& particle, u32 surface_flags,
     const Vec3& normal, u32& random)
 {
     if ((surface_flags & 8) != 0)
     {
-        const float factor = read_f32(particle, 0x40);
-        for (size_t offset : {0x18u, 0x1Cu, 0x20u})
-        {
-            store_response_float(particle, offset, read_f32(particle, offset) * factor);
-        }
+        const float factor = particle.bounce;
+        particle.velocity.x = particle.velocity.x * factor;
+        particle.velocity.y = particle.velocity.y * factor;
+        particle.velocity.z = particle.velocity.z * factor;
     }
-    if ((particle[0x56] & 4) != 0)
+    if ((particle.motion_flags & 4) != 0)
     {
-        const float extent = ((read_f32(particle, 0x2C) + read_f32(particle, 0x28))
-            + read_f32(particle, 0x24)) * .5f;
+        const float extent = ((particle.spin.z + particle.spin.y) + particle.spin.x) * .5f;
         const float lower = 0.f - extent;
-        for (size_t offset : {0x24u, 0x28u, 0x2Cu})
+        for (float* axis : {&particle.spin.x, &particle.spin.y, &particle.spin.z})
         {
             const float fraction = response_fraction(random);
-            store_response_float(particle, offset, (extent - lower) * fraction + lower);
+            *axis = (extent - lower) * fraction + lower;
         }
     }
     else
     {
-        const float factor = read_f32(particle, 0x44);
-        for (size_t offset : {0x24u, 0x28u, 0x2Cu})
-        {
-            store_response_float(particle, offset, read_f32(particle, offset) * factor);
-        }
+        const float factor = particle.spin_bounce;
+        particle.spin.x = particle.spin.x * factor;
+        particle.spin.y = particle.spin.y * factor;
+        particle.spin.z = particle.spin.z * factor;
     }
-    const float x = read_f32(particle, 0x18) * -1.f;
-    const float y = read_f32(particle, 0x1C) * -1.f;
-    const float z = read_f32(particle, 0x20) * -1.f;
+    const float x = particle.velocity.x * -1.f;
+    const float y = particle.velocity.y * -1.f;
+    const float z = particle.velocity.z * -1.f;
     const float projection = ((normal.x * x + normal.y * y) + normal.z * z) * 2.f;
-    store_response_float(particle, 0x18, normal.x * projection);
-    store_response_float(particle, 0x1C, normal.y * projection);
+    particle.velocity.x = normal.x * projection;
+    particle.velocity.y = normal.y * projection;
     const float reflected_z = normal.z * projection;
-    store_response_float(particle, 0x18, read_f32(particle, 0x18) - x);
-    store_response_float(particle, 0x1C, read_f32(particle, 0x1C) - y);
-    store_response_float(particle, 0x20, reflected_z);
-    store_response_float(particle, 0x20, reflected_z - z);
+    particle.velocity.x = particle.velocity.x - x;
+    particle.velocity.y = particle.velocity.y - y;
+    particle.velocity.z = reflected_z;
+    particle.velocity.z = reflected_z - z;
 }
 }

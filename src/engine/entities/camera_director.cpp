@@ -1,4 +1,8 @@
 #include "camera_director.h"
+#include <cstddef>
+#include "strategy_fields.h"
+#include "camera_actor_classes.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_messages.h"
 #include "player_mind_events.h"
@@ -9,6 +13,8 @@
 #include "../runtime/crt_sort.h"
 #include "../scripts/script_conditions.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <climits>
 #include <cmath>
@@ -18,32 +24,7 @@ namespace gbtg
 {
 namespace
 {
-constexpr size_t kEntrySize = 0x2C; // Key +0, priority +4, distance +8, camera target record +0xC.
 constexpr i32 kEntryLimit = 0x14;
-
-void put(u8* bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes + offset, &value, 4);
-}
-
-void put_float(u8* bytes, size_t offset, float value)
-{
-    std::memcpy(bytes + offset, &value, 4);
-}
-
-u32 word(const u8* bytes, size_t offset)
-{
-    u32 value;
-    std::memcpy(&value, bytes + offset, 4);
-    return value;
-}
-
-float real(const u8* bytes, size_t offset)
-{
-    float value;
-    std::memcpy(&value, bytes + offset, 4);
-    return value;
-}
 
 // CVTTSS2SI: out-of-range and unordered inputs give the integer indefinite value.
 i32 truncate_float(float value)
@@ -58,7 +39,7 @@ i32 truncate_float(float value)
 // The ground height under (x, z) on the actor's floor grid DAT_0050E240[+0xCEC]; otherwise the fallback.
 float director_ground_height(const RuntimeDirectorActor& actor, float x, float z, float fallback)
 {
-    const u32 floor = read_u32(actor.bytes, 0xCEC);
+    const u32 floor = player_record(actor.bytes).floor;
     if (floor >= u32(entity_detail::kNavSlots))
     {
         throw Error("camera director floor index is outside DAT_0050E240");
@@ -91,9 +72,10 @@ float director_planar_distance(const Vec3& origin, const Vec3& position)
 // Xbox 0x00028CC0
 bool runtime_actor_strategy_waiting(const RuntimeDirectorActor& actor)
 {
-    if (!actor.strategy.empty() && actor.strategy[0x1A] != 0)
+    if (!actor.strategy.empty() && strategy_base(actor.strategy).attacking != 0)
     {
-        if ((read_u16(actor.body, 0x30) == 0 && read_f32(actor.body, 0x34) == 0.f) || actor.body[0x6A] != 0)
+        if ((body_record(actor.body).move_holds == 0 && body_record(actor.body).move_hold_time == 0.f)
+            || body_record(actor.body).unk_6A != 0)
         {
             return true;
         }
@@ -111,7 +93,7 @@ u32 camera_target_watched_elsewhere(u32 self, u32 target, const RuntimeDirectorT
     for (const RuntimeDirectorActor& candidate : context.marks())
     {
         if (candidate.address != self && candidate.address != target && !candidate.mind.empty()
-            && read_u32(candidate.mind, 0xC) == target)
+            && mind_record(candidate.mind).target == target)
         {
             return 1;
         }
@@ -120,59 +102,59 @@ u32 camera_target_watched_elsewhere(u32 self, u32 target, const RuntimeDirectorT
 }
 
 // Xbox 0x000AA4D0
-u8* reserve_camera_director_entry(u8* entries, i32& count, u32 actor, i32 priority, i32 limit)
+CameraDirectorEntry* reserve_camera_director_entry(CameraDirectorEntry* entries, i32& count, u32 actor, i32 priority, i32 limit)
 {
-    u8* end = entries + size_t(count) * kEntrySize;
-    u8* entry = entries;
+    CameraDirectorEntry* end = entries + count;
+    CameraDirectorEntry* entry = entries;
     while (entry < end)
     {
-        const u32 key = word(entry, 0);
+        const u32 key = entry->actor;
         if (key != 0 && key == actor)
         {
-            if (i32(word(entry, 4)) > priority)
+            if (entry->priority > priority)
             {
                 return nullptr;
             }
-            put(entry, 4, u32(priority));
-            put(entry, 0, actor);
+            entry->priority = priority;
+            entry->actor = actor;
             return entry;
         }
-        entry += kEntrySize;
+        ++entry;
     }
     if (count >= limit)
     {
         return nullptr;
     }
     ++count;
-    put(end, 4, u32(priority));
-    put(end, 0, actor);
+    end->priority = priority;
+    end->actor = actor;
     return end;
 }
 
 // Xbox 0x000AA520
-u32 add_camera_director_entry(u8* entries, i32& count, u32 actor, i32 priority, i32 limit, float distance,
+u32 add_camera_director_entry(CameraDirectorEntry* entries, i32& count, u32 actor, i32 priority, i32 limit, float distance,
     const RuntimeDirectorTargets& context)
 {
-    u8* entry = reserve_camera_director_entry(entries, count, actor, priority, limit);
+    CameraDirectorEntry* entry = reserve_camera_director_entry(entries, count, actor, priority, limit);
     if (entry == nullptr)
     {
         return 0;
     }
-    put_float(entry, 8, distance);
-    context.camera_target(std::span<u8, 0x20>(entry + 0xC, 0x20), actor);
+    entry->distance = distance;
+    context.camera_target(std::span<u8, 0x20>(reinterpret_cast<u8*>(&entry->shape), 0x20), actor);
     return 1;
 }
 
 // Xbox 0x000AA560
 int compare_camera_director_entries(const void* left, const void* right)
 {
-    const u8* first = static_cast<const u8*>(left);
-    const u8* second = static_cast<const u8*>(right);
-    const i32 first_priority = i32(word(first, 4));
-    const i32 second_priority = i32(word(second, 4));
+    const auto* first = static_cast<const CameraDirectorEntry*>(left);
+    const auto* second = static_cast<const CameraDirectorEntry*>(right);
+    const i32 first_priority = first->priority;
+    const i32 second_priority = second->priority;
     if (first_priority == second_priority)
     {
-        if (real(second, 8) > real(first, 8))
+        if (second->distance > first->distance)
         {
             return -1;
         }
@@ -187,13 +169,13 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
 {
     const RuntimeDirectorTunables& tunables = context.tunables;
     const float extended_range = tunables.near_range + tunables.range_extension;
-    std::array<u8, kEntryLimit * kEntrySize> chosen{}; // Stack +0x64.
-    std::array<u8, kEntryLimit * kEntrySize> grouped{}; // Stack +0x3D4.
+    std::array<CameraDirectorEntry, kEntryLimit> chosen{}; // Stack +0x64.
+    std::array<CameraDirectorEntry, kEntryLimit> grouped{}; // Stack +0x3D4.
     i32 chosen_count = 0;
     i32 grouped_count = 0;
     const RuntimeDirectorActor focus = context.actor_at(target);
     const Vec3 origin = actor_world_position(*focus.actor);
-    const u32 focus_target = read_u32(focus.mind, 0xC);
+    const u32 focus_target = mind_record(focus.mind).target;
     if (tunables.skip_candidates == 0)
     {
         const std::vector<RuntimeDirectorActor> marks = context.marks();
@@ -211,11 +193,11 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
                 {
                     continue;
                 }
-                const u32 watched = read_u32(candidate.mind, 0xC);
+                const u32 watched = mind_record(candidate.mind).target;
                 i32 last_cell = 0;
                 const bool clear = navigation_path_clear(origin, position, tunables.region_mode, 0, 0, 0, nullptr,
                     &last_cell, 0);
-                const bool idle = read_u16(candidate.body, 0x94) == 0;
+                const bool idle = body_record(candidate.body).energy == 0;
                 if (candidate.address == target)
                 {
                     continue;
@@ -226,7 +208,8 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
                     add_camera_director_entry(chosen.data(), chosen_count, candidate.address, 5, kEntryLimit,
                         distance, context);
                 }
-                else if (tunables.near_range > distance && clear && read_u32(candidate.bytes, 0x98C) == 0 && !idle)
+                else if (tunables.near_range > distance && clear
+                    && player_record(candidate.bytes).goal_volume == 0 && !idle)
                 {
                     add_camera_director_entry(grouped.data(), grouped_count, candidate.address, 2, kEntryLimit,
                         distance, context);
@@ -251,16 +234,17 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
                     {
                         continue;
                     }
-                    const u32 watched = read_u32(candidate.mind, 0xC);
+                    const u32 watched = mind_record(candidate.mind).target;
                     i32 last_cell = 0;
                     navigation_path_clear(origin, position, 0, 0, 0, 0, nullptr, &last_cell, 0);
-                    if (!candidate.strategy.empty() && candidate.strategy[0x1B] != 0 && watched == target
-                        && extended_range > distance)
+                    if (!candidate.strategy.empty() && strategy_base(candidate.strategy).unk_1B != 0
+                        && watched == target && extended_range > distance)
                     {
                         add_camera_director_entry(chosen.data(), chosen_count, candidate.address, 3, kEntryLimit,
                             distance, context);
                     }
-                    else if ((candidate.body_bits->bytes[4] & 0x10) != 0 && read_u32(candidate.body, 0x270) == target
+                    else if ((candidate.body_bits->bytes[4] & 0x10) != 0
+                        && body_record(candidate.body).attacker == target
                         && extended_range > distance && tunables.carried_targets != 0)
                     {
                         add_camera_director_entry(chosen.data(), chosen_count, candidate.address, 1, kEntryLimit,
@@ -280,22 +264,22 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
         float sum_28 = 0.f;
         for (i32 index = 0; index < grouped_count; ++index)
         {
-            const u8* entry = grouped.data() + size_t(index) * kEntrySize;
-            const RuntimeDirectorActor member = context.actor_at(word(entry, 0));
+            const CameraDirectorEntry* entry = grouped.data() + index;
+            const RuntimeDirectorActor member = context.actor_at(entry->actor);
             if ((total <= 1 && tunables.ground_heights == 0) || (member.body_bits->bytes[4] & 0x10) == 0)
             {
-                sum_x = real(entry, 0x10) + sum_x;
-                sum_y = real(entry, 0x14) + sum_y;
+                sum_x = entry->shape.position.x + sum_x;
+                sum_y = entry->shape.position.y + sum_y;
             }
             else
             {
-                const float height = director_ground_height(member, real(entry, 0x10), real(entry, 0x18), origin.y);
-                sum_x = real(entry, 0x10) + sum_x;
+                const float height = director_ground_height(member, entry->shape.position.x, entry->shape.position.z, origin.y);
+                sum_x = entry->shape.position.x + sum_x;
                 sum_y = sum_y + height;
             }
-            sum_z = real(entry, 0x18) + sum_z;
-            sum_20 = real(entry, 0x20) + sum_20;
-            sum_28 = real(entry, 0x28) + sum_28;
+            sum_z = entry->shape.position.z + sum_z;
+            sum_20 = entry->shape.height + sum_20;
+            sum_28 = entry->shape.radius + sum_28;
         }
         const float scale = 1.f / float(grouped_count); // DAT_0032B0F8.
         const float average_20 = scale * sum_20;
@@ -305,24 +289,25 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
         {
             throw Error("camera director writes its grouped entry through address zero");
         }
-        u8* entry = chosen.data() + size_t(chosen_count) * kEntrySize;
+        CameraDirectorEntry* entry = chosen.data() + chosen_count;
         ++chosen_count;
-        put(entry, 0, 0);
-        put(entry, 4, 2);
+        entry->actor = 0;
+        entry->priority = 2;
         const double dx = double(center.x) - double(origin.x);
         const double dy = double(center.y) - double(origin.y);
         const double dz = double(center.z) - double(origin.z);
-        put_float(entry, 8, float(std::sqrt(dx * dx + dz * dz + dy * dy)));
-        entry[0xC] = 4;
-        entry[0xD] = 0x20;
-        entry[0xE] = 1;
-        put_float(entry, 0x10, center.x);
-        put_float(entry, 0x14, center.y);
-        put_float(entry, 0x18, center.z);
-        put_float(entry, 0x1C, 0.f);
-        put_float(entry, 0x20, average_20);
-        put_float(entry, 0x24, 0.f);
-        put_float(entry, 0x28, average_28);
+        entry->distance = float(std::sqrt(dx * dx + dz * dz + dy * dy));
+        u8* const shape_start = reinterpret_cast<u8*>(&entry->shape);
+        shape_start[0] = 4;
+        shape_start[1] = 0x20;
+        shape_start[2] = 1;
+        entry->shape.position.x = center.x;
+        entry->shape.position.y = center.y;
+        entry->shape.position.z = center.z;
+        entry->shape.unk_10 = 0;
+        entry->shape.height = average_20;
+        entry->shape.unk_18 = 0;
+        entry->shape.radius = average_28;
     }
     if (total == 0 && tunables.lead_distance > 0.f)
     {
@@ -335,26 +320,27 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
         const float rise = 0.f - pitch_sin;
         const double forward_z = double(retail_cos(euler.y)) * pitch_cos;
         const float distance = tunables.lead_distance;
-        put_float(lead.data(), 4, float(double(forward_x) * distance + real(lead.data(), 4)));
-        put_float(lead.data(), 8, rise * distance + real(lead.data(), 8));
-        put_float(lead.data(), 0xC, float(forward_z * distance + real(lead.data(), 0xC)));
+        MindTargetShape& lead_shape = mind_target_shape(std::span<u8>(lead));
+        lead_shape.position.x = float(double(forward_x) * distance + lead_shape.position.x);
+        lead_shape.position.y = rise * distance + lead_shape.position.y;
+        lead_shape.position.z = float(forward_z * distance + lead_shape.position.z);
         if (chosen_count < kEntryLimit)
         {
-            u8* entry = chosen.data() + size_t(chosen_count) * kEntrySize;
-            put(entry, 0, 0);
-            put(entry, 4, 5);
-            put_float(entry, 8, distance);
+            CameraDirectorEntry* entry = chosen.data() + chosen_count;
+            entry->actor = 0;
+            entry->priority = 5;
+            entry->distance = distance;
             ++chosen_count;
-            copy_actor_shape(entry + 0xC, lead.data());
+            copy_actor_shape(reinterpret_cast<u8*>(&entry->shape), lead.data());
         }
     }
-    u8* own = reserve_camera_director_entry(chosen.data(), chosen_count, target, 6, kEntryLimit);
+    CameraDirectorEntry* own = reserve_camera_director_entry(chosen.data(), chosen_count, target, 6, kEntryLimit);
     if (own != nullptr)
     {
-        put_float(own, 8, 0.f);
-        context.camera_target(std::span<u8, 0x20>(own + 0xC, 0x20), target);
+        own->distance = 0.f;
+        context.camera_target(std::span<u8, 0x20>(reinterpret_cast<u8*>(&own->shape), 0x20), target);
     }
-    runtime_quick_sort(chosen.data(), size_t(chosen_count), kEntrySize, compare_camera_director_entries);
+    runtime_quick_sort(chosen.data(), size_t(chosen_count), sizeof(CameraDirectorEntry), compare_camera_director_entries);
     i32 index = 0;
     if (limit > 0)
     {
@@ -368,21 +354,21 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
             {
                 return index;
             }
-            const u8* entry = chosen.data() + size_t(index) * kEntrySize;
-            if (i32(word(entry, 4)) < tunables.minimum_priority && index >= tunables.minimum_count)
+            const CameraDirectorEntry* entry = chosen.data() + index;
+            if (entry->priority < tunables.minimum_priority && index >= tunables.minimum_count)
             {
                 return index;
             }
             u8* record = output.data() + size_t(index) * 0x20;
-            copy_actor_shape(record, entry + 0xC);
-            const u32 key = word(entry, 0);
+            copy_actor_shape(record, reinterpret_cast<const u8*>(&entry->shape));
+            const u32 key = entry->actor;
             if ((total > 2 || tunables.ground_heights != 0) && key != 0)
             {
                 const RuntimeDirectorActor member = context.actor_at(key);
                 if ((member.body_bits->bytes[4] & 0x10) != 0)
                 {
-                    put_float(record, 8, director_ground_height(member, real(entry, 0x10), real(entry, 0x18),
-                        origin.y));
+                    mind_target_shape(std::span<u8>(record, 0x20)).position.y = director_ground_height(member, entry->shape.position.x, entry->shape.position.z,
+                        origin.y);
                 }
             }
             ++index;
@@ -395,9 +381,9 @@ i32 collect_camera_director_targets(u32 camera, u32 target, std::span<u8> output
 float camera_director_input_heading(const RuntimeDirectorActor& actor, const RuntimeDirectorTargets& context)
 {
     float heading = actor.actor->euler.y; // Actor +0x18.
-    if (!actor.mind.empty() && actor.mind[0x20] != 0 && (actor.body_bits->bytes[6] & 0x80) != 0)
+    if (!actor.mind.empty() && mind_record(actor.mind).target_mode != 0 && (actor.body_bits->bytes[6] & 0x80) != 0)
     {
-        const u32 watched = read_u32(actor.mind, 0xC);
+        const u32 watched = mind_record(actor.mind).target;
         if (watched != 0)
         {
             const Vec3 self = actor_world_position(*actor.actor);
@@ -431,7 +417,7 @@ u32 read_camera_director_input_heading(const RuntimeDirectorActor& actor, float&
 {
     if (context.tunables.input_heading != 0)
     {
-        const u32 device_address = read_u32(actor.bytes, 0x960);
+        const u32 device_address = player_record(actor.bytes).input_device;
         if (device_address != 0)
         {
             const RuntimeDialogueInputDevice* device = context.input_device(device_address);
@@ -472,8 +458,8 @@ bool camera_director_scene_start_pending()
 // Xbox 0x00020000
 void release_runtime_body_hold(std::span<u8> body, const std::function<void(std::span<const u32>)>& message)
 {
-    const u32 holds = read_u32(body, 0x258) - 1;
-    std::memcpy(body.data() + 0x258, &holds, 4);
+    const u32 holds = body_record(body).holds - 1;
+    body_record(body).holds = holds;
     if (holds == 0)
     {
         const u32 release[1]{0x4A};
@@ -485,10 +471,11 @@ void release_runtime_body_hold(std::span<u8> body, const std::function<void(std:
 void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
 {
     std::span<u8> strategy{context.strategy.bytes.get(), context.strategy.size};
-    const u16 state = read_u16(strategy, 0xE);
-    const u32 target = read_u32(context.mind, 0xC);
+    DirectorStrategyState& director = strategy_view<DirectorStrategyState>(strategy);
+    const u16 state = director.base.state;
+    const u32 target = mind_record(context.mind).target;
     RuntimeDirectorTargets& targets = context.targets;
-    if (target == 0 && read_u32(strategy, 0x38) == 0)
+    if (target == 0 && director.unk_38 == 0)
     {
         activate_actor_bind_tree(context.actor);
         return;
@@ -508,7 +495,7 @@ void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
             && camera_target_watched_elsewhere(context.actor_address, target, targets) == 0)
         {
             change_runtime_player_strategy_state(context.strategy, 0x401, context.setup);
-            std::memset(strategy.data() + 0x3C, 0, 4);
+            director.first_update = 0;
             return;
         }
         RuntimePlayerMindRequest* request = allocate_runtime_mind_request(context.requests, 1,
@@ -518,16 +505,16 @@ void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
             throw Error("camera director request 1 allocation returned address zero");
         }
         std::span<u8> bytes = request->bytes;
-        const i32 count = collect_camera_director_targets(context.actor_address, target, bytes.subspan(0x14, 0x280),
+        const i32 count = collect_camera_director_targets(context.actor_address, target, bytes.subspan(camera_target_request::shapes, 0x280),
             0x14, targets);
-        std::memcpy(bytes.data() + 0x294, &count, 4);
-        float heading = read_f32(bytes, 0x29C);
+        set(bytes, camera_target_request::shape_count, u32(count));
+        float heading = get(bytes, camera_target_request::heading);
         const u32 steered = read_camera_director_input_heading(targets.actor_at(target), heading, targets);
-        std::memcpy(bytes.data() + 0x29C, &heading, 4);
-        std::memcpy(bytes.data() + 0x298, &steered, 4);
-        const u32 starting = camera_director_scene_start_pending() && read_u32(strategy, 0x3C) == 0 ? 1 : 0;
-        std::memcpy(bytes.data() + 0x2A0, &starting, 4);
-        if (read_u32(strategy, 0x40) != starting)
+        set(bytes, camera_target_request::heading, heading);
+        set(bytes, camera_target_request::fixed_heading, steered);
+        const u32 starting = camera_director_scene_start_pending() && director.first_update == 0 ? 1 : 0;
+        set(bytes, camera_target_request::sets_goal_point, starting);
+        if (director.starting != starting)
         {
             if (starting != 0)
             {
@@ -535,14 +522,14 @@ void update_runtime_director_strategy(RuntimeDirectorUpdate& context)
             }
             else
             {
-                const u32 holds = read_u32(context.body, 0x258) + 1;
-                std::memcpy(context.body.data() + 0x258, &holds, 4);
+                const u32 holds = body_record(context.body).holds + 1;
+                body_record(context.body).holds = holds;
             }
-            std::memcpy(strategy.data() + 0x40, bytes.data() + 0x2A0, 4);
-            std::memset(strategy.data() + 0x3C, 0, 4);
+            director.starting = get(bytes, camera_target_request::sets_goal_point);
+            director.first_update = 0;
             return;
         }
     }
-    std::memset(strategy.data() + 0x3C, 0, 4);
+    director.first_update = 0;
 }
 }

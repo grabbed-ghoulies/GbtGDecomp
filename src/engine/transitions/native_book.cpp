@@ -342,7 +342,7 @@ void draw_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
                 draw_runtime_opaque_dialogue_sprite(s.texture_bytes(page.texture),
                     reinterpret_cast<const float*>(s.image.memory(0x004231B4, 8).data()),
                     reinterpret_cast<const float*>(s.image.memory(0x004231BC, 8).data()),
-                    read_u32(s.image.memory(0x00314F48, 4), 0), s.draw); // 0x0005CE80
+                    0xFFFFFFFFu, s.draw); // 0x0005CE80, DAT_00314F48.
                 s.copy_back_buffer(page.texture);
             }
         }

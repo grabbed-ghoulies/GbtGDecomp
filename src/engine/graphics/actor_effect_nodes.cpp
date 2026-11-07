@@ -1,7 +1,9 @@
 #include "actor_effect_nodes.h"
+#include "effect_particles.h"
 #include "gbtg/entity.h"
 
 #include <bit>
+#include <cstddef>
 #include <cstring>
 #include <new>
 
@@ -24,24 +26,30 @@ void write(ActorEffectNode& effect, size_t offset, const T& value)
 {
     std::memcpy(effect.bytes.data() + offset, &value, sizeof(T));
 }
+// Particle slot `index`'s free link (its next_free) from the node's start.
+i32 particle_link_offset(i32 index)
+{
+    return i32(sizeof(ActorEffectHeader)) + index * i32(sizeof(EffectParticle))
+        + i32(offsetof(EffectParticle, next_free));
+}
 }
 
 // Xbox 0x000ED170
 void initialize_actor_effect_free_chain(ActorEffectNode& effect)
 {
     i16 slot = 0;
-    if (read<i16>(effect, 2) - 1 > 0)
+    if (i16(effect_header(effect.bytes).capacity) - 1 > 0)
     {
         i32 index = 0;
         do
         {
             slot = static_cast<i16>(slot + 1);
-            write(effect, index * 0x150 + 0x3EA, slot);
+            write(effect, particle_link_offset(index), slot);
             index = slot;
         }
-        while (index < read<i16>(effect, 2) - 1);
+        while (index < i16(effect_header(effect.bytes).capacity) - 1);
     }
-    write(effect, read<i16>(effect, 2) * 0x150 + 0x29A, u16{0xFFFF});
+    write(effect, particle_link_offset(i16(effect_header(effect.bytes).capacity) - 1), u16{0xFFFF});
 }
 
 // Xbox 0x000ED120
@@ -68,26 +76,26 @@ ActorEffectNode* create_actor_effect_node(const char* name, u16 count,
     const Vec3& position, const Vec3& euler, AnimationResourceRegistry& registry,
     ResourceErrorState& error)
 {
-    const size_t bytes = static_cast<size_t>(count) * 0x150 + 0x4E0;
+    const size_t bytes = static_cast<size_t>(count) * sizeof(EffectParticle) + 0x4E0;
     auto* allocation = engine_heap_allocate(static_cast<i32>(sizeof(ActorEffectNode) + bytes));
     auto* effect = new (allocation) ActorEffectNode{};
     effect->bytes = {reinterpret_cast<u8*>(effect + 1), bytes};
     std::memset(effect->bytes.data(), 0, bytes);
-    write(*effect, 8, -3.f);
-    write(*effect, 2, count);
-    write(*effect, 0x10, -1.f);
-    write(*effect, 0xB8, 1.f);
-    write(*effect, 0x98, 1.f);
-    write(*effect, 0xDC, u32{0});
-    write(*effect, 0xBC, -1.f);
+    effect_header(effect->bytes).emitting = -3.f;
+    effect_header(effect->bytes).capacity = count;
+    effect_header(effect->bytes).life = -1.f;
+    effect_header(effect->bytes).scale = 1.f;
+    effect_header(effect->bytes).particle_size = 1.f;
+    effect_header(effect->bytes).volume = u32{0};
+    effect_header(effect->bytes).reach = -1.f;
     initialize_actor_effect_free_chain(*effect);
-    write(*effect, 0x1C, position);
-    write(*effect, 0x50, euler);
-    write(*effect, 0x110, u32{0});
-    write(*effect, 0x13C, u32{3});
+    effect_header(effect->bytes).position = position;
+    effect_header(effect->bytes).euler = euler;
+    effect_header(effect->bytes).velocity_mode = u32{0};
+    effect_header(effect->bytes).draw_mode = u32{3};
     set_actor_effect_script(*effect, name, registry, error);
-    write(*effect, 0x2E4, u16{0xFFFF});
-    write(*effect, 0x36E, u8{1});
+    effect_header(effect->bytes).unk_2E4 = u16{0xFFFF};
+    effect_header(effect->bytes).unk_36E = u8{1};
     return effect;
 }
 
@@ -122,21 +130,21 @@ i32 allocate_actor_effect_slot(i32 category, const char* name, u16 count,
 void recycle_actor_effect_particles(ActorEffectNode& effect)
 {
     i32 index = 0;
-    if (read<i16>(effect, 2) > 0)
+    if (i16(effect_header(effect.bytes).capacity) > 0)
     {
-        size_t offset = 0x3EA;
+        size_t offset = particle_link_offset(0);
         do
         {
             if (read<i16>(effect, offset) == -2)
             {
-                write(effect, offset, read<i16>(effect, 6));
-                write(effect, 0, static_cast<u16>(read<u16>(effect, 0) - 1));
-                write(effect, 6, static_cast<i16>((offset - 0x3EA) / 0x150));
+                write(effect, offset, i16(effect_header(effect.bytes).free_head));
+                effect_header(effect.bytes).used_count = u16(effect_header(effect.bytes).used_count - 1);
+                effect_header(effect.bytes).free_head = static_cast<i16>((offset - particle_link_offset(0)) / sizeof(EffectParticle));
             }
             ++index;
-            offset += 0x150;
+            offset += sizeof(EffectParticle);
         }
-        while (index < read<i16>(effect, 2));
+        while (index < i16(effect_header(effect.bytes).capacity));
     }
 }
 
@@ -144,16 +152,16 @@ void recycle_actor_effect_particles(ActorEffectNode& effect)
 void set_actor_effect_movement(ActorEffectNode& effect, u32 mode, const Vec3& velocity,
     const Vec3& minimum, const Vec3& maximum, i32 relative)
 {
-    write(effect, 0xDC, mode);
-    write(effect, 0xE0, velocity);
-    write(effect, 0xEC, minimum);
-    write(effect, 0xF8, maximum);
+    effect_header(effect.bytes).volume = mode;
+    effect_header(effect.bytes).volume_size = velocity;
+    effect_header(effect.bytes).volume_lower = minimum;
+    effect_header(effect.bytes).volume_upper = maximum;
     if (relative != 0)
     {
-        effect.bytes[0x18] |= 4;
+        effect_header(effect.bytes).flags |= 4;
         return;
     }
-    effect.bytes[0x18] &= 0xFB;
+    effect_header(effect.bytes).flags &= 0xFB;
 }
 
 // Xbox 0x0013E750
@@ -164,10 +172,10 @@ bool retain_last_actor_effect(float duration)
     if (slot != -1)
     {
         ActorEffectNode& effect = *g_actor_effect_nodes[slot];
-        effect.bytes[0x18] |= 8;
+        effect_header(effect.bytes).flags |= 8;
         if (duration > 0.f)
         {
-            write(effect, 0x10, duration);
+            effect_header(effect.bytes).life = duration;
         }
         return true;
     }

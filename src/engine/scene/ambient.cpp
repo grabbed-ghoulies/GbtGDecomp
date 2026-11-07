@@ -87,7 +87,7 @@ static_assert(std::bit_cast<u32>(1.5f) == 0x3fc00000u);
 
 // Wind and rain bed at DAT_0050e7a0. The two words are voice indices into
 // the table at 0x004E0CE8 (stride 0x24). 0xFFFF means no voice.
-// DAT_0050e7a0 is g_50e7a0 (scene_transitions): cam_11c480 increments it after the call.
+// DAT_0050e7a0 is g_scene_active_count (scene_transitions): cam_11c480 increments it after the call.
 i32 g_amb_hold = 0;        // DAT_0050e7a4
 i32 g_amb_armed = 0;       // DAT_0050e7a8
 float g_amb_wait = 0.f;    // DAT_0050e7ac
@@ -357,7 +357,7 @@ void ambient_initialize_beds()
     g_amb_vary_scale = 0.f;
     g_amb_phase = 0.f;
     g_amb_phase_a = 0.f;
-    g_50e7a0 = 0; // DAT_0050E7A0
+    g_scene_active_count = 0; // DAT_0050E7A0
     g_amb_hold = 0;
     g_amb_mark = 0;
     g_amb_gate = 0;
@@ -451,7 +451,7 @@ u32 find_nearest_ambient_emitter(const Vec3& point, float* distance, Vec3& neare
 // The bed runs: nothing holds it (DAT_0050E7A4), nothing overlays the scene (DAT_0050E7A0) and the scene has emitters.
 bool ambient_bed_live()
 {
-    return g_amb_hold == 0 && g_50e7a0 == 0 && 0 < g_amb_count;
+    return g_amb_hold == 0 && g_scene_active_count == 0 && 0 < g_amb_count;
 }
 
 // The bed's progress through its wait (DAT_0050E7AC), 0 at the start and 1 at the end, over the armed span or the
@@ -789,8 +789,8 @@ void tick_ambient_bed(float step, AudioEventVoices& voices, const SceneExecutabl
 // the environment bank (id 2) is loaded.
 bool ambient_voice_allowed(AudioBankStreams& banks)
 {
-    const i32 state = i32(read_u32({g_510e58, 0x108}, 0x104)); // DAT_00510F5C
-    if (0 < state && state < 3 && g_50e7a0 == 0)
+    const i32 state = i32(read_u32({g_scene_record, 0x108}, 0x104)); // DAT_00510F5C
+    if (0 < state && state < 3 && g_scene_active_count == 0)
     {
         if (const AudioTrackedBank* bank = find_tracked_audio_bank_by_id(2, banks); bank != nullptr) // 0x000384F0
         {
@@ -918,7 +918,7 @@ void tick_ambient(float step, u32& random, AudioBankStreams& banks, const SceneE
     float level;
     if (g_amb_vary == 0 && g_amb_phase_on == 0)
     {
-        level = (g_amb_hold != 0 || g_50e7a0 != 0 || g_amb_count < 1) ? 0.f : g_amb_level;
+        level = (g_amb_hold != 0 || g_scene_active_count != 0 || g_amb_count < 1) ? 0.f : g_amb_level;
     }
     else
     {

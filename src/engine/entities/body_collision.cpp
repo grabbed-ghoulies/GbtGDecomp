@@ -1,4 +1,5 @@
 #include "body_collision.h"
+#include <cstddef>
 #include "actor_transform.h"
 #include "entity.h"
 #include "entity_collision.h"
@@ -7,6 +8,7 @@
 #include "segment_records.h"
 #include "entity_heap.h"
 #include "../navigation/navigation.h"
+#include "body_fields.h"
 #include <bit>
 #include <cstring>
 
@@ -32,8 +34,8 @@ bool separate_runtime_player_world_contacts(std::span<const u8> body, Actor& act
     const EntityMaskHost& mask, const Vec3& stationary)
 {
     Vec3 position = actor_world_position(actor);
-    const float radius = read_f32(body, 0x894) * actor.radius_xz;
-    const float height = (read_f32(body, 0x8A4) * actor.radius_xz + radius) + 0.5f;
+    const float radius = parent_body_record(body).collision_radius * actor.radius_xz;
+    const float height = (parent_body_record(body).collision_height * actor.radius_xz + radius) + 0.5f;
     Vec3 probe{position.x, height + position.y, position.z};
     const u32 collision_mask = camera_collision_mask(mask);
     if (entity_collect_sphere_contacts(probe, radius, 4, collision_mask) != 0)
@@ -55,9 +57,9 @@ bool separate_runtime_player_world_contacts(std::span<const u8> body, Actor& act
 void separate_runtime_player_body_contacts(std::span<u8>& body, Actor& actor,
     EntityBitBlock& bits, const EntityMaskHost& mask, i32 floor, const Vec3& stationary)
 {
-    Vec3 position{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
-    const float radius = read_f32(body, 0x894) * actor.radius_xz;
-    const float height = (read_f32(body, 0x8A4) * actor.radius_xz + radius) + 0.5f;
+    Vec3 position = body_record(body).position;
+    const float radius = parent_body_record(body).collision_radius * actor.radius_xz;
+    const float height = (parent_body_record(body).collision_height * actor.radius_xz + radius) + 0.5f;
     Vec3 probe{position.x, position.y + height, position.z};
     const u32 collision_mask = camera_collision_mask(mask);
     if (entity_collect_sphere_contacts(probe, radius, 4, collision_mask) > 0)
@@ -71,7 +73,7 @@ void separate_runtime_player_body_contacts(std::span<u8>& body, Actor& actor,
         position.z = (separated.z - probe.z) + position.z;
         actor_set_world_position(actor, position);
         const Vec3 world = actor_world_position(actor);
-        std::memcpy(body.data() + 0x18, &world, 12);
+        std::memcpy(body.data() + offsetof(BodyRecord, position.x), &world, 12);
         sweep_runtime_player_body_floor(body, actor, bits, mask, floor,
             position, position, probe, radius, height);
         bits.bytes[2] |= 0x20;
@@ -90,7 +92,7 @@ bool sweep_runtime_player_body_floor(std::span<u8> body, Actor& actor,
     {
         minimum = start.y;
     }
-    minimum = minimum + actor.radius_y * read_f32(body, 0x8A4);
+    minimum = minimum + actor.radius_y * parent_body_record(body).collision_height;
     Vec3 upper{base.x, candidate.y - radius, base.z};
     if (!(upper.y >= minimum))
     {
@@ -100,11 +102,12 @@ bool sweep_runtime_player_body_floor(std::span<u8> body, Actor& actor,
     bits.bytes[5] &= 0xFD;
     if (entity_record_sweep_probe(lower, upper, 8, camera_collision_mask(mask)) == 0)
     {
-        body[0x19E] = 0;
+        body_record(body).has_ground = 0;
         return false;
     }
-    entity_copy_match_block(body.data() + 0x178, entity_detail::g_segment_slots[0].pool.begin);
-    const Vec3 surface{read_f32(body, 0x178), read_f32(body, 0x17C), read_f32(body, 0x180)};
+    entity_copy_match_block(body.data() + offsetof(BodyRecord, ground_point.x),
+        entity_detail::g_segment_slots[0].pool.begin);
+    const Vec3 surface = body_record(body).ground_point;
     const Vec3 anchor = actor.anchor;
     const float difference = base.y - surface.y;
     if (surface.y > minimum)
@@ -125,7 +128,7 @@ bool sweep_runtime_player_body_floor(std::span<u8> body, Actor& actor,
                 }
             }
         }
-        body[0x874] = kind;
+        body_record(body).surface = kind;
         candidate.y = minimum + height;
         actor.anchor = Vec3{anchor.x, 0.f, anchor.z};
         return true;
@@ -136,7 +139,7 @@ bool sweep_runtime_player_body_floor(std::span<u8> body, Actor& actor,
         && anchor.y <= 0.f)
     {
         bits.bytes[5] |= 2;
-        body[0x874] = entity_detail::navigation_surface_kind(floor, surface);
+        body_record(body).surface = entity_detail::navigation_surface_kind(floor, surface);
         candidate.y = surface.y + height;
         actor.anchor = Vec3{anchor.x, 0.f, anchor.z};
     }
@@ -197,7 +200,7 @@ u8 push_runtime_body_sphere(RuntimeBodyCollision& context, RuntimeBodyCollisionS
     for (i32 pass = 0; pass < 3; ++pass)
     {
         kept = center;
-        const u8 kind = context.body[0x717];
+        const u8 kind = body_record(context.body).collision_kind;
         i32 hit;
         if (kind == 0)
         {
@@ -288,9 +291,9 @@ u8 push_runtime_body_sphere(RuntimeBodyCollision& context, RuntimeBodyCollisionS
         }
     }
     std::span<u8> body = context.body;
-    put_float(body, 0x18, read_f32(body, 0x18) + move_x);
-    put_float(body, 0x1C, read_f32(body, 0x1C) + move_y);
-    put_float(body, 0x20, read_f32(body, 0x20) + move_z);
+   body_record(body).position.x = body_record(body).position.x + move_x;
+   body_record(body).position.y = body_record(body).position.y + move_y;
+   body_record(body).position.z = body_record(body).position.z + move_z;
     return 1;
 }
 
@@ -298,17 +301,17 @@ u8 push_runtime_body_sphere(RuntimeBodyCollision& context, RuntimeBodyCollisionS
 void push_runtime_body_spheres(RuntimeBodyCollision& context)
 {
     std::span<u8> body = context.body;
-    if (context.spheres != nullptr && body[0x715] != 0)
+    if (context.spheres != nullptr && body_record(body).unk_715 != 0)
     {
-        Vec3 position{read_f32(body, 0x18), read_f32(body, 0x1C), read_f32(body, 0x20)};
+        Vec3 position = body_record(body).position;
         float world[12];
         actor_build_world_matrix(context.owner, world, &position);
-        RuntimeBodyCollisionSphere* end = context.spheres + body[0x714];
-        body[0x716] = 0;
+        RuntimeBodyCollisionSphere* end = context.spheres + body_record(body).sphere_count;
+        body_record(body).unk_716 = 0;
         for (RuntimeBodyCollisionSphere* sphere = context.spheres; sphere < end; ++sphere)
         {
             const u8 pushed = push_runtime_body_sphere(context, *sphere, world);
-            body[0x716] = u8(body[0x716] + pushed);
+            body_record(body).unk_716 = u8(body_record(body).unk_716 + pushed);
         }
     }
 }
@@ -317,7 +320,7 @@ void push_runtime_body_spheres(RuntimeBodyCollision& context)
 RuntimeBodyCollisionSphere* first_hit_runtime_body_sphere(std::span<const u8> body,
     RuntimeBodyCollisionSphere* spheres)
 {
-    RuntimeBodyCollisionSphere* end = spheres + body[0x714];
+    RuntimeBodyCollisionSphere* end = spheres + body_record(body).sphere_count;
     for (RuntimeBodyCollisionSphere* sphere = spheres; sphere < end; ++sphere)
     {
         if (sphere->contact[0x26] != 0)

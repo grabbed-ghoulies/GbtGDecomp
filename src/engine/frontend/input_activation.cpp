@@ -1,4 +1,6 @@
 #include "input_activation.h"
+#include <cstddef>
+#include "../entities/player_fields.h"
 #include "gbtg/entity.h"
 #include "../entities/ghouly_box_decoder.h"
 #include <bit>
@@ -287,7 +289,7 @@ void release_runtime_actor_input(std::span<u8> device,
         return;
     }
     auto owner = context.addresses.at(read_u32(device, 0xC));
-    std::memcpy(owner.data() + 0x960, &zero, 4);
+    player_record(owner).input_device = zero;
     release_runtime_input_slot(context.addresses.at(read_u32(device, 0xB8)), slot, context);
 }
 

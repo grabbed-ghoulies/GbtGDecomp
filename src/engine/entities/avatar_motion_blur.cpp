@@ -1,4 +1,5 @@
 #include "avatar_motion_blur.h"
+#include "avatar_fields.h"
 #include "actor_transform.h"
 #include "actor_shape_bounds.h"
 #include "actor_runtime_queries.h"
@@ -19,6 +20,26 @@ namespace gbtg
 {
 namespace
 {
+AvatarMotionBlurState& blur_of(std::span<u8> bytes)
+{
+    return actor_record_view<AvatarMotionBlurState>(bytes);
+}
+
+const AvatarMotionBlurState& blur_of(std::span<const u8> bytes)
+{
+    return actor_record_view<AvatarMotionBlurState>(bytes);
+}
+
+AvatarAfterimageState& afterimage_of(std::span<u8> bytes)
+{
+    return actor_record_view<AvatarAfterimageState>(bytes);
+}
+
+const AvatarAfterimageState& afterimage_of(std::span<const u8> bytes)
+{
+    return actor_record_view<AvatarAfterimageState>(bytes);
+}
+
 // A NUL-terminated name the shader texture record points at.
 const char* string_at(u32 address, RuntimeAvatarAfterimage& context)
 {
@@ -26,11 +47,6 @@ const char* string_at(u32 address, RuntimeAvatarAfterimage& context)
 }
 
 void put_word(std::span<u8> bytes, size_t offset, u32 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
 {
     std::memcpy(bytes.data() + offset, &value, 4);
 }
@@ -49,8 +65,8 @@ void copy_string(char* destination, const char* source)
 // Xbox 0x000668E0
 void avatar_motion_blur_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0xA50;
-    output.parameters = 0x4B8;
+    output.instance = sizeof(AvatarMotionBlurState);
+    output.parameters = avatar_motion_blur_parameter::kSize;
 }
 
 // Xbox 0x00066B90
@@ -92,7 +108,7 @@ void end_runtime_avatar_glow(std::span<const u8> avatar, RuntimeAvatarGlow& cont
         return u32(u8(truncate_runtime_float(clamped))); // 0x001673D8.
     };
     const u32 base = context.word_at(0x00314F48);
-    const float fade = read_f32(avatar, 0x93C);
+    const float fade = blur_of(avatar).fade;
     float level = 0.f;
     float rise = 1.f;
     u32 first = 0;
@@ -131,7 +147,8 @@ void end_runtime_avatar_glow(std::span<const u8> avatar, RuntimeAvatarGlow& cont
         first = (first & 0x00FFFFFFu) | (alpha(255.f - (level - 0.5f) * 2.f * 255.f) << 24);
         second = second & 0x00FFFFFFu;
     }
-    composite_runtime_glow(read_u32(avatar, 0x94C), read_u32(avatar, 0x948), 0, first, second, context.pass);
+    composite_runtime_glow(blur_of(avatar).resource,
+        blur_of(avatar).pixel_shader, 0, first, second, context.pass);
 }
 
 // Xbox 0x00040CA0
@@ -232,22 +249,24 @@ void start_runtime_avatar_effect(RuntimeAvatarMotionBlur& context, const char* n
 bool initialize_runtime_avatar_motion_blur(std::span<const u8> parameters, RuntimeAvatarMotionBlur& context)
 {
     const auto bytes = context.self.bytes;
-    put_word(bytes, 0x944, 0);
-    put_float(bytes, 0x938, std::bit_cast<float>(0x3F000000u)); // DAT_0032B0F4.
-    copy_string(reinterpret_cast<char*>(bytes.data() + 0x950), reinterpret_cast<const char*>(parameters.data() + 0x3B8));
-    copy_string(reinterpret_cast<char*>(bytes.data() + 0x9D0), reinterpret_cast<const char*>(parameters.data() + 0x438));
-    auto source = context.actor_at(read_u32(parameters, 0x334));
+    blur_of(bytes).phase = 0;
+    blur_of(bytes).timer = std::bit_cast<float>(0x3F000000u); // DAT_0032B0F4.
+    copy_string(blur_of(bytes).effect.data(),
+        field_data(parameters, avatar_motion_blur_parameter::effect));
+    copy_string(blur_of(bytes).ignite_effect.data(),
+        field_data(parameters, avatar_motion_blur_parameter::ignite_effect));
+    auto source = context.actor_at(get(parameters, avatar_motion_blur_parameter::source));
     copy_runtime_actor_appearance(context.self, source, context.default_name, context.startup);
     actor_refresh_transform(context.self.actor);
-    put_float(bytes, 0x934, context.self.actor.radius_y);
+    blur_of(bytes).height_scale = context.self.actor.radius_y;
     const long double radius = actor_model_sweep_radius(context.self.actor);
-    start_runtime_avatar_effect(context, reinterpret_cast<const char*>(bytes.data() + 0x950),
+    start_runtime_avatar_effect(context, blur_of(bytes).effect.data(),
         float(radius * static_cast<long double>(std::bit_cast<float>(0x3DCCCCCDu)))); // DAT_0032B254.
     append_runtime_actor_snapshot(context.self.actor, context.snapshots);
     put_word(bytes, 0x1A0, 0x00066B90);
     put_word(bytes, 0x1A4, 0x00066C00);
     put_word(bytes, 0x1A8, context.address);
-    const char* resource = reinterpret_cast<const char*>(parameters.data() + 0x338);
+    const char* resource = field_data(parameters, avatar_motion_blur_parameter::resource);
     if (std::memcmp(resource, "aid_", 4) == 0)
     {
         context.resource = acquire_animation_resource(context.startup.registry, resource);
@@ -260,9 +279,10 @@ bool initialize_runtime_avatar_motion_blur(std::span<const u8> parameters, Runti
     {
         context.resource = {};
     }
-    put_word(bytes, 0x94C, context.resource.data() == nullptr ? 0 : context.resource_address(context.resource.data()));
-    put_word(bytes, 0x940, 0xFFFFFFFFu);
-    put_word(bytes, 0x948, 7u - (source.bytes[0x196] != 0 ? 1u : 0u));
+    blur_of(bytes).resource = context.resource.data() == nullptr ? 0
+        : context.resource_address(context.resource.data());
+    blur_of(bytes).light = -1;
+    blur_of(bytes).pixel_shader = 7u - (source.bytes[0x196] != 0 ? 1u : 0u);
     return true;
 }
 
@@ -270,11 +290,11 @@ bool initialize_runtime_avatar_motion_blur(std::span<const u8> parameters, Runti
 long double runtime_avatar_pulse(const RuntimeAvatarMotionBlur& context)
 {
     const auto bytes = context.self.bytes;
-    if (read_u32(bytes, 0x944) != 3)
+    if (blur_of(bytes).phase != 3)
     {
         return 1.L; // DAT_0032B0F8.
     }
-    const float timer = read_f32(bytes, 0x938);
+    const float timer = blur_of(bytes).timer;
     float clamped = 1.f;
     if (!(timer > 1.f))
     {
@@ -291,7 +311,7 @@ long double runtime_avatar_pulse(const RuntimeAvatarMotionBlur& context)
 void ignite_runtime_avatar(RuntimeAvatarMotionBlur& context)
 {
     const long double radius = actor_model_sweep_radius(context.self.actor);
-    start_runtime_avatar_effect(context, reinterpret_cast<const char*>(context.self.bytes.data() + 0x9D0),
+    start_runtime_avatar_effect(context, blur_of(context.self.bytes).ignite_effect.data(),
         float(radius * static_cast<long double>(std::bit_cast<float>(0x3D638E39u)))); // DAT_0032B5E4.
     Actor& actor = context.self.actor;
     queue_actor_sound(actor.sound_slots[4], 0, &actor, 4, nullptr, nullptr, 1.f, "XACT_SOUNDBANK_GMISC_ONFIRE",
@@ -313,13 +333,14 @@ void light_runtime_avatar(RuntimeAvatarMotionBlur& context)
     position.y += 10.f; // DAT_0032B10C.
     const i32 index = add_runtime_scene_point_light(position, 0xC800C800u, 0xC8006400u, 2.f, 2.f, reach, reach, 1,
         context.lights); // 0x00123720, XMM0 DAT_0032B110
-    std::memcpy(context.self.bytes.data() + 0x940, &index, 4);
+    blur_of(context.self.bytes).light = index;
 }
 
 // Xbox 0x00066A80
 void release_runtime_avatar_light(RuntimeAvatarMotionBlur& context)
 {
-    release_runtime_scene_point_light(i32(read_u32(context.self.bytes, 0x940)), context.lights); // The inlined release.
+    release_runtime_scene_point_light(blur_of(context.self.bytes).light,
+        context.lights); // The inlined release.
 }
 
 // Xbox 0x00066FE0
@@ -344,19 +365,19 @@ void tick_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
     {
         rate = actor.animation_rate;
     }
-    const float timer = read_f32(bytes, 0x938);
+    const float timer = blur_of(bytes).timer;
     bool expired = false;
     if (timer > 0.f)
     {
         const float left = timer - rate * step;
-        put_float(bytes, 0x938, left);
+        blur_of(bytes).timer = left;
         expired = left <= 0.f; // JC on 0 < left, unordered included.
     }
     if (expired)
     {
-        put_float(bytes, 0x938, 0.f);
-        const u32 phase = read_u32(bytes, 0x944);
-        put_word(bytes, 0x944, phase + 1);
+        blur_of(bytes).timer = 0.f;
+        const u32 phase = blur_of(bytes).phase;
+        blur_of(bytes).phase = phase + 1;
         if (phase == 0)
         {
             ignite_runtime_avatar(context);
@@ -375,7 +396,7 @@ void tick_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
             activate_actor_bind_tree(actor); // 0x00112CC0.
             return;
         }
-        put_float(bytes, 0x938, length(read_u32(bytes, 0x944)));
+        blur_of(bytes).timer = length(blur_of(bytes).phase);
     }
     else
     {
@@ -387,7 +408,7 @@ void tick_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
         {
             factor = float(pulse);
         }
-        const float scale_y = read_f32(bytes, 0x934) * factor;
+        const float scale_y = blur_of(bytes).height_scale * factor;
         if (scale_x != actor.scale_x || scale_y != actor.radius_y || scale_z != actor.radius_xz)
         {
             actor.radius_y = scale_y;
@@ -395,13 +416,13 @@ void tick_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
             actor.radius_xz = scale_z;
             actor.xform_valid = 0;
         }
-        if (-1 < i32(read_u32(bytes, 0x940)))
+        if (-1 < blur_of(bytes).light)
         {
             // Phase 3 scales the light by its time left, clamped to [0, 1].
             float scale = 1.f; // DAT_0032B0F8.
-            if (read_u32(bytes, 0x944) == 3)
+            if (blur_of(bytes).phase == 3)
             {
-                const float left = read_f32(bytes, 0x938);
+                const float left = blur_of(bytes).timer;
                 if (!(left > 1.f))
                 {
                     scale = 0.f > left ? 0.f : left;
@@ -412,23 +433,23 @@ void tick_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
             {
                 reach = 60.f;
             }
-            auto& point = context.lights.points.at(read_u32(bytes, 0x940));
+            auto& point = context.lights.points.at(u32(blur_of(bytes).light));
             point.unk_1C = reach; // DAT_00511B8C.
             point.unk_20 = reach * 2.f; // DAT_00511B90, DAT_0032B110.
         }
     }
-    const float span = length(read_u32(bytes, 0x944));
+    const float span = length(blur_of(bytes).phase);
     float fade = 1.f;
     if (span != 0.f)
     {
-        const float value = (read_f32(bytes, 0x938) - span) / (0.f - span);
+        const float value = (blur_of(bytes).timer - span) / (0.f - span);
         if (value <= 1.f)
         {
             fade = value < 0.f ? 0.f : value;
         }
     }
-    put_float(bytes, 0x93C, fade);
-    switch (read_u32(bytes, 0x944))
+    blur_of(bytes).fade = fade;
+    switch (blur_of(bytes).phase)
     {
     case 1:
         fade = fade + 1.f;
@@ -449,7 +470,7 @@ void tick_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
         update_actor_frame(context.frame, context.frame_context); // 0x000420D0.
         return;
     }
-    put_float(bytes, 0x93C, fade);
+    blur_of(bytes).fade = fade;
     update_actor_frame(context.frame, context.frame_context); // 0x000420D0.
 }
 
@@ -466,30 +487,26 @@ void destroy_runtime_avatar_motion_blur(RuntimeAvatarMotionBlur& context)
 // Xbox 0x00069080
 void avatar_afterimage_object_sizes(ObjectSizes& output)
 {
-    output.instance = 0x968;
-    output.parameters = 0x354;
+    output.instance = sizeof(AvatarAfterimageState);
+    output.parameters = avatar_afterimage_parameter::kSize;
 }
 
 // Xbox 0x000690F0
 bool initialize_runtime_avatar_afterimage(std::span<const u8> parameters, RuntimeAvatarAfterimage& context)
 {
     const auto bytes = context.self.bytes;
-    put_word(bytes, 0x938, read_u32(parameters, 0x338));
-    put_word(bytes, 0x934, read_u32(parameters, 0x338));
-    put_word(bytes, 0x940, parameters[0x33C]);
-    put_word(bytes, 0x93C, parameters[0x33C]);
-    put_word(bytes, 0x964, read_u32(parameters, 0x34C));
-    auto source = context.actor_at(read_u32(parameters, 0x334));
+    afterimage_of(bytes).life = get(parameters, avatar_afterimage_parameter::life);
+    afterimage_of(bytes).time_left = get(parameters, avatar_afterimage_parameter::life);
+    afterimage_of(bytes).start_alpha = get(parameters, avatar_afterimage_parameter::alpha);
+    afterimage_of(bytes).alpha = get(parameters, avatar_afterimage_parameter::alpha);
+    afterimage_of(bytes).glow = get(parameters, avatar_afterimage_parameter::glow);
+    auto source = context.actor_at(get(parameters, avatar_afterimage_parameter::source));
     copy_runtime_actor_appearance(context.self, source, context.default_name, context.startup); // 0x0013AE30
     const Actor& actor = context.self.actor;
-    put_float(bytes, 0x944, actor.scale_x); // +0x30.
-    put_float(bytes, 0x948, actor.radius_y); // +0x34.
-    put_float(bytes, 0x94C, actor.radius_xz); // +0x38.
-    put_word(bytes, 0x950, read_u32(parameters, 0x340));
-    put_word(bytes, 0x954, read_u32(parameters, 0x344));
-    put_word(bytes, 0x958, read_u32(parameters, 0x348));
+    afterimage_of(bytes).start_scale = Vec3{actor.scale_x, actor.radius_y, actor.radius_xz}; // +0x30.
+    afterimage_of(bytes).end_scale = get(parameters, avatar_afterimage_parameter::end_scale);
     // Parameter +0x350: a shader texture record (+0 the shader, +4 the parameter, +8 the texture's AID).
-    const u32 record = read_u32(parameters, 0x350);
+    const u32 record = get(parameters, avatar_afterimage_parameter::texture_record);
     if (record != 0 && read_u32(context.bytes_at(record), 8) == 0x5F646961) // "aid_"
     {
         const std::span<const u8> words = context.bytes_at(record);
@@ -500,7 +517,7 @@ bool initialize_runtime_avatar_afterimage(std::span<const u8> parameters, Runtim
         }
         context.texture_parameter = create_shader_parameter(*model->runtime, string_at(read_u32(words, 0), context),
             string_at(read_u32(words, 4), context)); // 0x000F8540
-        put_word(bytes, 0x95C, context.texture_parameter != nullptr ? 1u : 0u);
+        afterimage_of(bytes).has_texture_parameter = context.texture_parameter != nullptr ? 1u : 0u;
         u32 texture = 0;
         if (read_u32(words, 8) == 0x5F646961) // "aid_"
         {
@@ -512,7 +529,7 @@ bool initialize_runtime_avatar_afterimage(std::span<const u8> parameters, Runtim
             }
             texture = context.texture.data() == nullptr ? 0u : context.address_of(context.texture.data());
         }
-        put_word(bytes, 0x960, texture);
+        afterimage_of(bytes).texture = texture;
         if (context.texture_parameter == nullptr)
         {
             throw Error("after-image 0x000690F0 binds its texture through a null +0x95C parameter (0x000F86F0)");
@@ -525,12 +542,12 @@ bool initialize_runtime_avatar_afterimage(std::span<const u8> parameters, Runtim
 // Xbox 0x00069220
 void destroy_runtime_avatar_afterimage(RuntimeAvatarAfterimage& context)
 {
-    if (read_u32(context.self.bytes, 0x95C) != 0)
+    if (afterimage_of(context.self.bytes).has_texture_parameter != 0)
     {
         release_shader_parameter(context.texture_parameter); // 0x000F85D0
         context.texture_parameter = nullptr;
     }
-    if (read_u32(context.self.bytes, 0x960) != 0)
+    if (afterimage_of(context.self.bytes).texture != 0)
     {
         release_animation_resource(context.startup.registry, context.texture); // 0x00035C00, EBX the texture
         context.texture = {};
@@ -542,32 +559,35 @@ void tick_runtime_avatar_afterimage(RuntimeAvatarAfterimage& context)
 {
     const auto bytes = context.self.bytes;
     Actor& actor = context.self.actor;
-    if (read_u32(bytes, 0x95C) != 0)
+    if (afterimage_of(bytes).has_texture_parameter != 0)
     {
         advance_shader_parameter(*context.texture_parameter, runtime_actor_step(actor, context.clock),
             context.texture_bytes); // 0x000F8640
     }
-    const float left = read_f32(bytes, 0x934);
+    const float left = afterimage_of(bytes).time_left;
     if (left > 0.f)
     {
         const float next = left - runtime_actor_step(actor, context.clock);
-        put_float(bytes, 0x934, next);
+        afterimage_of(bytes).time_left = next;
         if (next <= 0.f) // JC on 0 < next, unordered included.
         {
-            put_float(bytes, 0x934, 0.f);
+            afterimage_of(bytes).time_left = 0.f;
             activate_actor_bind_tree(actor); // 0x00112CC0
         }
     }
-    const float phase = read_f32(bytes, 0x934) / read_f32(bytes, 0x938);
+    const float phase = afterimage_of(bytes).time_left / afterimage_of(bytes).life;
     constexpr float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148.
     constexpr float half_pi = std::bit_cast<float>(0x3FC90FDBu); // DAT_0032B140.
     const long double wave = retail_sin(phase * pi - half_pi); // 0x00153320
-    const long double alpha = (wave + 1.L) * static_cast<long double>(i32(read_u32(bytes, 0x940))) * 0.5L;
-    put_word(bytes, 0x93C, u32(truncate_runtime_float(alpha))); // 0x001673D8
+    const long double alpha =
+        (wave + 1.L) * static_cast<long double>(afterimage_of(bytes).start_alpha) * 0.5L;
+    afterimage_of(bytes).alpha = u32(truncate_runtime_float(alpha)); // 0x001673D8
     const float towards = 1.f - phase; // DAT_0032B0F8.
-    const float x = (read_f32(bytes, 0x950) - read_f32(bytes, 0x944)) * towards + read_f32(bytes, 0x944);
-    const float y = (read_f32(bytes, 0x954) - read_f32(bytes, 0x948)) * towards + read_f32(bytes, 0x948);
-    const float z = (read_f32(bytes, 0x958) - read_f32(bytes, 0x94C)) * towards + read_f32(bytes, 0x94C);
+    const Vec3 start = afterimage_of(bytes).start_scale;
+    const Vec3 end = afterimage_of(bytes).end_scale;
+    const float x = (end.x - start.x) * towards + start.x;
+    const float y = (end.y - start.y) * towards + start.y;
+    const float z = (end.z - start.z) * towards + start.z;
     if (x != actor.scale_x || y != actor.radius_y || z != actor.radius_xz)
     {
         actor.scale_x = x;
@@ -603,7 +623,7 @@ u32 draw_runtime_avatar_afterimage(i32 kind, RuntimeAvatarAfterimageDraw& contex
     {
         return 0;
     }
-    const bool glow = read_u32(context.bytes, 0x964) != 0;
+    const bool glow = afterimage_of(context.bytes).glow != 0;
     if (glow)
     {
         Vec3 position;
@@ -628,7 +648,8 @@ u32 draw_runtime_avatar_afterimage(i32 kind, RuntimeAvatarAfterimageDraw& contex
     {
         // +0x1C4 is the kind argument's stack word with the alpha stored in its top byte.
         model.material_enabled = 1;
-        model.material_first = (u32(context.bytes[0x93C]) << 24) | (u32(kind) & 0x00FFFFFFu);
+        model.material_first =
+            ((afterimage_of(context.bytes).alpha & 0xFFu) << 24) | (u32(kind) & 0x00FFFFFFu);
         model.material_second = context.material_second;
     }
     AnimationMatrix world;
@@ -645,7 +666,8 @@ u32 draw_runtime_avatar_afterimage(i32 kind, RuntimeAvatarAfterimageDraw& contex
     if (glow)
     {
         // White with the +0x93C alpha in the top byte.
-        stamp_runtime_glow((u32(context.bytes[0x93C]) << 24) | 0x00FFFFFFu, 1, context.pass); // 0x00062490, EAX 1
+        stamp_runtime_glow(((afterimage_of(context.bytes).alpha & 0xFFu) << 24) | 0x00FFFFFFu, 1,
+            context.pass); // 0x00062490, EAX 1
     }
     return 1;
 }

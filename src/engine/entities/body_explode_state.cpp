@@ -1,4 +1,5 @@
 #include "body_explode_state.h"
+#include <cstddef>
 #include "actor_render_registration.h"
 #include "actor_runtime_queries.h"
 #include "actor_transform.h"
@@ -11,6 +12,7 @@
 #include "player_goal_cleanup.h"
 #include "player_mind_requests.h"
 #include "segment_records.h"
+#include "body_fields.h"
 
 #include <array>
 #include <cstring>
@@ -20,7 +22,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = explode_state_field;
 
 std::function<RuntimeExplodeStateContext&(u32)> explode_context_of;
 // The +0x20 override pools, by the state's bytes; the field holds whether there is one.
@@ -33,57 +34,37 @@ constexpr float kBlastShrinkScale = 17.f; // DAT_0032B518.
 constexpr float kBlastNearest = 8.f; // DAT_0032B26C.
 constexpr float kHalf = 0.5f; // DAT_0032B0F4.
 
-u32 body_address_of(std::span<const u8> state)
+GhoulySpawnPool*& overrides_of(const ExplodeState& state)
 {
-    return read_u32(state, 8);
+    return explode_overrides[body_state_key(state)];
 }
 
-void put_word(std::span<u8> bytes, size_t offset, u32 value)
+void sync_overrides(ExplodeState& state)
 {
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
-void put_vector(std::span<u8> bytes, size_t offset, const Vec3& value)
-{
-    std::memcpy(bytes.data() + offset, &value, sizeof(value));
-}
-
-GhoulySpawnPool*& overrides_of(std::span<const u8> state)
-{
-    return explode_overrides[state.data()];
-}
-
-void sync_overrides(std::span<u8> state)
-{
-    set(state, field::overrides, overrides_of(state) != nullptr ? 1u : 0u);
+    state.overrides = overrides_of(state) != nullptr ? 1u : 0u;
 }
 
 // The body's +0x309..+0x30C counts and +0x6A move by `step`.
 void step_counters(std::span<u8> body, i32 step)
 {
-    body[0x6A] = u8(body[0x6A] + step);
-    body[0x309] = u8(body[0x309] + step);
-    body[0x30B] = u8(body[0x30B] + step);
-    body[0x30A] = u8(body[0x30A] + step);
-    body[0x30C] = u8(body[0x30C] + step);
+    body_record(body).unk_6A = u8(body_record(body).unk_6A + step);
+    body_record(body).unk_309 = u8(body_record(body).unk_309 + step);
+    body_record(body).unk_30B = u8(body_record(body).unk_30B + step);
+    body_record(body).unk_30A = u8(body_record(body).unk_30A + step);
+    body_record(body).unk_30C = u8(body_record(body).unk_30C + step);
 }
 
 bool construct_explode_state_view(FactoryObject& object, std::span<const u8>)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_explode_state(state, explode_context_of(body_address_of(state)));
+    ExplodeState& state = body_state_view<ExplodeState>({object.bytes.get(), object.size});
+    return initialize_runtime_explode_state(state, explode_context_of(state.base.body));
 }
 
 void destroy_explode_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_explode_state(state, explode_context_of(body_address_of(state)));
-    explode_overrides.erase(state.data());
+    ExplodeState& state = body_state_view<ExplodeState>({object.bytes.get(), object.size});
+    destroy_runtime_explode_state(state, explode_context_of(state.base.body));
+    explode_overrides.erase(body_state_key(state));
 }
 
 const ObjectFactoryVtable* explode_state_lifecycle()
@@ -97,36 +78,36 @@ const ObjectFactoryVtable* explode_state_lifecycle()
 // Xbox 0x0008E740
 void explode_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(ExplodeState);
     output.parameters = 0xC;
 }
 
 // Xbox 0x0008E7C0
-bool initialize_runtime_explode_state(std::span<u8> state, RuntimeExplodeStateContext& context)
+bool initialize_runtime_explode_state(ExplodeState& state, RuntimeExplodeStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
     step_counters(body, 1);
     increment_runtime_body_latches(body, knockdown.actor, context.latches); // The inlined 0x0001FC40.
-    put_word(body, 0x338, read_u32(body, 0x338) + 1);
-    put_word(body, 0x330, read_u32(body, 0x334));
-    put_float(body, 0x334, 0.f);
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps + 1;
+    body_record(body).saved_ease_rate = body_record(body).ease_rate;
+    body_record(body).ease_rate = 0.f;
     unregister_actor_segment_probes(context.render); // 0x0003E850
-    body[0x38] = 1;
-    body[0x39] = 1;
-    set(state, field::phase, 0u);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
+    state.phase = 0u;
     return true;
 }
 
 // Xbox 0x0008E930
-void destroy_runtime_explode_state(std::span<u8> state, RuntimeExplodeStateContext& context)
+void destroy_runtime_explode_state(ExplodeState& state, RuntimeExplodeStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const std::span<u8> body = knockdown.body;
     step_counters(body, -1);
     decrement_runtime_body_latches(body, knockdown.actor, context.latches); // The inlined 0x0001FD20.
-    put_word(body, 0x334, read_u32(body, 0x330));
-    put_word(body, 0x338, read_u32(body, 0x338) - 1);
+    body_record(body).ease_rate = body_record(body).saved_ease_rate;
+    body_record(body).ease_rate_swaps = body_record(body).ease_rate_swaps - 1;
     GhoulySpawnPool*& overrides = overrides_of(state);
     if (overrides != nullptr)
     {
@@ -138,32 +119,31 @@ void destroy_runtime_explode_state(std::span<u8> state, RuntimeExplodeStateConte
 }
 
 // Xbox 0x0008EA90
-void tick_runtime_explode_state(std::span<u8> state, RuntimeExplodeStateContext& context)
+void tick_runtime_explode_state(ExplodeState& state, RuntimeExplodeStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     Actor& actor = knockdown.actor;
-    set(state, field::elapsed,
-        runtime_actor_rate(actor) * runtime_frame_step(knockdown.clock) + get(state, field::elapsed));
-    put_vector(knockdown.body, 0x318, knockdown.default_position); // DAT_0050DD80.
-    switch (get(state, field::phase))
+    state.base.elapsed = runtime_actor_rate(actor) * runtime_frame_step(knockdown.clock) + state.base.elapsed;
+   body_record(knockdown.body).velocity = knockdown.default_position; // DAT_0050DD80.
+    switch (state.phase)
     {
     case 0:
         if (runtime_actor_animation_slot_complete(knockdown.animation, 0)) // 0x0003B290, ECX 0, EAX actor
         {
             start_runtime_explode_blast(state, context); // 0x0008EB80, EAX actor
-            set(state, field::phase, 1u);
+            state.phase = 1u;
         }
         return;
     case 1:
         if (blast_runtime_explode_contacts(state, actor, context)) // 0x0008EBD0, EAX body
         {
-            set(state, field::phase, 2u);
+            state.phase = 2u;
         }
         return;
     case 2:
         if (!runtime_actor_sound_playing(actor, context.sounds)) // 0x00041CB0, EAX actor
         {
-            set(state, field::phase, 2u);
+            state.phase = 2u;
             finish_runtime_body_death(0, knockdown.scene_flags, knockdown.restart_requested,
                 knockdown.death); // 0x00134AE0, EAX actor
         }
@@ -174,21 +154,21 @@ void tick_runtime_explode_state(std::span<u8> state, RuntimeExplodeStateContext&
 }
 
 // Xbox 0x0008EB80
-void start_runtime_explode_blast(std::span<u8> state, RuntimeExplodeStateContext& context)
+void start_runtime_explode_blast(ExplodeState& state, RuntimeExplodeStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     hide_runtime_actor(context.actor_view, knockdown.bits); // 0x001364B0, EBX actor
     remove_runtime_actor_collision(context.actor_view, context.state); // 0x00136540, ESI actor
-    set(state, field::blast_time, kBlastTime);
+    state.blast_time = kBlastTime;
     knockdown.callouts(0x17, nullptr); // 0x0003BE20 over actor +0x8C, options 0
 }
 
 // Xbox 0x0008EBD0
-bool blast_runtime_explode_contacts(std::span<u8> state, Actor& actor, RuntimeExplodeStateContext& context)
+bool blast_runtime_explode_contacts(ExplodeState& state, Actor& actor, RuntimeExplodeStateContext& context)
 {
     RuntimeKnockdownContext& knockdown = context.knockdown;
     const std::span<const u8> body = knockdown.body;
-    const float shrunk = kBlastReach - get(state, field::blast_time) * kBlastShrink * kBlastShrinkScale;
+    const float shrunk = kBlastReach - state.blast_time * kBlastShrink * kBlastShrinkScale;
     float radius;
     if (kBlastNearest > shrunk)
     {
@@ -203,7 +183,7 @@ bool blast_runtime_explode_contacts(std::span<u8> state, Actor& actor, RuntimeEx
         }
     }
     Vec3 center = actor_world_position(actor); // 0x000412A0, ESI actor
-    center.y = knockdown.actor.radius_y * read_f32(body, 0x884) * kHalf + center.y;
+    center.y = knockdown.actor.radius_y * body_record(body).height_scale * kHalf + center.y;
     GhoulySpawnPool*& overrides = overrides_of(state);
     if (overrides != nullptr)
     {
@@ -248,18 +228,18 @@ bool blast_runtime_explode_contacts(std::span<u8> state, Actor& actor, RuntimeEx
     }
     const float step = runtime_frame_step(knockdown.clock);
     const float rate = runtime_actor_rate(knockdown.actor);
-    const float left = get(state, field::blast_time);
+    const float left = state.blast_time;
     if (!(left > 0.f))
     {
         return false;
     }
     const float next = left - rate * step;
-    set(state, field::blast_time, next);
+    state.blast_time = next;
     if (0.f < next) // COMISS; JC keeps a positive time.
     {
         return false;
     }
-    set(state, field::blast_time, 0.f);
+    state.blast_time = 0.f;
     return true;
 }
 

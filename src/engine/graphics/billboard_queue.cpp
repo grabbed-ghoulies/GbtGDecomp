@@ -1,4 +1,5 @@
 #include "billboard_queue.h"
+#include "boot_shader_tables.h"
 #include "d3dx_view.h"
 #include "../frontend/dialogue_draw_outer.h"
 #include "gbtg/anim.h"
@@ -91,13 +92,13 @@ void begin_billboard_draw(BillboardFlushContext& c)
     deferred(draw, 0x18197C) = 2;
     deferred(draw, 0x181984) = 2;
     deferred(draw, 0x181968) |= 1;
-    d3d.vertex_shader(c.image.word(0x00427374));
-    const u32 constants = c.image.word(0x00427368);
+    d3d.vertex_shader(c.image.word(kBillboardVertexShader.handle));
+    const u32 constants = c.image.word(kBillboardVertexShader.constants);
     if (constants != 0)
     {
         d3d.constants(0x60, reinterpret_cast<const float*>(c.image.pointer(constants)), 0xC);
     }
-    d3d.pixel_shader(c.image.word(0x00425EEC));
+    d3d.pixel_shader(c.image.word(kBillboardPixelShader));
     std::array<float, 16> projection;
     d3d.get_transform(1, projection.data());
     transpose_runtime_graphics_matrix(projection.data(), projection.data());

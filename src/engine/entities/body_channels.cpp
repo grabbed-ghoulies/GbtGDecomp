@@ -1,4 +1,6 @@
 #include "body_channels.h"
+#include <cstddef>
+#include "body_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -30,12 +32,12 @@ bool runtime_body_channel_is_bound(const RuntimeBodyChannelBindings& animation, 
 void ease_runtime_body_channel_targets(std::span<const u8> body,
     RuntimeBodyChannelContext& context)
 {
-    const u32 count = read_u32(body, 0x154);
+    const u32 count = body_record(body).hash_count;
     for (u32 i = 0; i < count; ++i)
     {
         store_channel_float(context.rows, size_t(i) * 12 + 8, 0.f);
     }
-    const auto bank = context.banks[read_u32(body, 0x158)];
+    const auto bank = context.banks[body_record(body).alert_level];
     for (size_t offset = 0; offset < bank.size(); offset += 8)
     {
         u8* selected = nullptr;
@@ -81,7 +83,7 @@ void ease_runtime_body_channel_targets(std::span<const u8> body,
 // Xbox 0x0001D850
 void tick_runtime_body_channel_keys(std::span<u8> body, RuntimeBodyChannelContext& context)
 {
-    if (body[0x92] == 1)
+    if (body_record(body).unk_92 == 1)
     {
         return;
     }
@@ -90,39 +92,40 @@ void tick_runtime_body_channel_keys(std::span<u8> body, RuntimeBodyChannelContex
     {
         do
         {
-            const float timer = read_f32(body, 0x8C) - remaining;
-            store_channel_float(body, 0x8C, timer);
+            const float timer = body_record(body).channel_timer - remaining;
+            body_record(body).channel_timer = timer;
             if (timer > 0.f)
             {
                 return;
             }
             remaining = engine_absolute(timer);
-            const auto keys = body[0x90] <= 3 ? context.keys[body[0x90]] : context.address_zero;
-            const size_t offset = size_t(body[0x91]) * 12;
+            const auto keys = body_record(body).channel_keys <= 3 ? context.keys[body_record(body).channel_keys]
+                : context.address_zero;
+            const size_t offset = size_t(body_record(body).channel_key) * 12;
             const size_t slot = 0xE4 + size_t(read_u32(keys, offset + 8)) * 12;
             body[slot + 8] = 1;
             std::memcpy(body.data() + slot, keys.data() + offset + 4, 4);
-            std::memcpy(body.data() + 0x8C, keys.data() + offset + 12, 4);
+            std::memcpy(body.data() + offsetof(BodyRecord, channel_timer), keys.data() + offset + 12, 4);
             if (read_u32(keys, offset + 20) == 2)
             {
-                if (body[0x90] == 0)
+                if (body_record(body).channel_keys == 0)
                 {
-                    body[0x92] = 1;
+                    body_record(body).unk_92 = 1;
                 }
                 else
                 {
-                    body[0x91] = 0;
-                    if (body[0x90] == 1)
+                    body_record(body).channel_key = 0;
+                    if (body_record(body).channel_keys == 1)
                     {
-                        body[0x90] = 2;
-                        std::memcpy(body.data() + 0x8C, context.keys[2].data(), 4);
-                        body[0x92] = 2;
+                        body_record(body).channel_keys = 2;
+                        std::memcpy(body.data() + offsetof(BodyRecord, channel_timer), context.keys[2].data(), 4);
+                        body_record(body).unk_92 = 2;
                     }
                 }
             }
             else
             {
-                ++body[0x91];
+                ++body_record(body).channel_key;
             }
         }
         while (remaining > 0.f);
@@ -172,7 +175,7 @@ void apply_runtime_body_channels(std::span<const u8> body, RuntimeBodyChannelCon
 {
     RuntimeModelInstance& model = *context.model;
     bool bound = false;
-    const i32 initial_count = i32(read_u32(body, 0x154));
+    const i32 initial_count = i32(body_record(body).hash_count);
     for (i32 i = 0; i < initial_count; ++i)
     {
         if (context.animation != nullptr && runtime_body_channel_is_bound(*context.animation,
@@ -182,7 +185,7 @@ void apply_runtime_body_channels(std::span<const u8> body, RuntimeBodyChannelCon
             break;
         }
     }
-    for (i32 i = 0; i < i32(read_u32(body, 0x154)); ++i)
+    for (i32 i = 0; i < i32(body_record(body).hash_count); ++i)
     {
         const size_t offset = size_t(i) * 12;
         const u32 channel = read_u32(context.rows, offset);
@@ -191,8 +194,8 @@ void apply_runtime_body_channels(std::span<const u8> body, RuntimeBodyChannelCon
         {
             store_channel_float(context.rows, offset + 4, target != nullptr ? *target : 0.f);
         }
-        else if (channel == 0 && read_u32(body, 0xFC) != 0
-            && (body[0xEC] != 0 || body[0xF8] != 0))
+        else if (channel == 0 && body_record(body).unk_FC != 0
+            && (body_record(body).aux_level_0 != 0 || body_record(body).aux_level_1 != 0))
         {
             float value = target != nullptr ? *target : 0.f;
             const float selected = read_f32(context.rows, offset + 4);
@@ -221,11 +224,11 @@ void apply_runtime_body_default_blend(std::span<const u8> body, RuntimeBodyChann
     }
     if (context.model->auxiliary_targets[0] != nullptr)
     {
-        std::memcpy(context.model->auxiliary_targets[0], body.data() + 0xE8, 4);
+        std::memcpy(context.model->auxiliary_targets[0], body.data() + offsetof(BodyRecord, aux_value_0), 4);
     }
     if (context.model->auxiliary_targets[0] != nullptr)
     {
-        std::memcpy(context.model->auxiliary_targets[0], body.data() + 0xF4, 4);
+        std::memcpy(context.model->auxiliary_targets[0], body.data() + offsetof(BodyRecord, aux_value_1), 4);
     }
 }
 
@@ -237,11 +240,11 @@ void step_runtime_body_channels(std::span<u8> body, RuntimeBodyChannelChild*& at
     {
         attachment->step();
     }
-    if (i32(read_u32(body, 0x154)) > 0)
+    if (i32(body_record(body).hash_count) > 0)
     {
         ease_runtime_body_channel_targets(body, context);
     }
-    if (read_u32(body, 0xFC) != 0)
+    if (body_record(body).unk_FC != 0)
     {
         tick_runtime_body_channel_keys(body, context);
         tick_runtime_body_channel_blends(body, context);
@@ -251,7 +254,7 @@ void step_runtime_body_channels(std::span<u8> body, RuntimeBodyChannelChild*& at
 // Xbox 0x00025190
 void update_runtime_body_model_anchors(std::span<u8> body, entity_detail::ListHead& anchors)
 {
-    if (read_u32(body, 0x310) == 0)
+    if (body_record(body).unk_310 == 0)
     {
         for (auto* anchor = static_cast<ActorModelAnchor*>(anchors.next); anchor != nullptr;
             anchor = static_cast<ActorModelAnchor*>(anchor->owner_link.next))
@@ -259,17 +262,17 @@ void update_runtime_body_model_anchors(std::span<u8> body, entity_detail::ListHe
             update_actor_model_anchor(*anchor);
         }
     }
-    body[0x308] = 0;
+    body_record(body).look_point_set = 0;
 }
 
 // Xbox 0x00025130
 void apply_runtime_body_model_state(std::span<const u8> body,
     RuntimeModelInstance*& model, RuntimeModelInstance*& secondary, std::span<u32> shared_states)
 {
-    if (body[0x2D0] != 0)
+    if (body_record(body).unk_2D0 != 0)
     {
-        const u8 slot = body[0x2D1];
-        const u8 value = body[0x2D2];
+        const u8 slot = body_record(body).unk_2D1;
+        const u8 value = body_record(body).unk_2D2;
         if (model != nullptr)
         {
             set_runtime_model_node_state(*model, slot, value, shared_states);

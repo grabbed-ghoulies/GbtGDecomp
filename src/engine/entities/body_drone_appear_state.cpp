@@ -2,6 +2,7 @@
 #include "actor_transform.h"
 #include "player_goal_cleanup.h"
 #include "../audio/listener_settings.h"
+#include "body_fields.h"
 #include <array>
 #include <cstring>
 
@@ -9,7 +10,6 @@ namespace gbtg
 {
 namespace
 {
-namespace field = drone_appear_state_field;
 namespace parameter = drone_appear_state_parameter;
 
 constexpr float kStartTime = 0.5f; // DAT_0032B0F4.
@@ -28,23 +28,16 @@ constexpr float kWideRate = 1.49f; // DAT_0032B3AC.
 
 std::function<RuntimeDroneAppearStateContext&(u32)> drone_appear_context_of;
 
-u32 body_address_of(std::span<const u8> state)
-{
-    u32 address;
-    std::memcpy(&address, state.data() + 8, 4);
-    return address;
-}
-
 bool construct_drone_appear_state_view(FactoryObject& object, std::span<const u8> parameters)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    return initialize_runtime_drone_appear_state(state, parameters, drone_appear_context_of(body_address_of(state)));
+    DroneAppearState& state = body_state_view<DroneAppearState>({object.bytes.get(), object.size});
+    return initialize_runtime_drone_appear_state(state, parameters, drone_appear_context_of(state.base.body));
 }
 
 void destroy_drone_appear_state_view(FactoryObject& object)
 {
-    const std::span<u8> state{object.bytes.get(), object.size};
-    destroy_runtime_drone_appear_state(state, drone_appear_context_of(body_address_of(state)));
+    DroneAppearState& state = body_state_view<DroneAppearState>({object.bytes.get(), object.size});
+    destroy_runtime_drone_appear_state(state, drone_appear_context_of(state.base.body));
 }
 
 const ObjectFactoryVtable* drone_appear_state_lifecycle()
@@ -54,36 +47,27 @@ const ObjectFactoryVtable* drone_appear_state_lifecycle()
     return &table;
 }
 
-void put_u16(std::span<u8> bytes, size_t offset, u16 value)
-{
-    std::memcpy(bytes.data() + offset, &value, 2);
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 }
 
 // Xbox 0x0008D330
 void drone_appear_state_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(DroneAppearState);
     output.parameters = parameter::kSize;
 }
 
 // Xbox 0x0008D5F0, EAX state, ESI actor
-void fade_runtime_drone_appear(std::span<const u8> state, RuntimeDroneAppearStateContext& context)
+void fade_runtime_drone_appear(const DroneAppearState& state, RuntimeDroneAppearStateContext& context)
 {
     float alpha;
-    if (get(state, field::appear) != 0)
+    if (state.appear != 0)
     {
-        const float level = get(state, field::time) * kFadeRate * kOpaque;
+        const float level = state.time * kFadeRate * kOpaque;
         alpha = level > kOpaque ? kOpaque : 0.f > level ? 0.f : level;
     }
     else
     {
-        const float level = kOpaque - get(state, field::time) * kFadeRate * kOpaque;
+        const float level = kOpaque - state.time * kFadeRate * kOpaque;
         alpha = 0.f > level ? 0.f : level > kOpaque ? kOpaque : level;
     }
     const u8 value = u8(truncate_runtime_float(alpha)); // 0x001673D8
@@ -91,13 +75,13 @@ void fade_runtime_drone_appear(std::span<const u8> state, RuntimeDroneAppearStat
 }
 
 // Xbox 0x0008D690, EAX state, ECX actor
-void scale_runtime_drone_appear(std::span<const u8> state, Actor& actor)
+void scale_runtime_drone_appear(const DroneAppearState& state, Actor& actor)
 {
-    const float time = get(state, field::time);
-    const float start = get(state, field::scale);
+    const float time = state.time;
+    const float start = state.scale;
     float across;
     float up;
-    if (get(state, field::appear) != 0)
+    if (state.appear != 0)
     {
         if (kAppearPop > time)
         {
@@ -174,22 +158,22 @@ void scale_runtime_drone_appear(std::span<const u8> state, Actor& actor)
 }
 
 // Xbox 0x0008D3B0
-bool initialize_runtime_drone_appear_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_drone_appear_state(DroneAppearState& state, std::span<const u8> parameters,
     RuntimeDroneAppearStateContext& context)
 {
     const std::span<u8> body = context.body;
-    put_u16(body, 0x30, u16(read_u16(body, 0x30) + 1));
-    body[0x38] = 1;
-    body[0x39] = 1;
+   body_record(body).move_holds = u16(body_record(body).move_holds + 1);
+    body_record(body).unk_38 = 1;
+    body_record(body).unk_39 = 1;
     increment_runtime_body_latches(body, context.actor, context.latches); // 0x0001FC40, ECX body
-    set(state, field::time, kStartTime);
-    set(state, field::appear, get(parameters, parameter::appear));
-    set(state, field::scale, context.actor.radius_xz); // Actor +0x38.
+    state.time = kStartTime;
+    state.appear = get(parameters, parameter::appear);
+    state.scale = context.actor.radius_xz; // Actor +0x38.
     context.bits.bytes[1] = u8(context.bits.bytes[1] | 8);
     // Actor +0x8C is never null (the actor is not -0x8C): callout 0x15 appearing, 0x14 vanishing.
     dispatch_actor_attachment_records(context.resource.resource.data(),
-        0x14 + (get(state, field::appear) != 0 ? 1 : 0), nullptr, nullptr, context.callouts, 0); // 0x0003BE20
-    if (get(state, field::appear) != 0)
+        0x14 + (state.appear != 0 ? 1 : 0), nullptr, nullptr, context.callouts, 0); // 0x0003BE20
+    if (state.appear != 0)
     {
         unregister_actor_segment_probes(context.render); // 0x0003E850, EAX actor
     }
@@ -197,48 +181,46 @@ bool initialize_runtime_drone_appear_state(std::span<u8> state, std::span<const 
 }
 
 // Xbox 0x0008D440
-void destroy_runtime_drone_appear_state(std::span<u8> state, RuntimeDroneAppearStateContext& context)
+void destroy_runtime_drone_appear_state(DroneAppearState& state, RuntimeDroneAppearStateContext& context)
 {
     const std::span<u8> body = context.body;
-    if (get(state, field::time) > 0.f)
+    if (state.time > 0.f)
     {
-        set(state, field::time, 0.f);
+        state.time = 0.f;
         fade_runtime_drone_appear(state, context); // 0x0008D5F0
         scale_runtime_drone_appear(state, context.actor); // 0x0008D690
     }
     decrement_runtime_body_latches(body, context.actor, context.latches); // 0x0001FD20, ECX body
-    put_u16(body, 0x30, u16(read_u16(body, 0x30) - 1));
+   body_record(body).move_holds = u16(body_record(body).move_holds - 1);
     context.bits.bytes[1] = u8(context.bits.bytes[1] & 0xF7);
-    if (get(state, field::appear) == 0)
+    if (state.appear == 0)
     {
         actor_refresh_transform(context.actor); // 0x00040DE0
         const std::array<u32, 2> message{0x4A, 0};
         context.actor_message(message); // Actor vtable +0xC.
         return;
     }
-    if (get(state, field::activated) == 0)
+    if (state.activated == 0)
     {
         activate_actor_bind_tree(context.actor); // 0x00112CC0, ESI actor
-        set(state, field::activated, 1u);
+        state.activated = 1u;
     }
 }
 
 // Xbox 0x0008D4D0
-void tick_runtime_drone_appear_state(std::span<u8> state, RuntimeDroneAppearStateContext& context)
+void tick_runtime_drone_appear_state(DroneAppearState& state, RuntimeDroneAppearStateContext& context)
 {
-    set(state, body_state_field::elapsed,
-        runtime_actor_step(context.actor, context.clock) + get(state, body_state_field::elapsed));
-    put_float(context.body, 0x734, 0.f);
-    put_float(context.body, 0x72C, 0.f);
+    state.base.elapsed = runtime_actor_step(context.actor, context.clock) + state.base.elapsed;
+    level_body_euler(context.body);
     bool done = false;
-    const float time = get(state, field::time);
+    const float time = state.time;
     if (time > 0.f)
     {
         const float left = time - runtime_actor_step(context.actor, context.clock);
-        set(state, field::time, left);
+        state.time = left;
         if (!(0.f < left)) // COMISS; JC keeps a positive time.
         {
-            set(state, field::time, 0.f);
+            state.time = 0.f;
             done = true;
         }
     }
@@ -248,13 +230,13 @@ void tick_runtime_drone_appear_state(std::span<u8> state, RuntimeDroneAppearStat
     {
         return;
     }
-    if (get(state, field::appear) != 0)
+    if (state.appear != 0)
     {
         activate_actor_bind_tree(context.actor); // 0x00112CC0, ESI actor
-        set(state, field::activated, 1u);
+        state.activated = 1u;
         return;
     }
-    set(state, body_state_field::next_key, context.body_slot_key(0x20)); // Body vtable +0x20.
+    state.base.next_key = context.body_slot_key(0x20); // Body vtable +0x20.
 }
 
 void install_runtime_drone_appear_state_class(std::span<ObjectFactoryType> types,

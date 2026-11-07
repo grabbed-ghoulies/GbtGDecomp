@@ -1,4 +1,5 @@
 #pragma once
+#include "scene_control_fields.h"
 #include "../entities/actor_clock.h"
 #include "../graphics/actor_effect_nodes.h"
 #include "../graphics/actor_effect_stream.h"
@@ -29,29 +30,30 @@ constexpr RetailField<float, 0xC4> prerun{};
 constexpr u32 kSize = 0xC8;
 static_assert(retail_fits(kSize, prerun));
 } // namespace scene_fx_parameter
-namespace scene_fx_field
+// One placed copy of the effect.
+struct SceneFxSlot
 {
-constexpr RetailField<float, 0x24> scale{};
-constexpr RetailField<float, 0x28> radius{};
-constexpr RetailField<i32, 0x2C> count{};
-constexpr RetailField<std::array<char, 0x80>, 0x30> effect{};
-constexpr RetailField<std::array<float, 2>, 0xB0> on_time{};
-constexpr RetailField<std::array<float, 2>, 0xB8> off_time{};
-constexpr RetailField<std::array<float, 2>, 0xC0> rate{};
-constexpr RetailField<float, 0xC8> prerun{};
-constexpr u32 kSlots = 0xCC; // eight 0x24-byte copies (scene_fx_slot)
-constexpr u32 kSlotStride = 0x24;
-constexpr u32 kSize = 0x1EC;
-static_assert(retail_fits(kSize, prerun));
-} // namespace scene_fx_field
-namespace scene_fx_slot
+    Vec3 position{}; // +0
+    Vec3 euler{}; // +0xC
+    u32 on = 0; // +0x18
+    float timer = 0.f; // +0x1C, the time left in the current on or off spell
+    i32 effect = 0; // +0x20, its DAT_00506930 index, -1 for none
+};
+static_assert(sizeof(SceneFxSlot) == 0x24);
+struct SceneFxControlState
 {
-constexpr RetailField<Vec3, 0x00> position{};
-constexpr RetailField<Vec3, 0x0C> euler{};
-constexpr RetailField<u32, 0x18> on{};
-constexpr RetailField<float, 0x1C> timer{}; // the time left in the current on or off spell
-constexpr RetailField<i32, 0x20> effect{}; // its DAT_00506930 index, -1 for none
-} // namespace scene_fx_slot
+    SceneControlBase base{}; // +0
+    float scale = 0.f; // +0x24
+    float radius = 0.f; // +0x28
+    i32 count = 0; // +0x2C
+    std::array<char, 0x80> effect{}; // +0x30
+    std::array<float, 2> on_time{}; // +0xB0
+    std::array<float, 2> off_time{}; // +0xB8
+    std::array<float, 2> rate{}; // +0xC0
+    float prerun = 0.f; // +0xC8
+    std::array<SceneFxSlot, 8> slots{}; // +0xCC
+};
+static_assert(sizeof(SceneFxControlState) == 0x1EC);
 struct SceneFxControlServices
 {
     const RuntimeActorClock& clock;
@@ -60,15 +62,15 @@ struct SceneFxControlServices
     std::function<void(ActorEffectNode&, float)> tick_effect; // 0x000EF2D0 with the scene's particle simulation.
 };
 void scene_fx_control_object_sizes(ObjectSizes& output); // Xbox 0x00082F80
-bool construct_runtime_scene_fx_control(std::span<u8> state, std::span<const u8> parameters,
+bool construct_runtime_scene_fx_control(SceneFxControlState& state, std::span<const u8> parameters,
     SceneFxControlServices& services); // Xbox 0x000832F0
 // The copy's effect stops (its node fades: +0x18 bit 3, +8 -1) and it waits a random off time.
-void stop_runtime_scene_fx(std::span<u8> state, size_t slot,
+void stop_runtime_scene_fx(SceneFxControlState& state, size_t slot,
     SceneFxControlServices& services); // Xbox 0x00082FF0, ECX slot, EAX state
 // The copy's effect starts at its pose for a random on time; `prerun` runs it for the control's +0xC8 seconds.
-void start_runtime_scene_fx(std::span<u8> state, size_t slot, u32 prerun,
+void start_runtime_scene_fx(SceneFxControlState& state, size_t slot, u32 prerun,
     SceneFxControlServices& services); // Xbox 0x00083080, EAX slot, EDI state
-void step_runtime_scene_fx(std::span<u8> state, float step, u32 prerun,
+void step_runtime_scene_fx(SceneFxControlState& state, float step, u32 prerun,
     SceneFxControlServices& services); // Xbox 0x00083280, EAX state
-void tick_runtime_scene_fx_control(std::span<u8> state, SceneFxControlServices& services); // Xbox 0x00083570
+void tick_runtime_scene_fx_control(SceneFxControlState& state, SceneFxControlServices& services); // Xbox 0x00083570
 }

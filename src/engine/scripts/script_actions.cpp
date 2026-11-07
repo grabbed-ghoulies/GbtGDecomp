@@ -1,4 +1,6 @@
 #include "../camera/entity_camera.h"
+#include "../entities/actor_fields.h"
+#include "../entities/mind_fields.h"
 #include "../scene/chapter5_countdown.h"
 #include "../scene/challenge_runtime.h"
 #include "../camera/camera_mind_rig.h"
@@ -43,6 +45,7 @@
 #include "script_conditions.h"
 #include "../runtime/random_state.h"
 #include "script_event_sequence.h"
+#include "script_event_step_fields.h"
 #include "script_event_tallies.h"
 #include "../cutscenes/door_registration.h"
 #include "../cutscenes/actor_tracks.h"
@@ -51,6 +54,7 @@
 #include "../video/movie_startup.h"
 #include "../video/movie_session.h"
 #include "../video/native_movies.h"
+#include "../entities/player_fields.h"
 
 #include <algorithm>
 #include <bit>
@@ -611,13 +615,13 @@ i32 g_pair_slot_count = 0;
 // 0x000F96F0. The object is the dword at link-0x730, then the dword at
 // link-0x624. A null object skips that call. Both paths return 2.
 // Xbox 0x00124FC0
-int script_handle_pair_updates(Game& g, const ScriptNode& node, int param_2)
+int script_handle_pair_updates(Game& g, const ScriptNode& node, int live_7d)
 {
     if (node.type != 0x98)
     {
         return 3;
     }
-    if (param_2 != 0)
+    if (live_7d != 0)
     {
         const u8 index = node_u8(g.scene_script, node, 8);
         const u8 value = node_u8(g.scene_script, node, 0xC);
@@ -1096,14 +1100,14 @@ bool script_node_is_last_action(const SceneScript& script, const ScriptNode& nod
 
 
 // Xbox 0x001259B0
-int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int param_3)
+int script_handle_action_links(Game& g, const ScriptNode& node, int live_7d, int ending)
 {
     const u32 type = node.type;
     if (type != 0x29)
     {
         if (type == 0x4f)
         {
-            if (param_2 == 0)
+            if (live_7d == 0)
             {
                 const size_t slot = size_t(g_queued_tag_count);
                 g_queued_tags.resize(slot + 1);
@@ -1129,7 +1133,7 @@ int script_handle_action_links(Game& g, const ScriptNode& node, int param_2, int
         }
         return 3;
     }
-    if ((param_2 != 0) && (param_3 == 0))
+    if ((live_7d != 0) && (ending == 0))
     {
         if (g_runtime_doors == nullptr)
         {
@@ -1205,12 +1209,12 @@ void mark_runtime_one_type_actors(u16 tag, i32 keep)
             continue;
         }
         const std::span<u8> actor = g_alt_node_actor_bytes(node);
-        actor[0x96D] = 1; // Node +0x29.
-        actor[0x96F] = 0;
-        actor[0x970] = 0;
-        if (0.f < read_f32(actor, 0x974)) // Node +0x30.
+        player_record(actor).unk_96D = 1; // Node +0x29.
+        player_record(actor).unk_96F = 0;
+        player_record(actor).unk_970 = 0;
+        if (0.f < player_record(actor).countdown_55) // Node +0x30.
         {
-            std::memset(actor.data() + 0x974, 0, 4);
+            std::memset(actor.data() + offsetof(PlayerRecord, countdown_55), 0, 4);
             std::array<u32, 0x42> message{0x55};
             g_script_actor_message(g_alt_node_actor(node), message); // Node - 0x944 vtable +0xC.
         }
@@ -1231,9 +1235,9 @@ void mark_runtime_one_type_actors(u16 tag, i32 keep)
 // their header (0x00125C80 .. 0x00126100) and queue it through 0x000D05D0. A handled type returns 2. The second
 // argument is unused.
 // Xbox 0x00126140
-int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, int param_3)
+int script_handle_scene_actions(Game& g, const ScriptNode& node, int live_7d, int ending)
 {
-    (void)param_2;
+    (void)live_7d;
     auto push_named = [&](u32 gate, u32 key_at, u16* words, u32& count)
     {
         if (node_u32(g.scene_script, node, gate) != 0)
@@ -1246,7 +1250,7 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     switch (node.type)
     {
     case 0x17:
-        if (param_3 != 0)
+        if (ending != 0)
         {
             return 0;
         }
@@ -1276,9 +1280,9 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     case 0x19:
     {
         // 0x00125C80 builds step type 0 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const float delay = 1.5f;
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1286,11 +1290,11 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     {
         // 0x00125D80 builds step type 4 with XMM0 = 0 at +4; +0x18 is the time limit at node+8. 0x000D05D0 queues it
         // unless bit 0x10 of DAT_0050EA9C is set.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 4;
-        std::memcpy(step.data(), &type, 4);
+        step.type = type;
         const u32 seconds = node_u32(g.scene_script, node, 8);
-        std::memcpy(step.data() + 0x18, &seconds, 4);
+        step.timed.seconds = std::bit_cast<float>(seconds);
         if ((g_flags_ea9c & 0x10u) != 0)
         {
             return 2;
@@ -1301,9 +1305,9 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     case 0x1b:
     {
         // 0x00125CC0 builds step type 1 with XMM0 = 0 at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 1;
-        std::memcpy(step.data(), &type, 4);
+        step.type = type;
         queue_script_event_step(step);
         return 2;
     }
@@ -1312,15 +1316,15 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         // 0x00125D00 builds step type 2 with XMM0 = 1.5 (0x0032B210) at +4, clearing it from +0x18 to the type's
         // size (DAT_00428934); +0x18 is the tag of the name at node+8 and +0x1C is set when the dword at node+0x48
         // is 0. 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 2;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        std::memcpy(step.data() + 0x18, &tag, 2);
+        step.tag.tag = tag;
         const u32 absent = node_u32(g.scene_script, node, 0x48) == 0 ? 1u : 0u;
-        std::memcpy(step.data() + 0x1C, &absent, 4);
+        step.tag.seen = absent;
         queue_script_event_step(step);
         return 2;
     }
@@ -1328,17 +1332,17 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     {
         // 0x00125D40 builds step type 3 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the kill count 0x0001BB60
         // draws from [node+8, node+0xC + 1) and +0x1C the tag of the name at node+0x10. 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 3;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         const i32 low = i32(node_u32(g.scene_script, node, 8));
         const i32 high = i32(node_u32(g.scene_script, node, 0xC)) + 1;
         const i32 count = draw_runtime_random_count(high, low, g_shared_random); // 0x0001BB60, ESI DAT_0054DD7C
-        std::memcpy(step.data() + 0x18, &count, 4);
+        step.kill_count.required = count;
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 0x10).c_str()));
-        std::memcpy(step.data() + 0x1C, &tag, 2);
+        step.kill_count.tag = tag;
         queue_script_event_step(step);
         return 2;
     }
@@ -1346,22 +1350,22 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     {
         // 0x00125DC0 builds step type 5 with XMM0 = 0 at +4; +0x18 is the time to survive at node+8. 0x000D05D0
         // queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 5;
-        std::memcpy(step.data(), &type, 4);
+        step.type = type;
         const u32 seconds = node_u32(g.scene_script, node, 8);
-        std::memcpy(step.data() + 0x18, &seconds, 4);
+        step.timed.seconds = std::bit_cast<float>(seconds);
         queue_script_event_step(step);
         return 2;
     }
     case 0x1f:
     {
         // 0x00126040 builds step type 0xF with XMM0 = 2.0 (0x0032B110) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xF;
         const float delay = 2.f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1369,13 +1373,13 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     {
         // 0x00125E00 builds step type 6 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the word at node+8.
         // 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 6;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         const u32 word = u32(node_u16(g.scene_script, node, 8));
-        std::memcpy(step.data() + 0x18, &word, 4);
+        step.done.unk_18 = word;
         queue_script_event_step(step);
         return 2;
     }
@@ -1383,15 +1387,14 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     {
         // 0x00125E40 builds step type 7 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the tag of the name at node+8
         // and +0x1C is -1 (the total, kept on its first run). 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 7;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
-        std::memcpy(step.data() + 0x18, &tag, 2);
-        const u32 unset = 0xffffffffu;
-        std::memcpy(step.data() + 0x1C, &unset, 4);
+        step.spare_tag.tag = tag;
+        step.spare_tag.kept_total = -1;
         queue_script_event_step(step);
         return 2;
     }
@@ -1399,24 +1402,23 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     {
         // 0x00125F00 builds step type 10 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is -1 (the total, kept on its
         // first run). 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 10;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
-        const u32 unset = 0xffffffffu;
-        std::memcpy(step.data() + 0x18, &unset, 4);
+        step.type = type;
+        step.delay.left = delay;
+        step.unhit_since.kept_total = -1;
         queue_script_event_step(step);
         return 2;
     }
     case 0x23:
     {
         // 0x00125EC0 builds step type 9 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 9;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1431,24 +1433,24 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         push_named(0xd0, 0x90, words, count);
         push_named(0x114, 0xd4, words, count);
         push_named(0x158, 0x118, words, count);
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 8;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
-        std::memcpy(step.data() + 0x1A, words, size_t(count) * 2);
-        step[0x4C] = u8(count);
+        step.type = type;
+        step.delay.left = delay;
+        std::memcpy(step.next_different.tags.data(), words, size_t(count) * 2);
+        step.next_different.count = u8(count);
         queue_script_event_step(step);
         return 2;
     }
     case 0x26:
     {
         // 0x00125F40 builds step type 0xB with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xB;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1456,24 +1458,24 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
     {
         // 0x00126080 builds step type 0x10 with XMM0 = 1.5 (0x0032B210) at +4; +0x18 is the dword at node+8.
         // 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0x10;
         const float delay = 1.5f;
         const u32 value = node_u32(g.scene_script, node, 8);
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
-        std::memcpy(step.data() + 0x18, &value, 4);
+        step.type = type;
+        step.delay.left = delay;
+        step.attack_limit.limit = std::bit_cast<i32>(value);
         queue_script_event_step(step);
         return 2;
     }
     case 0x28:
     {
         // 0x00125F80 builds step type 0xC with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xC;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1489,14 +1491,14 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         push_named(0xd0, 0x90, words, count);
         push_named(0x114, 0xd4, words, count);
         push_named(0x158, 0x118, words, count);
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xD;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         const i32 index = draw_runtime_random_count(i32(u16(count)), 0, g_shared_random); // 0x0001BB60, ECX count
         const u16 tag = words[size_t(index)];
-        std::memcpy(step.data() + 0x18, &tag, 2);
+        step.one_type.tag = tag;
         if (node_u32(g.scene_script, node, 0x15c) != 0)
         {
             mark_runtime_one_type_actors(tag, 0); // 0x00126940, DI the tag
@@ -1519,24 +1521,24 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         // to node+0xC (0x0001BB60, ECX node+0xC + 1, EDX node+8, ESI DAT_0054DD7C). 0x000D05D0 queues it.
         const u32 lo = node_u32(g.scene_script, node, 8);
         const u32 hi = node_u32(g.scene_script, node, 0xC) + 1u;
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0xE;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         const i32 drawn = draw_runtime_random_count(i32(hi), i32(lo), g_shared_random); // 0x0001BB60
-        std::memcpy(step.data() + 0x18, &drawn, 4);
+        step.number.target = drawn;
         queue_script_event_step(step);
         return 2;
     }
     case 0x87:
     {
         // 0x001260C0 builds step type 0x11 with XMM0 = 1.5 (0x0032B210) at +4, then 0x000D05D0 queues it.
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0x11;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         queue_script_event_step(step);
         return 2;
     }
@@ -1565,15 +1567,15 @@ int script_handle_scene_actions(Game& g, const ScriptNode& node, int param_2, in
         choice(0xdc, 0x98, 0xd8);
         choice(0x124, 0xe0, 0x120);
         choice(0x16c, 0x128, 0x168);
-        std::array<u8, 0x88> step{};
+        EventStep step{};
         const u32 type = 0x12;
         const float delay = 1.5f;
-        std::memcpy(step.data(), &type, 4);
-        std::memcpy(step.data() + 4, &delay, 4);
+        step.type = type;
+        step.delay.left = delay;
         const i32 index = draw_runtime_random_count(i32(u16(count)), 0, g_shared_random); // 0x0001BB60, ECX count
         const u16 tag = words[size_t(index)];
-        std::memcpy(step.data() + 0x18, &tag, 2);
-        std::memcpy(step.data() + 0x1C, &counts[size_t(index)], 4);
+        step.tag_kill_count.tag = tag;
+        step.tag_kill_count.required = std::bit_cast<i32>(counts[size_t(index)]);
         if (node_u32(g.scene_script, node, 0x170) != 0)
         {
             mark_runtime_one_type_actors(tag, 0); // 0x00126940, DI the tag
@@ -1710,7 +1712,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             {
                 continue;
             }
-            if (mark != 0 && mark != u32(read_u16(marked.bytes, 0x1FC)))
+            if (mark != 0 && mark != u32(actor_marker_id(marked.bytes)))
             {
                 continue;
             }
@@ -1769,12 +1771,12 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
                 continue;
             }
             const std::span<u8> actor = g_alt_node_actor_bytes(link);
-            actor[0x969] = node_u8(g.scene_script, node, 0x48);
+            player_record(actor).provoked = node_u8(g.scene_script, node, 0x48);
             const std::span<u8> mind = g_alt_node_mind(link);
-            if (read_u32(actor, 0x958) != 0 && !mind.empty() && read_u32(mind, 0x10) != 0
+            if (player_record(actor).mind != 0 && !mind.empty() && mind_record(mind).target_record != 0
                 && !g_alt_node_target_eligible(link)) // 0x00029C80, EDX 1
             {
-                if (read_u32(mind, 0x10) != 0)
+                if (mind_record(mind).target_record != 0)
                 {
                     const std::array<u32, 2> message{100, 0};
                     g_alt_node_message(link, message); // Mind +8 (the actor) vtable +0xC.
@@ -1789,7 +1791,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
         // 0x0010F6C0, SI the tag, XMM1 node+0x48, XMM2 node+0x4C: the tag's strategy class range.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
         set_runtime_strategy_class_range(tag, std::bit_cast<float>(node_u32(g.scene_script, node, 0x48)),
-            std::bit_cast<float>(node_u32(g.scene_script, node, 0x4c)), g_50e1c8, g_50e1c4);
+            std::bit_cast<float>(node_u32(g.scene_script, node, 0x4c)), g_strategy_class_ranges, g_strategy_class_range_count);
         return 2;
     }
     case 0x78:
@@ -1810,12 +1812,12 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
                 continue;
             }
             const std::span<u8> actor = g_alt_node_actor_bytes(link);
-            actor[0x96D] = value;
-            actor[0x96F] = 0;
-            actor[0x970] = 0;
-            if (read_f32(actor, 0x974) > 0.f)
+            player_record(actor).unk_96D = value;
+            player_record(actor).unk_96F = 0;
+            player_record(actor).unk_970 = 0;
+            if (player_record(actor).countdown_55 > 0.f)
             {
-                std::memset(actor.data() + 0x974, 0, 4);
+                std::memset(actor.data() + offsetof(PlayerRecord, countdown_55), 0, 4);
                 std::array<u32, 0x42> message{0x55};
                 g_script_actor_message(g_alt_node_actor(link), message); // Vtable +0xC
             }
@@ -1841,7 +1843,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
             }
             Actor& actor = g_alt_node_actor(link);
             g_script_drain_actor_goals(actor); // 0x00028210, ESI the actor
-            std::memset(g_alt_node_actor_bytes(link).data() + 0x990, 0, 2);
+            std::memset(g_alt_node_actor_bytes(link).data() + offsetof(PlayerRecord, goal_latch), 0, 2);
             const Vec3 position = actor_world_position(actor); // 0x000412A0
             const Vec3 euler = actor_world_euler(actor); // 0x00041820
             std::array<u32, 0x42> message{0x4d, node_u32(g.scene_script, node, 0x48), std::bit_cast<u32>(position.x),
@@ -1912,7 +1914,7 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
 // A nonzero dword at node+0xC calls 0x000F29D0; zero calls 0x000F29F0. Both
 // take ECX = the dword at node+8.
 // Xbox 0x00126E10
-int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
+int script_handle_resource_actions(Game& g, const ScriptNode& node, int live_7d)
 {
     switch (node.type)
     {
@@ -1950,14 +1952,14 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
         if (actor_event_chance(g_shared_random, chance)) // 0x00019200, ECX 0x0054DD7C
         {
             // 0x001400A0, CX the word at node+8 and the word at node+0xC on the stack.
-            const size_t slot = size_t(g_545cc8) * 2;
-            if (slot + 1 >= g_545c48.size())
+            const size_t slot = size_t(g_marker_swap_count) * 2;
+            if (slot + 1 >= g_marker_swap_ids.size())
             {
                 throw Error("script type 0x4E overflows DAT_00545C48's pairs");
             }
-            g_545c48[slot] = node_u16(g.scene_script, node, 8);
-            g_545c48[slot + 1] = node_u16(g.scene_script, node, 0xc);
-            g_545cc8 = g_545cc8 + 1;
+            g_marker_swap_ids[slot] = node_u16(g.scene_script, node, 8);
+            g_marker_swap_ids[slot + 1] = node_u16(g.scene_script, node, 0xc);
+            g_marker_swap_count = g_marker_swap_count + 1;
         }
         return 2;
     }
@@ -2018,7 +2020,7 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
         }
     }
     case 0x67:
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             const size_t slot = size_t(g_gate_2440);
             g_gate_2420.resize(slot + 1);
@@ -2050,16 +2052,16 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int param_2)
     case 0x73:
     {
         // 0x001400D0: CX the word at node+8, then node+0xC..node+0x2C, as one ten-word DAT_00545CCC group.
-        const size_t group = size_t(g_545d1c) * 10;
-        if (group + 10 > g_545ccc.size())
+        const size_t group = size_t(g_marker_group_count) * 10;
+        if (group + 10 > g_marker_group_ids.size())
         {
             throw Error("script type 0x73 overflows DAT_00545CCC's groups");
         }
         for (size_t word = 0; word < 10; ++word)
         {
-            g_545ccc[group + word] = node_u16(g.scene_script, node, 8 + u32(word) * 4);
+            g_marker_group_ids[group + word] = node_u16(g.scene_script, node, 8 + u32(word) * 4);
         }
-        g_545d1c = g_545d1c + 1;
+        g_marker_group_count = g_marker_group_count + 1;
         return 2;
     }
     case 0x74:
@@ -2378,8 +2380,8 @@ void reset_scene_script_runtime(Game& g)
         throw Error("0x00116E00 clears DAT_00545970..DAT_0054597C without the boot scene services");
     }
     g.factory_scene->actor_services->reset_scene_score_words(); // DAT_00545970, DAT_00545974, DAT_0054597C
-    g_545978 = 0; // DAT_00545978
-    g_545980 = 0; // DAT_00545980
+    g_broken_background_parts = 0; // DAT_00545978
+    g_running_score = 0; // DAT_00545980
     auto& challenge = g_challenge_run;
     challenge.state = 1; // DAT_004E17C8
     challenge.kind = 0xFFFFFFFFu; // DAT_004E17CC
@@ -2580,12 +2582,12 @@ int play_script_walk_in_cutscene(Game& g, const ScriptNode& node)
 }
 
 // Xbox 0x001274B0
-int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
+int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int ending)
 {
     switch (node.type)
     {
     case 0x13:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             auto& cutscenes = scene_cutscene_runtime(g);
             if (g_flag_2470 == 0)
@@ -2643,14 +2645,14 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         }
         return 2;
     case 0x14:
-        if (param_3 != 0)
+        if (ending != 0)
         {
             return 2;
         }
         // Native dependency binding, not a substitute implementation of the
         // retail dialogue calls. Missing ownership must not skip this node.
         return execute_runtime_script_dialogue(g.scene_script.bytes.data() + node.offset,
-            param_3, scene_dialogue_context(g));
+            ending, scene_dialogue_context(g));
     case 0x15:
     {
         // 0x00106D50 (EDI node+8, the byte at node+0x88, the dword at node+0x8C and 1) loads the movie event into
@@ -2668,7 +2670,7 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         return 2;
     }
     case 0x16:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             if (g_flag_2470 != 0)
             {
@@ -2689,7 +2691,7 @@ int script_handle_cutscene_actions(Game& g, const ScriptNode& node, int param_3)
         }
         return 2;
     case 0x53:
-        if (param_3 != 0)
+        if (ending != 0)
         {
             return 2;
         }
@@ -2827,12 +2829,12 @@ void remember_script_player_weapon(const char* name, i32 value)
 // is pushed for 0x0013A860. A zero return returns 2. Nonzero calls 0x0012ECC0
 // and returns 2.
 // Xbox 0x00127BC0
-int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, int param_3)
+int script_handle_actor_effects(Game& g, const ScriptNode& node, int live_7d, int ending)
 {
     switch (node.type)
     {
     case 0x2c:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             SceneActorServices* actors = script_scene_actors(g);
             if (actors == nullptr)
@@ -2843,7 +2845,7 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         }
         return 2;
     case 0x2d:
-        if (param_3 == 0)
+        if (ending == 0)
         {
             SceneActorServices* actors = script_scene_actors(g);
             if (actors == nullptr)
@@ -2895,7 +2897,7 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
     case 0x31:
     {
         const std::string name = node_cstr(g.scene_script, node, 8);
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             remember_script_player_weapon(name.c_str(), 0); // 0x00123AD0, EAX node+8, ECX 0
             return 2;
@@ -2907,7 +2909,7 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 0x46:
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             g_flag_30d08 = 0;
             g_byte_30d14[0] = 0;
@@ -3003,7 +3005,7 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int param_2, in
     }
     case 0xa6:
     {
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             g_flag_30d08 = 0;
             g_byte_30d14[0] = 0;
@@ -3226,7 +3228,7 @@ SceneActorServices& boot_scene_actors(Game& g)
 }
 
 // Xbox 0x00128050
-int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, int param_3)
+int script_handle_world_actions(Game& g, const ScriptNode& node, int live_7d, int ending)
 {
     switch (node.type)
     {
@@ -3237,7 +3239,7 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
         return 2;
     }
     case 2:
-        if (param_2 == 0)
+        if (live_7d == 0)
         {
             const std::string key = node_cstr(g.scene_script, node, 8);
             request_scene_object(g_scene_object_requests, key.c_str());
@@ -3296,7 +3298,7 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
             const std::span<u8> mind = g_alt_node_mind(link);
             if (!mind.empty())
             {
-                std::memcpy(mind.data() + 0x6C, &stored, 4);
+                mind_record(mind).target_range = std::bit_cast<float>(stored);
             }
         }
         return 2;
@@ -3314,10 +3316,10 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int param_2, in
     }
     case 0xa:
     {
-        // The scene's name (0x000FF0A0 into DAT_00507E78, 0x0011DCF0), shown when node+0x48 is set and param_3 is 0.
+        // The scene's name (0x000FF0A0 into DAT_00507E78, 0x0011DCF0), shown when node+0x48 is set and ending is 0.
         const std::string key = node_cstr(g.scene_script, node, 8);
         boot_scene_actors(g).show_script_scene_name(key.c_str(), node_u32(g.scene_script, node, 0x48),
-            param_3, std::bit_cast<float>(node_u32(g.scene_script, node, 0x4C)),
+            ending, std::bit_cast<float>(node_u32(g.scene_script, node, 0x4C)),
             std::bit_cast<float>(node_u32(g.scene_script, node, 0x50)));
         return 2;
     }

@@ -8,15 +8,15 @@ void bind_runtime_vertex_streams(u32 node, ModelRenderNodeContext& c)
     runtime_render_state(c.tree.renderer);
     const auto& image = c.tree.image;
     u32 index = 0;
-    if (image.word(node, 0x24) != 0)
+    if (image.get(node, vertex_buffer_node::buffer_count) != 0)
     {
         u32 offset = 0;
         do
         {
-            c.stream_descriptors[index] = image.word(node, 0x20) + offset;
+            c.stream_descriptors[index] = image.get(node, vertex_buffer_node::buffers) + offset;
             ++index;
-            offset += 0x18;
-        } while (index < image.word(node, 0x24));
+            offset += model_vertex_buffer_field::kSize;
+        } while (index < image.get(node, vertex_buffer_node::buffer_count));
     }
 }
 // Xbox 0x00158480

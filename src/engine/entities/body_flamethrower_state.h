@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 
 #include "actor_clock.h"
 #include "body_contacts.h"
@@ -25,24 +26,24 @@ constexpr RetailField<std::array<char, 0x80>, 0x8C> effect{};
 constexpr u32 kSize = 0x10C;
 static_assert(retail_fits(kSize, effect));
 } // namespace flamethrower_state_parameter
-namespace flamethrower_state_field
+struct FlamethrowerState
 {
-constexpr RetailField<u32, 0x18> phase{}; // 0 aiming, 1 swaying; 2 and 3 turn up and down
-constexpr RetailField<float, 0x1C> yaw{}; // the actor's yaw at entry
-constexpr RetailField<float, 0x20> sway{}; // the sway's angle, 150 degrees a second
-constexpr RetailField<float, 0x24> timer{}; // 1.25 s (DAT_0032B114), then 3.7 s (DAT_0032B514)
-constexpr RetailField<std::array<char, 0x80>, 0x28> sound{}; // parameters +0xC
-constexpr RetailField<std::array<char, 0x80>, 0xA8> effect{}; // parameters +0x8C
-constexpr RetailField<i32, 0x128> effect_slot{}; // its DAT_00506930 index, -1 for none
-constexpr RetailField<u32, 0x12C> effect_joint{}; // the kind 5 locator's joint
-constexpr RetailField<u32, 0x130> overrides{}; // the touched actors' contact overrides (0x0013EBE0), or 0
-constexpr RetailField<float, 0x134> flame_pitch{}; // the flame's direction, following the actor at 100 degrees a second
-constexpr RetailField<float, 0x138> flame_yaw{};
-constexpr RetailField<float, 0x13C> reach{}; // 0.01 (DAT_0032B124) growing to 1 at 1.98 a second
-constexpr RetailField<u32, 0x140> aimed{}; // set once the flame's direction was taken from the actor
-constexpr u32 kSize = 0x144;
-static_assert(retail_fits(kSize, aimed));
-} // namespace flamethrower_state_field
+    BodyStateBase base{}; // +0
+    u32 phase = 0; // +0x18, 0 aiming, 1 swaying; 2 and 3 turn up and down
+    float yaw = 0.f; // +0x1C, the actor's yaw at entry
+    float sway = 0.f; // +0x20, the sway's angle, 150 degrees a second
+    float timer = 0.f; // +0x24, 1.25 s (DAT_0032B114), then 3.7 s (DAT_0032B514)
+    std::array<char, 0x80> sound{}; // +0x28, parameters +0xC
+    std::array<char, 0x80> effect{}; // +0xA8, parameters +0x8C
+    i32 effect_slot = 0; // +0x128, its DAT_00506930 index, -1 for none
+    u32 effect_joint = 0; // +0x12C, the kind 5 locator's joint
+    u32 overrides = 0; // +0x130, the touched actors' contact overrides (0x0013EBE0), or 0
+    float flame_pitch = 0.f; // +0x134, the flame's direction, following the actor at 100 degrees a second
+    float flame_yaw = 0.f; // +0x138
+    float reach = 0.f; // +0x13C, 0.01 (DAT_0032B124) growing to 1 at 1.98 a second
+    u32 aimed = 0; // +0x140, set once the flame's direction was taken from the actor
+};
+static_assert(sizeof(FlamethrowerState) == 0x144);
 struct RuntimeFlamethrowerStateContext
 {
     std::span<u8> body;
@@ -59,24 +60,24 @@ struct RuntimeFlamethrowerStateContext
     std::function<Actor*(u32)> actor_at; // Message 0x7C's actor.
 };
 void flamethrower_state_object_sizes(ObjectSizes& output); // Xbox 0x0008F6D0
-bool initialize_runtime_flamethrower_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_flamethrower_state(FlamethrowerState& state, std::span<const u8> parameters,
     RuntimeFlamethrowerStateContext& context); // Xbox 0x0008F750
-void destroy_runtime_flamethrower_state(std::span<u8> state,
+void destroy_runtime_flamethrower_state(FlamethrowerState& state,
     RuntimeFlamethrowerStateContext& context); // Xbox 0x0008F850
-void tick_runtime_flamethrower_state(std::span<u8> state,
+void tick_runtime_flamethrower_state(FlamethrowerState& state,
     RuntimeFlamethrowerStateContext& context); // Xbox 0x0008F8F0
-void message_runtime_flamethrower_state(std::span<u8> state, std::span<const u32> message,
+void message_runtime_flamethrower_state(FlamethrowerState& state, std::span<const u32> message,
     RuntimeFlamethrowerStateContext& context); // Xbox 0x0008FBF0
 // The pitch toward the mind's target from the body's eye height, less 60 degrees; 0 without a target.
 float runtime_flamethrower_aim_pitch(RuntimeFlamethrowerStateContext& context); // Xbox 0x0008FC20
 // The flame effect is started at the kind 5 locator, facing 60 degrees below the actor.
-void start_runtime_flamethrower_effect(std::span<u8> state,
+void start_runtime_flamethrower_effect(FlamethrowerState& state,
     RuntimeFlamethrowerStateContext& context); // Xbox 0x0008FCD0
-void move_runtime_flamethrower_effect(std::span<const u8> state,
+void move_runtime_flamethrower_effect(const FlamethrowerState& state,
     RuntimeFlamethrowerStateContext& context); // Xbox 0x0008FE10
-void sweep_runtime_flamethrower(std::span<u8> state, RuntimeFlamethrowerStateContext& context); // Xbox 0x0008FEC0
+void sweep_runtime_flamethrower(FlamethrowerState& state, RuntimeFlamethrowerStateContext& context); // Xbox 0x0008FEC0
 // One touched actor: kept out of the next sweeps, told 0x15 and reported to the actor as 0x41.
-void report_runtime_flamethrower_contact(std::span<u8> state, RuntimeSegmentContactActor& object,
+void report_runtime_flamethrower_contact(FlamethrowerState& state, RuntimeSegmentContactActor& object,
     const Vec3& direction, const Vec3& point, GhoulySpawnPool* contacts,
     RuntimeFlamethrowerStateContext& context); // Xbox 0x000902A0, EAX state, ECX direction, ESI point, EDI object
 // Type 0x6A (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "strategy_target_queue.h"
 #include "strategy_target_selection.h"
 #include "strategy_fields.h"
@@ -17,31 +18,30 @@ namespace gbtg
 // on its target and knocks it down (0x3EE, "knockdown") or attacks (0x3EF, "attack_special"), picked by the actor's
 // aggression. While it knocks, its knob attack overlay ("knobattack_overlay") replays on a timeline of waits (the
 // parameters' AID, +0x5C..+0x68) whose waits stretch by DAT_0032B398 per hit taken (+0x48).
-// Strategy bytes: +0x1A attacking, +0x1B waking, +0x1C pause count, +0x20 target queue link.
 namespace haunted_door_parameter
 {
 constexpr RetailField<std::array<char, 0x80>, 0x18> timeline{}; // the knob attack's wait timeline AID
 constexpr u32 kSize = 0x98;
 static_assert(retail_fits(kSize, timeline));
 } // namespace haunted_door_parameter
-namespace haunted_door_strategy_field
+struct HauntedDoorStrategyState
 {
-constexpr RetailField<u32, 0x38> awake{}; // set on waking (0x417); message 0x31 and hits react only then
-constexpr RetailField<u32, 0x3C> latched{}; // message 0x7D raised the body latches (0x0001FC40)
-constexpr RetailField<u32, 0x40> close_in{}; // state 0x40A's draw (0x00019200, 0.5): attack once within 40
-constexpr RetailField<float, 0x44> wait{}; // state 0x416's countdown from 1 s
-constexpr RetailField<i32, 0x48> hits{}; // knock-downs taken (message 0x6E)
-constexpr RetailField<u32, 0x4C> overlay{}; // set when the overlay's animation record was found
-constexpr RetailField<u32, 0x50> overlay_on{}; // the overlay runs (0x000AFA80)
-constexpr RetailField<u32, 0x54> attacking{}; // the overlay's attack row is on (0x000AFB20 .. 0x000AFB90)
-constexpr RetailField<u32, 0x58> overlay_wanted{}; // the overlay starts once the body settles
-constexpr RetailField<u32, 0x5C> timeline{}; // the timeline's floats, or 0
-constexpr RetailField<u32, 0x60> timeline_end{};
-constexpr RetailField<u32, 0x64> timeline_row{};
-constexpr RetailField<float, 0x68> row_time{};
-constexpr u32 kSize = 0x6C;
-static_assert(retail_fits(kSize, row_time));
-} // namespace haunted_door_strategy_field
+    StrategyBase base{}; // +0
+    u32 awake = 0; // +0x38, set on waking (0x417); message 0x31 and hits react only then
+    u32 latched = 0; // +0x3C, message 0x7D raised the body latches (0x0001FC40)
+    u32 close_in = 0; // +0x40, state 0x40A's draw (0x00019200, 0.5): attack once within 40
+    float wait = 0.f; // +0x44, state 0x416's countdown from 1 s
+    i32 hits = 0; // +0x48, knock-downs taken (message 0x6E)
+    u32 overlay = 0; // +0x4C, set when the overlay's animation record was found
+    u32 overlay_on = 0; // +0x50, the overlay runs (0x000AFA80)
+    u32 attacking = 0; // +0x54, the overlay's attack row is on (0x000AFB20 .. 0x000AFB90)
+    u32 overlay_wanted = 0; // +0x58, the overlay starts once the body settles
+    u32 timeline = 0; // +0x5C, the timeline's floats, or 0
+    u32 timeline_end = 0; // +0x60
+    u32 timeline_row = 0; // +0x64
+    float row_time = 0.f; // +0x68
+};
+static_assert(sizeof(HauntedDoorStrategyState) == 0x6C);
 struct RuntimeHauntedDoorStrategy
 {
     RuntimeBaseStrategyMessages& base; // Base goals, entry and strategy link (+0x20).

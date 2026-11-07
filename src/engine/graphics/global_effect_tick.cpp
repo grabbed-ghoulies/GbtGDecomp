@@ -54,31 +54,31 @@ void tick_global_actor_effects(RuntimeGlobalEffectTick& context)
     }
     if (context.debris.particles.data() != nullptr)
     {
-        size_t offset = 0;
+        size_t index = 0;
         do
         {
-            const auto particle = context.debris.particles.subspan(offset, 0x74);
-            if (i32(read_u32(particle, 0x68)) == -2)
+            EffectDebrisRecord& particle = context.debris.particles[index];
+            if (particle.next_free == -2)
             {
                 tick_effect_debris(particle, context.debris, context.clock);
             }
-            offset += 0x74;
+            ++index;
         }
-        while (offset < 0x16A8);
+        while (index < kEffectDebrisCount);
     }
     if (context.trails.particles.data() != nullptr)
     {
-        size_t offset = 0;
+        size_t index = 0;
         do
         {
-            const auto particle = context.trails.particles.subspan(offset, 0x84);
-            if (i32(read_u32(particle, 0x7C)) == -2)
+            EffectTrailRecord& particle = context.trails.particles[index];
+            if (particle.next_free == -2)
             {
                 tick_effect_trail(particle, context.trails, context.clock);
             }
-            offset += 0x84;
+            ++index;
         }
-        while (offset < 0x19C8);
+        while (index < kEffectTrailCount);
     }
 }
 }

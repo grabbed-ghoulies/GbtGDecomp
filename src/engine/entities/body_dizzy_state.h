@@ -1,4 +1,6 @@
 #pragma once
+#include "body_state_fields.h"
+#include "input_tracking_record.h"
 
 #include "body_hit_state.h"
 #include "actor_render_registration.h"
@@ -6,8 +8,45 @@
 
 namespace gbtg
 {
-// Native views of the three star objects the dizzy state places around the body's actor (state +0x164, +0x170,
-// +0x17C hold their actor addresses; +0x15C / +0x160 of each 0xC-byte slot are its orbit and bob angles).
+// Factory type 0x64's state (see RuntimeDizzyStateContext). +0xC is the next key and +0x10 the state clock
+// (`BodyStateBase`).
+namespace dizzy_state_parameter
+{
+constexpr RetailField<u32, 0x0C> settles{};
+constexpr RetailRecord<0x10, 0x80, 2> star_names{}; // two NUL-terminated names for the stars' parameters
+constexpr RetailField<float, 0x110> star_scale{};
+constexpr RetailField<u32, 0x114> waits_for_animation{};
+constexpr RetailField<u32, 0x118> body_bit{};
+constexpr u32 kSize = 0x11C;
+static_assert(retail_fits(kSize, body_bit));
+} // namespace dizzy_state_parameter
+// One of the three stars (0xC bytes): its orbit and bob angles and its actor.
+// One of the three stars the state keeps orbiting the actor (state +0x15C).
+struct DizzyStar
+{
+    float orbit = 0.f; // +0
+    float bob = 0.f; // +4
+    u32 actor = 0; // +8, cleared when message 0x7C names it
+};
+static_assert(sizeof(DizzyStar) == 0xC);
+struct DizzyState
+{
+    BodyStateBase base{}; // +0
+    // +0x18, +0x30: the two input trackers 0x00109810 runs over (the stick's main and secondary axes). Either one's
+    // state at 2 speeds the stars up by DAT_00428670.
+    InputTrackingRecord primary_tracking{};
+    InputTrackingRecord secondary_tracking{};
+    u32 player_input = 0; // +0x48, the actor is the controlled player (actor +0xCDC 2, or +0x93C)
+    u32 waits_for_animation = 0; // +0x4C, the state ends as the animation crosses its end
+    u32 settles = 0; // +0x50, the body's turn settles each tick (0x00134720)
+    float star_scale = 0.f; // +0x54, of the actor's +0x38 radius, by 0.2
+    float time_left = 0.f; // +0x58, body +0x23C at entry
+    std::array<std::array<char, 0x80>, 2> star_names{}; // +0x5C, into the stars' parameters +0x28 and +0xA8
+    std::array<DizzyStar, 3> stars{}; // +0x15C
+    u32 body_bit = 0; // +0x180
+};
+static_assert(sizeof(DizzyState) == 0x184);
+// Native views of the three star objects the dizzy state places around the body's actor (the state's `stars`).
 struct RuntimeDizzyStars
 {
     std::function<u32(std::span<const u8> parameters)> create; // 0x00107520: the new object's address, or 0.
@@ -43,15 +82,15 @@ struct RuntimeDizzyStateContext
 };
 void dizzy_state_object_sizes(ObjectSizes& output); // Xbox 0x0008C920
 // The star's position (ESI) and euler (EBX) for slot `index` (ECX) around the body (EAX).
-void place_runtime_dizzy_star(std::span<const u8> state, std::span<const u8> body, const Actor& actor, i32 index,
+void place_runtime_dizzy_star(const DizzyState& state, std::span<const u8> body, const Actor& actor, i32 index,
     Vec3& position, Vec3& euler); // Xbox 0x0008D230
-void spawn_runtime_dizzy_stars(std::span<u8> state, RuntimeDizzyStateContext& context); // Xbox 0x0008CEF0
+void spawn_runtime_dizzy_stars(DizzyState& state, RuntimeDizzyStateContext& context); // Xbox 0x0008CEF0
 // Moves each live star along its orbit by `step` (XMM0) and places it.
-void orbit_runtime_dizzy_stars(std::span<u8> state, float step,
+void orbit_runtime_dizzy_stars(DizzyState& state, float step,
     RuntimeDizzyStateContext& context); // Xbox 0x0008D0E0
-bool initialize_runtime_dizzy_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_dizzy_state(DizzyState& state, std::span<const u8> parameters,
     RuntimeDizzyStateContext& context); // Xbox 0x0008C9A0
-void destroy_runtime_dizzy_state(std::span<u8> state, RuntimeDizzyStateContext& context); // Xbox 0x0008CB30
-void message_runtime_dizzy_state(std::span<u8> state, std::span<const u8> message); // Xbox 0x0008CEA0
-void tick_runtime_dizzy_state(std::span<u8> state, RuntimeDizzyStateContext& context); // Xbox 0x0008CC40
+void destroy_runtime_dizzy_state(DizzyState& state, RuntimeDizzyStateContext& context); // Xbox 0x0008CB30
+void message_runtime_dizzy_state(DizzyState& state, std::span<const u8> message); // Xbox 0x0008CEA0
+void tick_runtime_dizzy_state(DizzyState& state, RuntimeDizzyStateContext& context); // Xbox 0x0008CC40
 }

@@ -1,4 +1,5 @@
 #include "background_part_destruction.h"
+#include "gbtg/model_nodes.h"
 #include "../entities/actor_transform.h"
 #include "../entities/player_overlay.h"
 #include "../graphics/effect_particles.h"
@@ -33,15 +34,6 @@ u8 read_u8(std::span<const u8> bytes, size_t offset)
     }
     return bytes[offset];
 }
-
-void store(std::span<u8> bytes, size_t offset, float value)
-{
-    if (offset + 4 > bytes.size())
-    {
-        throw Error("background debris particle lies past its emitter");
-    }
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 }
 
 std::span<const u8> background_part_header(const Actor& actor)
@@ -51,7 +43,7 @@ std::span<const u8> background_part_header(const Actor& actor)
         return {};
     }
     const auto cpu = actor.model->cpu;
-    const u32 address = read_u32(cpu, read_u32(cpu, 0x10) + 0x10);
+    const u32 address = runtime_model_piece_header(cpu);
     if (address == 0)
     {
         return {};
@@ -147,20 +139,12 @@ void dispatch_background_part_destruction(Actor& actor, i32 part, const Vec3& so
                 const float spin_x = (random_unit(sixth) - 1.f) * kTurn - kHalfTurn;
                 const float spin_y = (random_unit(fifth) - 1.f) * kTurn - kHalfTurn;
                 const float spin_z = (random_unit(fourth) - 1.f) * kTurn - kHalfTurn;
-                const size_t particle = size_t(i32(i16(u16(u32(context.particle_count))))) * 0x150 + 0x390;
-                const auto bytes = context.effect->bytes;
-                store(bytes, particle, sample.x);
-                store(bytes, particle + 4, sample.y);
-                store(bytes, particle + 8, sample.z);
-                store(bytes, particle + 0xC, euler.x);
-                store(bytes, particle + 0x10, euler.y);
-                store(bytes, particle + 0x14, euler.z);
-                store(bytes, particle + 0x18, drift_x);
-                store(bytes, particle + 0x1C, rise);
-                store(bytes, particle + 0x20, drift_z);
-                store(bytes, particle + 0x24, spin_x);
-                store(bytes, particle + 0x28, spin_y);
-                store(bytes, particle + 0x2C, spin_z);
+                EffectParticle& particle =
+                    actor_effect_particle(*context.effect, size_t(i32(i16(u16(u32(context.particle_count))))));
+                particle.position = sample;
+                particle.euler = euler;
+                particle.velocity = Vec3{drift_x, rise, drift_z};
+                particle.spin = Vec3{spin_x, spin_y, spin_z};
                 ++context.particle_count;
             }
             remove_background_part_volume(actor, part, value, position, context.removal);
@@ -264,9 +248,9 @@ void dispatch_background_part_destruction(Actor& actor, i32 part, const Vec3& so
                 {
                     throw Error("background part graph lies outside actor +0x950");
                 }
-                auto fields = context.graphs[graph].fields;
-                std::memcpy(fields.data() + 0x1D0, &cleared, 4);
-                fields[0x1D5] = 1;
+                PointGraphRecord& record = context.graphs[graph].record();
+                record.age = cleared;
+                record.active = 1;
             }
             // Retail releases the row indexed by the part, not the row just filled.
             auto& volume = volume_at(part);

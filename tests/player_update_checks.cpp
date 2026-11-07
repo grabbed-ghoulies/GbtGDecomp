@@ -89,7 +89,7 @@ struct PlayerUpdateFixture
     entity_detail::NavigationPathSearch* search_pointer = &search;
     std::array<u8, 0x20> hint{};
     const u8* hint_pointer = hint.data();
-    std::vector<u8> body = std::vector<u8>(0x900);
+    std::vector<u8> body = std::vector<u8>(0x950);
     std::array<u8, 8> bit_bytes{};
     EntityBitBlock bits{bit_bytes.data()};
     EntityBitBlock* bits_pointer = &bits;

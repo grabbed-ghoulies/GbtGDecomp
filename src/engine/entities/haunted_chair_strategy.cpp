@@ -1,4 +1,9 @@
 #include "haunted_chair_strategy.h"
+#include "gbtg/retail_field.h"
+#include "actor_fields.h"
+#include "strategy_fields.h"
+#include "player_mind_targets.h"
+#include "mind_fields.h"
 #include "actor_transform.h"
 #include "player_children.h"
 #include "player_messages.h"
@@ -7,6 +12,8 @@
 #include "player_strategy.h"
 #include "player_strategy_entry.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -15,7 +22,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = haunted_chair_strategy_field;
+HauntedChairStrategyState& fields_of(std::span<u8> strategy)
+{
+    return strategy_view<HauntedChairStrategyState>(strategy);
+}
+
+const HauntedChairStrategyState& fields_of(std::span<const u8> strategy)
+{
+    return strategy_view<HauntedChairStrategyState>(strategy);
+}
+
 
 constexpr float kAttackRange = std::bit_cast<float>(0x47C35000u); // 100000, the target queue's reach.
 constexpr float kAhead = 10.f; // 0x41200000.
@@ -52,7 +68,7 @@ void change_state(u16 state, RuntimeHauntedChairStrategy& context)
 bool body_settled(RuntimeHauntedChairStrategy& context)
 {
     const std::span<const u8> body = goals_of(context).entry.body;
-    return read_u16(body, 0x30) == 0 && read_f32(body, 0x34) == 0.f; // DAT_0032B100.
+    return body_record(body).move_holds == 0 && body_record(body).move_hold_time == 0.f; // DAT_0032B100.
 }
 
 bool selected(RuntimeHauntedChairStrategy& context)
@@ -70,7 +86,7 @@ bool target_attackable(RuntimeHauntedChairStrategy& context)
 // The mind's target record (+0x10), or null.
 RuntimeMindTarget* mind_target(RuntimeHauntedChairStrategy& context)
 {
-    const u32 target = read_u32(mind_of(context), 0x10);
+    const u32 target = mind_record(mind_of(context)).target_record;
     return target == 0 ? nullptr : goals_of(context).target_at(target);
 }
 
@@ -92,7 +108,7 @@ Vec3 goal_point(RuntimeHauntedChairStrategy& context)
 
 void set_goal_point(const Vec3& point, RuntimeHauntedChairStrategy& context)
 {
-    std::memcpy(mind_of(context).data() + 0x70, &point, 12);
+    mind_record(mind_of(context)).goal_point = point;
 }
 
 void load_goal(const char* goal, RuntimeHauntedChairStrategy& context)
@@ -127,22 +143,22 @@ void choose_attack(RuntimeHauntedChairStrategy& context)
 void set_phase(u32 phase, RuntimeHauntedChairStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    const u32 previous = get(strategy, field::phase);
-    set(strategy, field::phase, phase);
+    const u32 previous = fields_of(strategy).phase;
+    fields_of(strategy).phase = phase;
     Actor& actor = goals_of(context).entry.actor;
-    const std::span<const u8> parameters = context.parameters;
+    const HauntedChairParameters& parameters = retail_view<HauntedChairParameters>(context.parameters);
     if (phase == 1)
     {
         if (previous != 1)
         {
-            const float low = read_f32(parameters, 0x24);
-            const float high = read_f32(parameters, 0x28);
+            const float low = parameters.hold_low;
+            const float high = parameters.hold_high;
             u32& random = goals_of(context).random;
             random = random * 0x19660Du + 0x3C6EF35Fu;
             const float roll = std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
-            set(strategy, field::hold, (high - low) * roll + low);
+            fields_of(strategy).hold = (high - low) * roll + low;
         }
-        request_runtime_strategy_roam(parameters.subspan(4), context.checks); // 0x0013A0A0, EAX block +4, EBX actor
+        request_runtime_strategy_roam(parameters.move, context.checks); // 0x0013A0A0, EAX block +4, EBX actor
         return;
     }
     if (phase != 2)
@@ -150,8 +166,8 @@ void set_phase(u32 phase, RuntimeHauntedChairStrategy& context)
         return;
     }
     Vec3 point;
-    if (!select_runtime_strategy_roam_position(point, actor.euler.y, read_f32(parameters, 0x20),
-            read_f32(parameters, 0x1C), context.checks)) // 0x00138310, EAX actor, XMM0 block +0x1C
+    if (!select_runtime_strategy_roam_position(point, actor.euler.y, parameters.slide_range,
+            parameters.slide_width, context.checks)) // 0x00138310, EAX actor, XMM0 block +0x1C
     {
         runtime_point_ahead_of_actor(actor, kAhead, point); // 0x00137EF0
     }
@@ -165,14 +181,14 @@ void update_hold(RuntimeHauntedChairStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
     Actor& actor = goals_of(context).entry.actor;
-    const float hold = get(strategy, field::hold);
+    const float hold = fields_of(strategy).hold;
     if (0.f < hold)
     {
         const float left = hold - runtime_actor_rate(actor) * runtime_frame_step(goals_of(context).clock);
-        set(strategy, field::hold, left);
+        fields_of(strategy).hold = left;
         if (!(0.f < left)) // COMISS; JC keeps a positive time.
         {
-            set(strategy, field::hold, 0.f);
+            fields_of(strategy).hold = 0.f;
         }
     }
     if (requests_pending(context))
@@ -184,14 +200,14 @@ void update_hold(RuntimeHauntedChairStrategy& context)
         change_state(pick_attack_state(context), context); // 0x000AE140
         return;
     }
-    set_phase(get(strategy, field::hold) > 0.f ? 1u : 2u, context); // DAT_0032B100, the tail jump to 0x000AE360
+    set_phase(fields_of(strategy).hold > 0.f ? 1u : 2u, context); // DAT_0032B100, the tail jump to 0x000AE360
 }
 
 // Xbox 0x000AE520, EAX actor, ECX strategy: one more slide at the target.
 void slide_at_target(RuntimeHauntedChairStrategy& context)
 {
     const std::span<u8> strategy = strategy_of(context);
-    set(strategy, field::slides, get(strategy, field::slides) + 1);
+    fields_of(strategy).slides = fields_of(strategy).slides + 1;
     set_goal_point(goal_point(context), context);
     load_goal(context.goal_slide_at_target, context);
 }
@@ -206,7 +222,7 @@ void update_slide(RuntimeHauntedChairStrategy& context)
         return;
     }
     if (mind_target(context) != nullptr
-        && get(strategy_of(context), field::slides) < std::bit_cast<i32>(read_u32(context.parameters, 0x34)))
+        && fields_of(strategy_of(context)).slides < retail_view<HauntedChairParameters>(context.parameters).slide_limit)
     {
         slide_at_target(context); // 0x000AE520
         return;
@@ -230,7 +246,7 @@ void update_holding(RuntimeHauntedChairStrategy& context)
     {
         return;
     }
-    const u32 phase = get(strategy_of(context), field::phase);
+    const u32 phase = fields_of(strategy_of(context)).phase;
     if (phase == 1)
     {
         update_hold(context); // 0x000AE280
@@ -244,16 +260,16 @@ void update_holding(RuntimeHauntedChairStrategy& context)
 // Xbox 0x000AE660, EAX strategy, ECX actor: the mind's target lies within the block's reach (+0).
 bool target_within_reach(RuntimeHauntedChairStrategy& context)
 {
-    const float reach = read_f32(context.parameters, 0);
+    const float reach = retail_view<HauntedChairParameters>(context.parameters).wake_reach;
     RuntimeMindTarget* target = mind_target(context);
     if (target == nullptr)
     {
         return false;
     }
     const Vec3 position = actor_world_position(goals_of(context).entry.actor); // 0x000412A0
-    const long double dx = static_cast<long double>(position.x) - read_f32(target->bytes, 0x20);
-    const long double dy = static_cast<long double>(position.y) - read_f32(target->bytes, 0x24);
-    const long double dz = static_cast<long double>(position.z) - read_f32(target->bytes, 0x28);
+    const long double dx = static_cast<long double>(position.x) - mind_target_record(target->bytes).shape.position.x;
+    const long double dy = static_cast<long double>(position.y) - mind_target_record(target->bytes).shape.position.y;
+    const long double dz = static_cast<long double>(position.z) - mind_target_record(target->bytes).shape.position.z;
     return static_cast<long double>(reach) > std::sqrt((dz * dz + dx * dx) + dy * dy);
 }
 
@@ -263,12 +279,12 @@ void update_asleep(RuntimeHauntedChairStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<const u8> actor = goals.entry.actor_bytes;
-    const u32 kind = read_u16(actor, 0xCDC) == 2 || read_u32(actor, 0x93C) != 0 ? 1u : 0u;
+    const u32 kind = player_record(actor).mode == 2 || player_record(actor).case_link != 0 ? 1u : 0u;
     if (goals.resume.references[kind] != 0 || goals.resume.decay_enabled[goals.resume.decay_index] == 0)
     {
         return;
     }
-    if (read_u16(actor, 0x1FC) != 0 && !target_within_reach(context)) // 0x000AE660
+    if (actor_marker_id(actor) != 0 && !target_within_reach(context)) // 0x000AE660
     {
         return;
     }
@@ -279,15 +295,15 @@ void update_asleep(RuntimeHauntedChairStrategy& context)
 // Xbox 0x000ABB60
 void haunted_chair_strategy_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(HauntedChairStrategyState);
     output.parameters = 0x18;
 }
 
 // Xbox 0x000AE770
 bool initialize_runtime_haunted_chair_strategy(std::span<u8> strategy)
 {
-    set(strategy, field::parameters, 0x00428734u);
-    set(strategy, field::hold, 0.f);
+    fields_of(strategy).parameters = 0x00428734u;
+    fields_of(strategy).hold = 0.f;
     return true;
 }
 
@@ -308,7 +324,7 @@ void update_runtime_haunted_chair_strategy(RuntimeHauntedChairStrategy& context)
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    const u16 state = read_u16(strategy, 0xE);
+    const u16 state = strategy_base(strategy).state;
     update_runtime_base_strategy(goals); // 0x0002C130
     switch (state)
     {
@@ -326,21 +342,21 @@ void update_runtime_haunted_chair_strategy(RuntimeHauntedChairStrategy& context)
         return;
     case 0x401:
         selected(context);
-        if (state == read_u16(strategy, 0xE))
+        if (state == strategy_base(strategy).state)
         {
             update_holding(context); // 0x000AE230
         }
         return;
     case 0x413:
         selected(context);
-        if (state == read_u16(strategy, 0xE))
+        if (state == strategy_base(strategy).state)
         {
             update_asleep(context); // 0x000AE5C0
         }
         return;
     case 0x417:
         selected(context);
-        if (state == read_u16(strategy, 0xE))
+        if (state == strategy_base(strategy).state)
         {
             update_settled_attack(context); // 0x000AE6E0
         }
@@ -359,7 +375,7 @@ void dispatch_runtime_haunted_chair_message(std::span<const u32> message, Runtim
     {
     case 0x26:
     case 0x27:
-        if (read_u16(strategy, 0xE) == 0x413)
+        if (strategy_base(strategy).state == 0x413)
         {
             return;
         }
@@ -369,7 +385,7 @@ void dispatch_runtime_haunted_chair_message(std::span<const u32> message, Runtim
         break;
     case 0x6E:
     {
-        const bool own = message[1] == read_u32(strategy, 8);
+        const bool own = message[1] == strategy_base(strategy).actor;
         if (check_runtime_player_knockout(goals) != 0) // 0x0013A490, EBX strategy
         {
             break;
@@ -379,12 +395,12 @@ void dispatch_runtime_haunted_chair_message(std::span<const u32> message, Runtim
             react_runtime_strategy_contact(message, -1.f, context.checks); // 0x001395C0, DAT_0032B120
             break;
         }
-        const u16 state = read_u16(strategy, 0xE);
-        const bool landed = runtime_message_lands_on_actor(message, read_u32(strategy, 8)); // 0x001408A0
+        const u16 state = strategy_base(strategy).state;
+        const bool landed = runtime_message_lands_on_actor(message, strategy_base(strategy).actor); // 0x001408A0
         clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
         if (landed)
         {
-            strategy[0x1A] = 0;
+            strategy_base(strategy).attacking = 0;
         }
         if (state == 0x413)
         {
@@ -403,34 +419,34 @@ void enter_runtime_haunted_chair_state(u16 state, u16 previous, RuntimeHauntedCh
 {
     RuntimePlayerStrategyGoals& goals = goals_of(context);
     const std::span<u8> strategy = strategy_of(context);
-    goals.entry.body[0x328] = 2;
+    body_record(goals.entry.body).move_class = 2;
     switch (state)
     {
     case 0x3EE:
-        goals.entry.body[0x328] = 5;
-        strategy[0x1A] = 1;
-        set(strategy, field::slides, 0);
+        body_record(goals.entry.body).move_class = 5;
+        strategy_base(strategy).attacking = 1;
+        fields_of(strategy).slides = 0;
         slide_at_target(context); // The tail jump to 0x000AE520.
         return;
     case 0x3EF:
-        goals.entry.body[0x328] = 6;
-        strategy[0x1A] = 1;
+        body_record(goals.entry.body).move_class = 6;
+        strategy_base(strategy).attacking = 1;
         load_goal(context.goal_swing_kick, context);
         return;
     case 0x401:
-        set(strategy, field::phase, 0u);
+        fields_of(strategy).phase = 0u;
         set_phase(1, context); // The tail jump to 0x000AE360, ECX 1.
         return;
     case 0x413:
         // 0x000AE5A0, ESI strategy.
         load_goal(context.goal_mimic, context);
-        strategy[0x1C] = u8(strategy[0x1C] + 1);
+        ++strategy_base(strategy).pause_count;
         return;
     case 0x417:
         load_goal(context.goal_wakeup, context);
         {
             const u16 next = 0x401;
-            std::memcpy(strategy.data() + 0x18, &next, 2);
+            strategy_base(strategy).unk_18 = next;
         }
         return;
     default:
@@ -452,10 +468,10 @@ void leave_runtime_haunted_chair_state(u16 state, u16 next, RuntimeHauntedChairS
     {
     case 0x3EE:
     case 0x3EF:
-        strategy[0x1A] = 0;
+        strategy_base(strategy).attacking = 0;
         return;
     case 0x401:
-        set(strategy, field::phase, 0u);
+        fields_of(strategy).phase = 0u;
         return;
     case 0x417:
         return;
@@ -463,7 +479,7 @@ void leave_runtime_haunted_chair_state(u16 state, u16 next, RuntimeHauntedChairS
     case 0x3FC:
     case 0x3FF:
     case 0x415:
-        strategy[0x1C] = u8(strategy[0x1C] - 1);
+        --strategy_base(strategy).pause_count;
         return;
     default:
         return;

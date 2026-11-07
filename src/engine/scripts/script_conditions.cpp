@@ -1,4 +1,5 @@
 #include "gbtg/anim.h"
+#include "../entities/body_fields.h"
 #include "gbtg/engine_internal.h"
 #include "gbtg/entity.h"
 #include "gbtg/gfx.h"
@@ -479,7 +480,7 @@ i32 count_runtime_live_actors()
         {
             throw Error("DAT_00511B48 node has no body view");
         }
-        if (read_u16(g_alt_node_body(node), 0x94) != 0)
+        if (body_record(g_alt_node_body(node)).energy != 0)
         {
             ++count;
         }
@@ -502,7 +503,7 @@ int script_condition_actor_count_at_most(const ScriptCond& rec)
         {
             throw Error("DAT_00511B48 node has no body view");
         }
-        if (read_u16(g_alt_node_body(node), 0x94) != 0)
+        if (body_record(g_alt_node_body(node)).energy != 0)
         {
             count = count + 1;
         }
@@ -904,7 +905,7 @@ int script_condition_actor_query(Game& g, const ScriptCond& rec)
     const u32 region = cond_u32(rec, 8);
     std::vector<RuntimeDirectorActor> marks;
     const RuntimeDirectorActor* player = script_condition_player(g, marks);
-    if (player == nullptr || read_u16(player->body, 0x94) == 0)
+    if (player == nullptr || body_record(player->body).energy == 0)
     {
         return 0;
     }
@@ -948,7 +949,7 @@ int script_count_actors_by_class(u16 key)
         {
             continue;
         }
-        if (read_u16(g_alt_node_body(node), 0x94) != 0)
+        if (body_record(g_alt_node_body(node)).energy != 0)
         {
             count = count + 1;
         }
@@ -1468,8 +1469,7 @@ SceneFlagBlock g_scene_flag_block{9, 2, g_scene_flag_bytes};
 SceneFlagBlock* g_scene_flags = &g_scene_flag_block;
 
 
-extern u32 g_flags_ea9c;
- // DAT_0050EA9C
+extern u32 g_flags_ea9c; // DAT_0050EA9C
 
 // Xbox 0x00132ED0. Opcode 21 in the table at 0x00314330. The record is not
 // read. Bit 0x8 of the byte at [DAT_00506c74+8], or bit 0x200000 of
@@ -1545,7 +1545,7 @@ int script_condition_actor_word_limit(const ScriptCond& rec)
             throw Error("0x00132FA0 walks DAT_00511B48 without the scene's actor views");
         }
         if ((key < 2 || g_alt_node_class(node) == key)
-            && static_cast<i32>(u32(read_u16(g_alt_node_body(node), 0x94))) <= static_cast<i32>(cond_u32(rec, 0xc)))
+            && static_cast<i32>(u32(body_record(g_alt_node_body(node)).energy)) <= static_cast<i32>(cond_u32(rec, 0xc)))
         {
             return 1;
         }

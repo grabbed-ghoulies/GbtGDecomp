@@ -1,4 +1,5 @@
 #pragma once
+#include "weapon_fields.h"
 
 #include "weapon_actor.h"
 
@@ -15,22 +16,22 @@ constexpr RetailField<std::array<char, 0x80>, 0x5F8> name{};
 constexpr u32 kSize = 0x678;
 static_assert(retail_fits(kSize, name));
 } // namespace gun_weapon_parameter
-namespace gun_weapon_field
+struct GunWeaponState
 {
-constexpr RetailField<u32, 0xE54> firing{};
-constexpr RetailField<std::array<char, 0x80>, 0xE58> name{}; // parameters +0x5F8
-constexpr RetailField<float, 0xED8> charge{}; // 0..1
-constexpr RetailField<float, 0xEDC> empty_delay{}; // seconds before an emptied gun recharges
-constexpr RetailField<float, 0xEE0> recharge{}; // per second, once the delay has run out
-constexpr RetailField<float, 0xEE4> drain{}; // per second while firing
-constexpr RetailField<u32, 0xEE8> unk_EE8{}; // message 0xA1's word
-constexpr RetailField<u32, 0xEEC> muzzle{}; // set when the kind 3 locator was found (0x000408D0)
-constexpr RetailField<u32, 0xEF0> aim{}; // set when the kind 4 locator was found
-constexpr RetailField<u32, 0xEF4> unk_EF4{}; // message 0x5A sets it, 0x92 clears it; the contact counts while clear
-constexpr RetailField<u32, 0xEF8> hits{}; // hits reported since firing started
-constexpr u32 kSize = 0xEFC;
-static_assert(retail_fits(kSize, hits));
-} // namespace gun_weapon_field
+    WeaponBase base{}; // +0
+    u32 firing = 0; // +0xE54
+    std::array<char, 0x80> name{}; // +0xE58, parameters +0x5F8
+    float charge = 0.f; // +0xED8, 0..1
+    float empty_delay = 0.f; // +0xEDC, seconds before an emptied gun recharges
+    float recharge = 0.f; // +0xEE0, per second, once the delay has run out
+    float drain = 0.f; // +0xEE4, per second while firing
+    u32 unk_EE8 = 0; // +0xEE8, message 0xA1's word
+    u32 muzzle = 0; // +0xEEC, set when the kind 3 locator was found (0x000408D0)
+    u32 aim = 0; // +0xEF0, set when the kind 4 locator was found
+    u32 unk_EF4 = 0; // +0xEF4, message 0x5A sets it, 0x92 clears it; the contact counts while clear
+    u32 hits = 0; // +0xEF8, hits reported since firing started
+};
+static_assert(sizeof(GunWeaponState) == 0xEFC);
 void gun_weapon_object_sizes(ObjectSizes& sizes); // Xbox 0x000CA960
 bool initialize_runtime_gun_weapon(RuntimeWeaponActor& weapon, std::span<const u8> parameters); // Xbox 0x000CA9F0
 void dispatch_runtime_gun_weapon_message(RuntimeWeaponActor& weapon, std::span<u32> message); // Xbox 0x000CAB40

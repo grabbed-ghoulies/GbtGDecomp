@@ -1,4 +1,8 @@
 #include "player_mind_setup.h"
+#include "player_mind_control.h"
+#include "player_fields.h"
+#include <cstddef>
+#include "body_fields.h"
 #include "actor_transform.h"
 #include "../scripts/script_chapter.h"
 #include <bit>
@@ -91,9 +95,9 @@ void build_runtime_player_camera_target(std::span<u8, 0x20> output,
     write_float(output, 8, position.y);
     write_float(output, 0xC, position.z);
     write_float(output, 0x10, 0.f);
-    write_float(output, 0x14, source.actor.radius_y * read_f32(source.body, 0x884) + height);
+    write_float(output, 0x14, source.actor.radius_y * body_record(source.body).height_scale + height);
     write_float(output, 0x18, 0.f);
-    write_float(output, 0x1C, source.actor.radius_xz * read_f32(source.body, 0x888) + radius);
+    write_float(output, 0x1C, source.actor.radius_xz * body_record(source.body).radius_scale + radius);
 }
 
 // Xbox 0x0013CCD0
@@ -171,8 +175,8 @@ bool initialize_runtime_player_mind(std::span<u8> mind, std::span<const u8> para
     if (health > 0)
     {
         const u16 value = static_cast<u16>(health);
-        std::memcpy(context.body_bytes.data() + 0x94, &value, 2);
-        std::memcpy(context.body_bytes.data() + 0x96, &value, 2);
+        body_record(context.body_bytes).energy = value;
+        body_record(context.body_bytes).max_energy = value;
         if (script_chapter_index(context.scene_name) < 9 && (context.scene_flags & 8) == 0
             && (context.runtime_flags & 0x200000) == 0 && (context.story_flags & 0x40) == 0
             && context.chapter_mode != 1)
@@ -180,36 +184,36 @@ bool initialize_runtime_player_mind(std::span<u8> mind, std::span<const u8> para
             reset_runtime_player_intro_sound(context.intro_sound);
         }
     }
-    write_word(context.actor_bytes, 0xCE0, 1);
+    player_record(context.actor_bytes).live = 1;
     u32 found = 0;
     if (context.animation_table != nullptr)
     {
         u32 output; // Lookup writes the retail scratch argument for a nonnull table.
         found = find_runtime_script_table_row(context.animation_table, 0x2C, output) != nullptr;
     }
-    write_word(mind, 0x144, found);
+    player_mind_record(mind).unk_144 = found;
     for (size_t offset : {0x164, 0x160, 0x16C, 0x168, 0x170, 0x17C, 0x178,
         0x184, 0x180, 0x188})
     {
         write_word(mind, offset, 0);
     }
-    write_word(mind, 0x174, 1);
-    write_word(mind, 0x18C, 1);
-    write_float(mind, 0x12C, 1.f);
-    write_word(mind, 0x80, read_u32(parameters, 0xA0));
+    player_mind_record(mind).unk_174 = 1;
+    player_mind_record(mind).unk_18C = 1;
+    player_mind_record(mind).unk_12C = 1.f;
+    player_mind_record(mind).unk_80 = read_u32(parameters, 0xA0);
     auto camera = create_runtime_player_camera(&context.camera_source, context.actor_address,
         context.camera_context);
     context.cameras.push_back(std::move(camera));
-    write_word(mind, 0x98, 1);
+    player_mind_record(mind).stick.state = 1;
     for (size_t offset : {0xA0, 0xA4, 0x9C, 0x94, 0xB0, 0xA8, 0xAC})
     {
         write_word(mind, offset, 0);
     }
-    std::memset(mind.data() + 0xB8, 0, 0x1A * 4);
-    write_word(mind, 0xC8, context.actor_address);
-    const u16 zero = 0;
-    std::memcpy(mind.data() + 0xCE, &zero, 2);
-    mind[0xCC] = 3;
+    player_mind_record(mind).own_target = MindTargetRecord{};
+    player_mind_record(mind).own_target.actor = context.actor_address;
+    player_mind_record(mind).own_target.flags = 0;
+    player_mind_record(mind).own_target.unk_17 = 0;
+    player_mind_record(mind).own_target.kind = 3;
     context.actor_bytes[0x331] = 1;
     return true;
 }

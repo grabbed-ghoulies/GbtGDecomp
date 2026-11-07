@@ -1,4 +1,5 @@
 #pragma once
+#include "scene_control_fields.h"
 #include "background_morphs.h"
 #include "cutscene_scene_runtime.h"
 #include "../entities/actor_clock.h"
@@ -24,14 +25,15 @@ constexpr RetailField<std::array<char, 0x80>, 0x08> cutscene{};
 constexpr u32 kSize = 0x88;
 static_assert(retail_fits(kSize, cutscene));
 } // namespace chapter2_scene4_parameter
-namespace chapter2_scene4_field
+struct Chapter2Scene4ControlState
 {
-constexpr RetailField<u32, 0x24> phase{}; // 1 to 5
-constexpr RetailField<float, 0x30> wait{}; // Phase 2's random wait.
-constexpr RetailField<float, 0x34> morph_time{}; // Half a second from phase 3, counting down.
-constexpr u32 kSize = 0x38;
-static_assert(retail_fits(kSize, morph_time));
-} // namespace chapter2_scene4_field
+    SceneControlBase base{}; // +0
+    u32 phase = 0; // +0x24, 1 to 5
+    std::array<u8, 8> unk_28{}; // +0x28, never read or written by translated code
+    float wait = 0.f; // +0x30, phase 2's random wait
+    float morph_time = 0.f; // +0x34, half a second from phase 3, counting down
+};
+static_assert(sizeof(Chapter2Scene4ControlState) == 0x38);
 struct Chapter2Scene4ControlServices
 {
     SceneCutsceneRuntime& cutscenes; // DAT_004E1C34 and the instances.
@@ -45,12 +47,12 @@ struct Chapter2Scene4ControlServices
     RuntimeBackgroundMorphs*& morphs; // DAT_0050E388.
 };
 void chapter2_scene4_control_object_sizes(ObjectSizes& output); // Xbox 0x00082980
-bool construct_runtime_chapter2_scene4_control(std::span<u8> state, std::span<const u8> parameters,
+bool construct_runtime_chapter2_scene4_control(Chapter2Scene4ControlState& state, std::span<const u8> parameters,
     SceneControlInstance& instance, SceneControlLists& lists,
     Chapter2Scene4ControlServices& services); // Xbox 0x000829F0
 void destroy_runtime_chapter2_scene4_control(Chapter2Scene4ControlServices& services); // Xbox 0x00082BB0
-void tick_runtime_chapter2_scene4_control(std::span<u8> state, SceneControlInstance& instance,
+void tick_runtime_chapter2_scene4_control(Chapter2Scene4ControlState& state, SceneControlInstance& instance,
     SceneControlLists& lists, Chapter2Scene4ControlServices& services); // Xbox 0x00082A90
-void set_runtime_chapter2_scene4_phase(std::span<u8> state, u8 phase, SceneControlInstance& instance,
+void set_runtime_chapter2_scene4_phase(Chapter2Scene4ControlState& state, u8 phase, SceneControlInstance& instance,
     SceneControlLists& lists, Chapter2Scene4ControlServices& services); // Xbox 0x00082BC0, EDI state
 }

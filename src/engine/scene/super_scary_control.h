@@ -1,4 +1,5 @@
 #pragma once
+#include "scene_control_fields.h"
 #include "cutscene_scene_runtime.h"
 #include "gbtg/object_factory.h"
 #include "gbtg/resource_error.h"
@@ -102,7 +103,6 @@ struct SuperScaryControlServices
     void* const& scene_name_text; // DAT_00512484
     std::function<bool()> scene_end_flag; // 0x00049D10
     std::function<i32()> player_character; // 0x00087830
-    std::function<u32(u32, const u8*)> binding_address; // A binding record's retail address in the head's model.
     // 0x0003B500 (ECX the player, EAX the head, the binding record, flags 0) with DAT_0050DD80 / DAT_0050DD74.
     std::function<void(u32, u32, const u8*)> bind_to_head;
 };
@@ -130,136 +130,120 @@ constexpr u32 kSize = 0x1D8;
 static_assert(retail_fits(kSize, swap_render));
 } // namespace super_scary_parameter
 
-// The Super Scary challenge's state fields at their retail offsets (0x2C8 bytes, 0x000842D0; see
-// docs/RETAIL_LAYOUTS.md). +0x20 is the scene-control base's scene_control_field::elapsed. The words that hold
-// pointers are SuperScaryControlState members, noted here by offset.
-namespace super_scary_field
-{
-constexpr u32 kSize = 0x2C8;
-// The actors' addresses, mirrored in SuperScaryControlState: Cooper (0 once message 0x7C names him), the head,
-// and the button bat.
-constexpr RetailField<u32, 0x028> player{};
-constexpr RetailField<u32, 0x02C> head{};
-constexpr RetailField<u32, 0x030> bat{};
-// 0x000856E0 sets it; 0x00084960 and 0x00085380 switch on it. 1 and 3 the head's scare clips, 2 and 4 Cooper's
-// recoils, 5/6 the button presses, 7/9 the success/failure page, 8/10 the outcome clips, 11 disposal.
-constexpr RetailField<i32, 0x034> phase{};
-// +0x38 input
-constexpr RetailField<u32, 0x03C> input_pushed{}; // set once +0x38 is pushed (0x00109340); released when set
-// +0x40 camera (EntityCamNode, to +0xA0)
-constexpr RetailField<u32, 0x0A0> camera_linked{}; // set once +0x40 is linked; unlinked (0x00048C70) when set
-// Phases 1 to 4: the next shock (0.45 s apart, 0x00086990). Phase 11: the wait before disposal.
-constexpr RetailField<float, 0x0A4> shock_timer{};
-constexpr RetailField<float, 0x0A8> heartbeat_timer{}; // phases 5/6: the next heartbeat, quicker as they run out
-constexpr RetailField<float, 0x0AC> focal_jitter_timer{}; // 0x00084E50 jitters the focal length while it runs
-constexpr RetailField<float, 0x0B0> wrong_press_timer{}; // 1 s after a wrong press: presses ignored, highlight shown
-constexpr RetailField<float, 0x0B4> unk_B4{}; // set to 0 by 0x00084340; nothing here reads it
-constexpr RetailField<std::array<char, 0x80>, 0x0B8> first_clip{}; // super_scary_parameter::first_clip
-constexpr RetailField<std::array<char, 0x80>, 0x138> second_clip{}; // super_scary_parameter::second_clip
-constexpr RetailField<float, 0x1B8> first_clip_timer{}; // phase 1, then the shocks wait until it is under 1
-constexpr RetailField<float, 0x1BC> second_clip_timer{}; // phase 3
-constexpr RetailField<float, 0x1C0> auto_press_timer{}; // with DAT_005122F0 set, a right press when it runs out
-constexpr RetailField<i32, 0x1C4> music{}; // 0x00086FD0: 0 none, 1 BUTTONPRESS, 2 SUCCEED, 3 BUTTONNODIE
-constexpr RetailField<Vec3, 0x1C8> player_spawn{};
-constexpr RetailField<Vec3, 0x1D4> clip_position{}; // used while has_clip_position
-constexpr RetailField<Vec3, 0x1E0> clip_euler{}; // used while has_clip_euler
-constexpr RetailField<Vec3, 0x1EC> shock_camera_position{}; // phase 5: the display view's position
-constexpr RetailField<float, 0x1F8> shock_camera_pitch{}; // phase 5: facing Cooper's joint 0
-constexpr RetailField<float, 0x1FC> shock_camera_yaw{};
-constexpr RetailField<float, 0x200> shock_camera_roll{};
-constexpr RetailField<i32, 0x204> shocks_left{}; // 3 at phase 1
-constexpr RetailField<i32, 0x208> heartbeats_left{}; // 8 at construction; under 0 the challenge fails
-constexpr RetailField<i32, 0x20C> presses{}; // right presses so far; the challenge succeeds at button_count
-constexpr RetailField<i32, 0x210> button_count{}; // DAT_00427958
-constexpr RetailField<std::array<u32, 20>, 0x214> buttons{}; // each press's button, 0..3 for A, B, X, Y
-constexpr RetailField<i16, 0x264> shiver_voice{}; // XACT_SOUNDBANK_GBOY_SHIVER's voice, -1 for none
-constexpr RetailField<u32, 0x268> has_clip_euler{};
-constexpr RetailField<u32, 0x26C> paused_cutscene{}; // a cutscene was running at construction; phase 1 pauses it
-constexpr RetailField<u32, 0x270> move_player{}; // 0x00086E80 moves Cooper to player_spawn
-constexpr RetailField<u32, 0x274> has_clip_position{};
-constexpr RetailField<u32, 0x278> spawn_under_view{};
-// Modes 2 and 3: Cooper's position when bound to the head, where 0x000874F0 puts him back.
-constexpr RetailField<Vec3, 0x27C> bound_position{};
-constexpr RetailField<float, 0x280> bound_position_y{};
-constexpr RetailField<u32, 0x288> head_binding{}; // modes 2 and 3: the head's model binding 2 (0x000408D0)
-// 0..3 from the parameters. 2 and 3 bind Cooper to the head, and drop to 0 and 1 with no head. 0 becomes 1 and 2
-// becomes 3 when his attached actor is unavailable (0x001460C0). It picks the animation rows and the camera
-// (0x00084E50).
-constexpr RetailField<i32, 0x28C> scare_mode{};
-constexpr RetailField<u32, 0x290> unk_290{}; // super_scary_parameter::unk_14C; nothing here reads it
-// +0x294 clips, +0x298 the five button textures
-// Modes 2 and 3 after the challenge: Cooper settles from settle_start_y to settle_floor_y over 0.5 s (0x00087720).
-constexpr RetailField<float, 0x2AC> settle_timer{};
-constexpr RetailField<float, 0x2B0> settle_start_y{};
-constexpr RetailField<float, 0x2B4> settle_floor_y{};
-constexpr RetailField<u32, 0x2B8> player_released{}; // message 10 has gone to Cooper
-// From the parameters: Cooper and the head take turns in the render bins (0x0003CBB0 / 0x0003CAE0).
-constexpr RetailField<u32, 0x2BC> swap_render{};
-constexpr RetailField<u32, 0x2C0> player_hidden{};
-constexpr RetailField<u32, 0x2C4> head_hidden{};
-static_assert(retail_fits(kSize, head_hidden));
-static_assert(retail_fits(0x264, buttons));
-} // namespace super_scary_field
-
-// Native state of a Super Scary challenge whose retail words are pointers.
+// The Super Scary challenge's state at its retail offsets (0x2C8 bytes, 0x000842D0; see docs/RETAIL_LAYOUTS.md). Its
+// words hold pointers, so it lives here and not in the factory bytes, which keep only SceneControlBase.
 struct SuperScaryControlState
 {
-    u32 player = 0; // +0x28, the scared player's address.
-    u32 head = 0; // +0x2C, the attacking actor's address.
-    u32 bat = 0; // +0x30, the button bat's address.
+    u32 player = 0; // +0x28, Cooper's address; 0 once message 0x7C names him
+    u32 head = 0; // +0x2C, the attacking actor's address
+    u32 bat = 0; // +0x30, the button bat's address
+    // +0x34: 0x000856E0 sets it; 0x00084960 and 0x00085380 switch on it. 1 and 3 the head's scare clips, 2 and 4
+    // Cooper's recoils, 5/6 the button presses, 7/9 the success/failure page, 8/10 the outcome clips, 11 disposal.
+    i32 phase = 0;
     std::span<u8> input; // +0x38
     u32 input_address = 0;
-    std::span<const u8> clips; // +0x294, the aidlist: rows of 0x80-byte names.
-    std::array<std::span<const u8>, 5> buttons{}; // +0x298, the aidlist's rows +0x1880.. (button textures).
-    EntityCamNode camera{}; // +0x40
-    const u8* head_binding = nullptr; // +0x288 in modes 2 and 3: the head's model binding 2 (0x000408D0).
+    u32 input_pushed = 0; // +0x3C, set once +0x38 is pushed (0x00109340); released when set
+    EntityCamNode camera{}; // +0x40, to +0xA0
+    u32 camera_linked = 0; // +0xA0, set once +0x40 is linked; unlinked (0x00048C70) when set
+    // +0xA4: phases 1 to 4: the next shock (0.45 s apart, 0x00086990). Phase 11: the wait before disposal.
+    float shock_timer = 0.f;
+    float heartbeat_timer = 0.f; // +0xA8, phases 5/6: the next heartbeat, quicker as they run out
+    float focal_jitter_timer = 0.f; // +0xAC, 0x00084E50 jitters the focal length while it runs
+    float wrong_press_timer = 0.f; // +0xB0, 1 s after a wrong press: presses ignored, highlight shown
+    float unk_B4 = 0.f; // +0xB4, set to 0 by 0x00084340; nothing here reads it
+    std::array<char, 0x80> first_clip{}; // +0xB8, super_scary_parameter::first_clip
+    std::array<char, 0x80> second_clip{}; // +0x138, super_scary_parameter::second_clip
+    float first_clip_timer = 0.f; // +0x1B8, phase 1, then the shocks wait until it is under 1
+    float second_clip_timer = 0.f; // +0x1BC, phase 3
+    float auto_press_timer = 0.f; // +0x1C0, with DAT_005122F0 set, a right press when it runs out
+    i32 music = 0; // +0x1C4, 0x00086FD0: 0 none, 1 BUTTONPRESS, 2 SUCCEED, 3 BUTTONNODIE
+    Vec3 player_spawn{}; // +0x1C8
+    Vec3 clip_position{}; // +0x1D4, used while has_clip_position
+    Vec3 clip_euler{}; // +0x1E0, used while has_clip_euler
+    Vec3 shock_camera_position{}; // +0x1EC, phase 5: the display view's position
+    float shock_camera_pitch = 0.f; // +0x1F8, phase 5: facing Cooper's joint 0
+    float shock_camera_yaw = 0.f; // +0x1FC
+    float shock_camera_roll = 0.f; // +0x200
+    i32 shocks_left = 0; // +0x204, 3 at phase 1
+    i32 heartbeats_left = 0; // +0x208, 8 at construction; under 0 the challenge fails
+    i32 presses = 0; // +0x20C, right presses so far; the challenge succeeds at button_count
+    i32 button_count = 0; // +0x210, DAT_00427958
+    std::array<u32, 20> buttons{}; // +0x214, each press's button, 0..3 for A, B, X, Y
+    i16 shiver_voice = 0; // +0x264, XACT_SOUNDBANK_GBOY_SHIVER's voice, -1 for none
+    u32 has_clip_euler = 0; // +0x268
+    u32 paused_cutscene = 0; // +0x26C, a cutscene was running at construction; phase 1 pauses it
+    u32 move_player = 0; // +0x270, 0x00086E80 moves Cooper to player_spawn
+    u32 has_clip_position = 0; // +0x274
+    u32 spawn_under_view = 0; // +0x278
+    // +0x27C: modes 2 and 3: Cooper's position when bound to the head, where 0x000874F0 puts him back.
+    Vec3 bound_position{};
+    const u8* head_binding = nullptr; // +0x288, modes 2 and 3: the head's model binding 2 (0x000408D0)
+    // +0x28C: 0..3 from the parameters. 2 and 3 bind Cooper to the head, and drop to 0 and 1 with no head. 0 becomes 1
+    // and 2 becomes 3 when his attached actor is unavailable (0x001460C0). It picks the animation rows and the camera
+    // (0x00084E50).
+    i32 scare_mode = 0;
+    u32 unk_290 = 0; // +0x290, super_scary_parameter::unk_14C; nothing here reads it
+    std::span<const u8> clips; // +0x294, the aidlist: rows of 0x80-byte names
+    std::array<std::span<const u8>, 5> button_textures{}; // +0x298, the aidlist's rows +0x1880..
+    // +0x2AC: modes 2 and 3 after the challenge: Cooper settles from settle_start_y to settle_floor_y over 0.5 s
+    // (0x00087720).
+    float settle_timer = 0.f;
+    float settle_start_y = 0.f; // +0x2B0
+    float settle_floor_y = 0.f; // +0x2B4
+    u32 player_released = 0; // +0x2B8, message 10 has gone to Cooper
+    // +0x2BC: from the parameters: Cooper and the head take turns in the render bins (0x0003CBB0 / 0x0003CAE0).
+    u32 swap_render = 0;
+    u32 player_hidden = 0; // +0x2C0
+    u32 head_hidden = 0; // +0x2C4
 };
 void super_scary_control_object_sizes(ObjectSizes& output); // Xbox 0x000842D0
-bool construct_runtime_super_scary_control(std::span<u8> state, std::span<const u8> parameters,
+bool construct_runtime_super_scary_control(std::span<const u8> parameters,
     SuperScaryControlState& control, SuperScaryControlServices& services); // Xbox 0x00084340
-void destroy_runtime_super_scary_control(std::span<u8> state, SuperScaryControlState& control,
+void destroy_runtime_super_scary_control(SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x000846E0
-void message_runtime_super_scary_control(std::span<u8> state, std::span<const u32> message,
+void message_runtime_super_scary_control(std::span<const u32> message,
     SuperScaryControlState& control, SceneControlInstance& instance, SceneControlLists& lists); // Xbox 0x00084930
-void tick_runtime_super_scary_control(std::span<u8> state, SuperScaryControlState& control,
+void tick_runtime_super_scary_control(SceneControlBase& base, SuperScaryControlState& control,
     SceneControlInstance& instance, SceneControlLists& lists, SuperScaryControlServices& services); // Xbox 0x00084960
-void draw_runtime_super_scary_control(std::span<u8> state, SuperScaryControlState& control,
+void draw_runtime_super_scary_control(SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x00085380
-void set_runtime_super_scary_state(std::span<u8> state, i32 next, SuperScaryControlState& control,
+void set_runtime_super_scary_state(i32 next, SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x000856E0
-void finish_runtime_super_scary(std::span<u8> state, i32 outcome, SuperScaryControlState& control,
+void finish_runtime_super_scary(i32 outcome, SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x00086BC0, ESI state
-void end_runtime_super_scary_challenge(std::span<u8> state, i32 succeeded, SuperScaryControlState& control,
+void end_runtime_super_scary_challenge(i32 succeeded, SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x000874F0
-void choose_runtime_super_scary_buttons(i32 count, std::span<u8> state,
+void choose_runtime_super_scary_buttons(i32 count, SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x00087170, EAX count, EDX state
-void shuffle_runtime_super_scary_buttons(std::span<u8> buttons, i32 count, u32& random); // Xbox 0x00087080, ECX
+void shuffle_runtime_super_scary_buttons(std::span<u32> buttons, i32 count, u32& random); // Xbox 0x00087080, ECX
 // {0x8E, step} to the active scene controls (DAT_0050E438), then 0x00122C70.
 void announce_runtime_super_scary_step(u32 step, SuperScaryControlServices& services); // Xbox 0x00086C90, EAX
 float start_runtime_super_scary_clip(const Vec3* position, const Vec3* euler, u32 actor, const char* name,
     SuperScaryControlServices& services); // Xbox 0x000854E0, EAX ECX EDX; XMM0 the clip's duration
 void play_runtime_super_scary_animation(u32 actor, const char* animation, const char* events, i16 mode,
     float duration, float fade, float position, SuperScaryControlServices& services); // Xbox 0x00086860
-void place_runtime_super_scary_camera(std::span<u8> state, float shake, SuperScaryControlState& control,
+void place_runtime_super_scary_camera(float shake, SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x00084E50, EAX state
 // The view's floor point under the camera into +0x1C8 (ESI), and in ECX the euler facing back along the view.
-void aim_runtime_super_scary_camera(std::span<u8> state, Vec3& euler,
+void aim_runtime_super_scary_camera(SuperScaryControlState& control, Vec3& euler,
     SuperScaryControlServices& services); // Xbox 0x00086CE0, ESI +0x1C8, ECX
-u32 spawn_runtime_super_scary_player(std::span<u8> state, const Vec3& position, SuperScaryControlState& control,
+u32 spawn_runtime_super_scary_player(const Vec3& position, SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x00086E80, EAX state
-void set_runtime_super_scary_music(std::span<u8> state, i32 next, SuperScaryControlServices& services); // Xbox 0x00086FD0
-void tick_runtime_super_scary_shocks(std::span<u8> state, SuperScaryControlState& control,
+void set_runtime_super_scary_music(SuperScaryControlState& control, i32 next,
+    SuperScaryControlServices& services); // Xbox 0x00086FD0
+void tick_runtime_super_scary_shocks(SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x00086990, ESI state
-u32 runtime_super_scary_right_button(std::span<u8> state, SuperScaryControlState& control,
+u32 runtime_super_scary_right_button(SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x00086A40, ECX state, EDI the input
-u32 runtime_super_scary_wrong_button(std::span<const u8> state, SuperScaryControlState& control,
+u32 runtime_super_scary_wrong_button(SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x00086B30, EAX state
 void shake_runtime_super_scary_camera(SuperScaryControlState& control, SuperScaryControlServices& services); // Xbox 0x00086B70
-void settle_runtime_super_scary_player(std::span<u8> state, SuperScaryControlState& control,
+void settle_runtime_super_scary_player(SuperScaryControlState& control,
     SuperScaryControlServices& services); // Xbox 0x00087720, EBX state
-void runtime_super_scary_button_position(std::array<float, 2>& output, std::span<const u8> state, i32 index,
+void runtime_super_scary_button_position(std::array<float, 2>& output, const SuperScaryControlState& control, i32 index,
     SuperScaryControlServices& services); // Xbox 0x00085190, ECX output, EDX state
-void draw_runtime_super_scary_panel(std::span<const u8> state, SuperScaryControlServices& services); // Xbox 0x00085280, ESI
+void draw_runtime_super_scary_panel(const SuperScaryControlState& control,
+    SuperScaryControlServices& services); // Xbox 0x00085280, ESI
 void wobble_runtime_button_bat(ButtonBatScreen& bat, ActorAnimationState& animation,
     SuperScaryControlServices& services); // Xbox 0x0006DAD0, ESI the bat
 }

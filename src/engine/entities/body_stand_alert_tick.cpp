@@ -1,11 +1,16 @@
 #include "body_stand_alert_tick.h"
+#include <cstddef>
 #include "player_mind_requests.h"
+#include "body_state_actions.h"
+#include "body_state_fields.h"
 
 #include <bit>
 #include <cmath>
+#include "body_fields.h"
 
 namespace gbtg
 {
+
 // Xbox 0x000A2A90
 void repeat_runtime_stand_alert_animation(RuntimeStandAlertTick& context)
 {
@@ -36,40 +41,40 @@ void repeat_runtime_stand_alert_animation(RuntimeStandAlertTick& context)
 }
 
 // Xbox 0x000A2930
-void tick_runtime_stand_alert(std::span<u8> action, RuntimeStandAlertTick& context)
+void tick_runtime_stand_alert(StandAlertState& state, RuntimeStandAlertTick& context)
 {
-    const float elapsed = runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + read_f32(action, 0x10);
-    std::memcpy(action.data() + 0x10, &elapsed, 4);
-    if (read_u32(action, 0x1C) != 0)
+    const float elapsed =
+        runtime_actor_rate(context.actor) * runtime_frame_step(context.clock) + state.base.elapsed;
+    state.base.elapsed = elapsed;
+    if (state.moving_key != 0)
     {
-        const float z = read_f32(context.body, 0x250);
-        const float y = read_f32(context.body, 0x24C);
-        const float x = read_f32(context.body, 0x248);
+        const float z = body_record(context.body).motion.z;
+        const float y = body_record(context.body).motion.y;
+        const float x = body_record(context.body).motion.x;
         u16 key = 0;
         if ((z * z + y * y) + x * x > 0.f && (context.flags.bytes[0] & 2) != 0)
         {
             key = context.moving_action();
         }
-        std::memcpy(action.data() + 0xC, &key, 2);
+        state.base.next_key = key;
     }
-    if (read_u32(action, 0x28) == 0)
+    if (state.holds == 0)
     {
-        if (read_u32(action, 0x38) == 0)
+        if (state.settles == 0)
         {
-            const u32 zero = 0;
-            std::memcpy(context.body.data() + 0x734, &zero, 4);
-            std::memcpy(context.body.data() + 0x72C, &zero, 4);
+            body_record(context.body).euler.z = 0.f;
+            body_record(context.body).euler.x = 0.f;
         }
         else
         {
             context.orient();
         }
     }
-    u16 key = read_u16(action, 0x1A);
+    u16 key = state.alert_key;
     if ((context.flags.bytes[7] & 8) != 0 || key == 0 || !context.mind_present || context.mind_alert == 0)
     {
         repeat_runtime_stand_alert_animation(context);
-        key = read_u16(action, 0x18);
+        key = state.input_key;
         if (key == 0)
         {
             return;
@@ -81,6 +86,6 @@ void tick_runtime_stand_alert(std::span<u8> action, RuntimeStandAlertTick& conte
             return;
         }
     }
-    std::memcpy(action.data() + 0xC, &key, 2);
+    state.base.next_key = key;
 }
 }

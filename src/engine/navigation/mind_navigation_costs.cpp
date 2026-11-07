@@ -1,8 +1,12 @@
 #include "mind_navigation_costs.h"
+#include "../entities/mind_fields.h"
+#include "../entities/player_mind_targets.h"
 #include "cell_registration.h"
 #include "../entities/entity_heap.h"
 #include "../entities/ghouly_box_decoder.h"
 #include "../audio/listener_settings.h"
+#include "../entities/body_fields.h"
+#include "../entities/player_fields.h"
 #include <cstring>
 
 namespace gbtg
@@ -69,12 +73,13 @@ GhoulySpawnPool* suspend_runtime_mind_target_costs(std::span<const u8> actor,
 {
     // Body +8's +0x38 is its native actor's radius_xz.
     const float radius = float((static_cast<long double>(body_actor.radius_xz)
-        * read_f32(body, 0x888) + read_f32(target, 0x38)) * 3.L);
-    const Vec3 center{read_f32(target, 0x20), read_f32(target, 0x24), read_f32(target, 0x28)};
+        * body_record(body).radius_scale + mind_target_record(target).shape.radius) * 3.L);
+    const Vec3 center{mind_target_record(target).shape.position.x, mind_target_record(target).shape.position.y,
+        mind_target_record(target).shape.position.z};
     auto* costs = collect_runtime_navigation_costs(target[0x19], center, radius);
     if (costs != nullptr)
     {
-        auto* grid = entity_detail::g_nav_grids[i32(read_u32(actor, 0xCEC))];
+        auto* grid = entity_detail::g_nav_grids[i32(player_record(actor).floor)];
         for (const u8* row = costs->begin; row < costs->cursor; row += 0xC)
         {
             const u32 index = read_u32({row, 0xC}, 0);
@@ -88,7 +93,7 @@ GhoulySpawnPool* suspend_runtime_mind_target_costs(std::span<const u8> actor,
 // Xbox 0x0007B510
 void restore_runtime_mind_target_costs(std::span<const u8> actor, GhoulySpawnPool* costs)
 {
-    auto* grid = entity_detail::g_nav_grids[i32(read_u32(actor, 0xCEC))];
+    auto* grid = entity_detail::g_nav_grids[i32(player_record(actor).floor)];
     for (const u8* row = costs->begin; row < costs->cursor; row += 0xC)
     {
         const u16 original = u16(truncate_runtime_float(static_cast<long double>(read_f32({row, 0xC}, 8)) * 16.L));

@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "actor_fields.h"
 
 #include "avatar_motion_blur.h"
 #include "actor_attachment_events.h"
@@ -42,27 +44,29 @@ constexpr RetailField<u32, 0x558> shader_texture{};
 constexpr u32 kSize = 0x55C;
 static_assert(retail_fits(kSize, shader_texture));
 } // namespace bone_debris_parameter
-namespace bone_debris_field
+struct BoneDebrisState
 {
-constexpr RetailField<u32, 0x938> dead_actor{}; // the dead actor; message 0x7C naming it clears it
-constexpr RetailField<float, 0x93C> stay_time{}; // seconds the pieces stay once at rest, then fade (0x0013AF80)
-constexpr RetailField<float, 0x940> fade_timer{}; // an optional fade, ticking down
-constexpr RetailField<float, 0x944> fade_length{};
-constexpr RetailField<u32, 0x948> fade_alpha{}; // 0xFF while opaque; under it the fade draw runs (0x00068610)
-constexpr RetailField<u32, 0x94C> landed{}; // the landing callouts (0x16) have run
-constexpr RetailField<u32, 0x950> resting{}; // every particle rests
-constexpr RetailField<std::array<char, 0x80>, 0x954> carried_effect{}; // an effect each piece may carry
-constexpr RetailField<float, 0x9D4> carry_chance{};
-constexpr RetailField<u32, 0x9D8> texture_parameter{}; // the shader texture's parameter (0x000F8540)
-// The shader texture record copied by 0x00140560; 0x0013AF80 passes it to the fade's after-image (its +0x350).
-constexpr RetailField<std::array<u8, 0x88>, 0x9DC> shader_texture{};
-constexpr RetailField<u32, 0xA64> texture{}; // the shader texture's texture (0x00035B60)
-constexpr RetailField<std::array<i32, 8>, 0xA68> carried_effects{}; // the carried effects' node slots, -1 once let go
-constexpr RetailField<std::array<u32, 8>, 0xA88> carried_particles{}; // the particle each carried effect follows
-constexpr RetailField<u32, 0xAA8> carried_count{};
-constexpr u32 kSize = 0xAAC;
-static_assert(retail_fits(kSize, carried_count));
-} // namespace bone_debris_field
+    ActorBase base{}; // +0
+    std::array<u8, 4> unk_934{}; // +0x934, never read or written by translated code
+    u32 dead_actor = 0; // +0x938, the dead actor; message 0x7C naming it clears it
+    float stay_time = 0.f; // +0x93C, seconds the pieces stay once at rest, then fade (0x0013AF80)
+    float fade_timer = 0.f; // +0x940, an optional fade, ticking down
+    float fade_length = 0.f; // +0x944
+    u32 fade_alpha = 0; // +0x948, 0xFF while opaque; under it the fade draw runs (0x00068610)
+    u32 landed = 0; // +0x94C, the landing callouts (0x16) have run
+    u32 resting = 0; // +0x950, every particle rests
+    std::array<char, 0x80> carried_effect{}; // +0x954, an effect each piece may carry
+    float carry_chance = 0.f; // +0x9D4
+    u32 texture_parameter = 0; // +0x9D8, the shader texture's parameter (0x000F8540)
+    // +0x9DC: the shader texture record copied by 0x00140560; 0x0013AF80 passes it to the fade's after-image (its
+    // +0x350).
+    std::array<u8, 0x88> shader_texture{};
+    u32 texture = 0; // +0xA64, the shader texture's texture (0x00035B60)
+    std::array<i32, 8> carried_effects{}; // +0xA68, the carried effects' node slots, -1 once let go
+    std::array<u32, 8> carried_particles{}; // +0xA88, the particle each carried effect follows
+    u32 carried_count = 0; // +0xAA8
+};
+static_assert(sizeof(BoneDebrisState) == 0xAAC);
 struct RuntimeBoneDebris
 {
     RuntimeAvatarActorViews self;

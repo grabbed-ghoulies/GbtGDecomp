@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "body_action_selection.h"
 #include "body_death_effects.h"
 #include "body_state_actions.h"
@@ -21,13 +22,14 @@ constexpr RetailField<u32, 0xC> animation{}; // The spawn animation's name (an X
 constexpr u32 kSize = 0x10;
 static_assert(retail_fits(kSize, animation));
 } // namespace spawn_ghouly_state_parameter
-namespace spawn_ghouly_state_field
+struct SpawnGhoulyState
 {
-constexpr RetailField<u8, 0x18> shape_mode{}; // 0x0001FEB0's previous mode, restored on destroy
-constexpr RetailField<u32, 0x1C> animation{}; // The 0x0003AAA0 record; its native pointer is kept by state
-constexpr u32 kSize = 0x20;
-static_assert(retail_fits(kSize, animation));
-} // namespace spawn_ghouly_state_field
+    BodyStateBase base{}; // +0
+    u8 shape_mode = 0; // +0x18, 0x0001FEB0's previous mode, restored on destroy
+    std::array<u8, 3> unk_19{}; // +0x19, padding
+    u32 animation = 0; // +0x1C, the 0x0003AAA0 record; its native pointer is kept by state
+};
+static_assert(sizeof(SpawnGhoulyState) == 0x20);
 struct RuntimeSpawnGhoulyStateContext
 {
     RuntimeGenerateGhoulyScene& scene; // 0x000F40A0's spawns and the kept objects.
@@ -54,11 +56,12 @@ struct RuntimeSpawnGhoulyStateContext
     u32& scene_flags; // DAT_0050EA9C.
     u32& restart_requested; // DAT_00430D0C.
 };
-bool initialize_runtime_spawn_ghouly_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_spawn_ghouly_state(SpawnGhoulyState& state, std::span<const u8> parameters,
     RuntimeSpawnGhoulyStateContext& context); // Xbox 0x000A1A70
-void destroy_runtime_spawn_ghouly_state(std::span<u8> state,
+void destroy_runtime_spawn_ghouly_state(SpawnGhoulyState& state,
     RuntimeSpawnGhoulyStateContext& context); // Xbox 0x000A1B60
-void tick_runtime_spawn_ghouly_state(std::span<u8> state, RuntimeSpawnGhoulyStateContext& context); // Xbox 0x000A1BE0
+void tick_runtime_spawn_ghouly_state(SpawnGhoulyState& state,
+    RuntimeSpawnGhoulyStateContext& context); // Xbox 0x000A1BE0
 // Type 0x85 (base 9) with its lifecycle; `context_of` gives a state's views by its body address (state +8).
 void install_runtime_spawn_ghouly_state_class(std::span<ObjectFactoryType> types,
     std::function<RuntimeSpawnGhoulyStateContext&(u32 body_address)> context_of);

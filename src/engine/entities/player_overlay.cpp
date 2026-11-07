@@ -1,9 +1,12 @@
 #include "player_overlay.h"
+#include "weapon_fields.h"
 #include "player_mind_setup.h"
 #include "actor_transform.h"
 #include "entity.h"
 #include "../audio/listener_settings.h"
 #include "gbtg/anim.h"
+#include "body_fields.h"
+#include "player_fields.h"
 #include <bit>
 #include <cstring>
 #include <xmmintrin.h>
@@ -79,10 +82,10 @@ void runtime_actor_overlay_anchor(const Actor& actor, Vec3& position, float& hei
 // Xbox 0x0001E2A0
 u32 runtime_body_health_color(std::span<const u8> body)
 {
-    const u16 maximum = read_u16(body, 0x96);
+    const u16 maximum = body_record(body).max_energy;
     if (maximum != 0)
     {
-        const float ratio = float(i32(read_u16(body, 0x94))) / float(i32(maximum));
+        const float ratio = float(i32(body_record(body).energy)) / float(i32(maximum));
         if (0.25f > ratio) // DAT_0032B104.
         {
             return 0xFF2020FF; // DAT_00217D60.
@@ -102,11 +105,11 @@ u32 runtime_body_health_color(std::span<const u8> body)
 // Xbox 0x0001E770
 u32 runtime_player_uses_alternate_overlay(std::span<const u8> actor, std::span<const u8> attributes)
 {
-    if (read_u32(actor, 0x98C) != 0)
+    if (player_record(actor).goal_volume != 0)
     {
         return 0;
     }
-    if (!(read_f32(actor, 0x978) > 0.0f) && actor[0x969] == 0)
+    if (!(player_record(actor).countdown_56 > 0.0f) && player_record(actor).provoked == 0)
     {
         return 0;
     }
@@ -235,11 +238,11 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
     float lateral;
     float digit_rise;
     float size;
-    if (read_u32(body, 0xE0) != 0)
+    if (body_record(body).unk_E0 != 0)
     {
         sprite = context.counter_sprite;
         color = 0xFFFFFFFF; // DAT_00314F48.
-        value = truncate_float(read_f32(body, 0xDC));
+        value = truncate_float(body_record(body).unk_DC);
         rise = 3.0f; // DAT_0032B260.
         lateral = 3.0f;
         digit_rise = 3.0f;
@@ -247,7 +250,7 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
     }
     else
     {
-        if (body[0xA4] == 0 || body[0xA8] == 0)
+        if (body_record(body).overlay_state == 0 || body_record(body).overlay_flash == 0)
         {
             return;
         }
@@ -256,7 +259,7 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
         {
             sprite = context.health_sprite;
         }
-        else if (body[0xA9] != 0)
+        else if (body_record(body).overlay_second_flash != 0)
         {
             sprite = context.active_sprite;
         }
@@ -264,11 +267,11 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
         {
             sprite = context.alternate_sprite;
         }
-        color = (runtime_body_health_color(body) & 0x00FFFFFFu) | (u32(body[0xA5]) << 24);
+        color = (runtime_body_health_color(body) & 0x00FFFFFFu) | (u32(body_record(body).overlay_alpha) << 24);
         lateral = 0.0f;
         digit_rise = 2.0f; // DAT_0032B110.
-        value = i32(read_u16(body, 0x94));
-        size = read_f32(body, 0xBC);
+        value = i32(body_record(body).energy);
+        size = body_record(body).overlay_pulse.value;
     }
     float sprite_size[2]{size, size};
     Vec3 position;
@@ -280,7 +283,7 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
     u32 state = 0;
     if (context.attached != nullptr)
     {
-        state = context.attached->bytes[0x93D];
+        state = weapon_base(context.attached->bytes).unk_93D;
     }
     if (state == 1)
     {
@@ -321,8 +324,9 @@ void queue_runtime_body_overlay(i32 kind, RuntimeBodyOverlay& context)
 // Xbox 0x00028050
 u32 draw_runtime_player(std::span<const u8> actor, i32 kind, RuntimePlayerDraw& context)
 {
-    if (read_u32(actor, 0xCE0) != 0 && (i16(read_u16(actor, 0xCDC)) == 2 || read_u32(actor, 0x93C) != 0)
-        && (context.runtime_flags & 4) != 0)
+    if (player_record(actor).live != 0 &&
+        (i16(player_record(actor).mode) == 2 || player_record(actor).case_link != 0) &&
+        (context.runtime_flags & 4) != 0)
     {
         return 0;
     }

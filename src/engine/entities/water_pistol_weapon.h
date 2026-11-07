@@ -21,21 +21,22 @@ constexpr RetailField<std::array<char, 0x80>, 0x878> trail{}; // Copied to +0x11
 constexpr u32 kSize = 0x8F8;
 static_assert(retail_fits(kSize, trail));
 } // namespace water_pistol_weapon_parameter
-namespace water_pistol_weapon_field
+struct WaterPistolWeaponState
 {
-constexpr RetailField<u32, 0xEFC> muzzle_effect{}; // set while the muzzle effect lives (host: its node is native)
-constexpr RetailField<u32, 0xF00> texture{}; // set when the texture AID was loaded
-constexpr u32 kTrails = 0xF04; // Twelve trailing droplet blocks, 4 apart (host: their pools are kept natively).
-constexpr RetailField<u32, 0xF34> active{}; // set while the firing droplet block exists
-constexpr RetailField<float, 0xF38> emission{}; // seconds of fire not yet emitted, a droplet per 1/30 s
-constexpr RetailField<u32, 0xF3C> strip{}; // set once the draw's point list exists
-constexpr RetailField<std::array<char, 0x80>, 0xFC0> hit_effect{};
-constexpr RetailField<std::array<char, 0x80>, 0x1040> expire_effect{};
-constexpr RetailField<std::array<char, 0x80>, 0x10C0> muzzle_name{};
-constexpr RetailField<std::array<char, 0x80>, 0x1140> trail_effect{};
-constexpr u32 kSize = 0x11C0;
-static_assert(retail_fits(kSize, trail_effect));
-} // namespace water_pistol_weapon_field
+    GunWeaponState base{}; // +0
+    u32 muzzle_effect = 0; // +0xEFC, set while the muzzle effect lives (host: its node is native)
+    u32 texture = 0; // +0xF00, set when the texture AID was loaded
+    std::array<u32, 12> trails{}; // +0xF04, twelve trailing droplet blocks (host: their pools are kept natively)
+    u32 active = 0; // +0xF34, set while the firing droplet block exists
+    float emission = 0.f; // +0xF38, seconds of fire not yet emitted, a droplet per 1/30 s
+    u32 strip = 0; // +0xF3C, set once the draw's point list exists
+    std::array<u8, 0x80> unk_F40{}; // +0xF40, never read or written by translated code
+    std::array<char, 0x80> hit_effect{}; // +0xFC0
+    std::array<char, 0x80> expire_effect{}; // +0x1040
+    std::array<char, 0x80> muzzle_name{}; // +0x10C0
+    std::array<char, 0x80> trail_effect{}; // +0x1140
+};
+static_assert(sizeof(WaterPistolWeaponState) == 0x11C0);
 // One 0x28-byte droplet.
 struct RuntimeWaterDroplet
 {

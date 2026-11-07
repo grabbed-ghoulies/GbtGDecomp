@@ -9,7 +9,16 @@ namespace gbtg
 {
 namespace
 {
-namespace field = animated_light_field;
+AnimatedLightState& fields_of(std::span<u8> bytes)
+{
+    return actor_record_view<AnimatedLightState>(bytes);
+}
+
+const AnimatedLightState& fields_of(std::span<const u8> bytes)
+{
+    return actor_record_view<AnimatedLightState>(bytes);
+}
+
 namespace parameter = animated_light_parameter;
 
 constexpr u32 kColor = 0x40A6FFFFu; // DAT_002FF980.
@@ -49,7 +58,7 @@ Vec3 binding_position(const RuntimeAnimatedLight& context)
 
 void write_light(RuntimeAnimatedLight& context, const Vec3& position)
 {
-    const i32 index = get(context.bytes, field::light);
+    const i32 index = fields_of(context.bytes).light;
     if (index < 0)
     {
         return;
@@ -68,7 +77,7 @@ void write_light(RuntimeAnimatedLight& context, const Vec3& position)
 // Xbox 0x0006C240
 void animated_light_object_sizes(ObjectSizes& output)
 {
-    output.instance = field::kSize;
+    output.instance = sizeof(AnimatedLightState);
     output.parameters = parameter::kSize;
 }
 
@@ -78,8 +87,8 @@ bool initialize_runtime_animated_light(RuntimeAnimatedLight& context, std::span<
     context.binding = find_actor_model_binding(context.actor, 0); // 0x000408D0, EDI 0
     const Vec3 position = context.binding == nullptr ? actor_world_position(context.actor) // 0x000412A0
                                                      : binding_position(context);
-    set(context.bytes, field::light, add_runtime_scene_point_light(position, kColor, kSecondColor, 0.9f, 0.9f,
-        std::bit_cast<float>(0x428B6666u), std::bit_cast<float>(0x429F3333u), 1, context.lights)); // 0x00123720
+    fields_of(context.bytes).light = add_runtime_scene_point_light(position, kColor, kSecondColor, 0.9f, 0.9f,
+        std::bit_cast<float>(0x428B6666u), std::bit_cast<float>(0x429F3333u), 1, context.lights); // 0x00123720
     const auto name = get(parameters, parameter::glow);
     u32 prefix;
     std::memcpy(&prefix, name.data(), 4);
@@ -111,8 +120,8 @@ bool initialize_runtime_animated_light(RuntimeAnimatedLight& context, std::span<
 // Xbox 0x0006C540
 void destroy_runtime_animated_light(RuntimeAnimatedLight& context)
 {
-    release_runtime_scene_point_light(get(context.bytes, field::light), context.lights); // The inlined release.
-    set(context.bytes, field::light, -1);
+    release_runtime_scene_point_light(fields_of(context.bytes).light, context.lights); // The inlined release.
+    fields_of(context.bytes).light = -1;
     release_animation_resource(context.registry, context.glow); // 0x00035C00
     context.glow = {};
 }

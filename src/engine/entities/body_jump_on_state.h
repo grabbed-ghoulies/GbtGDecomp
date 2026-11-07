@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "input_tracking_record.h"
 
 #include "actor_clock.h"
 #include "body_action_selection.h"
@@ -30,51 +32,68 @@ constexpr RetailField<u32, 0x1C> ride{}; // ride phase 1
 constexpr RetailField<u32, 0x20> hit{}; // ride phase 3
 constexpr RetailField<u32, 0x24> hold{}; // ride phase 2
 constexpr RetailField<u32, 0x28> keep_riding{}; // set: the ride ends only when shaken off, and then knocked down
-constexpr RetailField<float, 0x2C> take_off_blend{}; // stored into DAT_004286B0
+constexpr RetailField<float, 0x2C> take_off_duration{}; // stored into DAT_004286B0
 constexpr RetailField<std::array<char, 0x80>, 0x30> hold_sound{};
 constexpr u32 kSize = 0xB0;
 static_assert(retail_fits(kSize, hold_sound));
 } // namespace jump_on_state_parameter
-namespace jump_on_state_field
+// The leap (0x00103650, 0x001036D0): the point and euler ease from start to target over the length.
+struct LeapRecord
 {
-constexpr RetailField<Vec3, 0x18> leap_target_euler{}; // the leap record (0x00103650) starts here
-constexpr RetailField<Vec3, 0x48> leap_end{};
-constexpr RetailField<u32, 0x68> phase{};
-constexpr RetailField<u32, 0x6C> shape_mode{}; // 0x0001FEB0's previous mode
-constexpr RetailField<u32, 0x70> released{}; // clear while the body holds its latches (0x0009A420)
-constexpr RetailField<u32, 0x74> knocked{}; // the ride ended by shaking: end in body slot 0x34's action
-constexpr RetailField<u32, 0x78> keep_riding{}; // parameters +0x28
-constexpr RetailField<u32, 0x7C> aborted{}; // messages 0x5D, 0x7C, 0x80 and 0x86 kind 7
-constexpr u32 kRide = 0x80; // the ride record
-constexpr RetailField<u32, 0x148> take_off{}; // set when the animation was found (the records are the context's)
-constexpr RetailField<u32, 0x14C> jump_off{};
-constexpr RetailField<u32, 0x150> claimed{}; // the target's body +0x718 names this actor
-constexpr RetailField<u32, 0x154> target{}; // the claimed target's actor
-constexpr u32 kSize = 0x158;
-static_assert(retail_fits(kSize, target));
-} // namespace jump_on_state_field
+    Vec3 target_euler{}; // +0
+    Vec3 start_euler{}; // +0xC
+    Vec3 euler{}; // +0x18, the current one
+    Vec3 start{}; // +0x24
+    Vec3 end{}; // +0x30
+    Vec3 position{}; // +0x3C, the current one
+    float length = 0.f; // +0x48
+    float time_left = 0.f; // +0x4C
+};
+static_assert(sizeof(LeapRecord) == 0x50);
+// 0x001050A0's timer, then its range.
+struct RideWobbleTimer
+{
+    float delay = 0.f; // +0
+    float minimum = 0.f; // +4
+    float maximum = 0.f; // +8
+};
+static_assert(sizeof(RideWobbleTimer) == 0xC);
+// The ride (state +0x80).
+struct JumpOnRide
+{
+    u32 phase = 0; // +0, 1 riding, 2 holding on while shaken, 3 hitting the host
+    u32 strikes = 0; // +4
+    u32 ride = 0; // +8, set when the animation was found (state +0x88)
+    u32 hit = 0; // +0xC, state +0x8C
+    u32 hold = 0; // +0x10, state +0x90
+    RideWobbleTimer wobble_timer{}; // +0x14
+    float wobble = 0.f; // +0x20, radians added to the host's heading
+    float hold_time = 0.f; // +0x24, phase 2's least time
+    float ride_time = 0.f; // +0x28, phase 1's time to the next hit
+    // +0x2C: 0x00109810's record: its activity is the shake, its accumulation the shake's total.
+    InputTrackingRecord tracking{};
+    std::array<char, 0x80> hold_sound{}; // +0x44, state +0xC4
+    u32 hat_intro = 0; // +0xC4, the hat intro was queued (0x0013FE60)
+};
+static_assert(sizeof(JumpOnRide) == 0xC8);
+struct JumpOnState
+{
+    BodyStateBase base{}; // +0
+    LeapRecord leap{}; // +0x18
+    u32 phase = 0; // +0x68
+    u32 shape_mode = 0; // +0x6C, 0x0001FEB0's previous mode
+    u32 released = 0; // +0x70, clear while the body holds its latches (0x0009A420)
+    u32 knocked = 0; // +0x74, the ride ended by shaking: end in body slot 0x34's action
+    u32 keep_riding = 0; // +0x78, parameters +0x28
+    u32 aborted = 0; // +0x7C, messages 0x5D, 0x7C, 0x80 and 0x86 kind 7
+    JumpOnRide ride{}; // +0x80
+    u32 take_off = 0; // +0x148, set when the animation was found (the records are the context's)
+    u32 jump_off = 0; // +0x14C
+    u32 claimed = 0; // +0x150, the target's body +0x718 names this actor
+    u32 target = 0; // +0x154, the claimed target's actor
+};
+static_assert(sizeof(JumpOnState) == 0x158);
 // The ride record (state +0x80).
-namespace ride_field
-{
-constexpr RetailField<u32, 0x00> phase{}; // 1 riding, 2 holding on while shaken, 3 hitting the host
-constexpr RetailField<u32, 0x04> strikes{};
-constexpr RetailField<u32, 0x08> ride{}; // set when the animation was found (state +0x88)
-constexpr RetailField<u32, 0x0C> hit{}; // state +0x8C
-constexpr RetailField<u32, 0x10> hold{}; // state +0x90
-constexpr RetailField<float, 0x14> wobble_delay{}; // 0x001050A0's timer, then its range
-constexpr RetailField<float, 0x18> wobble_minimum{};
-constexpr RetailField<float, 0x1C> wobble_maximum{};
-constexpr RetailField<float, 0x20> wobble{}; // radians added to the host's heading
-constexpr RetailField<float, 0x24> hold_time{}; // phase 2's least time
-constexpr RetailField<float, 0x28> ride_time{}; // phase 1's time to the next hit
-constexpr u32 kTracking = 0x2C; // 0x00109810's record: +0x34 shake, +0x38 its total, +0x40 its state
-constexpr RetailField<float, 0x38> shaken{};
-constexpr RetailField<u32, 0x40> shake_state{};
-constexpr RetailField<std::array<char, 0x80>, 0x44> hold_sound{}; // state +0xC4
-constexpr RetailField<u32, 0xC4> hat_intro{}; // the hat intro was queued (0x0013FE60)
-constexpr u32 kSize = 0xC8;
-static_assert(retail_fits(kSize, hat_intro));
-} // namespace ride_field
 // Another actor the state reads: its target, or the actor it rides.
 struct RuntimeJumpOnPeer
 {
@@ -87,6 +106,40 @@ struct RuntimeJumpOnPeer
     const RuntimeBodyModelNodes* model = nullptr; // Actor +0x204's records (0x00040980).
     const RuntimeDialogueInputDevice* input = nullptr; // Actor +0x960, or null.
 };
+// DAT_00428680, the jump on/off state's tunables. Each is named from what reads it; the fractions are of the
+// playing animation's length. The stick tracking is the 0x00109810 preset.
+struct JumpOnTunables
+{
+    float leap_arc_height = 0.f; // +0, 12.5 (0x0009A870, 0x0009A9C0)
+    i32 head_marker_index = 0; // +0x4, 0: the model record of kind 4 to ride, clamped to the count
+    float hold_time_low = 0.f; // +0x8, 0.2 (0x00099CA0)
+    float hold_time_high = 0.f; // +0xC, 0.3
+    float idle_ride_time_low = 0.f; // +0x10, 2.0 (0x00099C40)
+    float idle_ride_time_high = 0.f; // +0x14, 2.1
+    float leave_ride_time_low = 0.f; // +0x18, 1.0, on leaving phase 3 (0x00099550, 0x00099CA0)
+    float leave_ride_time_high = 0.f; // +0x1C, 6.0
+    float leap_start_fraction = 0.f; // +0x20, 0.49, opens the leap window (0x0009AB00, 0x0009AF60)
+    float leap_end_fraction = 0.f; // +0x24, 1.0
+    float unk_28 = 0.f; // +0x28, 0, no translated reader
+    float jump_off_end_fraction = 0.f; // +0x2C, 0.47 (0x0009B010)
+    float take_off_duration = 0.f; // +0x30, 1.0; the constructor writes it from its parameters (0x0009A4C0)
+    float leap_duration = 0.f; // +0x34, 1.0 (0x0009B160 phase 2)
+    float unk_38 = 0.f; // +0x38, 1.0, no translated reader
+    float jump_off_duration = 0.f; // +0x3C, 1.0 (0x0009B010)
+    float release_duration = 0.f; // +0x40, 1.0 (0x0009AB00, 0x0009B160 phase 5)
+    float gaze_distance = 0.f; // +0x44, 2.2 (0x00099AD0, through 0x00106220)
+    float gaze_pitch = 0.f; // +0x48, -0.873
+    float unk_4C = 0.f; // +0x4C, 0.0872, no translated reader
+    struct
+    {
+        float threshold = 0.f; // +0x50, 0.33
+        float rise = 0.f; // +0x54, 0.5
+        float decay = 0.f; // +0x58, 0.1
+        float cap = 0.f; // +0x5C, 7.0
+    } tracking;
+};
+static_assert(sizeof(JumpOnTunables) == 0x60);
+
 struct RuntimeJumpOnStateContext
 {
     std::span<u8> body;
@@ -103,7 +156,7 @@ struct RuntimeJumpOnStateContext
     RuntimeBodySpatialNotifications& spatial; // 0x0001D780.
     RuntimeBodyStateContext shape; // 0x0001FEB0.
     RuntimeActorSoundQueues& sounds;
-    std::span<u8> globals; // DAT_00428680, 0x60 bytes; the constructor writes +0x30 (DAT_004286B0).
+    JumpOnTunables& tunables; // DAT_00428680.
     const Vec3& default_position; // DAT_0050DD80.
     const Vec3& default_euler; // DAT_0050DD74.
     u32& random; // DAT_0054DD7C.
@@ -125,18 +178,18 @@ struct RuntimeJumpOnStateContext
     std::function<u32(const void*)> address_of;
 };
 void jump_on_state_object_sizes(ObjectSizes& output); // Xbox 0x0009A0F0
-bool initialize_runtime_jump_on_state(std::span<u8> state, std::span<const u8> parameters,
+bool initialize_runtime_jump_on_state(JumpOnState& state, std::span<const u8> parameters,
     RuntimeJumpOnStateContext& context); // Xbox 0x0009A4C0
-void destroy_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& context); // Xbox 0x0009A710
-void tick_runtime_jump_on_state(std::span<u8> state, RuntimeJumpOnStateContext& context); // Xbox 0x0009AB00
-void message_runtime_jump_on_state(std::span<u8> state, std::span<const u32> message,
+void destroy_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext& context); // Xbox 0x0009A710
+void tick_runtime_jump_on_state(JumpOnState& state, RuntimeJumpOnStateContext& context); // Xbox 0x0009AB00
+void message_runtime_jump_on_state(JumpOnState& state, std::span<const u32> message,
     RuntimeJumpOnStateContext& context); // Xbox 0x0009AE60
 // The slot 0 animation passed `time` since its last step.
 bool runtime_jump_on_window_open(float time, RuntimeJumpOnStateContext& context); // Xbox 0x0009A170, EAX actor
 // The target's head marker exists and its body is up (+0x94) and not knocked away (bit 0x39).
 bool runtime_jump_on_target_open(u32 target, RuntimeJumpOnStateContext& context); // Xbox 0x0009A1E0, EAX target
 // The leap is off: aborted, unclaimed, paused (0x400), no target, or the way to it blocked.
-bool runtime_jump_on_blocked(std::span<const u8> state, RuntimeJumpOnStateContext& context); // Xbox 0x0009A250
+bool runtime_jump_on_blocked(const JumpOnState& state, RuntimeJumpOnStateContext& context); // Xbox 0x0009A250
 // The target's head marker position and euler.
 bool runtime_jump_on_target_pose(Vec3& position, Vec3& euler,
     RuntimeJumpOnStateContext& context); // Xbox 0x0009A2E0, EAX actor, EBX euler
@@ -145,41 +198,39 @@ void runtime_jump_on_marker_position(const RuntimeJumpOnPeer& target, i32 marker
 void runtime_jump_on_marker_euler(const RuntimeJumpOnPeer& target, i32 marker,
     Vec3& output); // Xbox 0x0009A3A0, EAX target, EBX output
 // `release` 0 makes the body hold its latches and live attachments; 1 lets them go.
-void hold_runtime_jump_on_body(u32 release, std::span<u8> state,
+void hold_runtime_jump_on_body(u32 release, JumpOnState& state,
     RuntimeJumpOnStateContext& context); // Xbox 0x0009A420, ECX release, EAX state
-bool step_runtime_jump_on_leap(std::span<u8> state, RuntimeJumpOnStateContext& context); // Xbox 0x0009A870, EBX body
-bool step_runtime_jump_off_leap(std::span<u8> state, RuntimeJumpOnStateContext& context); // Xbox 0x0009A9C0, EDI body
-void start_runtime_jump_on_leap(std::span<u8> state, RuntimeJumpOnStateContext& context); // Xbox 0x0009AF60, EAX actor
-void start_runtime_jump_off_leap(Actor* ridden, std::span<u8> state,
+bool step_runtime_jump_on_leap(JumpOnState& state, RuntimeJumpOnStateContext& context); // Xbox 0x0009A870, EBX body
+bool step_runtime_jump_off_leap(JumpOnState& state, RuntimeJumpOnStateContext& context); // Xbox 0x0009A9C0, EDI body
+void start_runtime_jump_on_leap(JumpOnState& state, RuntimeJumpOnStateContext& context); // Xbox 0x0009AF60, EAX actor
+void start_runtime_jump_off_leap(Actor* ridden, JumpOnState& state,
     RuntimeJumpOnStateContext& context); // Xbox 0x0009B010, EAX ridden
-void set_runtime_jump_on_phase(u32 phase, std::span<u8> state,
+void set_runtime_jump_on_phase(u32 phase, JumpOnState& state,
     RuntimeJumpOnStateContext& context); // Xbox 0x0009B160, ESI state
 void end_runtime_jump_on_state(RuntimeJumpOnStateContext& context); // Xbox 0x0009B290
-void release_runtime_jump_on_claim(std::span<u8> state,
+void release_runtime_jump_on_claim(JumpOnState& state,
     RuntimeJumpOnStateContext& context); // Xbox 0x0009B300, EDX state, EDI actor
-void start_runtime_ride(std::span<u8> ride, RuntimeJumpOnStateContext& context); // Xbox 0x000994E0, ECX ride, EAX actor
-Actor* end_runtime_ride(std::span<u8> ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099550, EBX actor
-bool tick_runtime_ride(std::span<u8> state, u32 keep_riding,
+void start_runtime_ride(JumpOnRide& ride, RuntimeJumpOnStateContext& context); // Xbox 0x000994E0, ECX ride, EAX actor
+Actor* end_runtime_ride(JumpOnRide& ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099550, EBX actor
+bool tick_runtime_ride(JumpOnState& state, u32 keep_riding,
     RuntimeJumpOnStateContext& context); // Xbox 0x00099610, EBX ride
-void message_runtime_ride(std::span<u8> ride, std::span<const u32> message,
+void message_runtime_ride(JumpOnRide& ride, std::span<const u32> message,
     RuntimeJumpOnStateContext& context); // Xbox 0x00099940, ECX ride, EAX actor, ESI message
 u32 query_runtime_ride_host(u32 value, RuntimeJumpOnStateContext& context); // Xbox 0x00099A20, EAX body
-void reset_runtime_ride_wobble(std::span<u8> ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099A60, ECX ride
-void steer_runtime_ride_host(std::span<u8> ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099AD0, EAX actor
-void roll_runtime_ride_idle(std::span<u8> ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099C40
-void set_runtime_ride_phase(std::span<u8> ride, u32 phase,
+void reset_runtime_ride_wobble(JumpOnRide& ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099A60, ECX ride
+void steer_runtime_ride_host(JumpOnRide& ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099AD0, EAX actor
+void roll_runtime_ride_idle(JumpOnRide& ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099C40
+void set_runtime_ride_phase(JumpOnRide& ride, u32 phase,
     RuntimeJumpOnStateContext& context); // Xbox 0x00099CA0, EDI ride
 void attach_runtime_ride(RuntimeJumpOnStateContext& context); // Xbox 0x00099DF0, EBX actor
 Actor* detach_runtime_ride(RuntimeJumpOnStateContext& context); // Xbox 0x00099EE0, EAX actor
-void strike_runtime_ride_host(std::span<u8> ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099F60, EAX actor
-void track_runtime_ride_input(std::span<u8> ride, RuntimeJumpOnStateContext& context); // Xbox 0x0009A060, EAX actor
+void strike_runtime_ride_host(JumpOnRide& ride, RuntimeJumpOnStateContext& context); // Xbox 0x00099F60, EAX actor
+void track_runtime_ride_input(JumpOnRide& ride, RuntimeJumpOnStateContext& context); // Xbox 0x0009A060, EAX actor
 // A running timer counts down by the frame step; when it runs out it is redrawn between +4 and +8 and true returned.
 bool tick_runtime_random_timer(std::span<u8> timer, u32& random, const RuntimeActorClock& clock); // Xbox 0x001050A0, ECX timer
-// The leap record (0x50 bytes): +0 the target euler, +0xC the start euler, +0x18 the current one, +0x24 the start
-// point, +0x30 the end point, +0x3C the current one, +0x48 the length and +0x4C the time left.
-void start_runtime_leap(std::span<u8> leap, const Vec3& target_euler, const Vec3& start_euler, const Vec3& start,
+void start_runtime_leap(LeapRecord& leap, const Vec3& target_euler, const Vec3& start_euler, const Vec3& start,
     const Vec3& end, float length); // Xbox 0x00103650
-bool step_runtime_leap(std::span<u8> leap, float step); // Xbox 0x001036D0, ESI leap
+bool step_runtime_leap(LeapRecord& leap, float step); // Xbox 0x001036D0, ESI leap
 // The target's body +0x718 takes the rider when it has none and is not knocked away (bit 0x1B).
 bool claim_runtime_body_rider(std::span<u8> body, const EntityBitBlock& bits, u32 rider); // Xbox 0x000265A0, EAX body
 bool claim_runtime_rider(const RuntimeJumpOnPeer* target, u32 rider); // Xbox 0x00138140, EAX target

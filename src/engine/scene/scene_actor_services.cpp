@@ -1371,8 +1371,11 @@ void SceneActorServices::count_script_challenge()
 
 void SceneActorServices::activate_actor(u32 address)
 {
-    const auto found = actor_addresses().find(address);
-    if (found == actor_addresses().end() || found->second == nullptr)
+    // actor_addresses() rebuilds its map on each call, so the lookup and its end() must come from one call: a second
+    // call frees the node `found` points into.
+    const auto& addresses = actor_addresses();
+    const auto found = addresses.find(address);
+    if (found == addresses.end() || found->second == nullptr)
     {
         unbound("activated address that is not a scene actor");
     }

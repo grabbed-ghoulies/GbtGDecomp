@@ -4,6 +4,36 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-07: a script retire read a freed map node (issue #38)
+
+- Issue #38 ("Chapter 2 Scene 9", chapter2a_scene9_1playcam): after the glow worms the screen went black, and the
+  pause view looked down at the ground; also seen in chapter 2a scene 11 after the water pistol hand-off. It did not
+  happen every time.
+- Reproduced with `--scene2a9` on the real audio clock (about one run in 10 to 20): at the glow-worm page, script type
+  0x60 retires the actor its id names (`0x00112CC0`, `SceneActorServices::activate_actor`). The address was right
+  (0x10003870, a class 0x3E glow worm), but the actor it retired was the background (class 0x46), Cameron (6), a
+  class 0 actor, or freed memory (a crash, or "scene actor update for an actor outside the scene").
+- Cause: `actor_addresses()` clears and rebuilds its map on every call, and `activate_actor` (and script type 0x4D)
+  called it twice: `find` on one call, `end()` on the next. The second call freed the node `found` pointed into, so
+  `found->second` read freed memory; it held the right actor only when the rebuild reused the same node. Both now
+  take the map once.
+- With the background retired, the scene stops drawing it and its collision goes: Cooper falls through the floor
+  (y -0.055 at "EXIT DOOR OPENS", then free fall), the screen is black, and below the world box
+  (`0x0002C980`, min y -154.9) his body dies (`0x00134AE0`), which asks for the scene again.
+- Earlier unexplained black screens and vanishing actors (chapter 3a scene 12, chapter 3c's dialogue page, chapter 2a
+  scene 9's "Cooper vanished") may be the same misread.
+
+### 2026-11-07: chapter 2a scene 14: the stage opens at scene start (issue #40)
+
+- Issue #40 ("Chapter 2 Scene 14", chapter2a_scene14_1playcam, the ballroom): an unexplained collision on the stage.
+  The script's head, before its first section, opens categories 0xFB (+0x210) and 0xFD (+0x220) with type 0x67 and
+  word 0. Like chapter 3b scene 2's gate, those queued opens were dropped until scene start replayed them
+  (`0x00127250`, 2026-11-07, issue #49).
+- With the replay, scene start clears bit 4 on 48 category-0xFB triangles (flags 0x4, plain solid faces) and 18
+  category-0xFD ones (0x40004). 0xFB is never shut again, so those 48 faces had stayed solid all scene. 0xFD shuts
+  again at +0x3B8, once the player reaches the dance floor (region 0xB). Counted with a temporary print, then
+  removed; no new engine change.
+
 ### 2026-11-07: a released mind target no longer throws (issue #42)
 
 - Issue #42 ("Chapter 2 Scene 19", chapter2b_scene2_1playcam, 2826 s into a session) threw `std::out_of_range`

@@ -1958,8 +1958,10 @@ int script_handle_resource_actions(Game& g, const ScriptNode& node, int live_7d)
         {
             return 2;
         }
-        const auto found = actors->actor_addresses().find(address);
-        if (found == actors->actor_addresses().end() || found->second == nullptr)
+        // One actor_addresses() call: each call rebuilds the map, which would free the node `found` points into.
+        const auto& addresses = actors->actor_addresses();
+        const auto found = addresses.find(address);
+        if (found == addresses.end() || found->second == nullptr)
         {
             throw Error("script type 0x4D found an actor with no native view");
         }

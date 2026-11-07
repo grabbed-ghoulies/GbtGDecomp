@@ -88,6 +88,9 @@ SceneD3DDevice::SceneD3DDevice()
         {
             erase_state(method); // The upload replaces any raw combiner writes.
         }
+        // D3DDevice_SetPixelShader (0x00175370) writes the definition's stage constants (0x800A60) and keeps none
+        // set before it, so the definition's own constants stand until the next SetPixelShaderConstant.
+        pixel_constants_set_ = 0;
     };
     dialogue_.texture = [this](u32 stage, const u8* texture)
     {

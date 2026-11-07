@@ -244,6 +244,13 @@ struct PixelAssembler
                 if (operation.name == "dp3")
                 {
                     outputs |= 0x2000;
+                    // ps.1.1 writes the dot product to every masked channel. The combiner's dot product is RGB
+                    // only, so a destination that includes alpha takes it through PS_COMBINEROUTPUT_AB_BLUE_TO_ALPHA.
+                    const std::string channel = pixel_register(args[0]).channel;
+                    if (channel.empty() || channel == "rgba")
+                    {
+                        outputs |= 0x80000;
+                    }
                 }
             }
             else if (operation.name == "add" || operation.name == "sub")

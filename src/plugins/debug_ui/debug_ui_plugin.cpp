@@ -1,9 +1,11 @@
 // The host debug UI (Dear ImGui), which retail does not have, as a plugin overlay: F8 opens the menu bar and gives it
 // the keyboard and mouse, F12 toggles the timing overlay. The diagnostics windows read the runtime through the host's
 // read-only diagnostics calls. The plugin owns ImGui; the game only offers the overlay hooks (docs/PLUGINS.md).
+#include "object_windows.h"
 #include "renderer.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstring>
 #include <string>
@@ -43,9 +45,9 @@ bool g_scenes = false;
 bool g_runtime = false;
 bool g_performance = false;
 bool g_objects = false;
+bool g_actors = false;
 bool g_resources = false;
 ImGuiTextFilter g_resource_filter;
-int g_object_type = -1;
 
 constexpr int kHistorySize = 240;
 float g_frame_history[kHistorySize]{};
@@ -107,6 +109,41 @@ bool setting_flag(const char* key, bool fallback)
         return fallback;
     }
     return std::strcmp(value, "0") != 0 && std::strcmp(value, "false") != 0 && std::strcmp(value, "no") != 0;
+}
+
+// [DebugUi] Windows: a comma-separated list of windows to open at startup.
+void open_listed_windows()
+{
+    const char* value = g_host->setting(g_host->plugin, "DebugUi", "Windows");
+    if (value == nullptr)
+    {
+        return;
+    }
+    const struct
+    {
+        const char* name;
+        bool* shown;
+    } windows[] = {{"runtime", &g_runtime}, {"performance", &g_performance}, {"objects", &g_objects},
+        {"actors", &g_actors}, {"resources", &g_resources}, {"scenes", &g_scenes}};
+    std::string list(value);
+    for (char& c : list)
+    {
+        c = c == ',' ? ' ' : char(std::tolower(static_cast<unsigned char>(c)));
+    }
+    size_t at = 0;
+    while (at < list.size())
+    {
+        const size_t space = list.find(' ', at);
+        const std::string word = list.substr(at, space == std::string::npos ? std::string::npos : space - at);
+        for (const auto& window : windows)
+        {
+            if (word == window.name)
+            {
+                *window.shown = true;
+            }
+        }
+        at = space == std::string::npos ? list.size() : space + 1;
+    }
 }
 
 // Keep opened diagnostics visible while F8 gives input back to the game.
@@ -175,48 +212,6 @@ void draw_runtime(const GbtgGame* game, const GbtgRuntimeInfo& info)
             }, nullptr);
             ImGui::Text("%zu / %zu slots active", info.delayed_active, info.delayed_slots);
             ImGui::TreePop();
-        }
-    }
-    ImGui::End();
-}
-
-void draw_objects(const GbtgGame* game, const GbtgRuntimeInfo& info)
-{
-    ImGui::SetNextWindowSize(ImVec2(600.f, 420.f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Native objects", &g_objects, diagnostic_window_flags()))
-    {
-        ImGui::InputInt("Type (-1 = all)", &g_object_type);
-        ImGui::TextUnformatted("Read-only native factory ownership; addresses are retail tokens.");
-        if (info.has_native_scene && ImGui::BeginTable("objects", 4,
-            ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, ImVec2(0.f, 0.f)))
-        {
-            ImGui::TableSetupColumn("Address");
-            ImGui::TableSetupColumn("Type (hex)");
-            ImGui::TableSetupColumn("Bytes");
-            ImGui::TableSetupColumn("Vtable");
-            ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableHeadersRow();
-            g_host->native_objects(game, [](void*, const GbtgNativeObject* object)
-            {
-                if (g_object_type >= 0 && object->type != uint32_t(g_object_type))
-                {
-                    return;
-                }
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::Text("%08X", object->address);
-                ImGui::TableNextColumn();
-                ImGui::Text("%04X", object->type);
-                ImGui::TableNextColumn();
-                ImGui::Text("%u", object->size);
-                ImGui::TableNextColumn();
-                ImGui::Text("%08X", object->vtable);
-            }, nullptr);
-            ImGui::EndTable();
-        }
-        if (!info.has_native_scene)
-        {
-            ImGui::TextUnformatted("No native scene factory bound.");
         }
     }
     ImGui::End();
@@ -474,6 +469,10 @@ void build(void*, GbtgGame* game, float host_dt)
                 ImGui::MenuItem("Runtime", nullptr, &g_runtime);
                 ImGui::MenuItem("Performance", nullptr, &g_performance);
                 ImGui::MenuItem("Native objects", nullptr, &g_objects);
+                if (has_object_views(g_host))
+                {
+                    ImGui::MenuItem("Actors", nullptr, &g_actors);
+                }
                 ImGui::MenuItem("Resource cache", nullptr, &g_resources);
                 ImGui::MenuItem("Timing overlay", "F12", &g_overlay);
                 ImGui::EndMenu();
@@ -496,7 +495,15 @@ void build(void*, GbtgGame* game, float host_dt)
     }
     if (g_objects)
     {
-        draw_objects(game, info);
+        draw_object_table(g_host, game, info.has_native_scene, &g_objects, diagnostic_window_flags());
+    }
+    if (g_actors && has_object_views(g_host))
+    {
+        draw_actor_table(g_host, game, &g_actors, diagnostic_window_flags());
+    }
+    if (has_object_views(g_host))
+    {
+        draw_inspectors(g_host, game, diagnostic_window_flags());
     }
     if (g_resources)
     {
@@ -551,6 +558,7 @@ extern "C" GBTG_PLUGIN_EXPORT int gbtg_plugin_load(const GbtgPluginHost* host)
     debug_ui::g_host = host;
     debug_ui::g_menu = debug_ui::setting_flag("OpenMenu", false);
     debug_ui::g_overlay = debug_ui::setting_flag("TimingOverlay", debug_ui::g_overlay);
+    debug_ui::open_listed_windows();
     static const GbtgFeature feature = {"debug_ui", "F8 debug menu and F12 timing overlay (Dear ImGui)", nullptr,
         nullptr, debug_ui::attach, debug_ui::detach, nullptr};
     static const GbtgOverlay overlay = {"debug_ui", debug_ui::window_event, debug_ui::captures_input,

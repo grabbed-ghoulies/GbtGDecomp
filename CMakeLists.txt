@@ -956,6 +956,7 @@ else()
         src/engine/plugins/plugin_libraries.cpp
         src/engine/plugins/plugin_overlays.cpp
         src/engine/plugins/plugin_diagnostics.cpp
+        src/engine/plugins/object_schemas.cpp
         src/engine/plugins/plugin_stories.cpp
         src/engine/plugins/scene_recipe.cpp
         src/engine/plugins/rare_replay_feature.cpp
@@ -978,7 +979,8 @@ else()
     # Vulkan backend.
     if(DEFINED GBTG_IMGUI_SOURCES)
         gbtg_add_plugin(gbtg_debug_ui ID debug_ui
-            SOURCES src/plugins/debug_ui/debug_ui_plugin.cpp src/plugins/debug_ui/renderer_d3d11.cpp
+            SOURCES src/plugins/debug_ui/debug_ui_plugin.cpp src/plugins/debug_ui/object_windows.cpp
+                src/plugins/debug_ui/renderer_d3d11.cpp
                 src/plugins/debug_ui/renderer_vulkan.cpp ${GBTG_IMGUI_SOURCES}
             PLUGIN_INI src/plugins/debug_ui/plugin.ini)
         target_include_directories(gbtg_debug_ui PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")

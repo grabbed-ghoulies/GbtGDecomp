@@ -381,9 +381,10 @@ void InspectorSession::collect_items()
         item.vtable = object.vtable ? object.vtable->address : 0;
         item.source = "Native factory";
         item.label = "Object " + hex(item.address) + " / type " + std::to_string(item.type);
-        if (object.type < scene.retail_names.size() && scene.retail_names[object.type] != 0)
+        // A type's name string sits in the factory table's previous row (type 0x38's is row 0x37's +8 word).
+        if (object.type > 0 && object.type <= scene.retail_names.size() && scene.retail_names[object.type - 1] != 0)
         {
-            item.label += " / " + std::string(scene.executable->string(scene.retail_names[object.type]));
+            item.label += " / " + std::string(scene.executable->string(scene.retail_names[object.type - 1]));
         }
         const auto actor = actors.find(item.address);
         if (actor != actors.end() && actor->second != nullptr)

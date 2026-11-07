@@ -161,6 +161,83 @@ typedef struct GbtgBundleInfo
     size_t gpu_bytes;
 } GbtgBundleInfo;
 
+/* What a named field holds (GbtgField.kind). Arrays of these are one field with count > 1. */
+enum GbtgFieldKind
+{
+    GBTG_FIELD_BYTES = 0, /* Raw bytes: an unnamed range or a type the schemas do not describe. */
+    GBTG_FIELD_BOOL = 1,
+    GBTG_FIELD_U8 = 2,
+    GBTG_FIELD_I8 = 3,
+    GBTG_FIELD_U16 = 4,
+    GBTG_FIELD_I16 = 5,
+    GBTG_FIELD_U32 = 6,
+    GBTG_FIELD_I32 = 7,
+    GBTG_FIELD_U64 = 8,
+    GBTG_FIELD_I64 = 9,
+    GBTG_FIELD_F32 = 10,
+    GBTG_FIELD_F64 = 11,
+    GBTG_FIELD_VEC3 = 12, /* Three floats. */
+    GBTG_FIELD_QUAT = 13, /* Four floats, xyzw. */
+    GBTG_FIELD_TEXT = 14, /* char[count], not always terminated. */
+    GBTG_FIELD_WTEXT = 15, /* 16-bit characters [count]. */
+    GBTG_FIELD_POINTER = 16, /* A host pointer the struct keeps. */
+    GBTG_FIELD_GROUP = 17 /* A nested struct or an array of them; its members follow at depth + 1. */
+};
+
+/* One named field of a retail object (object_fields), in retail order. `offset` is from the object's start. `data`
+ * points at the field's bytes and, like `name` and `note`, is valid only during the visit. `note` is the evidence
+ * comment from the struct's declaration, "" when it has none. */
+typedef struct GbtgField
+{
+    const char* name;
+    const char* note;
+    const char* type_name; /* The nested struct's name for a group, else "". */
+    uint32_t offset;
+    uint32_t size; /* Bytes of the whole field, all elements. */
+    uint32_t kind; /* GbtgFieldKind */
+    uint32_t count; /* Elements; 1 for a scalar. */
+    uint32_t depth; /* 0 for the object's own members. */
+    const void* data;
+} GbtgField;
+
+/* A native object by its retail address token (object_view). Strings are valid until the next frame; `data` while
+ * the object lives. */
+typedef struct GbtgObjectView
+{
+    uint32_t size; /* Set to sizeof(GbtgObjectView) before the call. */
+    uint32_t address;
+    uint32_t type;
+    uint32_t parent_type; /* The factory table's parent, 0 for the base. */
+    uint32_t bytes;
+    uint32_t vtable;
+    const char* retail_name; /* The factory table's name string, "" when it has none. */
+    const char* schema; /* The named struct its fields are shown as, "" when no struct covers the type. */
+    const uint8_t* data;
+    int is_actor; /* 1 when the object has a native actor (actors). */
+} GbtgObjectView;
+
+/* A native actor (actors): its object, and the native actor's fields. */
+typedef struct GbtgActorInfo
+{
+    uint32_t address;
+    uint32_t type;
+    const char* retail_name;
+    uint32_t class_key; /* Actor +6. */
+    uint32_t marker_id; /* Actor +0x1FC, +0x1FE. */
+    uint32_t marker_next;
+    float position[3];
+    float euler[3];
+    float age; /* Actor +0x924 and +0x928. */
+    uint32_t ticks;
+    float animation_rate;
+    int model_mode;
+    int shape_mode;
+    uint32_t model_flags;
+    uint32_t damage_class;
+    int has_model;
+    uint32_t attached_to; /* The address of the actor it is attached to, 0 for none. */
+} GbtgActorInfo;
+
 /* A Features menu entry on game select that plays `scenes` (aid_script_ names) in order, then returns to game select,
  * the way the menu's Credits play. The label is `key` in the aid_loctext_ resource `loctext` in the game's language,
  * else `name` (UTF-8). A plugin.ini [Story] section adds one without a library. */
@@ -237,6 +314,22 @@ typedef struct GbtgPluginHost
 
     /* Adds a Features menu entry (GbtgStory); the host copies it. Returns 1 when added. Call from gbtg_plugin_load. */
     int (*add_story)(void* plugin, const GbtgStory* story);
+
+    /* Read-only views of the named retail structs (docs/RETAIL_LAYOUTS.md). Test `size` before using these. */
+    /* Fills `out` (set out->size first) for the native object at `address`; 0 when there is none. */
+    int (*object_view)(const GbtgGame* game, uint32_t address, GbtgObjectView* out);
+    /* Visits the object's named fields. `schema` names the struct to show it as (one of schema_at), or NULL for
+     * the one that covers its type. Bytes no field names are visited as GBTG_FIELD_BYTES rows named "". */
+    void (*object_fields)(const GbtgGame* game, uint32_t address, const char* schema,
+        void (*visit)(void* context, const GbtgField* field), void* context);
+    /* The factory type's retail name and named struct, "" for none. */
+    const char* (*type_name)(const GbtgGame* game, uint32_t type);
+    const char* (*type_schema)(const GbtgGame* game, uint32_t type);
+    /* Every named struct, sorted by name, and its size in bytes. */
+    size_t (*schema_count)(void);
+    const char* (*schema_at)(size_t index, uint32_t* size);
+    /* The scene's native actors in object order. */
+    void (*actors)(const GbtgGame* game, void (*visit)(void* context, const GbtgActorInfo* actor), void* context);
 } GbtgPluginHost;
 
 typedef int (*GbtgPluginLoad)(const GbtgPluginHost* host);

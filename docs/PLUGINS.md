@@ -117,6 +117,7 @@ The game is an opaque `GbtgGame*`. The host table gives the library:
 | `runtime_info`, `native_objects`, `delayed_callbacks`, `resource_bundles` | Read-only diagnostics: the clock, script and presenter state, the native scene factory's objects, the delayed callback slots and the cached bundles. |
 | `scene_count`, `scene_at`, `request_scene` | The scene order, and a scene request the way the game queues its next script (0x0011EB30). |
 | `add_story` | A Features menu entry (`GbtgStory`), as a `[Story]` section adds one (see [Stories](#stories)). |
+| `object_view`, `object_fields`, `type_name`, `type_schema`, `schema_count`, `schema_at`, `actors` | Read-only views of the named retail structs: a native object's type, retail name and struct, its fields (`GbtgField`, in retail order, nested structs as groups, unnamed bytes as `GBTG_FIELD_BYTES` rows), the struct list, and the scene's actors (`GbtgActorInfo`). Added after `add_story`; test `size` first. |
 
 An **overlay** (`GbtgOverlay`) is host presentation drawn over each presented frame, such as the debug UI:
 
@@ -207,14 +208,27 @@ first draw, as the Xbox did.
 ### Debug UI (`src/plugins/debug_ui`)
 
 The Dear ImGui diagnostics, which retail does not have, as an overlay. **F8** opens the menu bar (Diagnostics:
-Runtime, Performance, Native objects, Resource cache, Timing overlay; and Scenes, which requests any scene in the scene
-order) and gives it the keyboard and mouse; **F12** toggles the timing overlay. Opened windows stay on screen, without
+Runtime, Performance, Native objects, Actors, Resource cache, Timing overlay; and Scenes, which requests any scene in
+the scene order) and gives it the keyboard and mouse; **F12** toggles the timing overlay. Opened windows stay on screen, without
 input, after F8 closes the menu. The plugin compiles ImGui itself with its platform half (Win32, or SDL3 elsewhere)
 and a renderer for each backend gbtg has (`renderer_d3d11.cpp`, `renderer_vulkan.cpp`); gbtg has no ImGui.
+
+Native objects lists each factory object with its type's retail name (from the factory table, whose row T-1 names
+type T) and the named struct that lays it out. Actors lists the native actors with their class, marker ids, position,
+euler, age and model. Clicking a row in either opens an inspector for that object: its fields from the struct in
+retail order, with offsets, values, types and the declaration's evidence comment as a tooltip; nested structs and long
+arrays expand, unnamed ranges show as bytes, and **View as** shows the bytes as any other struct. A type without a
+struct of its own is shown as its nearest parent's (the actor, strategy, body-state or scene-control base).
+
+The struct list is `src/engine/plugins/object_schemas_generated.inc`, generated from every struct declared with
+`static_assert(sizeof(...))` beside it (docs/RETAIL_LAYOUTS.md). The factory type of each struct is listed by hand in
+`object_schemas.cpp`. After naming or renaming fields, run `python tools/layout/object_schemas.py`; a stale list fails
+to compile.
 
 ```ini
 [DebugUi]
 OpenMenu = 0        ; 1 opens the menu bar at startup (formerly --debug-ui)
+Windows = objects, actors ; optional: windows to open at startup (runtime, performance, objects, actors, resources, scenes)
 TimingOverlay = 1   ; optional: show or hide the timing overlay at startup; default shown in Debug, hidden in Release
 ```
 

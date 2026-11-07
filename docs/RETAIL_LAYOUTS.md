@@ -140,6 +140,8 @@ For one object type:
 5. If the type is host-allocated and nothing reads it by offset, consolidate it into a struct (step 2) and
    compare the captures again.
 6. Add the type to the tables below.
+7. Run `python tools/layout/object_schemas.py` so the debug UI's object inspector shows the new names, and add the
+   struct's factory type to `type_schemas` in `src/engine/plugins/object_schemas.cpp` if it has one.
 
 ## Consolidated into structs
 

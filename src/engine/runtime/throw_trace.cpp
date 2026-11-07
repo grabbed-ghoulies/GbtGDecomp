@@ -26,17 +26,18 @@ std::mutex g_symbol_lock;
 // The thrown type list of an MSVC x64 C++ exception: ExceptionInformation[2] is its ThrowInfo and [3] the image base
 // its RVAs are relative to. ThrowInfo +0xC is the CatchableTypeArray (a count, then one RVA per type); each
 // CatchableType +4 is its TypeDescriptor, whose decorated name follows the vtable and spare pointers.
-bool throws_out_of_range(const EXCEPTION_RECORD& record)
+// Returns the traced type's name (std::out_of_range or gbtg::Error), or null for any other exception.
+const char* traced_type(const EXCEPTION_RECORD& record)
 {
     if (record.ExceptionCode != kMsvcCppException || record.NumberParameters < 4)
     {
-        return false;
+        return nullptr;
     }
     const auto base = static_cast<std::uintptr_t>(record.ExceptionInformation[3]);
     const auto* info = reinterpret_cast<const std::int32_t*>(record.ExceptionInformation[2]);
     if (base == 0 || info == nullptr)
     {
-        return false;
+        return nullptr;
     }
     const auto* types = reinterpret_cast<const std::int32_t*>(base + std::uint32_t(info[3]));
     for (std::int32_t index = 0; index < types[0]; ++index)
@@ -45,23 +46,34 @@ bool throws_out_of_range(const EXCEPTION_RECORD& record)
         const char* name = reinterpret_cast<const char*>(base + std::uint32_t(catchable[1])) + 2 * sizeof(void*);
         if (std::strcmp(name, ".?AVout_of_range@std@@") == 0)
         {
-            return true;
+            return "std::out_of_range";
+        }
+        if (std::strcmp(name, ".?AVError@gbtg@@") == 0)
+        {
+            return "gbtg::Error";
         }
     }
-    return false;
+    return nullptr;
 }
 
-void print_throw_stack()
+// The frames of the last gbtg::Error thrown on this thread. Some lookups throw an Error that their caller catches, so
+// an Error's stack is kept rather than printed, and print_last_error_stack prints it once one ends the run.
+struct ThrowFrames
 {
     void* frames[48];
-    const USHORT count = RtlCaptureStackBackTrace(1, 48, frames, nullptr);
+    USHORT count = 0;
+};
+thread_local ThrowFrames t_last_error;
+
+void print_frames(const char* type, void* const* frames, USHORT count)
+{
     std::lock_guard<std::mutex> lock(g_symbol_lock);
     static const bool symbols = []()
     {
         SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
         return SymInitialize(GetCurrentProcess(), nullptr, TRUE) != FALSE;
     }();
-    std::fprintf(stderr, "std::out_of_range thrown at:\n");
+    std::fprintf(stderr, "%s thrown at:\n", type);
     for (USHORT index = 0; index < count; ++index)
     {
         const auto address = reinterpret_cast<DWORD64>(frames[index]);
@@ -108,26 +120,49 @@ void print_throw_stack()
     std::fflush(stderr);
 }
 
-LONG CALLBACK report_out_of_range(EXCEPTION_POINTERS* pointers)
+LONG CALLBACK report_throw(EXCEPTION_POINTERS* pointers)
 {
-    if (throws_out_of_range(*pointers->ExceptionRecord) && g_reports.fetch_add(1) < kReportLimit)
+    const char* type = traced_type(*pointers->ExceptionRecord);
+    if (type == nullptr)
     {
-        print_throw_stack();
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    if (std::strcmp(type, "gbtg::Error") == 0)
+    {
+        t_last_error.count = RtlCaptureStackBackTrace(1, 48, t_last_error.frames, nullptr);
+    }
+    else if (g_reports.fetch_add(1) < kReportLimit)
+    {
+        void* frames[48];
+        const USHORT count = RtlCaptureStackBackTrace(1, 48, frames, nullptr);
+        print_frames(type, frames, count);
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
 }
 
-void install_out_of_range_trace()
+void install_throw_trace()
 {
-    static const PVOID handler = AddVectoredExceptionHandler(1, report_out_of_range);
+    static const PVOID handler = AddVectoredExceptionHandler(1, report_throw);
     static_cast<void>(handler);
+}
+
+void print_last_error_stack()
+{
+    if (t_last_error.count != 0)
+    {
+        print_frames("gbtg::Error", t_last_error.frames, t_last_error.count);
+    }
 }
 }
 #else
 namespace gbtg
 {
-void install_out_of_range_trace()
+void install_throw_trace()
+{
+}
+
+void print_last_error_stack()
 {
 }
 }

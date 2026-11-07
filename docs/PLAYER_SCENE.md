@@ -345,8 +345,12 @@ step 1/30 s, so frame N is N/30 s; the references in `cache/player_ref/` were ta
   IJKL, A) reach the pad boundary; keep hands off during captures.
 - **Bash heredocs mangle backslash escapes.** Python or shell heredocs turn
   `\n` in C++ string literals into real newlines. Use Write/Edit for literals.
-- **Release builds have no debug info** (the `.pdb` beside the Release test is
-  stale). For a crash stack, use the Debug or RelWithDebInfo build
+- **Release `gbtg` writes a pdb** (`/Zi`, `/DEBUG:FULL` with `/OPT:REF` and
+  `/OPT:ICF`), so a player's crash report names functions and lines: an
+  `std::out_of_range` prints its stack where it is thrown, and a `gbtg::Error`
+  that ends the run prints where it was thrown after the `error:` line
+  (`runtime/throw_trace.cpp`). The Release test executable still has no debug
+  info. For a test crash stack, use the Debug or RelWithDebInfo build
   (`--config RelWithDebInfo --target gbtg-transition-tests`) with a temporary
   DbgHelp exception handler (`StackWalk64`) in the test, run with
   `_NT_SYMBOL_PATH` at that build directory, then remove it. A temporary

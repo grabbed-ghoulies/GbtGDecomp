@@ -1105,6 +1105,11 @@ if(MSVC)
     target_compile_options(gbtg-dump PRIVATE /W3 /EHsc /utf-8)
     target_compile_options(gbtg-xemu-patch PRIVATE /W3 /EHsc /utf-8)
     target_compile_options(gbtg PRIVATE /W3 /EHsc /utf-8)
+    # Release keeps its optimisation but writes a pdb, so the throw trace (runtime/throw_trace.cpp) names the
+    # functions in a player's crash report. /OPT:REF and /OPT:ICF stay on, as /DEBUG would otherwise turn them off.
+    target_compile_options(gbtg_lib PRIVATE $<$<CONFIG:Release>:/Zi>)
+    target_compile_options(gbtg PRIVATE $<$<CONFIG:Release>:/Zi>)
+    target_link_options(gbtg PRIVATE "$<$<CONFIG:Release>:/DEBUG:FULL;/OPT:REF;/OPT:ICF>")
 endif()
 
 # The retail transition regression drives controller input and asserts the

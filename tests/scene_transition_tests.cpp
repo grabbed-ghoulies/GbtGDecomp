@@ -11299,7 +11299,7 @@ void start_saved_game(gbtg::Game& game, const std::string& label)
 
 int main(int argc, char** argv)
 {
-    gbtg::install_out_of_range_trace(); // A failed .at() lookup prints where it was thrown.
+    gbtg::install_throw_trace(); // A failed .at() lookup or a gbtg::Error prints where it was thrown.
     open_test_run(argc, argv);
     // Tests play at 10% master volume (AGENTS.md); the master voice takes it when it is created.
     gbtg::pcm_set_master_volume(0.1f);

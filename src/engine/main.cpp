@@ -58,7 +58,7 @@ int int_arg(int argc, char** argv, const std::string& key, int def)
 
 int main(int argc, char** argv)
 {
-    gbtg::install_out_of_range_trace(); // A failed .at() lookup prints where it was thrown.
+    gbtg::install_throw_trace(); // A failed .at() lookup or a gbtg::Error prints where it was thrown.
     try
     {
         gbtg::log::set_verbose(has_flag(argc, argv, "--verbose"));
@@ -178,6 +178,10 @@ int main(int argc, char** argv)
     catch (const std::exception& ex)
     {
         gbtg::log::error("error: %s", ex.what());
+        if (dynamic_cast<const gbtg::Error*>(&ex) != nullptr)
+        {
+            gbtg::print_last_error_stack(); // Where this error was thrown.
+        }
         gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--fullscreen|--windowed] [--gfx d3d11|vulkan|null] [--render-thread 0|1] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary] [--verbose]");
         return 1;
     }

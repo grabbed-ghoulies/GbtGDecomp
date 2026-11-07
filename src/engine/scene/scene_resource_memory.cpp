@@ -1,9 +1,21 @@
 #include "scene_resource_memory.h"
 #include <iterator>
 #include <limits>
+#include <cstdio>
+#include <string>
 
 namespace gbtg
 {
+namespace
+{
+std::string hex_address(u32 address)
+{
+    char text[11];
+    std::snprintf(text, sizeof(text), "0x%08X", address);
+    return text;
+}
+}
+
 RuntimeModelAllocation SceneResourceMemory::allocate(u32 size, u32 alignment)
 {
     if (alignment == 0 || (alignment & (alignment - 1)) != 0)
@@ -99,7 +111,7 @@ std::span<u8> SceneResourceMemory::resolve(u32 address, size_t size) const
     auto block = blocks_.upper_bound(address);
     if (block == blocks_.begin())
     {
-        throw Error("scene resource address is not mapped");
+        throw Error("scene resource address " + hex_address(address) + " is not mapped");
     }
     --block;
 #if GBTG_OPTIMIZE
@@ -126,7 +138,7 @@ std::span<u8> SceneResourceMemory::tail(u32 address) const
     auto block = blocks_.upper_bound(address);
     if (block == blocks_.begin())
     {
-        throw Error("scene resource address is not mapped");
+        throw Error("scene resource address " + hex_address(address) + " is not mapped");
     }
     --block;
     return resolve(address, block->second.size() - std::min<size_t>(address - block->first, block->second.size()));
@@ -137,7 +149,7 @@ u32 SceneResourceMemory::block_start(u32 address) const
     auto block = blocks_.upper_bound(address);
     if (block == blocks_.begin() || address - std::prev(block)->first > std::prev(block)->second.size())
     {
-        throw Error("scene resource address is not mapped");
+        throw Error("scene resource address " + hex_address(address) + " is not mapped");
     }
     return std::prev(block)->first;
 }

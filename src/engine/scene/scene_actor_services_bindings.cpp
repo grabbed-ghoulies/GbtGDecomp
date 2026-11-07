@@ -3550,7 +3550,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 handle)
         {
-            d3d_device.set_state(SceneD3DDevice::kVertexShader, handle);
+            d3d_device.set_vertex_shader(handle); // D3DDevice_SetVertexShader (0x001739F0)
         }});
     node_callbacks[0x00158510] = [this](u32 node, void*)
     {

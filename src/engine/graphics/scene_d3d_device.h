@@ -234,6 +234,9 @@ public:
     // A texture's level-0 width and height, for the viewport SetRenderTarget resets.
     std::function<std::array<u32, 2>(std::uintptr_t texture)> texture_size;
     void create_vertex_shader(const i32* declaration, const u32* program, u32& handle, u32 usage);
+    // D3DDevice_SetVertexShader (0x001739F0): binds the shader, and a fixed-function format resets the vertex
+    // colours it does not carry.
+    void set_vertex_shader(u32 handle);
     void set_vertex_stream(u32 stream, u32 resource, u32 stride);
     // D3D__RenderState[D3DRS_FOGENABLE]: the game writes it directly (0x00158A80, 0x00156EA0) and D3D's lazy
     // update reads it when a draw is issued.

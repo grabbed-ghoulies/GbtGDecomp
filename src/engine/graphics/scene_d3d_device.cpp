@@ -29,6 +29,29 @@ void SceneD3DDevice::create_vertex_shader(const i32* declaration, const u32* pro
     vertex_shaders.emplace(handle, std::move(shader));
 }
 
+void SceneD3DDevice::set_vertex_shader(u32 handle)
+{
+    put_state(kVertexShader, handle);
+    // A created shader with a program (all the host creates) carries flag 0x10 and is loaded and selected without
+    // touching the vertex colours. A fixed-function format (0x00172DA0) has flag 0x400 with D3DFVF_DIFFUSE and
+    // 0x800 with D3DFVF_SPECULAR, and each colour it lacks is set (NV097_SET_VERTEX_DATA4UB): diffuse white,
+    // specular zero, back diffuse white, back specular zero.
+    if ((handle & 1) != 0)
+    {
+        return;
+    }
+    if ((handle & 0x40) == 0)
+    {
+        put_state(kVertexDataColor + 3, 0xFFFFFFFFu); // 0x194C
+    }
+    if ((handle & 0x80) == 0)
+    {
+        put_state(kVertexDataColor + 4, 0); // 0x1950
+    }
+    put_state(kVertexDataColor + 7, 0xFFFFFFFFu); // 0x195C
+    put_state(kVertexDataColor + 8, 0); // 0x1960
+}
+
 void SceneD3DDevice::set_vertex_stream(u32 stream, u32 resource, u32 stride)
 {
     vertex_streams_[stream] = SceneD3DVertexStream{resource, stride};
@@ -55,7 +78,7 @@ SceneD3DDevice::SceneD3DDevice()
     };
     dialogue_.vertex_shader = [this](u32 handle)
     {
-        put_state(kVertexShader, handle);
+        set_vertex_shader(handle);
     };
     dialogue_.pixel_shader = [this](u32 handle)
     {

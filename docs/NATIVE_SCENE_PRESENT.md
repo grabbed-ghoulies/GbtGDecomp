@@ -204,6 +204,17 @@ The new references are the `cache/view_present/scene_N.png` captures.
 - Native vertices carry each stage's whole oT register (`GfxNativeVertex::uv_zw` holds z and w), so programs run
   on the CPU feed the dot-product stages as GPU-compiled ones do. PROJECT2D samples at (s / q, t / q), and a NONE
   stage's texture register is (0, 0, 0, 1) (xemu's `psh.c`).
+- `D3DDevice_SetVertexShader` (`0x001739F0`) with a fixed-function format writes the vertex colours the format
+  lacks (`NV097_SET_VERTEX_DATA4UB`): diffuse white without `D3DFVF_DIFFUSE`, specular zero without
+  `D3DFVF_SPECULAR`, back diffuse white and back specular zero always. A created shader with a program (flag 0x10)
+  is loaded and selected without touching them. `SceneD3DDevice::set_vertex_shader` does the same. Before it, a
+  fixed-function draw took whatever `SetVertexDataColor` had last set, so the point-light composite (`0x00063320`,
+  `D3DFVF_XYZ | D3DFVF_TEX1` modulated by diffuse) multiplied the whole frame by the last sprite's colour: an
+  attack's flash sprites tinted the room blue for a few frames (issue #34, `--scene9` frame 1720), and the pause
+  menu's text left the scene about 40% as bright after resuming (issue #33, `--scene10` paused in the walk
+  cutscene).
+- The green that a burning ghouly's light (`0x000669D0`, inner 60, outer 120) puts on nearby walls stops at a cell
+  edge: lights with +0x24 set draw one grid cell either side of their own (`0x00063770`), whatever their reach.
 - `cache/player_walk_check.bmp` from `--player-opening` is still letterboxed.
   The harness reaches the display fit outside the State constructor. Not
   investigated.

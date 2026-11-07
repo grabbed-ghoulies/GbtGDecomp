@@ -24,6 +24,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <optional>
 #include <unordered_map>
 #include <string>
 #include <vector>
@@ -70,8 +71,22 @@ float rf32(std::span<const u8> b, size_t o)
     return v;
 }
 
+// A 3D sound's distance settings: the sound bank's 0x28-byte record (table at header +0x10) that XACT applies to
+// the sound's voice when the sound entry's flags (+0xB) have bit 0 set (0x001C210A -> 0x001C085E, index at entry
+// +0xC): +8 min distance, +0xC max distance, +0x14 rolloff factor, +0x1C mode, +0x1D curve count, +0x1E the curve's
+// bytes in 1/255 steps (DAT_0032B154).
+struct Sound3D
+{
+    float min_distance = 0.f;
+    float max_distance = 0.f;
+    float rolloff = 1.f;
+    u8 mode = 0;
+    std::vector<float> curve;
+};
+
 struct WaveChoice
 {
+    std::optional<Sound3D> sound_3d;
     u8 category = 0;
     std::string bank; // WBND internal name, e.g. Gharddrive1
     u16 index = 0;
@@ -133,11 +148,10 @@ struct SpatialSource
     X3DAUDIO_VECTOR position{};
 };
 std::unordered_map<IXAudio2Voice*, SpatialSource> g_spatial_sources;
-// The Xbox sound banks carry each 3D sound's own distance curve; the host uses one inverse-distance curve that
-// stays at full level within this many world units (about the play camera's distance from Cooper).
-constexpr float kSpatialFullLevelDistance = 40.f;
 // Owned cue voices routed into a sound-source submix by IXACTSoundBank_PlayEx.
 std::map<IXAudio2SourceVoice*, IXAudio2Voice*> g_source_routes;
+// Each owned cue voice's 3D record, from its sound entry (absent for a sound without the 3D flag).
+std::unordered_map<IXAudio2SourceVoice*, Sound3D> g_cue_3d;
 std::vector<PcmVoice> g_voices;
 std::vector<PcmVoice> g_bed;
 // pcm_use_virtual_audio_clock: the game's voice-state queries are answered from game time instead of the device.
@@ -230,6 +244,7 @@ void release_voice(PcmVoice& slot)
     slot.voice->Stop(0);
     slot.voice->FlushSourceBuffers();
     g_source_routes.erase(slot.voice);
+    g_cue_3d.erase(slot.voice);
     slot.voice->DestroyVoice();
     slot.voice = nullptr;
 }
@@ -404,10 +419,31 @@ void waves_from_entry(std::vector<WaveChoice>& out, std::span<const u8> blob, i1
     const size_t first = out.size();
     waves_from_entry_data(out, blob, entry, simple_count, devs);
     const size_t record = 0x38 + size_t(simple_count) * 0x14 + size_t(entry) * 0x14;
+    std::optional<Sound3D> sound_3d;
+    if ((blob[record + 0xB] & 1) != 0)
+    {
+        // 0x001C210A applies the 3D record (0x001C085E) when the entry's flags have bit 0.
+        const size_t settings = size_t(ru32(blob, 0x10)) + size_t(ru16(blob, record + 0xC)) * 0x28;
+        if (settings + 0x28 <= blob.size())
+        {
+            Sound3D values;
+            values.min_distance = std::bit_cast<float>(ru32(blob, settings + 8));
+            values.max_distance = std::bit_cast<float>(ru32(blob, settings + 0xC));
+            values.rolloff = std::bit_cast<float>(ru32(blob, settings + 0x14));
+            values.mode = blob[settings + 0x1C];
+            const u8 points = blob[settings + 0x1D];
+            for (u8 point = 0; point < points && settings + 0x1E + point < blob.size(); ++point)
+            {
+                values.curve.push_back(float(blob[settings + 0x1E + point]) * std::bit_cast<float>(0x3B808081u));
+            }
+            sound_3d = std::move(values);
+        }
+    }
     for (size_t index = first; index < out.size(); ++index)
     {
         // Retail XACT sound-entry byte +0xA, used by 0x001BB8C8.
         out[index].category = blob[record + 0xA];
+        out[index].sound_3d = sound_3d;
     }
 }
 
@@ -714,16 +750,105 @@ HRESULT route_dry_and_reverb(IXAudio2Voice* voice)
     return voice->SetOutputVoices(&list);
 }
 
-// The master-channel matrix of one 3D source from its position and the listener.
+// The retail distance attenuation of a 3D voice in millibels (DirectSound 0x001C90CF, through 0x001C5941): none
+// within the minimum distance; past it the distance is clamped to the maximum and either the record's curve (equal
+// steps from the minimum to the maximum, starting from full level, 0x001C58CB) or the rolloff law
+// -2000 * log10(1 + (d / min - 1) * rolloff) (0x001C8D85) applies. Mode 2 turns 3D off. The listener's rolloff is
+// DirectSound's default, 1, as the game never sets it.
+i32 sound_3d_attenuation(const Sound3D& sound, float distance)
+{
+    if (sound.mode == 2 || distance <= sound.min_distance)
+    {
+        return 0;
+    }
+    if (sound.max_distance < distance)
+    {
+        distance = sound.max_distance;
+    }
+    if (sound.curve.empty())
+    {
+        const float x = (distance / sound.min_distance - 1.f) * sound.rolloff;
+        if (x < 0.f)
+        {
+            return 0;
+        }
+        return i32(float(0.3010299956639812L * std::log2(static_cast<long double>(x) + 1.0L)) * -2000.f);
+    }
+    const u32 count = u32(sound.curve.size());
+    const float offset = distance - sound.min_distance;
+    const float step = (sound.max_distance - sound.min_distance) / float(count);
+    const float inverse = 1.f / step;
+    u32 index = u32(inverse * offset); // 0x001673D8 (_ftol) truncates.
+    if (index >= count)
+    {
+        index = count - 1;
+    }
+    float from = 1.f;
+    float to = sound.curve[0];
+    float within = offset;
+    if (index != 0)
+    {
+        from = sound.curve[index - 1];
+        to = sound.curve[index];
+        within = offset - float(index) * step;
+    }
+    const float level = (to - from) * (inverse * within) + from;
+    if (!(level > 0.f))
+    {
+        return -10000;
+    }
+    if (level >= 1.f)
+    {
+        return 0;
+    }
+    return i32(float(0.3010299956639812L * std::log2(static_cast<long double>(level))) * 2000.f);
+}
+
+// Each 3D cue routed into this source sends at its record's distance level; the source itself only pans.
+void apply_routed_cue_levels(IXAudio2Voice* source, const X3DAUDIO_VECTOR& position)
+{
+    const float dx = position.x - g_x3d_listener.Position.x;
+    const float dy = position.y - g_x3d_listener.Position.y;
+    const float dz = position.z - g_x3d_listener.Position.z;
+    const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+    for (const auto& [cue, routed] : g_source_routes)
+    {
+        if (routed != source)
+        {
+            continue;
+        }
+        const auto found = g_cue_3d.find(cue);
+        if (found == g_cue_3d.end())
+        {
+            continue;
+        }
+        const float level = std::pow(10.f, float(sound_3d_attenuation(found->second, distance)) / 2000.f);
+        XAUDIO2_VOICE_DETAILS details{};
+        cue->GetVoiceDetails(&details);
+        std::array<float, 8> matrix{};
+        const UINT32 channels = std::min<UINT32>(details.InputChannels, 8);
+        for (UINT32 channel = 0; channel < channels; ++channel)
+        {
+            matrix[channel] = level;
+        }
+        cue->SetOutputMatrix(source, channels, 1, matrix.data());
+    }
+}
+
+// The master-channel matrix of one 3D source from its position and the listener: panning only, as each cue's
+// distance level is its own record's (apply_routed_cue_levels).
 void apply_spatial_source(IXAudio2Voice* voice, const SpatialSource& source)
 {
     if (!g_x3d_ready || g_master_channels == 0 || g_master_channels > 8)
     {
         return;
     }
+    static constexpr X3DAUDIO_DISTANCE_CURVE_POINT kFlatPoints[2]{{0.f, 1.f}, {1.f, 1.f}};
+    static const X3DAUDIO_DISTANCE_CURVE kFlat{const_cast<X3DAUDIO_DISTANCE_CURVE_POINT*>(kFlatPoints), 2};
     X3DAUDIO_EMITTER emitter{};
     emitter.ChannelCount = 1;
-    emitter.CurveDistanceScaler = kSpatialFullLevelDistance;
+    emitter.CurveDistanceScaler = 1.f;
+    emitter.pVolumeCurve = const_cast<X3DAUDIO_DISTANCE_CURVE*>(&kFlat);
     emitter.DopplerScaler = 1.f;
     emitter.OrientFront = {0.f, 0.f, 1.f};
     emitter.OrientTop = {0.f, 1.f, 0.f};
@@ -735,6 +860,7 @@ void apply_spatial_source(IXAudio2Voice* voice, const SpatialSource& source)
     settings.pMatrixCoefficients = matrix.data();
     X3DAudioCalculate(g_x3d, &g_x3d_listener, &emitter, X3DAUDIO_CALCULATE_MATRIX, &settings);
     voice->SetOutputMatrix(g_master, 1, g_master_channels, matrix.data());
+    apply_routed_cue_levels(voice, source.position);
 }
 
 void apply_all_spatial_sources()
@@ -1048,6 +1174,19 @@ i32 pcm_prepare_owned_cue(const Game& g, const char* cue, u64& handle, void*& vo
     }
     i32 result;
     handle = play_choice(cue, *choice, false, true, false, &result, &voice);
+    if (voice != nullptr)
+    {
+        // Set or cleared each time: a released voice's pointer can come back for another cue.
+        auto* source_voice = static_cast<IXAudio2SourceVoice*>(voice);
+        if (choice->sound_3d)
+        {
+            g_cue_3d[source_voice] = *choice->sound_3d;
+        }
+        else
+        {
+            g_cue_3d.erase(source_voice);
+        }
+    }
     return result;
 #else
     (void)g;
@@ -1371,6 +1510,11 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
                 return static_cast<i32>(status);
             }
             g_source_routes[voice] = static_cast<IXAudio2Voice*>(source);
+            if (const auto spatial = g_spatial_sources.find(static_cast<IXAudio2Voice*>(source));
+                spatial != g_spatial_sources.end())
+            {
+                apply_routed_cue_levels(spatial->first, spatial->second.position);
+            }
         }
         g_cue_notes[voice].started = true;
         start_virtual_voice(voice, true);

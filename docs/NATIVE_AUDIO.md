@@ -254,9 +254,35 @@ at full level.
   conversion from the game's right-handed view (identity looks down -Z, +X on
   screen right) into the audio engine's left-handed space, so the host uses
   the vectors as given; a source at +X plays on the right.
-- The Xbox banks carry each sound's own distance curve; the host uses one
-  inverse-distance curve, full level within 40 world units
-  (`kSpatialFullLevelDistance`). This is a host choice, not a retail value.
+- Each 3D sound's distance level is its sound bank record's, as on Xbox (below). The source submix only pans
+  (X3DAudio with a flat distance curve).
+
+#### Retail 3D distance (2026-11-07, issues #31 and #36)
+
+The ballroom DJ (chapter 2a scene 4) plays `GSTREAMSROOMS_DISCO_MONO` and chapter 1 scene 6's dancers
+`GSTREAMSROOMS_DISCO_MUFFLED_MONO`, both on 3D sources. The host had given every 3D source one inverse-distance
+curve at full level within 40 units, so both faded out a little way from their source.
+
+- The record: each sound bank has a table of 0x28-byte 3D records at header +0x10. When a sound entry's flags
+  (+0xB) have bit 0, XACT applies record `+0xC` of that entry as the voice is set up (`0x001C210A` ->
+  `0x001C085E`): +0 / +2 cone angles, +4 outside volume, +8 min distance, +0xC max distance (after `FLT_MAX`),
+  +0x10 distance factor, +0x14 rolloff factor, +0x18 doppler factor, +0x1C mode (2 turns 3D off), +0x1D curve
+  count and +0x1E the curve's bytes in 1/255 steps (DAT_0032B154). They land in the voice's 3D block (+0x7C min,
+  +0x80 max, +0x88, +0x8C rolloff, +0x90, +0x84 mode, +0x94 / +0x98 curve) that
+  `CDirectSound3DCalculator_GetVoiceData` (`0x001C67F7`) reads. Footsteps: min 50, max 300. Gstreamsrooms:
+  the disco min 200 / max 500 / rolloff 1.75; the muffled disco min 40 / max 320 with a one-point curve to 0.
+- The level (`0x001C5941` -> `DAT_001E3B74` = `0x001C90CF`): none within the minimum distance; the distance is
+  clamped to the maximum; with no curve, `-2000 * log10(1 + (d / min - 1) * rolloff)` mB (`0x001C8D85`); with a
+  curve of n points, equal steps from the minimum to the maximum starting at 1, the step `trunc((d - min) / step)`
+  (`_ftol`, capped at n - 1) interpolated and turned into `2000 * log10` mB (`0x001C58CB`, 0 or less is -10000).
+  The rolloff is the listener's (DirectSound's default 1; the game never sets it) times the record's. The distance
+  is the plain source-to-listener length (`0x001C8E42`).
+- Host: `pcm_out.cpp` keeps each owned cue's record (`Sound3D`) and, whenever its source or the listener moves,
+  sets the cue's send into the source to that level. A cue without the 3D flag routed into a 3D source is not
+  attenuated. Not translated: the buffer's mute-past-maximum flag (+0x58 bit 2), whose source was not found, and
+  the cone (+0 to +4) and doppler factors.
+- Checked in `--scene2a4` and `--scene6-1` with a temporary log: the disco at 657 units -1118 mB (0.28; the old
+  curve gave about 0.06); the muffled disco silent past 320 and 0.89 at 70 units; footsteps full level at 5 units.
 
 ### Scene music nodes and fight music (2026-10-14)
 

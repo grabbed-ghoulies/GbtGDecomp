@@ -2398,8 +2398,9 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     const float initial_scale = read_f32(data(0x00424910, 4), 0);
     const float drawing_scale = read_f32(data(0x0042493C, 4), 0);
     measurement = std::make_unique<DialogueMeasurementContext>(DialogueMeasurementContext{*tags, resources.metrics,
-        resources.text, {g_runtime_profile.challenges.size, g_runtime_profile.challenges.bytes.data()}, 0, 0, 0, 0,
-        0, 0, 0.f,
+        resources.text, {g_runtime_profile.challenges.size, g_runtime_profile.challenges.bytes.data()},
+        g_runtime_profile.times[1], 0, g_runtime_profile.times[2], g_runtime_profile.times[3], 0,
+        g_runtime_profile.times[0], 0.f,
         initial_scale, drawing_scale, paragraph_disabled,
         wide_scratch.data(), narrow_scratch.data()});
     widget_allocation = std::make_unique<DialogueWidgetAllocationContext>(DialogueWidgetAllocationContext{

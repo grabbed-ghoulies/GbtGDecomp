@@ -62,6 +62,7 @@ struct ThrowFrames
 {
     void* frames[48];
     USHORT count = 0;
+    ULONG_PTR object = 0; // The exception object (ExceptionInformation[1]): a rethrow raises the same one again.
 };
 thread_local ThrowFrames t_last_error;
 
@@ -129,7 +130,13 @@ LONG CALLBACK report_throw(EXCEPTION_POINTERS* pointers)
     }
     if (std::strcmp(type, "gbtg::Error") == 0)
     {
-        t_last_error.count = RtlCaptureStackBackTrace(1, 48, t_last_error.frames, nullptr);
+        // A rethrow (throw;) raises the same object again from the catch; keep the stack of its first raise.
+        const ULONG_PTR object = pointers->ExceptionRecord->ExceptionInformation[1];
+        if (object != t_last_error.object || t_last_error.count == 0)
+        {
+            t_last_error.count = RtlCaptureStackBackTrace(1, 48, t_last_error.frames, nullptr);
+            t_last_error.object = object;
+        }
     }
     else if (g_reports.fetch_add(1) < kReportLimit)
     {

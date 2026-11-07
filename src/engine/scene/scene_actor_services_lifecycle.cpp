@@ -75,7 +75,7 @@ void SceneActorServices::State::reset_scene_data()
     // A clear here ran after a restarted scene's first title, so its next title with the same id looked active.
     targets = nullptr;
     goal_scratch.clear();
-    brews_taken = 0;
+    // brews_taken is the profile's DAT_00506C88: only a game's start or end clears it (0x0011EA50, 0x0011EAD0).
     brew_accepted = 0;
     difficulty = 0;
     intro_pending = 0;

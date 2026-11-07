@@ -648,7 +648,7 @@ struct SceneActorServices::State
     std::deque<FactoryObject> released_weapons;
     std::unordered_map<const Actor*, Vec3> released_positions; // An actor's position as its view is released.
     RuntimeDialogueInputState input_state{keyboard, {}, 0, 0, 0, input_pool, 0, nullptr};
-    u32 brews_taken = 0; // DAT_00506C88.
+    u32& brews_taken = reinterpret_cast<u32&>(g_runtime_profile.times[4]); // DAT_00506C88, the profile's total.
     u32 brew_accepted = 0; // DAT_00430D98.
     i32 prompt_lock = -1; // DAT_004E1C34, 0x0011C480: the scene cutscene stack's top, which its runtime binds.
     u32& prompt_owner = reinterpret_cast<u32&>(dialogue_state.mode); // DAT_004EE1EC, the scene dialogue's mode.
@@ -711,7 +711,7 @@ struct SceneActorServices::State
     std::unique_ptr<RuntimeScoreboardUpdate> scoreboard_update; // 0x00132210.
     std::unique_ptr<RuntimeScoreboardDraw> scoreboard_draw; // 0x00132290's sprite queue and clocks.
     i32& challenge_mode = g_chapter5_mode; // DAT_00506C58, the chapter 5 countdown's mode.
-    u32 challenge_count = 0; // DAT_00506C84.
+    u32& challenge_count = reinterpret_cast<u32&>(g_runtime_profile.times[3]); // DAT_00506C84, the profile's total.
     std::unique_ptr<NativeActorFactoryOwner> actors;
     std::unique_ptr<NativePlayerFactoryOwner> players;
     // Scene classes (area, trigger, FX emitter).

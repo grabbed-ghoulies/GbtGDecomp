@@ -10,12 +10,14 @@ struct DialogueMeasurementContext
     RuntimeTextMetrics& metrics;
     LocalTextResourceContext& localtext;
     DialogueBitsetView bits; // DAT_00506C54
-    i32 first_count; // DAT_00506C7C
+    // The profile's game totals (g_runtime_profile.times): the same words the save keeps, so the play counts here
+    // are the ones the game select's stats read back.
+    i32& first_count; // DAT_00506C7C
     i32 first_additional; // DAT_00545970
-    i32 second_count; // DAT_00506C80
-    i32 third_count; // DAT_00506C84
+    i32& second_count; // DAT_00506C80
+    i32& third_count; // DAT_00506C84
     i32 third_additional; // DAT_00545974
-    i32 elapsed; // DAT_00506C78
+    i32& elapsed; // DAT_00506C78
     float elapsed_additional; // DAT_004312D0
     float initial_scale; // DAT_00424910
     float drawing_scale; // DAT_0042493C

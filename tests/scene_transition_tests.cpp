@@ -5519,8 +5519,12 @@ void check_actor_loading()
         const u8 bits[]{0x81};
         char16_t wide_scratch[2049];
         char narrow_scratch[128];
+        i32 first_count = 10;
+        i32 second_count = 3;
+        i32 third_count = 4;
+        i32 elapsed = 3600;
         DialogueMeasurementContext measurement{tag_context, metrics, time_context, {1, bits},
-            10, 2, 3, 4, 1, 3600, 60.f, 2.f, 0.5f, 0, wide_scratch, narrow_scratch};
+            first_count, 2, second_count, third_count, 1, elapsed, 60.f, 2.f, 0.5f, 0, wide_scratch, narrow_scratch};
         if (measure_dialogue_segment(u"AB", false, 2.f, measurement) != 42.f
             || measure_dialogue_segment(u"AB", true, 2.f, measurement) != 62.f
             || measure_dialogue_segment(u"'AB", true, 2.f, measurement) != 103.f
@@ -7871,8 +7875,12 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
         gbtg::g_retail_dialogue_tokens, gbtg::g_retail_dialogue_sound_swaps, {}, 0, 0, 0, 0};
     std::array<char16_t, 0x800> wide{};
     std::array<char, 0x800> narrow{};
+    gbtg::i32 first_count = 0;
+    gbtg::i32 second_count = 0;
+    gbtg::i32 third_count = 0;
+    gbtg::i32 elapsed = 0;
     gbtg::DialogueMeasurementContext measurement{tags, resources.metrics, resources.text,
-        {}, 0, 0, 0, 0, 0, 0, 0.f, 1.f, 1.f, 0, wide.data(), narrow.data()};
+        {}, first_count, 0, second_count, third_count, 0, elapsed, 0.f, 1.f, 1.f, 0, wide.data(), narrow.data()};
     gbtg::DialoguePageLayout page{};
     gbtg::DialoguePageSettings settings{};
     gbtg::reset_dialogue_page(page, tutorial.data(), 0, 400.f, settings, measurement);

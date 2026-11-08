@@ -8,6 +8,7 @@
 #include "gbtg/texture.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../plugins/plugins.h"
+#include "../camera/wide_aspect.h"
 #endif
 
 #include <algorithm>
@@ -108,6 +109,10 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     gfx_cfg.height = cfg.height;
     gfx_cfg.vsync = cfg.vsync;
     gfx_cfg.widescreen = cfg.widescreen;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // The wide_aspect plugin: the display row and the frame wider than 16:9 (camera/wide_aspect.h).
+    gfx_cfg.frame_aspect = apply_wide_aspect(cfg.width, cfg.height, cfg.widescreen);
+#endif
     gfx_cfg.fullscreen = cfg.fullscreen;
     gfx_cfg.render_thread = cfg.render_thread;
     gfx_cfg.visible = !cfg.headless && cfg.screenshot.empty();

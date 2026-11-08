@@ -4,6 +4,7 @@
 #include "../entities/actor_sound_pose.h"
 #include "../transitions/native_book.h"
 #include "display_view.h"
+#include "wide_aspect.h"
 #include "gbtg/anim.h"
 #include <bit>
 #include <cmath>
@@ -26,6 +27,15 @@ constexpr std::array<float, 4> aspects
     std::bit_cast<float>(0x3FE38E39u),
     std::bit_cast<float>(0x40166666u), 0.f
 };
+// The display row's aspect: the table's, or the wide_aspect plugin's row (wide_aspect.h).
+float display_row_aspect(i32 row)
+{
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    return entity_detail::aspect_row_ratio(row, aspects.data());
+#else
+    return aspects[row];
+#endif
+}
 }
 // Xbox 0x00049560
 void apply_display_y_offset(const Vec3& angles, float amount, Vec3& position)
@@ -244,7 +254,7 @@ void rebuild_display_frustum()
     float aspect;
     if (view.aspect_mode == 3)
     {
-        aspect = aspects[g_aspect_preset];
+        aspect = display_row_aspect(g_aspect_preset);
     }
     else
     {
@@ -329,7 +339,7 @@ void rebuild_display_projection(RuntimeDisplaySetupContext& context)
     float aspect;
     if (view.aspect_mode == 3)
     {
-        aspect = aspects[g_aspect_preset];
+        aspect = display_row_aspect(g_aspect_preset);
     }
     else
     {

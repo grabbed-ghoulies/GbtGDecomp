@@ -1,6 +1,7 @@
 #include "dialogue_draw_outer.h"
 #include "../camera/runtime_display_setup.h"
 #include "../cutscenes/event_runtime.h"
+#include "../camera/wide_aspect.h"
 #include <algorithm>
 #include <cmath>
 #include <bit>
@@ -348,7 +349,12 @@ void render_runtime_dialogue(RuntimeDialogueOuterDrawContext& c)
         {
             draw_runtime_dialogue_border(14.f, c.draw.white, c);
             end_runtime_dialogue_target(c);
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            // The widescreen row, or the wide_aspect plugin's (wide_aspect.h).
+            c.capture_enabled = c.capture_configuration != 0 ? entity_detail::widescreen_aspect_row() : 0;
+#else
             c.capture_enabled = c.capture_configuration != 0;
+#endif
         }
         if (activation.measurement.tags.state.buttons != 0)
         {

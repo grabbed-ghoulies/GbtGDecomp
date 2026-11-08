@@ -2,6 +2,7 @@
 #include "scene_control_fields.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../runtime/rare_replay.h"
+#include "../camera/wide_aspect.h"
 #endif
 #include "chapter5_countdown.h"
 
@@ -739,8 +740,14 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
             context.relics_store_services()); // 0x00081310
         return;
     case 0x98:
+    {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // Its button prompts and panel are HUD: the wide_aspect plugin's HUD shape (camera/wide_aspect.h).
+        const HudAspectScope hud;
+#endif
         draw_runtime_super_scary_control(*control.super_scary, context.super_scary_services());
         return;
+    }
     default:
         throw Error("scene control vtable +0x14 for factory type " + std::to_string(control.type));
     }

@@ -961,6 +961,8 @@ else()
         src/engine/plugins/scene_recipe.cpp
         src/engine/plugins/rare_replay_feature.cpp
         src/engine/runtime/rare_replay.cpp
+        src/engine/plugins/wide_aspect_feature.cpp
+        src/engine/camera/wide_aspect.cpp
     )
     if(UNIX)
         target_link_libraries(gbtg PRIVATE ${CMAKE_DL_LIBS})
@@ -975,6 +977,8 @@ else()
         FILES_DIR src/plugins/shader_warmup/files)
     # Rare Replay: switches on the compiled-in rare_replay feature, a 60 Hz logic tick (a data plugin, no library).
     gbtg_add_plugin(gbtg_rare_replay ID rare_replay PLUGIN_INI src/plugins/rare_replay/plugin.ini)
+    # Wide aspect: switches on the compiled-in wide_aspect feature, gameplay views wider than 16:9 (a data plugin).
+    gbtg_add_plugin(gbtg_wide_aspect ID wide_aspect PLUGIN_INI src/plugins/wide_aspect/plugin.ini)
     # Debug UI: the F8 menu and F12 timing overlay (Dear ImGui), drawn as a plugin overlay. It needs a D3D11 or
     # Vulkan backend.
     if(DEFINED GBTG_IMGUI_SOURCES)

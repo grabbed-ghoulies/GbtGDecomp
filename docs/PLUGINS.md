@@ -287,6 +287,60 @@ at 60 Hz or more shows every tick.
 The attract reel at 30 Hz and 60 Hz shows the same shots at the same game times; its second script starts at 116.03 s
 at 30 Hz and 115.71 s at 60 Hz, as each of its waits ends on a tick (up to 1/30 s late at 30 Hz, 1/60 s at 60 Hz).
 
+### Wide aspect (`src/plugins/wide_aspect`)
+
+Gameplay views wider than 16:9, such as 21:9 or 32:9. Retail's camera aspect table (0x0042A460) has rows 0 (4:3),
+1 (16:9) and 2 (2.35, a letterbox that cameras can ask for), and the display's row (`DAT_005077F8`) is only ever 0 or
+1: boot (0x00033030) and the dialogue capture's restore (0x00058150) set it from the widescreen video flag. This data
+plugin switches on the compiled-in `wide_aspect` feature (`camera/wide_aspect.cpp`), which adds a host row 4 with the
+display's ratio and row 1's sensor height and default focal. On a widescreen display those writers choose row 4
+instead of 1, so the vertical field of view stays 16:9's and the view shows more at the sides.
+
+```ini
+[wide_aspect]
+Aspect = auto   ; the back buffer's shape ([Video] Width x Height) when wider than 16:9; or 21:9, 32:9, 2.39
+Hud = 4:3       ; the HUD's shape; stretch spreads it over the frame as retail does; or 16:9, a ratio
+```
+
+**The HUD.** Retail draws its 2D in a 640x480 orthographic projection (0x0005CDC0's 0x000F6260) onto the current
+view's fitted viewport (display +0x58). A dialogue page fits a 4:3 view, but the gameplay view fits the whole frame,
+so in widescreen the HUD, room titles, captions and prompts stretch by 16:9 / 4:3 (and further with a wide row).
+With `Hud` set, the scene's overlay passes (the HUD sprite queue 0x00122230, the scoreboard HUD 0x00132290, the
+challenge widget 0x00142720, the text pools 0x0005F330 and the super scary prompts) draw inside a `HudAspectScope`,
+and the projection's viewport is narrowed to that aspect, centred (`hud_viewport`). The HUD keeps its proportions and
+its 4:3 layout, so at 21:9 or 32:9 it sits in the middle of the frame rather than at its corners. Views already that
+narrow (dialogue pages, game select, the book) are unchanged, and the full-screen effects (0x000615E0) and the scene
+transitions are outside the scopes, so they still cover the frame. This also applies in plain 16:9 widescreen.
+While a book shows (a transition's `g_capture_book` or the pause's `g_scene_pause.book`) the scopes stay closed:
+the frame is captured onto the page (0x00048550) and the book's redraw widens it, so a fitted HUD would be squeezed
+twice. The pause menu, its title panels and the HUD on the paused page draw as retail's and come out in shape.
+
+- It needs `[Video] Widescreen=1`, as retail's widescreen paths (the book's redraw 0x0005CE80, the dialogue capture)
+  do. Without it the frame stays 4:3. A ratio not wider than 16:9 keeps 16:9; ratios above 4.0 are clamped to it.
+- Everything that fits a view with 0x000F5760 / 0x000F56C0 follows the row: the gameplay cameras (row 3, the display's)
+  widen, and a camera or cutscene that keeps its own 4:3 or 16:9 row fits inside the wider frame with side bars, as a
+  4:3 one does on a 16:9 display. The dialogue pages and the book stay 4:3.
+- The row is read where retail indexes the table by the display row: `aspect_triple` (0x000F57F0's fits and FOV), the
+  frustum and projection (0x000F6630, 0x000F5FD0), the focal conversions (0x000F5D30, 0x0004D7D0). The presenters
+  (D3D11 and Vulkan) take the frame's shape from `GfxConfig::frame_aspect` instead of 16:9.
+- The book's widescreen redraw (0x00048550 into 0x0005CE80) widens each captured page by `DAT_004231BC`'s
+  `{16:9 / 4:3, 1}` to undo the 16:9 squeeze. With row 4 it widens by the row's ratio / (4:3) instead; with retail's
+  scale the page that game select and the scenes turn was narrowed, with black bars beside it.
+- `gbtg-transition-tests` takes `GBTG_WIDE_ASPECT=<ratio>` beside `GBTG_WIDESCREEN=1` (a 480-high target that wide)
+  and `GBTG_HUD_ASPECT=<ratio>` (0 stretches; without it the tests stretch, as retail),
+  and its game select modes take `GBTG_GAMESELECT_CAPTURE_EVERY=N[@first-last]` to capture every Nth frame.
+- The scene is still the Xbox's 640x480 picture stretched over the frame: 3D draws at the window's resolution, so it
+  stays sharp, but 2D drawn across the whole 640x480 screen without a fit (fades, full-screen overlays) stretches
+  further, as it stretches by 4:3 to 16:9 in widescreen.
+- Culling and on-screen tests use the wider frustum, so more actors and effects count as visible at the sides.
+
+Checked with captures of `chapter1_scene1_2playcam` at 1920x1080, 2520x1080 and 3840x1080 (gameplay widens, the
+dialogue page keeps its 4:3 frame), `scene0_1book` at 2520x1080 (the book keeps its 4:3 frame), and
+`--gameselect-features` at 16:9 and 2.333 (the page captured at +996 fills the page as at 16:9). The HUD was
+checked with `--scene2a2` at 16:9 and 2.333: with `Hud` 4:3 the HUD and the room title keep their shapes, and the
+dialogue pages and page turn are byte-identical to the stretched run. `--pause` at 3.556 with `Hud` 4:3 matches
+the stretched run byte for byte on every paused capture; only the resumed gameplay frame differs, by its HUD.
+
 ### DLC story example (`examples/plugins/dlc_story`)
 
 A data plugin with no library. Its `[Story]` adds "DLC Story" (its own loctext, `aid_loctext_plugin_dlcstory`, in

@@ -20,6 +20,9 @@ struct GfxConfig
     int vsync = 1;
     bool visible = true; // false: offscreen target (headless / screenshot)
     bool widescreen = false; // The Xbox frame is shown at 16:9 (anamorphic widescreen), else 4:3.
+    // The frame's shape when the wide_aspect plugin makes it wider than 16:9 (camera/wide_aspect.h); 0 keeps
+    // widescreen's. Retail builds leave it 0.
+    float frame_aspect = 0.f;
     bool fullscreen = false; // The window covers its display: borderless on Windows, SDL fullscreen elsewhere.
     // GBTG_OPTIMIZE builds: run the backend on a render thread (gfx_render_thread.h). Retail builds ignore it.
     bool render_thread = true;

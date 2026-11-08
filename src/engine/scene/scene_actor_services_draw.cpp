@@ -1,5 +1,6 @@
 #include "scene_actor_services_state.h"
 #include "../graphics/boot_shader_tables.h"
+#include "../camera/wide_aspect.h"
 
 // Actor drawing, view presentation, render targets, textures and the inspector's views.
 namespace gbtg
@@ -704,14 +705,25 @@ void SceneActorServices::State::present_view(i32 view)
         g_challenge_run.widget,
         [this](RuntimeDialogueWidget& widget)
         {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            // The wide_aspect plugin's HUD shape (camera/wide_aspect.h), but not while a book shows (a
+            // transition's or the pause's): the page it captures (0x00048550) is widened again by the book's redraw.
+            const HudAspectScope hud(g_capture_book == nullptr && g_scene_pause.book == nullptr);
+#endif
             draw_runtime_dialogue_widget(widget, 0, *dialogue_outer); // 0x00142720(0), EAX DAT_004E19A0
         },
         [this]()
         {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            const HudAspectScope hud(g_capture_book == nullptr && g_scene_pause.book == nullptr);
+#endif
             flush_scene_dialogue_sprites(game);
         },
         [this]()
         {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            const HudAspectScope hud(g_capture_book == nullptr && g_scene_pause.book == nullptr);
+#endif
             draw_runtime_scoreboard_hud(*scoreboard_hud); // 0x00132290
         },
         g_flags_ea9c,
@@ -730,6 +742,9 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            const HudAspectScope hud(g_capture_book == nullptr && g_scene_pause.book == nullptr);
+#endif
             draw_runtime_dialogue_text_pools(*text_registry, g_flags_ea9c, *dialogue_draw); // 0x0005F330
         }};
 #if defined(GBTG_INSPECTOR_APP)

@@ -4,6 +4,7 @@
 #include "../camera/display_view.h"
 #include "../camera/runtime_display_setup.h"
 #include "../camera/view_initialization.h"
+#include "../camera/wide_aspect.h"
 #include "../cutscenes/event_pause.h"
 #include "../cutscenes/event_runtime.h"
 #include "../cutscenes/instance_construction.h"
@@ -339,9 +340,20 @@ void draw_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
                 // The captured page redrawn over the 4:3 view and captured again.
                 entity_detail::g_display_view->aspect_mode = 3; // DAT_005077A8 +0x3C
                 bind_display_projection(s.display); // 0x000F6170
+                const float* scale = reinterpret_cast<const float*>(s.image.memory(0x004231BC, 8).data());
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+                // DAT_004231BC is {16:9 / 4:3, 1}: it widens the squeezed 16:9 capture back to its shape. The
+                // wide_aspect plugin's row (wide_aspect.h) squeezes the capture by its own ratio instead.
+                float wide_scale[2];
+                if (entity_detail::g_aspect_preset == entity_detail::kWideAspectRow)
+                {
+                    wide_scale[0] = entity_detail::wide_aspect_ratio() * .75f;
+                    wide_scale[1] = scale[1];
+                    scale = wide_scale;
+                }
+#endif
                 draw_runtime_opaque_dialogue_sprite(s.texture_bytes(page.texture),
-                    reinterpret_cast<const float*>(s.image.memory(0x004231B4, 8).data()),
-                    reinterpret_cast<const float*>(s.image.memory(0x004231BC, 8).data()),
+                    reinterpret_cast<const float*>(s.image.memory(0x004231B4, 8).data()), scale,
                     0xFFFFFFFFu, s.draw); // 0x0005CE80, DAT_00314F48.
                 s.copy_back_buffer(page.texture);
             }

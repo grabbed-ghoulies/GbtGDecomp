@@ -1103,7 +1103,11 @@ Viewport hud_viewport()
         return vp;
     }
     // The 640x480 frame fills a 16:9 area in widescreen (the Xbox's anamorphic output), else 4:3.
-    const float frame = g.cfg.widescreen ? 16.f / 9.f : 640.f / 480.f;
+    float frame = g.cfg.widescreen ? 16.f / 9.f : 640.f / 480.f;
+    if (g.cfg.frame_aspect > 0.f)
+    {
+        frame = g.cfg.frame_aspect; // The wide_aspect plugin's frame.
+    }
     const float window = float(g.cfg.width) / float(g.cfg.height);
     if (window > frame)
     {
@@ -2734,8 +2738,14 @@ bool gfx_readback_ui(RgbaImage& out)
     // buffer holds the whole 16:9 view, which the book's widescreen redraw 0x0005CE80 then corrects), else 4:3.
     const int across = g.cfg.widescreen ? 16 : 4;
     const int down = g.cfg.widescreen ? 9 : 3;
-    const int width = std::min(frame.width, frame.height * across / down);
-    const int height = std::min(frame.height, frame.width * down / across);
+    int width = std::min(frame.width, frame.height * across / down);
+    int height = std::min(frame.height, frame.width * down / across);
+    if (g.cfg.frame_aspect > 0.f)
+    {
+        // The wide_aspect plugin's frame.
+        width = std::min(frame.width, int(float(frame.height) * g.cfg.frame_aspect + 0.5f));
+        height = std::min(frame.height, int(float(frame.width) / g.cfg.frame_aspect + 0.5f));
+    }
     const int left = (frame.width - width) / 2;
     const int top = (frame.height - height) / 2;
     out.width = width;

@@ -4,6 +4,7 @@
 #include "gbtg/actor_runtime.h"
 #include "gbtg/gfx.h"
 #include "display_view.h"
+#include "wide_aspect.h"
 #include "../entities/player_mind_events.h"
 
 #include <bit>
@@ -718,6 +719,15 @@ constexpr float kNegOne = std::bit_cast<float>(0xBF800000u);
 
 const AspectTriple& aspect_triple(i32 index)
 {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // The wide_aspect plugin's row: the display's ratio with row 1's sensor and focal (wide_aspect.h).
+    if (index == kWideAspectRow)
+    {
+        static AspectTriple wide{};
+        wide = {wide_aspect_ratio(), kAspectTable[1].sensor, kAspectTable[1].focal};
+        return wide;
+    }
+#endif
     if (index < 0 || index >= 4)
     {
         return kAspectTable[3];

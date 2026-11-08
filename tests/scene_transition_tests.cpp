@@ -35,6 +35,7 @@
 #include "../src/engine/entities/ghouly_bg_break_setup.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../src/engine/plugins/plugins.h"
+#include "../src/engine/camera/wide_aspect.h"
 #endif
 #include "gbtg/gfx.h"
 #include "gbtg/anim.h"
@@ -11767,6 +11768,25 @@ int main(int argc, char** argv)
             gbtg::entity_detail::g_video_widescreen = 1;
             std::cout << "widescreen\n";
         }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // GBTG_WIDE_ASPECT=<ratio> with GBTG_WIDESCREEN=1: the wide_aspect plugin's row (camera/wide_aspect.h) in a
+        // target 480 high and that ratio wide.
+        // GBTG_HUD_ASPECT=<ratio>: its HUD shape (0 stretches, as retail).
+        const char* wide = std::getenv("GBTG_WIDE_ASPECT");
+        const char* hud = std::getenv("GBTG_HUD_ASPECT");
+        if ((wide != nullptr || hud != nullptr) && config.widescreen)
+        {
+            const float ratio = wide != nullptr ? std::strtof(wide, nullptr) : 16.f / 9.f;
+            config.width = int(480.f * ratio + 0.5f);
+            gbtg::request_wide_aspect(ratio);
+            if (hud != nullptr)
+            {
+                gbtg::request_hud_aspect(std::strtof(hud, nullptr));
+            }
+            config.frame_aspect = gbtg::apply_wide_aspect(config.width, config.height, true);
+            std::cout << "wide aspect " << config.frame_aspect << " hud " << (hud != nullptr ? hud : "stretch") << "\n";
+        }
+#endif
         // GBTG_GFX picks a compiled backend (d3d11, vulkan or null), as gbtg's --gfx does.
         if (const char* backend = std::getenv("GBTG_GFX"); backend != nullptr)
         {
@@ -15702,7 +15722,27 @@ int main(int argc, char** argv)
                                    : delete_test ? (at == 800 || at == 1000 || at == 1200 || at == 1400 || at == 1700)
                                    : new_game_test ? (at == 300 || at == 500 || at == 800 || at == 960 || at == 1000 || at == 1100 || at == 1200 || at == 1290 || at == 1500 || at == 1800 || at == 2200)
                                                    : (at == 60 || at == 150 || at == 300 || at == 480);
-                if (capture)
+                // GBTG_GAMESELECT_CAPTURE_EVERY=N[@first-last]: also every Nth frame (from `first` to `last`), to
+                // follow the page turns.
+                static const std::array<int, 3> capture_every = []()
+                {
+                    std::array<int, 3> every{0, 0, 1 << 30};
+                    if (const char* text = std::getenv("GBTG_GAMESELECT_CAPTURE_EVERY"); text != nullptr)
+                    {
+                        every[0] = std::atoi(text);
+                        if (const char* range = std::strchr(text, '@'); range != nullptr)
+                        {
+                            every[1] = std::atoi(range + 1);
+                            if (const char* dash = std::strchr(range, '-'); dash != nullptr)
+                            {
+                                every[2] = std::atoi(dash + 1);
+                            }
+                        }
+                    }
+                    return every;
+                }();
+                if (capture || (capture_every[0] > 0 && capture_every[1] <= at && at <= capture_every[2]
+                        && at % capture_every[0] == 0))
                 {
                     gbtg::RgbaImage image;
                     if (gbtg::gfx_readback(image))

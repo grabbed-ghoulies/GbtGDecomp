@@ -1,4 +1,5 @@
 #include "display_view.h"
+#include "wide_aspect.h"
 #include "gbtg/anim.h"
 #include <bit>
 
@@ -27,7 +28,12 @@ void set_display_focal_length(i32 source_aspect, float focal)
         {
             if (mode == 3)
             {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+                // The wide_aspect plugin's row uses row 1's sensor (wide_aspect.h).
+                g_display_view->focal = (sensors[aspect_sensor_row(g_aspect_preset)] * focal) / sensors[source_aspect];
+#else
                 g_display_view->focal = (sensors[g_aspect_preset] * focal) / sensors[source_aspect];
+#endif
                 return;
             }
             g_display_view->focal = (sensors[mode] * focal) / sensors[source_aspect];

@@ -1,6 +1,7 @@
 #include "dialogue_draw_context.h"
 #include "gbtg/anim.h"
 #include "../audio/listener_settings.h"
+#include "../camera/wide_aspect.h"
 #include <algorithm>
 #include <bit>
 #include <cstring>
@@ -106,8 +107,15 @@ void initialize_dialogue_orthographic(RuntimeDialogueDrawContext& c)
     make_dialogue_projection(c.projection.data(), 0.f, static_cast<float>(c.logical_width),
         0.f, static_cast<float>(c.logical_height), 0.f, 100.f);
     c.d3d.set_transform(1, c.projection.data());
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // The wide_aspect plugin's HUD shape: an overlay over gameplay fits its aspect (camera/wide_aspect.h).
+    std::array<u32, 4> fitted{};
+    hud_viewport(c.fitted_viewport.data(), fitted.data());
+    const std::array<u32, 6> viewport{fitted[0], fitted[1], fitted[2], fitted[3], 0, std::bit_cast<u32>(1.f)};
+#else
     const std::array<u32, 6> viewport{c.fitted_viewport[0], c.fitted_viewport[1],
         c.fitted_viewport[2], c.fitted_viewport[3], 0, std::bit_cast<u32>(1.f)};
+#endif
     c.d3d.viewport(viewport);
     set_dialogue_render_projection(c.projection.data(), c);
     identity(c.view.data());

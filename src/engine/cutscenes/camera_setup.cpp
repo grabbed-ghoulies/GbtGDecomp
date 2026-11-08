@@ -1,6 +1,7 @@
 #include "camera_sampling.h"
 #include "quaternion_math.h"
 #include "../camera/display_view.h"
+#include "../camera/wide_aspect.h"
 #include <bit>
 
 namespace gbtg
@@ -63,13 +64,22 @@ void update_cutscene_camera_view(const RuntimeCutsceneInstance& instance,
         float sensor;
         if (view.aspect_slot == 3)
         {
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            // The wide_aspect plugin's row uses row 1's sensor (wide_aspect.h).
+            sensor = sensors[entity_detail::aspect_sensor_row(entity_detail::g_aspect_preset)];
+#else
             sensor = sensors[entity_detail::g_aspect_preset];
+#endif
         }
         else
         {
             sensor = sensors[view.aspect_slot];
         }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        focal = (sensor * focal) / sensors[entity_detail::aspect_sensor_row(aspect)];
+#else
         focal = (sensor * focal) / sensors[aspect];
+#endif
     }
     view.focal = focal;
     camera_fit_display_view(focal, view.aspect_slot, width, x, height, y,

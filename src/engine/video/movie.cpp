@@ -2153,15 +2153,18 @@ void bind_existing_movie_decoder(RuntimeMovieStartupContext& context)
         static_cast<void>(flags);
         const RgbaImage& image = static_cast<MovieClip*>(decoder)->image;
         const size_t row_bytes = static_cast<size_t>(image.width) * 4;
-        if (destination == nullptr || image.bgra.empty() || pitch < 0 ||
-            static_cast<size_t>(pitch) < row_bytes || height < static_cast<u32>(image.height))
+        if (destination == nullptr || image.bgra.empty() || pitch <= 0 || height < static_cast<u32>(image.height))
         {
             return 1;
         }
+        // BinkCopyToBuffer writes each row at the destination pitch. A clip wider than its texture (the 483- and
+        // 498-pixel book panels in 480- and 496-pixel textures) spills each row's end into the next row, which that
+        // row then overwrites, so the texture ends up with each row's first pitch / 4 pixels.
+        const size_t copied = std::min(row_bytes, static_cast<size_t>(pitch));
         for (i32 row = 0; row < image.height; ++row)
         {
             std::memcpy(destination + static_cast<size_t>(row) * static_cast<size_t>(pitch),
-                image.bgra.data() + static_cast<size_t>(row) * row_bytes, row_bytes);
+                image.bgra.data() + static_cast<size_t>(row) * row_bytes, copied);
         }
         return 0;
     };

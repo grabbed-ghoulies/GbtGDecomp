@@ -4,6 +4,17 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-08: book panels wider than their textures (issue #44)
+
+- Issue #44 (chapter2b_scene6_1book): the last panels held a still frame. Of the page's ten clips, p7 (483 x 240)
+  and p9 (498 x 240) are wider than the panel textures they copy into (480 and 496 wide). Every
+  `0x00107360` copy into those two textures failed, so they kept their first frame.
+- The failures came from the decoder boundary's copy, which refused any row wider than the pitch. BinkCopyToBuffer
+  writes each row at the given pitch. On the Xbox a wide clip's row end spills into the next row, which then
+  overwrites it, so the texture shows each row's first pitch / 4 pixels. The boundary now copies that much.
+- `--scene2b6`: panel 29 (p9) plays, with the skeleton leaving the cart and Cooper chasing it (frames 1890 to 2175),
+  and the mode passes. `--gameselect` passes.
+
 ### 2026-11-08: the limited attacks count Cooper's attacks (issue #50)
 
 - Issue #50 ("Chapter 3 Scene 24", chapter3c_scene5_1playcam): the "limited attacks" counter never counted down.

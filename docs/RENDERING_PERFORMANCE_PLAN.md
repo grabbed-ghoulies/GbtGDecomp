@@ -25,10 +25,7 @@ WRITE_DISCARD for every draw. The pixel stage uses a generic GPU register
 combiner interpreter. State objects and decoded textures already have some
 caching; measure cache misses before adding more caches.
 
-The cutscene prop path uses gfx_draw_mesh, and frontend paths use mesh/sprite
-helpers. They demonstrate reusable presentation resources, but some owners are
-legacy host implementations (see LEGACY_HOST_CODE.md). Reuse presentation
-techniques, not their gameplay logic. Relative CPU/GPU contributions and the
+Relative CPU/GPU contributions and the
 cause of the resolution-sensitive slowdown have not been profiled yet.
 
 ## 1. Measure before changing execution

@@ -1,16 +1,13 @@
-# Milestone: native scene transitions
+# Scene transitions
 
-Goal: the scene transitions (the chapter book with its map route, the slime
-"goop" wipe and the two fades) run on translated retail code driven by the
-retail transition state, and present through `SceneD3DDevice` like every native
-scene. The host transition then retires: `src/engine/transitions/transition_book.cpp`
-(its host book render, page captures, map, slime sprites and direct cue playback),
-the host branch of `frame_tick` that draws `g.models` / `draw_cutscene_props`
-between scenes, the host cutscene parser use (`parse_cutscene`, `g.cutscenes`,
-`cutscene_runtime.cpp`'s prop sync) and the host movie list in `movie.cpp`.
+The scene transitions (the chapter book with its map route, the slime "goop" wipe and the two fades) run on
+translated retail code driven by the retail transition state, on the boot-owned scene stack, and present through
+`SceneD3DDevice` like every native scene. The host transition is deleted.
 
-This is the second half of step 5 of `docs/LEGACY_HOST_CODE.md`. Read
-`AGENTS.md` first.
+Status (2026-11-08): the transition core, its handler table and all four handlers are translated (fade 0, book 1
+with every clip and the map route and menu, slime 2, and handler 3). A handler slot outside the table raises.
+
+Read `AGENTS.md` first.
 
 ## Where retail runs a transition
 
@@ -35,12 +32,6 @@ This is the second half of step 5 of `docs/LEGACY_HOST_CODE.md`. Read
   (`0x001628B0` is a bare `RET`.) The book handler drives the menu book's
   translated owner, the `0x00048260` family (`native_book.cpp`), including the
   map route (`0x00046F40`, `0x00047770`, `0x000473D0`, `0x000475B0`).
-
-## Current state
-
-The transitions run on translated code (work items 2 to 4 below). The host
-transition (`transition_book.cpp`) and the host branch of `frame_tick` are
-deleted.
 
 ## The lifetime problem
 
@@ -72,25 +63,6 @@ background and doors. The resource owner and the D3D device are boot-owned
 already (work item 1). The transition runtime below is an interim step on the
 way there; prefer moving more of the scene stack to boot over growing a second
 copy of it.
-
-## Work
-
-1. **One resource owner for the run.** Make the resource owner boot-owned (like
-   `NativeAudioRuntime`), referenced by each `SceneFactoryRuntime`. Translate the
-   purge (`0x00035D30`, `0x00035C60`, `0x00036180`, `0x00036070`,
-   `0x000360D0`, `0x00034880`, `0x00034110`) and run it where `0x0011C5A0`
-   does. Scene-owned systems must then release what they acquired; the purge
-   frees what nothing holds.
-2. **The transition core.** Retranslate `0x0012C340`, `0x0012C4E0`,
-   `0x0012C5D0`, `0x0012C770`, `0x0012C2D0`, `0x0012C830` with their missing
-   callees, dispatching through the handler table.
-3. **The handlers.** Fade (0), book (1, over `native_book.cpp`, adding the
-   map route), slime (2) and handler 3, each presented through `SceneD3DDevice`.
-   The transition's draw (`0x0012B560` / `0x0012BE60` / `0x0012BA10`) runs where
-   retail presents it, also between scenes.
-4. **Switch.** Remove `draw_scene_transition` and the host branch of
-   `frame_tick`, delete `transition_book.cpp`, and drop the host cutscene parser
-   and movie list if nothing else uses them.
 
 ## Progress
 
@@ -151,10 +123,10 @@ copy of it.
   present runs `0x0012C490` where `0x0011C240` does, so a transition draws
   between scenes too.
 - **Work item 3, the handlers.** Fade (0), book (1) and slime (2) are
-  translated. Handler 3 is reached only by row 16, which no scene uses; it
-  raises. The book's clips 0, 1, 13 and 14 (plain) and 3 to 7 (maps) run;
-  clip 2 (the chapter title, `0x0012B810`, `0x0004B550`, `0x0004B5A0`) and a
-  book page texture (`0x00048260`'s third argument) raise when reached.
+  translated, and so is handler 3, which only row 16 reaches. The book's clips
+  0, 1, 13 and 14 (plain), 2 (the chapter title, `0x0012B810`, `0x0004B550`,
+  `0x0004B5A0`) and 3 to 7 (maps) run, with the book page capture
+  (`0x00048260`).
 - **The book's map route is translated** (`book_map.cpp`): `0x00046F40`
   (begin), `0x00047370` (close), `0x000473D0` (release), `0x000475B0` (tick),
   `0x00047770` (draw), with `0x00046760` (the spot labels), `0x00046500` (the
@@ -162,8 +134,8 @@ copy of it.
   `0x00046E10` (its projection). The map block is the book model's block of
   type 0x16; its words are offsets in the model's CPU view. Each point is
   posed by `0x00031530` on the model's pose. The menu path (`+0xE8` set:
-  `0x00141DA0`, `0x00109340`, `0x00142460`, `0x00142070`, `0x001093C0`)
-  raises; no scene in the opening sets it.
+  `0x00141DA0`, `0x00109340`, `0x00142460`, `0x00142070`, `0x001093C0`) is
+  translated too.
 - **Presenter additions** for the map: the recording device takes
   `SetVertexData4f` on register 0 (`D3DVSDE_POSITION`) as well as -1, and
   vertex format 0x44 (`D3DFVF_XYZRHW | D3DFVF_DIFFUSE`); the fixed-function
@@ -184,37 +156,3 @@ copy of it.
 - **The text pools draw every frame** as `0x0005F330` does in `0x0011C240`
   (over `DAT_005043CC`, masked by `DAT_0050EA9C`), not only while a script
   dialogue is bound. The map labels and the loading text depend on it.
-
-## Reference captures
-
-Taken before any change (copied to `cache/transition_ref/`) by
-`gbtg-transition-tests OriginalFiles --goop`:
-
-| File | Screen |
-|---|---|
-| `transition_goop_enter_5/15/60` | The slime wipe entering (phase 1) after 5, 15 and 60 frames |
-| `transition_goop_exit_5/15/60` | The slime wipe leaving (phase 3) |
-| `goop_enter_check`, `goop_exit_check` | The same at 30 frames |
-| `transition_map_5/30` | The book opening on the dialog page (row 8, the front-garden map) |
-| `transition_map_90/150/270/330/400` | The map spread with the route drawn to "House" and the running figure |
-| `transition_map_check` | Frame 210 of the map |
-| `goop_second_check` | The second slime transition (re-requesting scene 0_1book) |
-
-The references are the old host transition's output, not retail. Where the
-native map differs, the native frames are the correct ones (confirmed against
-the game): the route is drawn as 5-pixel dashes (half of each of the route's
-segments, `0x00047770`; the host drew a solid line), and the book model's turning
-page is shaded, which shows as a dark band at the right page's edges. The label
-x positions differ by a few pixels (retail offsets them by the spot texture's
-height, `0x00046760`).
-
-## Acceptance
-
-- `--goop` passes on the native transitions, and its captures match the
-  references or are better (compare with PIL; state every difference).
-- The game start from game select (`--gameselect-new-game`) still reaches
-  scene 0_1book through the book.
-- No host transition code remains: `transition_book.cpp` is gone,
-  `frame_tick` has no host draw branch, and no `pcm_*` caller is left.
-- Release and Debug build; ctest; all transition suites; both 900-frame
-  headless runs; `git diff --check`.

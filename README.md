@@ -22,6 +22,60 @@ tools, reconstruction tests and Ghidra/xemu tooling.
 For a guided tour of the code, see [Architecture](docs/ARCHITECTURE.md). Terms
 such as AID, body, mind and "unbound" are defined in the [Glossary](docs/GLOSSARY.md).
 
+## Completion
+
+Last counted 2026-11-08. The game plays from boot through the attract, game select and every chapter to the final
+score and credits on translated code. It is not complete: code the tests and playthroughs have not reached is still
+untranslated, and raises when reached.
+
+**Translated game code.** Game code is `.text` below `0x0014A840`. The statically linked XAPI and C runtime begin
+there, and they, D3D8, XGRAPHICS, DirectSound, XACT and Bink are boundaries, translated only where the game calls
+them.
+
+| Measure | Count |
+|---|---|
+| Game functions known | 5,084 (Ghidra's 4,078, plus 1,006 more found while translating) |
+| Translated | 4,636 (91.2%) |
+| Untranslated, known | 448, about 69 KB of code |
+
+Ghidra's analysis missed about a fifth of the functions translated so far, so the untranslated count is a lower
+bound. The known untranslated functions, grouped by the source area of their nearest translated neighbour:
+
+| Area | Translated | Untranslated | Untranslated bytes |
+|---|---:|---:|---:|
+| entities | 2,430 | 156 | 14,993 |
+| frontend | 595 | 119 | 34,165 |
+| scene | 433 | 30 | 3,019 |
+| include (shared headers) | 240 | 26 | 2,534 |
+| graphics | 230 | 15 | 1,867 |
+| scripts | 167 | 22 | 1,284 |
+| video | 47 | 18 | 2,558 |
+| saves | 81 | 11 | 696 |
+| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 413 | 51 | 7,922 |
+| **Total** | **4,636** | **448** | **69,038** |
+
+**Object factory types.** 163 of the 168 types with a getter (`0x0030D41C`) are installed. Not installed: 0x0E,
+0x11, 0x2F, 0x6C and 0x9C (by the table's name rows, an effect emitter, the explode effect, the dust-up effect,
+the floored state and the candle scene control). Any of them raises if a scene creates one.
+
+**What is known to remain.**
+
+- Front end: game-select rows 5 and 7 and the cross-sell kiosk rows 12 to 15 (nothing in the retail game requests
+  them), and the Japanese virtual keyboard (`0x00012920`, about 8.5 KB).
+- Rendering: an effect's mode 2 sprite (`0x0005CA10`), and any model node draw slot or background cloth hook without
+  a translation. Blob shadows stay off.
+- Audio: the 3D cone and doppler factors and a buffer's mute-past-maximum flag.
+- Region: NTSC-J starts its first scene but does not run yet ([Regional releases](docs/REGIONS.md)).
+- One deliberate deviation from retail, in the widescreen mirror pass ([Retail deviations](docs/RETAIL_DEVIATIONS.md)).
+- Retail objects still read through raw offsets rather than named fields ([Retail layouts](docs/RETAIL_LAYOUTS.md)).
+
+**Test coverage.** 108 of the 125 driven scene modes in `gbtg-transition-tests` play their scene to its end. The 17
+others fail because the scripted driver loses fights, gets stuck or breaks an event's rule, not on untranslated
+code; see [Player scenes](docs/PLAYER_SCENE.md). No host stand-in for game behavior remains.
+
+To recount, list Ghidra's functions with the read-only headless run of `tools/ghidra_scripts/ListFunctions.java`
+(the command form is in `AGENTS.md`), then run `python tools/census/completion.py`.
+
 ## Game data
 
 You must supply your own extracted retail copy of the game. This repository does
@@ -266,8 +320,7 @@ Ghidra workflow in `AGENTS.md`; do not rename Ghidra symbols or write the projec
 Missing callees must raise when reached rather than return invented values.
 
 Keep game logic on the native path. Host code supplies boundaries and
-presentation; older host implementations are tracked in
-[Legacy host code](docs/LEGACY_HOST_CODE.md) for replacement. Keep
+presentation; the older host implementations are retired. Keep
 `src/engine/game.cpp` as the thin `frame_tick` caller, organize code by subsystem,
 use `.h` headers and Allman braces, and retain Xbox address comments on
 reconstructed declarations and definitions.

@@ -1,21 +1,13 @@
-# Milestone: playable opening scene
+# Player scenes
 
-Goal: `aid_script_ghoulies_chapter1_scene1_2playcam` is playable end to end on
-the native path:
+Every scene of the game plays on the native path: translated retail functions, called in the retail order from
+`frame_tick` and driven by retail state. This page began as the milestone for the opening scene
+(`aid_script_ghoulies_chapter1_scene1_2playcam`) and now holds the retail frame order, the state of the actor,
+body and mind work, the controls and conventions, the test entry points (a mode per driven scene) and the
+frontier. Dated checkpoints are in [Player scene checkpoints](PLAYER_SCENE_CHECKPOINTS.md); the project-wide count
+is the completion tracker in the [README](../README.md#completion).
 
-- the tutorial dialogue holds the script until A;
-- Cooper walks under the left stick and attacks under the right stick;
-- the imps fight back, take damage, die and are removed;
-- the script passes its `scriptConditionId_NumberGhouliesAlive` gate
-  ("Kill All");
-- the scene ends into the next scene through the native transition.
-
-Everything comes from translated retail functions, called in the retail order
-from `frame_tick` and driven by retail state. Read `AGENTS.md` first; every rule
-there applies. Host code that still shares the frame is listed in
-`docs/LEGACY_HOST_CODE.md`. The previous chronological log (the first
-playable-scene push, Oct 8–15) is in git history before this rewrite; don't
-copy it forward.
+Read `AGENTS.md` first; every rule there applies.
 
 ## Retail frame order
 
@@ -437,28 +429,21 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 | Path | Stop | What it needs |
 |---|---|---|
 | The brew offer after a death | not reached | The death state's state 4 (`0x0008F290` with the unlock bit 3, enough brews and a chapter below 8): "intros_brewoffer" and its answer; the opening scene's runs have no brews |
-| Actor id lookups | legacy | `find_actor_by_id` / `find_actor_by_group` over the unfilled `g_pulse_nodes` still serve script actions, conditions and the ghoulybox controller; see `docs/LEGACY_HOST_CODE.md` |
 | Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
 | Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
 | Scene 3's Free Play branches (`--scene3`) | native | Free Play's node 0x51 on the skeletons sends message 1 over the native DAT_00511B38 walk (2026-10-24) |
 | Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x66, 0x68, 0x6A, 0x6C, 0x72, 0x92, 0x93, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x75, 0x8B, 0x8C and 0xA3, which raise |
-| Script event steps | partial | `0x00126140` queues step types 0 to 5 and 0xF (script types 0x19..0x1F) and `0x000D0B40` runs types 0 to 5, 0xD (one type, `0x000CFDA0` as type 2) and 0xF (the key carrier, `0x000CFAE0`); script type 0x50 builds type 0xD (`0x00125FC0`, with `0x00126940` and the fight music); the other builders from `0x00125E00` on (script types 0x20 and up) and the ticks of types 6 to 0xE and 0x10 up are not translated. Script types 0x5F and 0x87 are still empty stand-ins of the same kind |
-| The Grim Reaper's dizziness | no writer | `0x000AD600` turns him dizzy (0x3EA) while DAT_00512170 is set; no translated code writes it (`g_grim_reaper_dizzy`) |
+| Script event steps | native | Rechecked 2026-11-08: the builders (script types 0x19..0x27, 0x50, 0x5F, 0x87 and 0x88) and the step runners of the `0x003039CC` table (`0x000D0B40`) are translated, up to type 0x12 |
+| The Grim Reaper's dizziness | native | `0x000AD600` turns him dizzy (0x3EA) while DAT_00512170 is set: the DizzyReaper powerup row (kind 2), which `0x00123E70` sets |
 | Blob shadows | off | DAT_0050EF18 is never set, so 0x00119A60 hands out no shadow (the reaper's included) and the draw 0x00119AD0 is not reached |
 | The spider web in captures | unchecked | The web (type 0x1B) lands and snares by its messages; no capture has caught one yet |
 | Background cloths | partial | 0x001153A0 builds the background model's parts at scene load: kinds 1, 2 and 8 (flags, 0x00050880, with the player and actor push hook 0x00114910), kind 3 (no cloth), kind 4 (collision planes) and kind 5 (curtain pairs) are translated; kinds 6 (0x000509E0) and 7 (0x00050940) raise, as do the hooks 0x001145F0 and 0x00114580, the specular shading 0x0004BA90, the second strip draw 0x0005D710 and 0x00064820's part pass. The 2026-10-23 full regression found only kinds 2 and 5 in use (scenes 3, 4, 5, 6 and 8 have kind 2) |
-| Script type 0x16 | legacy | Still the old shortcut; retail waits for `0x0004EFE0` with DAT_00512470 set, then releases the cutscenes |
+| Script type 0x16 | native | Waits for `0x0004EFE0` while DAT_00512470 is set, then releases the cutscenes, as retail does |
 | Chapter 2a scene 3 (`aid_script_ghoulies_chapter2a_scene3_1playcam`) | not driven | `--scene2a2` stops once the script moves on to it |
 | The coward zombie on the plates | unchecked | Hurt, scene 2a2's zombie climbs onto a plate stack and stays there without moving (y about 8.6) until Cooper comes within reach; not compared with retail |
 | The scene 2a1 stairwell walk | slow | The driver finds no grid route from the stairwell floor (y -40) and walks "straight" into the wall until about frame 8000 |
 | A death during an event | as dumped | `0x00134AE0` sets DAT_00430D0C with the restart, so the reloaded script passes its handlers through (0x00128A00's third argument) and skips the event; the kitchen's exit door then stays shut because the event's end (state 4) never opens it. Not compared with retail |
 | The camera near scene 9's door 8 | unchecked | From frame ~11400 of a long scene 9 run the camera looked down on the cellar from outside its walls; not compared with retail |
-
-## Work
-
-1. Chapter 2a scene 3 (`aid_script_ghoulies_chapter2a_scene3_1playcam`): drive it after `--scene2a2` and
-   translate what it reaches.
-2. Move the remaining `g_pulse_nodes` callers to the native `DAT_00511AA4` lookups.
 
 ## Acceptance
 

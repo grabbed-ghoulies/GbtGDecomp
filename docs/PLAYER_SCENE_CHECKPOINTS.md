@@ -3313,8 +3313,8 @@ heads attack, and each attack starts a button challenge. When the cutscene ends,
   only +0x93C, so `0x001460C0` always read state 0 and never reported an unavailable spawn owner), and `0x001495C0`
   mirrors its +0xCDC = 1. `0x00145C80` runs for the chair; `--player-fight` still passes "Kill All" and ends at
   type 59 as before, with no visible change.
-- `mask_span` (+0x980) is still never written; the camera mask (`EntityMaskHost`) reads it. See
-  `docs/LEGACY_HOST_CODE.md`.
+- `mask_span` (+0x980) is still never written; the camera mask (`EntityMaskHost`) reads it. (Since resolved:
+  +0x980 is the native goal ring, `Actor::goal_ring`.)
 
 ### 2026-10-18: the second wave comes through the door
 

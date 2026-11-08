@@ -1,7 +1,8 @@
 # Documentation
 
 Start with [Architecture](ARCHITECTURE.md) and the [Glossary](GLOSSARY.md).
-The project rules are in [`AGENTS.md`](../AGENTS.md).
+The project rules are in [`AGENTS.md`](../AGENTS.md). How far the reconstruction has come is the
+[completion tracker](../README.md#completion) in the README.
 
 ## Getting started
 
@@ -17,10 +18,10 @@ The project rules are in [`AGENTS.md`](../AGENTS.md).
 - [Ghidra workflow](GHIDRA.md): exporting decompiles from your own `default.xbe`
 - [Executable map](XBE.md): sections and known addresses in `default.xbe`
 - [Retail layouts](RETAIL_LAYOUTS.md): `RetailField` descriptors and how retail objects become structs
-- [Legacy host code](LEGACY_HOST_CODE.md): host stand-ins still waiting to be replaced by the native path
 - [Retail deviations](RETAIL_DEVIATIONS.md): the few deliberate departures from retail behavior
 - [xemu](XEMU.md): running the retail game as a runtime oracle
 - [Code oracle](../tools/oracle/README.md): comparing single functions against retail machine code
+- [Completion census](../tools/census/completion.py): the counts behind the README's completion tracker
 - [Original file changes](ORIGINAL_FILES.md): local patches to the retail dump and how to restore them
 
 ## Data formats
@@ -31,12 +32,12 @@ The project rules are in [`AGENTS.md`](../AGENTS.md).
 
 ## Subsystems
 
-Each of these documents describes a native subsystem and the work that remains on it.
+Each of these documents describes a native subsystem: how retail runs it, what was translated, and what remains.
 
-- [Player scene](PLAYER_SCENE.md): the first playable scene, and most of the actor, body and mind work
+- [Player scenes](PLAYER_SCENE.md): the scene test modes, the frontier, and most of the actor, body and mind work
+  ([checkpoints](PLAYER_SCENE_CHECKPOINTS.md))
 - [Scene presentation](NATIVE_SCENE_PRESENT.md): what each view draws, and how
 - [Front end](NATIVE_FRONTEND.md): game select and menus
-- [Dialogue presentation](NATIVE_DIALOGUE_PRESENT.md): tutorial and scene dialogue
 - [Transitions](NATIVE_TRANSITIONS.md): the chapter book, map route and slime transitions
 - [Cutscenes](NATIVE_CUTSCENES.md): the translated cutscene runtime
 - [Audio](NATIVE_AUDIO.md): native audio and the XAudio2 boundary
@@ -50,10 +51,3 @@ Each of these documents describes a native subsystem and the work that remains o
 ## Legal
 
 - [Legal notes](LEGAL.md)
-
-## Historical
-
-These documents describe superseded work and are kept for reference.
-
-- [Game select rendering](GAMESELECT_RENDERING.md): the deleted host front end
-- [Native gameplay frame](NATIVE_GAMEPLAY_FRAME.md): folded into [Player scene](PLAYER_SCENE.md)

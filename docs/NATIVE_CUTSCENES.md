@@ -1,14 +1,11 @@
-# Milestone: native cutscenes
+# Cutscenes
 
-Goal: every cutscene plays through the translated cutscene runtime
-(`RuntimeCutsceneInstance`: `load_runtime_cutscene`, `tick_runtime_cutscene`,
-`draw_runtime_cutscene`, camera sampling `0x0004F770` / `0x0004F8C0`, the event
-runtime in `cutscenes/event_runtime.cpp`). The host reel (`parse_cutscene`,
-`sample_cutscene_camera`, `g.cutscenes`, `cutscene_queue_tick`,
-`draw_cutscene_props`, `pcm_cutscene_sync`) and the host dialogue screen
-(`DialogueScreen`) retire once nothing uses them.
+Every cutscene plays through the translated cutscene runtime (`RuntimeCutsceneInstance`: `load_runtime_cutscene`,
+`tick_runtime_cutscene`, `draw_runtime_cutscene`, camera sampling `0x0004F770` / `0x0004F8C0`, the event runtime
+in `cutscenes/event_runtime.cpp`): scene story books, the attract (factory type 0x9B) and the transition books. The
+host reel and the host dialogue screen are deleted.
 
-This is step 4 of `docs/LEGACY_HOST_CODE.md`. Read `AGENTS.md` first.
+Read `AGENTS.md` first.
 
 ## Where retail plays cutscenes
 
@@ -26,37 +23,7 @@ This is step 4 of `docs/LEGACY_HOST_CODE.md`. Read `AGENTS.md` first.
   `0x0012BE60`, `0x0012BA10`) plays the book-opening clips and the map. These
   are step 5 (the transitions), which owns the book render.
 - **Dialogue pages**: `0x000584D0` plays the dialogue page cutscene through the
-  same runtime. This is already native (`docs/NATIVE_DIALOGUE_PRESENT.md`).
-
-## Reference screenshots
-
-`gbtg --headless --frames N --scene chapter1_scene0_1book --width 640 --height 480 --screenshot …`,
-taken before this step (`cache/cutscene_ref/book0_N.bmp`):
-
-| Frame | Screen before | Screen after |
-|---|---|---|
-| 60 | Slime transition | Same |
-| 180, 400, 900, 1800, 3600 | Black: the native scene presented nothing, and the host queue's props were no longer drawn | The comic book page under the cutscene camera, with the panels playing their movies (400, 900), then the story caption rendered into the page (1800+), waiting for A |
-
-The opening (`--scene chapter1_scene1_2playcam`, frames 120–900) and the
-900-frame boot run are pixel-identical to the step 3 references
-(`cache/audio_step/shots/`).
-
-The transition fade (handler 0) lasts 1/60 s (`0x0032B150`) and advances only once its
-timer is below zero. `0x0011E4C0` begins the transition and ticks it in the same frame, so a
-1/60 s step lands on exactly 0.0 and the fade never ends: the next scene stays black. That was
-true for every scene change while the port stepped 1/60 s (2026-10-19: final1 to final2).
-
-Retail never steps 1/60 s. It creates the device with PresentationInterval 2 (`0x000FC310`
-stores 2 at `DAT_00509700`; `0x001548B0` passes it to Direct3D_CreateDevice), so it swaps on
-every second vertical blank. `0x000FC030` sets `DAT_005096C0` to the vblanks between the
-last two swaps (`DAT_005096D0`, counted by the vertical-blank callback `0x000FC3B0`) over 60,
-capped at 5 fields: 1/30 s, or more after a slow frame. `run_platform` now ticks the logic the
-same way: windowed runs tick once two 60 Hz fields have passed since the last tick, with the
-fields that actually passed (counted from `PlatformConfig::boot_started`, before `Game::init`
-loads the first script), and present the last frame again in between (`gfx_present_again`).
-Headless and screenshot runs step two fields a pass, so they reach the attract too.
-`gbtg-transition-tests` still drives `game.tick(1/60)` itself; `--title` uses 1/59 s steps.
+  same runtime.
 
 ## Done (2026-10-15)
 
@@ -123,7 +90,7 @@ faults caused it:
   `0x0011C3F0` → `0x000FD620`) sets pitch 0.349, yaw 0.698, camera-relative 1,
   the ambient tint DAT_00509B20..2C and the intensity DAT_00509B4C. The port
   had `0x000FD620` but never called it, and wrote duplicate globals. It is now
-  called from `Game::init`; the rest of `0x0011C3F0` is still untranslated.
+  called from `Game::init`; `0x0011C3F0` itself is translated since.
   DAT_00509B10..5C is one global (`g_scene_light_direction`) that the scene
   binds by reference.
 - **DAT_00509B4C was a constant 0.** The light construction context took it by
@@ -135,38 +102,6 @@ too: Cooper and the tutorial head are now lit from the camera side instead of
 edge-on (frames 180, 300 and 900 differ from the step 3 references in about
 5,000–8,000 pixels). This follows the retail light setup; it has not been
 compared with xemu.
-
-## Work
-
-1. **Attract.** Done (2026-10-15); see "Native attract" below.
-2. **Book transitions** (step 5): the book-opening clips and their sound windows
-   in `transition_book.cpp` play on a host view. They move with the transition
-   owner.
-3. **Presenter gaps:** line width (render state 0x10050) is ignored, and
-   swizzled render or movie targets raise.
-4. **Intermittent Release crash in `--goop`.** Fixed (2026-10-15). It was at process exit,
-   not in the scene reload. Static destruction freed `g_bed`'s PCM while the XAudio2 mixer
-   thread still read it through voices that were still playing. stdout buffering made the log
-   seem to stop mid-run. `pcm_out.cpp` now stops the engine and destroys the source voices
-   before the voice lists are destroyed. 20 of 20 Release runs pass; before the fix, 4 to 5 of
-   20 crashed. Details: `docs/NATIVE_AUDIO.md`, "Native cue voice lifetime and the exit crash".
-5. **Native cue voices are never destroyed.** Fixed (2026-10-15). The XACTEngineDoWork
-   boundary destroys a native cue's voice after its stopped notification (1) has been
-   delivered. The retail callback frees the cue there (`0x000398E0` → `0x0015CE90`), and the
-   handle is not used again.
-
-## Acceptance
-
-- The story books play natively. Done for `chapter1_scene0_1book` and, through
-  `--goop`, `chapter1_scene1_1book`.
-- The attract plays natively and `--title` / `--title-a` still pass. Done.
-- No host cutscene code remains except what step 5 owns. Done: the main game's reel, the
-  captions and `DialogueScreen` are deleted; the book transition's private reel view remains.
-- Release and Debug build; ctest; the six transition suites plus
-  `--player-opening`, `--title`, `--title-a`, `--goop` and `--ui`; both
-  900-frame headless runs; screenshots compared; `git diff --check`.
-  Debug `--actor-loading` fails at `check_boot_pixel_shaders` as on the
-  unmodified tree.
 
 ## Native attract (2026-10-15)
 
@@ -209,11 +144,12 @@ The new `--attract` mode runs 8000 frames with no input and writes
     `frontend/dialogue_text_pool.cpp`.
   - Centred text `0x0005EF40` with its line runs `0x0005EC60`, and the glyph seed `0x000606A0`,
     are in `frontend/dialogue_draw_text.cpp`.
-  - A record with a panel (+0x1224) still raises at `0x00060160` / `0x00061360`.
+  - A record with a panel (+0x1224) draws through `0x00060160` / `0x00061360`, translated since.
 - **Effect particles `0x000ED390` / `0x000EFEA0`** (`graphics/actor_effect_draw.cpp`): type-0
   particles are queued as billboards (the attract's sparkle trail). Type 2 particles
   (`0x000F0010`) draw as world sprite quads (`0x0005CF90`) between `0x0005CF20` /
-  `0x0005DFF0` and the projection rebind. Type 4 (`0x000F0160`) raises when reached.
+  `0x0005DFF0` and the projection rebind. Type 4 (`0x000F0160`) is translated since; an effect's mode 2 sprite
+  (`0x0005CA10`) still raises when reached.
 
 ### Fixes found on the way
 

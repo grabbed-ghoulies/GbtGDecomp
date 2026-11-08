@@ -21,8 +21,8 @@ See [Ghidra workflow](GHIDRA.md).
 
 **Host code / host boundary**: PC code. It is allowed only where retail calls
 out to the platform (file IO, D3D, XInput, heap, thread-local storage, XACT
-audio) and for presenting recorded output. Host code that still reimplements
-game behavior is listed in [Legacy host code](LEGACY_HOST_CODE.md).
+audio) and for presenting recorded output. It never reimplements game
+behavior.
 
 **Unbound / untranslated callee**: a retail function the native path reaches
 that has no translation yet. It throws when reached (`unbound(...)`) rather

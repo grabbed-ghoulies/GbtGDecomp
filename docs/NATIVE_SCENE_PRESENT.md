@@ -1,14 +1,17 @@
-# Milestone: native scene present
+# Scene presentation
 
-Goal: a natively started scene presents only what retail's per-view present
-(`0x0011C240`, called for each active camera slot by `0x00033A20`) records:
-the world, the actors, effects, HUD and dialogue. All of it goes through the
-recording D3D boundary (`SceneD3DDevice`) and the D3D11 presenter. No host draw
-(`g.models`, `draw_cutscene_props`, `draw_ui`, the body camera) runs in a
-native scene.
+How a native scene draws a frame. Retail's per-view present (`0x0011C240`, called for each active camera slot by
+`0x00033A20`) records the world, the actors, effects, the HUD and dialogue through the recording D3D boundary
+(`SceneD3DDevice`), and the D3D11 presenter turns that record into PC draws. No host draw runs in a scene.
 
-This is step 2 of `docs/LEGACY_HOST_CODE.md`. Read `AGENTS.md` first. The actor
-bins and `0x00121900` are covered in `docs/PLAYER_SCENE.md`.
+Status (2026-11-08): the whole per-view present is translated, in retail order, with its passes: the mirror, the
+actor bins, the background, model sprites and the billboard flush, the screen effects (`0x000615E0`), debris
+(`0x0005CF90`), dialogue, the text pools, the HUD (`0x00132290`) and the transition book and view. Still raising
+when reached: an effect's mode 2 sprite (`0x0005CA10`), and any model node draw slot or background cloth hook
+without a translation. Blob shadows stay off: nothing translated sets DAT_0050EF18. The project-wide count is the
+completion tracker in the [README](../README.md#completion).
+
+Read `AGENTS.md` first. The actor bins and `0x00121900` are covered in [Player scene](PLAYER_SCENE.md).
 
 ## Retail order
 
@@ -27,63 +30,6 @@ bins and `0x00121900` are covered in `docs/PLAYER_SCENE.md`.
 6. `0x00122230`, `0x00132290`, then `0x0011DB50`, `0x00048550(DAT_005462A0)`,
    `0x0012C490` and `0x0005F330`. `DAT_0050EA9C & 0x2000` moves `0x0005F330`
    from first to last of these.
-
-## Reference screenshots
-
-Taken before this step with
-`gbtg --headless --frames N --scene chapter1_scene1_2playcam --width 640 --height 480 --screenshot …`
-(`cache/native_world_ref/scene_N.bmp`), plus a default boot run
-(`cache/native_world_ref/boot_900.bmp`):
-
-| Frame | Screen |
-|---|---|
-| 120 | Slime transition into the hall, a strip of the hall visible at the top |
-| 180 | Hall, Cooper and the imps, camera further back |
-| 240 | Hall, play camera |
-| 300 | Hall, play camera (Cooper, five imps) |
-| 450, 600, 750 | Native tutorial page (backdrop, head, corner bats, text) |
-| 900 | Tutorial page, A-button bat |
-| boot 900 | Attract: bookshelf backdrop, "Press START" |
-
-## Current state (2026-10-15)
-
-- **The background draws natively.** The background's vtable +0x14 is
-  `0x00042C10`: nothing while `DAT_004EE1EC` (the dialogue mode of
-  `0x000584D0`) is set, otherwise a tail jump to the actor draw `0x0003C9E0`
-  (`draw_runtime_background`, `entities/actor_frame_render.cpp`). Its model
-  tree reaches two new node slots:
-  - `0x001571B0` (ndShaderParam2 while `0x001572C0` selects the background
-    variant): `0x00157140` classifies the child `'B'` (ndBGPushBuffer) boxes
-    against the render state +0x64 frustum (set by `0x00156350` from
-    `0x000F5FD0`) with `0x00159BA0`, marks each one's +0x3F, and skips the
-    group through `0x001589C0` when none is visible. Otherwise it is
-    `0x00157090`.
-  - `0x001580E0` (ndBGPushBuffer): a push buffer whose instance key (copy +4,
-    -1 from `0x001580C0`'s copy slot) differs from render state +0x18C (only
-    `0x00155A10` writes it, -1) only walks its group; a +0x3F box skips to its
-    sibling; otherwise it is `0x001582A0`.
-- **No host draw remains in a native scene.** `present_views` records each
-  view's bins and the dialogue and presents them. Its host fallback for frames
-  with no active camera slot is gone (it never ran in the opening or a
-  3000-frame boot). The host camera upload (`gfx_set_camera`) is gone from the
-  native view. The native scene start releases `g.models`. `frame_tick`
-  draws `g.models`, `draw_cutscene_props`, `draw_ui` and the host dialogue
-  only when no native scene runs (the legacy front end).
-
-## Results against the references
-
-- Frames 450–900 and the boot run are pixel-identical.
-- Frames 180, 240 and 300 differ only in hall dressing (about 2,600 pixels
-  each). The host drew every mesh of `aid_model_ghoulies_background_centralhallway_all`
-  at once. The native tree draws busts on the stair posts and wall lamps, and
-  leaves out the Ghoulies signs and rope barriers. After the tutorial
-  (`--player-opening`, `cache/player_walk_check.bmp`) the native hall shows
-  the signs and ropes and drops the busts. These parts follow scene state,
-  which the host stand-in ignored. Neither the frustum test nor the node
-  masks remove them (checked with temporary probes, removed). This has not
-  been compared with xemu.
-- Frame 120 differs in a 90×40 strip of hall behind the slime, for the same
-  reason.
 
 ## The full per-view present (2026-10-15)
 
@@ -118,10 +64,9 @@ Translated and live in the opening:
   sprites need X_D3DFMT_A8B8G8R8 (0x3A), which the texture decoder now handles,
   along with LIN_A8B8G8R8 (0x3F).
 - **`0x000EC470`** (`graphics/world_sprite_passes.cpp`, with `0x0005CF20`).
-  The debris pool exists, so the setup and the fog hold run every view. A live
-  debris record still raises: its quad `0x0005CF90` is translated
-  (`draw_world_sprite_quad`, used by the type-2 effect particles), but the
-  debris loop's size and colour set-up around it is not.
+  The debris pool exists, so the setup and the fog hold run every view. The
+  debris loop and its quad `0x0005CF90` (`draw_world_sprite_quad`, also used by
+  the type-2 effect particles) are translated.
 - **World sprite quads `0x0005CF90`** (`graphics/world_sprite_passes.cpp`, with
   the depth mode `0x0005DFF0`). Immediate-mode `Begin(8)` quads under the
   `DAT_0050DD70` world matrix, with `SetVertexData2f` register 9 texture
@@ -140,21 +85,22 @@ Translated and live in the opening:
   constructor now does this store before `0x000FC190`. Native views fill
   640×480 as on retail 4:3.
 
-Gates translated, bodies raise when they open (none open in the opening):
+The passes behind a gate, and where their writers stand (2026-11-08):
 
-| Pass | Gate | Writer status |
+| Pass | Gate | Status |
 |---|---|---|
-| `0x0012AB10` post models | `DAT_00512AF0` | `0x0012A9B0` / `0x0012A9E0` / `0x0012AA70` not called natively |
-| `0x000ED390` effect draw | each `DAT_00506930` word | The port's table has 150 entries; retail loops to `0x00506C50` (200) |
-| `0x000EBCB0` trails | live type-2 trail records | Pool is native |
+| `0x0012AB10` post models | `DAT_00512AF0` | Translated, with `0x0012A9B0` / `0x0012A9E0` / `0x0012AA70` |
+| `0x000ED390` effect draw | each `DAT_00506930` word | Translated; an effect's mode 2 sprite (`0x0005CA10`) raises. The port's table has 150 entries; retail loops to `0x00506C50` (200) |
+| `0x000EBCB0` trails | live type-2 trail records | Translated; the pool is native |
 | `0x0011AF90` light cones | `DAT_00510560` and a background | Translated (`light_cones.cpp`); the Medusa's gaze opens it |
 | `0x00119230` shadow volumes | `DAT_0050EC00`, `DAT_0050484C < 1` | Translated (`shadow_volume_pass.cpp`); 12 scenes have regions (see below) |
-| `0x0011BA50` refraction | `DAT_00510580`, `DAT_00510650 == 0` | `0x0011B7A0` (scene start) not run |
-| `0x000615E0` screen effects | `DAT_00504478`, `DAT_005044A4`, `DAT_005044B0` | `0x00060BC0`..`0x000619D0` not translated |
-| caption / front-end widgets | `DAT_004DE9AC`, `DAT_004DE9A0`, `DAT_004E17C8 == 6` | Front-end writers not native |
-| `0x00132290` HUD | `DAT_005493E0` | `0x00132040` (scene start) not run |
-| `0x0011DB50` phase overlay | `DAT_00510CF4` with `DAT_00510E30` / `E40` / `E24` | Legacy scene-phase pointers |
-| `0x00048550` capture | `DAT_005462A0` | `0x00048260` / `0x00048860` not translated |
+| `0x0011BA50` refraction | `DAT_00510580`, `DAT_00510650 == 0` | Translated, with its scene-start writer `0x0011B7A0` (`refraction_pass.cpp`) |
+| `0x000615E0` screen effects | `DAT_00504478`, `DAT_005044A4`, `DAT_005044B0` | Translated (`0x00060BC0`..`0x000619D0`) |
+| caption / front-end widgets | `DAT_004DE9AC`, `DAT_004DE9A0`, `DAT_004E17C8 == 6` | The app error screen's page (`DAT_004DE9AC`) is native (`app_error_screen.cpp`); the other writers were not rechecked |
+| `0x00132290` HUD | `DAT_005493E0` | Translated, with its scene-start writer `0x00132040` (`scoreboard_hud.cpp`) |
+| `0x0011DB50` phase overlay | `DAT_00510CF4` with `DAT_00510E30` / `E40` / `E24` | Translated (`scene_pause.cpp`) |
+| `0x00048550` capture | `DAT_005462A0` | Translated, with `0x00048260` / `0x00048860` (`native_book.cpp`) |
+| `0x000EC470` debris | the debris pool | Translated (`world_sprite_passes.cpp`) |
 
 **Shadow volumes `0x00119230`** draw each background region (`DAT_0050EAA0`, count `DAT_0050EC00`, filled by the
 background construction) through the volume vertex shader (`DAT_0042735C`) with the depth ramp `0x00119160` creates
@@ -263,32 +209,3 @@ the background round the Grim Reaper (#51) and the frozen frame in a transition 
   are still 640x480 or their own size.
 - Benchmark (`tools/render_benchmark.py`, 1920x1080, hall, tutorial, transition): frame times are unchanged. Not
   measured: scenes that end a page every frame (the point-light pass), which now upload the window-sized frame.
-
-## Work
-
-1. **HUD and effect bodies.** Translate the scene-start writers (`0x00132040`,
-   `0x0011B7A0`, `0x00060C80`) and the bodies above as their gates open in
-   later scenes or the fight.
-2. **Debris quads**: the `0x000EC470` loop body around the translated quad
-   `0x0005CF90`, needed once debris is live in the fight.
-3. **Transition draws** (step 5): the slot record at `DAT_00546328`, the
-   back-buffer copy (`CopyRects`) in the recording device and presenter, and
-   `0x0012B560` / `0x0012BE60` / `0x0012BA10`.
-4. **Host cutscene queue.** `script_queue_scene_start` still starts the host
-   `g.cutscenes` queue and `frame_tick` ticks it, moving `g.camera`. Nothing in
-   a native scene draws from it. Retiring it is step 4.
-
-## Acceptance
-
-- `frame_tick` draws nothing on the host for a native scene, except the
-  step-5 transition. Done.
-- `present_view` is the translated `0x0011C240`, with every callee called in
-  order. Done.
-- Screenshots at the frames above match or are better, with differences
-  named. Done.
-- Release and Debug build. `ctest` 6/6 in each. The six transition suites and
-  `--player-opening` pass, except Debug `--actor-loading`, which fails at
-  `check_boot_pixel_shaders` on the unmodified tree too. `gbtg --headless
-  --frames 900` exits 0 with and without `--scene chapter1_scene1_2playcam` in
-  both builds. Done.
-- `git diff --check` is clean; no probes remain. Done.

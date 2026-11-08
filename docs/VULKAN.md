@@ -65,9 +65,6 @@ Checked in a Debug build on an RTX 4070 Ti:
 
 ## Not done
 
-- **Legacy host mesh path.** `gfx_draw_mesh`, `gfx_set_camera`, `gfx_set_bones`, the dialogue textures and
-  `gfx_draw_screen_mesh` throw on Vulkan. Nothing calls them; `button_bat_draw`, the last user of
-  `gfx_draw_screen_mesh`, has no callers (`docs/LEGACY_HOST_CODE.md`).
 - **`--validate-gpu-vertices`.** It needs D3D11's stream-out geometry shader. On Vulkan it throws, and the
   boundary check skips its GPU-versus-CPU vertex section.
 - **GPU profiling.** No timestamp queries are recorded for `--render-profile` yet.

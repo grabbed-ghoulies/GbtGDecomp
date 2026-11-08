@@ -13,8 +13,8 @@ mirrors the Ghidra dump in `cache/ghidra_frontier/<VA>.txt` branch for branch.
 
 **Host code** exists only at boundaries the retail code itself crosses (file
 IO, D3D, XInput, heap, thread-local storage, XACT audio) and for presenting
-what the retail code produced. Older host code that still re-implements game
-behavior is tracked in [Legacy host code](LEGACY_HOST_CODE.md) for removal.
+what the retail code produced. The older host code that re-implemented game
+behavior is retired.
 
 ## Boot and the frame
 

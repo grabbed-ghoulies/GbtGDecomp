@@ -30,10 +30,9 @@ behavior.
   output into host draws. Extend the presenter rather than calling `gfx_*` from
   game code. Host rendering helpers (texture decode, mesh upload) may be reused
   for presentation.
-- **Do not extend host stand-ins.** Older code that re-implements retail
-  behavior on the host is listed in `docs/LEGACY_HOST_CODE.md`. When native code
-  covers one of those features, switch its callers to the native path and
-  update that document.
+- **Do not extend host stand-ins.** The older host code that re-implemented
+  retail behavior is retired. If you find host code that still does, switch its
+  callers to the native path and delete it.
 - **A clean run does not mean the feature works.** A headless run that exits 0
   shows only that it doesn't crash. For anything visible or audible, take
   `--screenshot` captures and look at them, and say plainly what is still not

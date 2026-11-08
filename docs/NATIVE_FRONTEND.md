@@ -1,17 +1,16 @@
-# Milestone: native front end (game select)
+# Front end (game select)
 
-Goal: game select (`aid_script_ghoulies_gameselect_gameselect`) runs through its
-translated scene control, factory type 0x9A, and the front-end widget modes that
-control owns. It draws through the native text pools, screen sprites and the
-native button bat into `SceneD3DDevice`, and plays its sounds on the native
-event voices. The host front end then retires: `frontend.cpp`,
-`frontend_slots.cpp`, `frontend_contents.cpp`, `frontend_keyboard.cpp`,
-`frontend_text.cpp`, `MenuCursor` in `frontend_types.h` (with the last
-`pcm_*_owned_cue` callers), the `g.*` front-end state, and `gameselect_tick` /
-`draw_ui` in `frame_tick`.
+Game select (`aid_script_ghoulies_gameselect_gameselect`) runs through its translated scene control, factory type
+0x9A, and the front-end widget modes that control owns. It draws through the native text pools, screen sprites and
+the native button bat into `SceneD3DDevice`, and plays its sounds on the native event voices. The host front end is
+deleted.
 
-This is step 5 of `docs/LEGACY_HOST_CODE.md` (the book and slime transitions are
-the other half of that step). Read `AGENTS.md` first.
+Status (2026-11-08): slot select, naming and the virtual keyboard, the save manager, delete, the menu book, the
+contents screen, the stats dialog, challenges and Play run natively; see "Progress". Not translated, and raising
+when reached: rows 5 and 7 and the cross-sell kiosk rows 12 to 15, which nothing in the retail game requests, and
+the Japanese keyboard (`0x00012920`), reached only in Japanese.
+
+Read `AGENTS.md` first.
 
 ## Where retail runs game select
 
@@ -71,74 +70,6 @@ the other half of that step). Read `AGENTS.md` first.
   bytes from +0x40: the button code (0 A, 1 B, 2 X, 3 Y, 4 Black, 5 White,
   6 and 7 the sticks, 8 the triggers; masks in `0x00142460`), the label key and
   the callback (+0x84 for the first). A code of -1 ends the set.
-
-## Scope
-
-A read-only callee walk (`TreeExport.java` in the session scratchpad: functions
-created inside a rolled-back transaction, the project unchanged) from the
-control's vtable and all 19 mode rows reaches about 511 untranslated functions,
-about 138 KB of code. Of those:
-
-- about 180 are the widget modes (`0x000D4xxx`–`0x000E9xxx`);
-- about 90 are the virtual keyboard used by mode 4 (`0x000110D0`–`0x00018xxx`);
-- about 130 are XDK library code (`0x0014xxxx`–`0x0018xxxx`: string, save-game
-  and memory-unit calls), most of which are host boundaries (file IO, heap);
-- the rest are shared engine code (camera view, menu book `0x00048xxx`,
-  texture creation `0x000533A0`, save summaries `0x0010Dxxx`).
-
-The control and row 1 alone reach about 129 untranslated functions (23 KB).
-The host front end covers rows 1, 3, 4 and 7 only.
-
-## Current state
-
-- **Native.** Game select runs on the translated control for every run; the
-  host front end is deleted. See "Progress" below.
-
-## Reference captures
-
-Taken before any change in this milestone (copied to `cache/gameselect_ref/`):
-
-- `gbtg-transition-tests OriginalFiles --title` and `--title-a` write
-  `cache/title_check_N.bmp` (`title_N.bmp`, `title-a_N.bmp` in the reference
-  folder): frames 30, 60 and 119 are the attract's first clip with "Press
-  START"; frame 300 is the page turn into game select (Start or A at frame 120).
-- The new `--gameselect` mode presses Start at frame 120 and waits until the
-  game-select script is loaded and no scene transition runs (frame 410 on the
-  host). From there it presses Right at +90, A at +180 and B at +360, and writes
-  `cache/gameselect_check_N.bmp` at:
-
-  | +N | Screen (host) |
-  |---|---|
-  | 60 | Slot select, slot 1 raised, "Empty", "Choose A Game", Back / Select / Move |
-  | 150 | Slot 2 raised after Right |
-  | 300 | Naming keyboard ("My Game", the key grid and its prompts) after A on the empty slot |
-  | 480 | Slot select again after B, slot 2 raised |
-
-## Work
-
-1. Translate the control (sizes, constructor, destructor, tick, draw) and its
-   direct callees.
-2. Row 1 (slot select) and row 18 (stream wait), with the slot movie, the
-   plates and the cursor bat (`0x0006D6C0` is native) and its sounds.
-3. Rows 3, 4 (with the virtual keyboard) and 7, then any other row reachable
-   from them.
-4. Switch: install type 0x9A for every run, remove the gate, and delete the host
-   front end.
-
-Step 4 is done: type 0x9A is installed for every scene and the gate is gone.
-
-## Acceptance
-
-- `--title`, `--title-a` and `--gameselect` pass on the native control, and the
-  `--gameselect` captures match the references or are better (compare with
-  PIL; state every difference).
-- The cursor bat's sounds and the menu music play on the native voices.
-- No host front-end code remains: no `gfx_sprite_submit` callers in
-  `src/engine/frontend`, no `pcm_*_owned_cue` callers, no `g.slot*`,
-  `g.contents*`, `g.naming`, `g.frontend_mode`.
-- Release and Debug build; ctest; the six transition suites plus
-  `--player-opening`, `--title`, `--title-a`, `--attract`, `--goop`, `--ui`,
-  `--audio-preparation`; both 900-frame headless runs; `git diff --check`.
 
 ## Progress
 
@@ -546,7 +477,7 @@ now translated) and its trophy (`DAT_004E194C`: 0 unplayed, 3..6 bronze to
 platinum), the bonus-book count and the "challengeMenu_basic" prompts
 (`0x00305CD8`): A `0x000D7770` (play), the stick `0x000D77C0`, B `0x000D7890`
 (back to row 3), Y `0x000D78E0` (the "challengeintros_" page) and Black
-`0x000D78F0` (row 11, untranslated). Playing sets the trophy scores
+`0x000D78F0` (row 11). Playing sets the trophy scores
 (`DAT_004E17DC`), the key (`DAT_004E17EC`) and the game's name
 (`DAT_004E19B4`), and queues the challenge's script (`0x00083B90`, mode 3).
 The selection globals `DAT_00506578` / `DAT_0050657C` / `DAT_00506580` and

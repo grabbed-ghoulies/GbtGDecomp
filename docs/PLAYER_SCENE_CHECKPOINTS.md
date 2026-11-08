@@ -4,6 +4,21 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-08: loose weapons are free to take (issue #52)
+
+- Issue #52 ("Chapter 3 Scene 16", chapter3b_scene4_2playcam, the workshop): the skeletons never went for weapons.
+- The skeleton's attack choice (`0x000C0430`) goes for a weapon (state 0x405) only when `0x00129C20` finds one
+  (flags 0x17). Otherwise it sets +0x38 and never tries again. Every search failed.
+- The search filter `0x00129C50` with flag 2 skips a held actor. Actor +0x918 holds the parent's +0x918 node, so
+  `node - 0x918` is the parent, and a loose actor's bind stores 0x918 itself. The port compared the native link
+  pointer with 0x918, which never matches, so every bound weapon looked held. It now tests the link's parent
+  (`owner`).
+- The same filter serves the look-for-weapon state (`0x0009DC70`), the cinema mind's weapon search, the pirates'
+  chest search and mind request 0x28's action actor, so all of them now find loose actors.
+- `--scene3b4`: 87 fetches and 55 armed attacks; a skeleton swings a chair at Cooper (3000), and a bulb lights over
+  one that found a weapon (4200). Armed, they make the driver faint in every attempt, so the mode no longer passes.
+  `--scene2a1` and `--scene3a3` pass.
+
 ### 2026-11-08: a restarted scene's textures come back from the disc (issue #55)
 
 - Issue #55 ("Chapter 3 Scene 24", chapter3c_scene5_1playcam): after a faint, the challenge door already wore its

@@ -83,9 +83,10 @@ bool actor_matches_spawn_filter(const Actor& candidate, const Actor* requester, 
     {
         return false;
     }
+    // Actor +0x918 holds the parent's +0x918 node, so `node - 0x918` is the parent: a loose actor's bind (a null
+    // parent) stores 0x918 itself and passes. The native link keeps that parent as `owner`.
     const ActorLink* link = candidate.link;
-    if (((flags & 2) != 0 && link != nullptr && link->head != nullptr &&
-            reinterpret_cast<uintptr_t>(link) != 0x918) ||
+    if (((flags & 2) != 0 && link != nullptr && link->head != nullptr && link->owner != nullptr) ||
         ((flags & 4) != 0 && u8(candidate.mask_flag) == 0))
     {
         return false;

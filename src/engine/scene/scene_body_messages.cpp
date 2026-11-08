@@ -896,7 +896,7 @@ void SceneBodyMessages::dispatch(FactoryObject& body, std::span<u32> message)
             unbound("vampire body message without the body +0x15C bit block");
         }
         dispatch_runtime_vampire_body_message(body_bytes, bytes, views, messages_, *player_.body_bits,
-            player_.actor_bytes, services_.address_of(player_.body.data())); // Vtable 0x005052A8 +0xC.
+            player_.actor, services_.address_of(player_.body.data())); // Vtable 0x005052A8 +0xC.
         break;
     case 0x2A:
         dispatch_runtime_player_body(body_bytes, bytes, views, messages_, controls_); // Vtable 0x00505248 +0xC.

@@ -102,7 +102,7 @@ void dispatch_runtime_player_body_message(std::span<u8>& body, std::span<u8> mes
 // other such contact is answered {1, 0, 1} at +0x10. Every other message goes to the 0x27 parent's 0x00074080.
 void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context, const EntityBitBlock& bits,
-    std::span<const u8> actor, u32 body_address); // Xbox 0x00075FC0
+    const Actor& actor, u32 body_address); // Xbox 0x00075FC0
 void dispatch_runtime_player_body(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context,
     RuntimePlayerBodyControlMessages& controls); // Xbox 0x00075B60

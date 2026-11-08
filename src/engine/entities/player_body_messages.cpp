@@ -150,7 +150,7 @@ void dispatch_runtime_player_body(std::span<u8>& body, std::span<u8> message,
 // Xbox 0x00075FC0
 void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> message,
     const RuntimePlayerBodyMessageViews& views, RuntimePlayerBodyMessages& context, const EntityBitBlock& bits,
-    std::span<const u8> actor, u32 body_address)
+    const Actor& actor, u32 body_address)
 {
     if (get(message, body_message_field::id) == 0x19 && views.impact == nullptr)
     {
@@ -170,7 +170,7 @@ void dispatch_runtime_vampire_body_message(std::span<u8>& body, std::span<u8> me
         constexpr float pi = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148
         constexpr float minus_pi = std::bit_cast<float>(0xC0490FDBu); // DAT_0032B29C
         constexpr float two_pi = std::bit_cast<float>(0x40C90FDBu); // DAT_0032B298
-        float offset = angle - pi - read_f32(actor, 0x18);
+        float offset = angle - pi - actor.euler.y; // Actor +0x18, kept on the native actor.
         while (offset < minus_pi)
         {
             offset = offset + two_pi;

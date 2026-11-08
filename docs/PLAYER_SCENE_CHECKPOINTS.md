@@ -4,6 +4,18 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-08: the vampire's front faces where he faces (issue #54)
+
+- Issue #54: the garlic gun hit the vampire in his open coffin only some of the time.
+- His body's message handler (`0x00075FC0`) lets the gun's contact (an attacker with +0xDAC 0xC) land only from -20
+  to 75 degrees off his yaw (actor +0x18). The port read that yaw from the retail actor bytes, which the native
+  actor never writes (as issue #35 found for other readers), so it was always 0. The window stayed fixed in the
+  world instead of turning with him, and shots landed only when he happened to face near world yaw 0. It now reads
+  the native actor's `euler.y`.
+- Gun contacts with the coffin open, landed / all: `--scene3a11` 7 / 17 before, 23 / 40 after; `--scene3a12` 2 / 15
+  before, 6 / 14 after. The rest came from outside the front window, as in retail. Contacts with the coffin shut
+  are refused either way.
+
 ### 2026-11-08: loose weapons are free to take (issue #52)
 
 - Issue #52 ("Chapter 3 Scene 16", chapter3b_scene4_2playcam, the workshop): the skeletons never went for weapons.

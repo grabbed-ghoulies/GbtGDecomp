@@ -359,6 +359,20 @@ void leave_runtime_large_projectile_state(RuntimeWeaponActor& weapon, u16 state,
         if (next != 2)
         {
             unregister_actor_wide_list(weapon.view.render); // 0x0003E900, EAX actor
+            if (weapon.markers != nullptr) // 0x00144F70: every contact shape off, then {0x92, 0}.
+            {
+                deactivate_all_runtime_body_contact_shapes(*weapon.markers); // 0x0013F660
+                std::array<u32, 0x42> shapes{};
+                shapes[0] = 0x92;
+                shapes[1] = 0;
+                weapon.message(shapes);
+            }
+            if (weapon.attachment_lists == nullptr)
+            {
+                throw Error("large projectile leaving its flight has no attachment lists for 0x0013B810");
+            }
+            clear_runtime_player_attachment_events(retail_bytes(fields_of(bytes).command_attachments),
+                *weapon.attachment_lists); // 0x0013B810
         }
         return;
     case 3:

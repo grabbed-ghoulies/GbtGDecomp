@@ -4,6 +4,21 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-08: a large projectile's contact shapes go off when it lands (issue #53)
+
+- Issue #53: thrown objects kept hurting long after they should have.
+- entityWeaponProjectileLarge (type 0xA9: the eggs in chapter 2b scene 4, the snooker room's trophy) turns every
+  contact shape on when it is thrown (state 2, `0x00144F30` in `0x000CD700`). Its leave (`0x000CD8A0`) from state 2
+  to anything but another bounce also calls `0x00144F70` (every contact shape off, then message {0x92, 0}) and
+  `0x0013B810` (the launch's attachment events cleared). The port made neither call. A broken egg kept live contact
+  shapes in state 0xB, and whoever walked into it took a hit.
+- Measured in `--scene2b4` with temporary probes (removed): before, two hits from eggs in state 0xB, 1.7 s and 3.1 s
+  after the throw, at speed 0, both on Cooper. After, none. Every hit comes in flight (state 2) or the shatter
+  (state 4), the latest 65 updates after the throw, and the other hits are unchanged.
+- The XBE's callers of `0x0013F5B0` / `0x0013F660` (and their wrappers `0x00144F30` / `0x00144F70`) now all have
+  port counterparts. The thrown projectile (type 0xA7) in `--scene3a12` already hit only in flight (at most 1 s).
+- `--scene6` passes; `--scene2b4` and `--scene3a12` fail their time limits as before.
+
 ### 2026-11-08: the vampire's front faces where he faces (issue #54)
 
 - Issue #54: the garlic gun hit the vampire in his open coffin only some of the time.

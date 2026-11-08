@@ -50,6 +50,18 @@ struct RgbaImage
     u32 serial = 0;       // bumps when the pixels change, so a cached upload is replaced
     // A linear (LIN_) format: the NV2A samples it with texel coordinates, 0..width and 0..height.
     bool linear = false;
+    // A texture drawn from pixels other than its own size (a render target kept at the window's resolution): the
+    // texture's size, which a linear format's texel coordinates still count in. Zero for the image's own size.
+    int texel_width = 0;
+    int texel_height = 0;
+    int linear_width() const
+    {
+        return texel_width > 0 ? texel_width : width;
+    }
+    int linear_height() const
+    {
+        return texel_height > 0 ? texel_height : height;
+    }
     // Texture header flags >> 16. Nonzero marks the surface 0x000527C0 registers for BinkCopyToBuffer.
     u8 movie_slot = 0;
     u32 movie_seen = 0;

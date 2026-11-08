@@ -1983,7 +1983,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     if (draw.pixel_shader == nullptr && draw.textures[0] != nullptr && draw.textures[0]->linear
         && draw.textures[0]->width > 0 && draw.textures[0]->height > 0)
     {
-        cb.native_uv_scale = {1.f / float(draw.textures[0]->width), 1.f / float(draw.textures[0]->height), 0.f, 0.f};
+        cb.native_uv_scale = {1.f / float(draw.textures[0]->linear_width()), 1.f / float(draw.textures[0]->linear_height()), 0.f, 0.f};
     }
     if (!cb_current || std::memcmp(&bound.cb, &cb, sizeof(cb)) != 0)
     {
@@ -2009,7 +2009,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     if (draw.pixel_shader == nullptr && draw.textures[0] != nullptr && draw.textures[0]->linear
         && draw.textures[0]->width > 0 && draw.textures[0]->height > 0)
     {
-        cb.native_uv_scale = {1.f / float(draw.textures[0]->width), 1.f / float(draw.textures[0]->height), 0.f, 0.f};
+        cb.native_uv_scale = {1.f / float(draw.textures[0]->linear_width()), 1.f / float(draw.textures[0]->linear_height()), 0.f, 0.f};
     }
     std::memcpy(mapped.pData, &cb, sizeof(cb));
     g.context->Unmap(g.cb.Get(), 0);
@@ -2163,7 +2163,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
             const RgbaImage* texture = draw.textures[stage];
             if (texture != nullptr && texture->linear && texture->width > 0 && texture->height > 0)
             {
-                const float scale[2] = {1.f / float(texture->width), 1.f / float(texture->height)};
+                const float scale[2] = {1.f / float(texture->linear_width()), 1.f / float(texture->linear_height())};
                 std::memcpy(&words[68 + stage * 2], scale, sizeof(scale));
             }
         }
@@ -2314,7 +2314,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
             const RgbaImage* texture = draw.textures[stage];
             if (texture != nullptr && texture->linear && texture->width > 0 && texture->height > 0)
             {
-                const float scale[2] = {1.f / float(texture->width), 1.f / float(texture->height)};
+                const float scale[2] = {1.f / float(texture->linear_width()), 1.f / float(texture->linear_height())};
                 std::memcpy(&words[68 + stage * 2], scale, sizeof(scale));
             }
         }
@@ -2740,7 +2740,7 @@ void gfx_end_native_scene_target(RgbaImage& output)
     {
         g.context->CopyResource(surface.staging.Get(), surface.color.Get());
     }
-    // The fitted 640x480 area present_hud_viewport draws the frame into, sampled at each texel's centre.
+    // The fitted 640x480 area present_hud_viewport draws the frame into, at the window's resolution.
     D3D11_VIEWPORT area{};
     UINT viewports = 1;
     present_hud_viewport();
@@ -2750,23 +2750,15 @@ void gfx_end_native_scene_target(RgbaImage& output)
     {
         throw Error("native scene target readback failed");
     }
-    output.width = scene_target.width;
-    output.height = scene_target.height;
+    const int left = std::clamp(int(area.TopLeftX + 0.5f), 0, int(surface.desc.Width) - 1);
+    const int top = std::clamp(int(area.TopLeftY + 0.5f), 0, int(surface.desc.Height) - 1);
+    output.width = std::clamp(int(area.Width + 0.5f), 1, int(surface.desc.Width) - left);
+    output.height = std::clamp(int(area.Height + 0.5f), 1, int(surface.desc.Height) - top);
     output.bgra.resize(size_t(output.width) * size_t(output.height) * 4);
-    const int limit_x = int(surface.desc.Width) - 1;
-    const int limit_y = int(surface.desc.Height) - 1;
     for (int y = 0; y < output.height; ++y)
     {
-        const int source_y = std::clamp(int(area.TopLeftY + (float(y) + 0.5f) * area.Height / float(output.height)),
-            0, limit_y);
-        const u8* row = static_cast<const u8*>(mapped.pData) + size_t(source_y) * mapped.RowPitch;
-        for (int x = 0; x < output.width; ++x)
-        {
-            const int source_x = std::clamp(int(area.TopLeftX + (float(x) + 0.5f) * area.Width / float(output.width)),
-                0, limit_x);
-            std::memcpy(output.bgra.data() + (size_t(y) * size_t(output.width) + size_t(x)) * 4,
-                row + size_t(source_x) * 4, 4);
-        }
+        const u8* row = static_cast<const u8*>(mapped.pData) + size_t(top + y) * mapped.RowPitch + size_t(left) * 4;
+        std::memcpy(output.bgra.data() + size_t(y) * size_t(output.width) * 4, row, size_t(output.width) * 4);
     }
     g.context->Unmap(surface.staging.Get(), 0);
     if (surface.desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM || surface.desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)

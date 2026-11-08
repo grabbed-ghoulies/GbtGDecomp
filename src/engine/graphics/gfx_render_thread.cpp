@@ -249,6 +249,8 @@ void execute(Command& command)
         image.bgra.swap(command.pixels.bgra);
         image.serial = command.pixels.serial;
         image.linear = command.pixels.linear;
+        image.texel_width = command.pixels.texel_width;
+        image.texel_height = command.pixels.texel_height;
         image.movie_slot = command.pixels.movie_slot;
         image.movie_seen = command.pixels.movie_seen;
         image.movie_front = command.pixels.movie_front;
@@ -397,6 +399,8 @@ void copy_image(RgbaImage& to, const RgbaImage& from)
     to.bgra.assign(from.bgra.begin(), from.bgra.end());
     to.serial = from.serial;
     to.linear = from.linear;
+    to.texel_width = from.texel_width;
+    to.texel_height = from.texel_height;
     to.movie_slot = from.movie_slot;
     to.movie_seen = from.movie_seen;
     to.movie_front = from.movie_front;

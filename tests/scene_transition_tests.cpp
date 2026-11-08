@@ -11759,6 +11759,19 @@ int main(int argc, char** argv)
         config.visible = false;
         config.width = argc == 4 && !player_test ? std::stoi(argv[2]) : 640;
         config.height = argc == 4 && !player_test ? std::stoi(argv[3]) : 480;
+        // GBTG_TEST_WINDOW=<width>x<height>: a larger window, for looking at what the 640x480 frame hides (the
+        // resolution of render targets drawn back over the scene).
+        if (const char* window = std::getenv("GBTG_TEST_WINDOW"); window != nullptr)
+        {
+            int width = 0;
+            int height = 0;
+            if (std::sscanf(window, "%dx%d", &width, &height) == 2 && width > 0 && height > 0)
+            {
+                config.width = width;
+                config.height = height;
+                std::cout << "window " << width << "x" << height << "\n";
+            }
+        }
         // GBTG_WIDESCREEN=1: the [Video] Widescreen setting (DAT_00509703, the presenter's 16:9 frame) in an 854x480
         // target.
         if (const char* widescreen = std::getenv("GBTG_WIDESCREEN"); widescreen != nullptr && widescreen[0] == '1')

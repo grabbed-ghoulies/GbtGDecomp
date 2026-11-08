@@ -1245,7 +1245,13 @@ struct SceneActorServices::State
     // the rendered pixels are written to the texture's data (linear 32-bit) and it is decoded again.
     void present_render_target(std::uintptr_t color, std::uintptr_t depth);
     void close_render_target();
-    void end_render_target(RgbaImage& rendered);
+    // The open target's pixels at the texture's size. A scene target also leaves the window-resolution frame it
+    // was drawn at in `full` (empty otherwise).
+    void end_render_target(RgbaImage& rendered, RgbaImage& full);
+    // Presentation only: the texture's memory keeps its 640x480-sized texels, which native code reads, while draws
+    // that sample it get `full`, the frame at the window's resolution (as the Xbox drew it at 640x480), so a page
+    // drawn back over the screen is as sharp as the screen. Nothing happens for an empty `full`.
+    void show_full_resolution(u32 texture, RgbaImage& full);
     u32 render_target_depth_texture = 0; // A texture surface given as the open target's depth.
     bool render_target_scene = false; // The open target shares the back buffer's depth-stencil.
     void copy_back_buffer(u32 texture);

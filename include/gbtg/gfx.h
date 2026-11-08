@@ -174,7 +174,8 @@ bool gfx_end_native_target_into(const RgbaImage& image);
 void gfx_read_ended_native_target(RgbaImage& output);
 // D3DDevice_SetRenderTarget onto a texture surface with the device's own depth surface: native draws and clears go
 // to a colour surface shaped like the back buffer, depth-testing and stencilling against the back buffer's
-// depth-stencil under the same fitted viewport. Ending scales the frame's 640x480 area down to width x height BGRA.
+// depth-stencil under the same fitted viewport. Ending reads the frame's 640x480 area back as BGRA at the window's
+// resolution; the caller scales it to the texture's width x height for the texture's memory.
 // Each `key` (the texture's address) keeps its own surface, which holds what was last drawn into it: the texture's
 // memory is not loaded back, so a user clears it before drawing (0x00119230 does, before its first region).
 void gfx_begin_native_scene_target(u32 key, int width, int height);

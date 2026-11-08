@@ -240,6 +240,30 @@ grey round him, and the door and Cooper, drawn after the pass, keep their colour
 - Not checked: the aliasing the issue's comment mentions, and the fade-to-grey fx itself (no scene driven here
   creates one).
 
+## Pages at the window's resolution (issues #51 and #56)
+
+Retail draws its full-screen pages at 640x480, the frame's own size: the scene target that shares the back
+buffer's depth (DAT_005047DC's page, which the point-light, blob-shadow and book passes draw into and composite
+back) and the back-buffer copies (`D3DDevice_CopyRects`, the book and transition captures). The port draws the frame
+at the window's resolution, so a page shrunk to 640x480 and drawn back over the screen showed as a coarser copy of it:
+the background round the Grim Reaper (#51) and the frozen frame in a transition (#56).
+
+- `gfx_end_native_scene_target` now returns the frame's 4:3 area at the window's resolution, as `gfx_readback_ui`
+  already did. The scene side scales it to the texture's size (each texel takes the pixel at its centre, as the
+  backend did before) for the texture's memory, which native code reads.
+- `show_full_resolution` then gives the texture's decoded image the full frame, with `RgbaImage::texel_width` /
+  `texel_height` set to the texture's size. A linear format's texel coordinates (`native_uv_scale` and the per-stage
+  scales, both backends) count in those, so the larger image covers the same area.
+- Presentation only: the texture's memory still holds 640x480 texels, so native code sees what it did before.
+- The test executable takes `GBTG_TEST_WINDOW=<width>x<height>` to capture at a larger size.
+- Checked at 1280x960: `--scene2a2-reaper` frame 3900 shows the grey room round the reaper with smooth edges where
+  they were stepped. In the `--scene3c5` death transition the frozen frame's HUD digits and rivets are sharp where they
+  were blurred (frames 2895 to 3045).
+- Not covered: textures the game creates and renders into with a surface of their own (`gfx_begin_native_target`)
+  are still 640x480 or their own size.
+- Benchmark (`tools/render_benchmark.py`, 1920x1080, hall, tutorial, transition): frame times are unchanged. Not
+  measured: scenes that end a page every frame (the point-light pass), which now upload the window-sized frame.
+
 ## Work
 
 1. **HUD and effect bodies.** Translate the scene-start writers (`0x00132040`,

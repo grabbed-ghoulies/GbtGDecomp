@@ -2174,7 +2174,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     if (draw.pixel_shader == nullptr && draw.textures[0] != nullptr && draw.textures[0]->linear
         && draw.textures[0]->width > 0 && draw.textures[0]->height > 0)
     {
-        cb.native_uv_scale = {1.f / float(draw.textures[0]->width), 1.f / float(draw.textures[0]->height), 0.f, 0.f};
+        cb.native_uv_scale = {1.f / float(draw.textures[0]->linear_width()), 1.f / float(draw.textures[0]->linear_height()), 0.f, 0.f};
     }
     std::array<u32, 80> words{};
     const Shader* pixel = &g.native_ps;
@@ -2189,7 +2189,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
             const RgbaImage* texture = draw.textures[stage];
             if (texture != nullptr && texture->linear && texture->width > 0 && texture->height > 0)
             {
-                const float scale[2] = {1.f / float(texture->width), 1.f / float(texture->height)};
+                const float scale[2] = {1.f / float(texture->linear_width()), 1.f / float(texture->linear_height())};
                 std::memcpy(&words[68 + stage * 2], scale, sizeof(scale));
             }
         }
@@ -2489,22 +2489,17 @@ void gfx_end_native_scene_target(RgbaImage& output)
     vkCmdCopyImageToBuffer(g.command, color.image, VK_IMAGE_LAYOUT_GENERAL, buffer.buffer, 1, &copy);
     vk::memory_barrier(g.command);
     submit();
-    // The fitted 640x480 area the frame is drawn into, sampled at each texel's centre.
+    // The fitted 640x480 area the frame is drawn into, at the window's resolution.
     const Viewport area = hud_viewport();
-    output.width = g.scene_target_width;
-    output.height = g.scene_target_height;
+    const int left = std::clamp(int(area.x + 0.5f), 0, color.width - 1);
+    const int top = std::clamp(int(area.y + 0.5f), 0, color.height - 1);
+    output.width = std::clamp(int(area.width + 0.5f), 1, color.width - left);
+    output.height = std::clamp(int(area.height + 0.5f), 1, color.height - top);
     output.bgra.resize(size_t(output.width) * size_t(output.height) * 4);
     for (int y = 0; y < output.height; ++y)
     {
-        const int source_y = std::clamp(int(area.y + (float(y) + 0.5f) * area.height / float(output.height)), 0,
-            color.height - 1);
-        for (int x = 0; x < output.width; ++x)
-        {
-            const int source_x = std::clamp(int(area.x + (float(x) + 0.5f) * area.width / float(output.width)), 0,
-                color.width - 1);
-            std::memcpy(output.bgra.data() + (size_t(y) * size_t(output.width) + size_t(x)) * 4,
-                buffer.mapped + (size_t(source_y) * size_t(color.width) + size_t(source_x)) * 4, 4);
-        }
+        std::memcpy(output.bgra.data() + size_t(y) * size_t(output.width) * 4,
+            buffer.mapped + (size_t(top + y) * size_t(color.width) + size_t(left)) * 4, size_t(output.width) * 4);
     }
     g.scene_target_rendering = false;
     g.scene_target_open = nullptr;

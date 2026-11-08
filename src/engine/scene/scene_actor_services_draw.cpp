@@ -1010,16 +1010,19 @@ void SceneActorServices::State::close_render_target()
 #endif
         // A created swizzled A8R8G8B8 (or linear) texture takes the rendered rows in its own texel order.
         RgbaImage rendered;
-        end_render_target(rendered);
+        RgbaImage full;
+        end_render_target(rendered, full);
         write_target_texels(render_target_texture, rendered);
         movie_textures.insert(resources.memory.pointer(render_target_texture));
+        show_full_resolution(render_target_texture, full);
         render_target_texture = 0;
         return;
     }
     if (render_target_texture != 0)
     {
         RgbaImage rendered;
-        end_render_target(rendered);
+        RgbaImage full;
+        end_render_target(rendered, full);
         const RuntimeMovieLockedSurface surface = lock_movie_texture(render_target_texture);
         const size_t row = size_t(rendered.width) * 4;
         for (int y = 0; y < rendered.height; ++y)
@@ -1027,8 +1030,50 @@ void SceneActorServices::State::close_render_target()
             std::memcpy(surface.pixels + size_t(y) * size_t(surface.pitch), rendered.bgra.data() + size_t(y) * row,
                 row);
         }
+        show_full_resolution(render_target_texture, full);
         render_target_texture = 0;
     }
+}
+
+// Each of the texture's texels takes the frame's pixel at its centre, as the Xbox's 640x480 frame would hold it.
+static RgbaImage scale_to_texture(const RgbaImage& frame, int width, int height)
+{
+    RgbaImage scaled;
+    scaled.width = width;
+    scaled.height = height;
+    scaled.bgra.resize(size_t(width) * size_t(height) * 4);
+    for (int y = 0; y < height; ++y)
+    {
+        const int source_y = std::clamp(int((float(y) + 0.5f) * float(frame.height) / float(height)), 0,
+            frame.height - 1);
+        for (int x = 0; x < width; ++x)
+        {
+            const int source_x = std::clamp(int((float(x) + 0.5f) * float(frame.width) / float(width)), 0,
+                frame.width - 1);
+            std::memcpy(scaled.bgra.data() + (size_t(y) * size_t(width) + size_t(x)) * 4,
+                frame.bgra.data() + (size_t(source_y) * size_t(frame.width) + size_t(source_x)) * 4, 4);
+        }
+    }
+    return scaled;
+}
+
+void SceneActorServices::State::show_full_resolution(u32 texture, RgbaImage& full)
+{
+    if (full.width <= 0 || full.height <= 0 || full.bgra.empty())
+    {
+        return;
+    }
+    const auto& record = resources.d3d.resources.at(texture);
+    const u8* key = resources.memory.pointer(texture);
+    // The texture's data was just written: decode it once (the image's linear and movie fields), then show the
+    // window-resolution frame in its place, counted in the texture's own texels.
+    RgbaImage& image = const_cast<RgbaImage&>(texture_image(key));
+    image.width = full.width;
+    image.height = full.height;
+    image.bgra = std::move(full.bgra);
+    image.texel_width = i32(record.header[0]);
+    image.texel_height = i32(record.header[1]);
+    ++image.serial;
 }
 
 // A created texture's data takes a rendered target's rows: swizzled for SZ_A8R8G8B8 (6), as they are otherwise.
@@ -1076,12 +1121,22 @@ void SceneActorServices::State::finish_render_target()
     }
 }
 
-void SceneActorServices::State::end_render_target(RgbaImage& rendered)
+void SceneActorServices::State::end_render_target(RgbaImage& rendered, RgbaImage& full)
 {
+    full = {};
     if (render_target_scene)
     {
-        gfx_end_native_scene_target(rendered);
+        gfx_end_native_scene_target(full);
         render_target_scene = false;
+        const auto& record = resources.d3d.resources.at(render_target_texture);
+        if (full.width <= 0 || full.height <= 0)
+        {
+            // No device (the null backend): nothing was read back, so the texture's data is left as it is.
+            rendered = {};
+            full = {};
+            return;
+        }
+        rendered = scale_to_texture(full, i32(record.header[0]), i32(record.header[1]));
         return;
     }
     gfx_end_native_target(rendered);
@@ -1180,6 +1235,7 @@ void SceneActorServices::State::copy_back_buffer(u32 texture)
             std::memcpy(line + size_t(x) * 4, frame.bgra.data() + (size_t(source_y) * frame.width + source_x) * 4, 4);
         }
     }
+    show_full_resolution(header, frame);
 }
 
 RuntimeMovieLockedSurface SceneActorServices::State::lock_movie_texture(u32 record)

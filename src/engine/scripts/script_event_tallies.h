@@ -9,14 +9,25 @@ namespace gbtg
 {
 // DAT_0052C274 and DAT_00512B78: per kind, a 61 x 61 table of event counts by (second tag, first tag), with row 0
 // and column 0 holding the totals. The script filter 0x00116950 records kinds 0 to 4; 0x0012AF10 sums seven kinds,
-// and DAT_00512B78's seven kinds end at DAT_0052C274.
+// and DAT_00512B78's seven kinds end at DAT_0052C274. The two tables are one block in that order: 0x0001F8C0's kind-5
+// rows (DAT_00524E2C, DAT_0053E528) index by tag past their own kind.
 struct RuntimeScriptTallies
 {
     static constexpr size_t kind_words = 0xE89; // 0x3A24 bytes per kind.
-    std::array<u32, 7 * kind_words> first{}; // DAT_0052C274.
-    std::array<u32, 7 * kind_words> second{}; // DAT_00512B78, which the script conditions read by address.
+    std::array<u32, 14 * kind_words> words{}; // DAT_00512B78 .. DAT_00545970.
+    std::span<u32> second{words.data(), 7 * kind_words}; // DAT_00512B78, which the script conditions read by address.
+    std::span<u32> first{words.data() + 7 * kind_words, 7 * kind_words}; // DAT_0052C274.
+
+    RuntimeScriptTallies() = default;
+    RuntimeScriptTallies(const RuntimeScriptTallies&) = delete;
+    RuntimeScriptTallies& operator=(const RuntimeScriptTallies&) = delete;
 };
 extern RuntimeScriptTallies g_script_tallies;
+
+// The kind-5 contact counts 0x0001F8C0 and the weapon reports raise, 0x3D words per attacker tag: DAT_0053E528 (the
+// first tallies' kind 5) and DAT_00524E2C (the second's, which the limited-attacks step reads at the player tags).
+std::span<u32> script_contact_totals();
+std::span<u32> script_contact_session();
 
 // The kill counters 0x0012ACF0 raises for kind 0.
 struct RuntimeScriptKillCounters

@@ -798,9 +798,9 @@ struct SceneActorServices::State
     std::unordered_map<Actor*, std::unique_ptr<RuntimeSegmentContactActor>> prop_contact_views;
     std::unordered_map<const u8*, Actor*> prop_contact_owners; // A prop contact view's object bytes and its key.
     std::unordered_map<const NativePlayerInstance*, std::unique_ptr<RuntimeSegmentContactActor>> player_contact_views;
-    // Contact counts by actor tag, 0x3D words per tag (0xEA tags): DAT_0053E528 and DAT_00524E2C.
-    std::vector<u32> contact_totals = std::vector<u32>(size_t(0xEA) * 0x3D);
-    std::vector<u32> contact_session = std::vector<u32>(size_t(0xEA) * 0x3D);
+    // Contact counts by actor tag, 0x3D words per tag: DAT_0053E528 and DAT_00524E2C, the script tallies' kind 5.
+    std::span<u32> contact_totals = script_contact_totals();
+    std::span<u32> contact_session = script_contact_session();
     AudioBankStreams* audio_banks = &audio.streams; // DAT_004DF370, DAT_004E030C.
     std::unique_ptr<AttractControlServices> attract_services; // Factory type 0x9B.
     std::vector<TrophyHeadRow> trophy_head_rows; // DAT_00301920.

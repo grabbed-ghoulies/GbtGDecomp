@@ -33,6 +33,18 @@ u16 actor_tag_or_one(u32 actor)
 }
 }
 
+std::span<u32> script_contact_totals()
+{
+    constexpr size_t start = 12 * RuntimeScriptTallies::kind_words; // DAT_0053E528
+    return std::span<u32>(g_script_tallies.words).subspan(start);
+}
+
+std::span<u32> script_contact_session()
+{
+    constexpr size_t start = 5 * RuntimeScriptTallies::kind_words; // DAT_00524E2C
+    return std::span<u32>(g_script_tallies.words).subspan(start);
+}
+
 // Xbox 0x0012AF80
 void tally_runtime_script_pair(u32 kind, std::span<u32> table, u16 second, u16 first)
 {

@@ -4,6 +4,19 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-08: the limited attacks count Cooper's attacks (issue #50)
+
+- Issue #50 ("Chapter 3 Scene 24", chapter3c_scene5_1playcam): the "limited attacks" counter never counted down.
+- The step (type 0x10, `0x000D01D0`) and its HUD count read DAT_00525B84 + DAT_005251FC, the DAT_00512B78 tallies'
+  kind 5 at second tags 0xE and 4. `0x0001F8C0` raises them on the first contact of each attack (the body's +0x2CC):
+  DAT_0053E528 and DAT_00524E2C by the attacker's tag, which are kind 5 of DAT_0052C274 and of DAT_00512B78. The
+  port kept those two rows in vectors of their own, so the step never saw an attack.
+- `RuntimeScriptTallies` is now one block in retail order (DAT_00512B78, then DAT_0052C274), and the contact reports
+  (the player's, the weapons' and the explode state's) raise kind 5 of each table.
+- `--scene3c5`: the counter goes 10, 8, 5, 2 (captures 1800 to 2700), and the event fails when it runs out and
+  restarts. The driver punches freely, so the mode no longer passes (12 restarts in 36000 frames). `--scene2c8`
+  ("kill all/limited attacks" against the paintings) still passes.
+
 ### 2026-11-07: attack-limited ghoulies count the live players (issue #46)
 
 - Issue #46 ("Chapter 2 Scene 34", chapter2c_scene7_1playcam, the music room): the ninja imps never chanted and grew.

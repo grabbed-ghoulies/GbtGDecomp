@@ -1250,6 +1250,12 @@ struct SceneActorServices::State
     bool render_target_scene = false; // The open target shares the back buffer's depth-stencil.
     void copy_back_buffer(u32 texture);
     u32 render_target_texture = 0;
+    // GBTG_OPTIMIZE step 12: a created texture target that ended on the GPU (gfx_end_native_target_into). Its
+    // data is written once the presenter's commands are done (finish_render_target), before native code runs
+    // again. The member exists in every build so the layout does not depend on the option.
+    u32 pending_target_texture = 0;
+    void finish_render_target();
+    void write_target_texels(u32 texture, const RgbaImage& rendered);
     std::unordered_set<const u8*> movie_textures;
     // D3DDevice_CreateTexture2 records (0x14-byte headers in the resource arena), decoded from their arguments.
     std::unordered_set<u32> created_textures;

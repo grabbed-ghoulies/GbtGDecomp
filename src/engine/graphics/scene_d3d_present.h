@@ -20,6 +20,8 @@ struct SceneD3DPresentContext
     std::function<void(std::uintptr_t color, std::uintptr_t depth)> render_target;
     // D3DDevice_CopyRects: the back buffer drawn so far into a texture object's level 0.
     std::function<void(u32 texture)> copy_back_buffer = nullptr;
+    // GBTG_OPTIMIZE step 12: called after the last command, to write back render targets that ended on the GPU.
+    std::function<void()> finish = nullptr;
 };
 void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const SceneD3DPresentContext& context);
 }

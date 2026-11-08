@@ -214,6 +214,14 @@ struct GfxD3D11
     // The program gfx_native_vertex_program_supported just found, for the draw that follows it.
     std::span<const u32> supported_words;
     ProgramGpu* supported_program = nullptr;
+    // GBTG_OPTIMIZE step 13: native_programs lookups by the address of the program's words, verified against a
+    // copy of them, so a reused address with other words looks up again (the Vulkan step 3 memo).
+    struct ProgramMemo
+    {
+        std::vector<u32> words;
+        ProgramGpu* program = nullptr;
+    };
+    std::unordered_map<const u32*, ProgramMemo> program_memo;
     // GBTG_OPTIMIZE step 7: immutable uploads of the presenter's retained geometry, by
     // GfxNativeDraw::retained_geometry. An id's contents never change, so an upload is made once.
     struct RetainedUpload
@@ -299,6 +307,8 @@ struct NativeRenderTarget
     ComPtr<ID3D11DepthStencilView> dsv;
     ComPtr<ID3D11Texture2D> staging;
     ComPtr<ID3D11Texture2D> depth_staging;
+    // GBTG_OPTIMIZE step 12: the staging copy gfx_end_native_target_into last started, until it is read.
+    ComPtr<ID3D11Texture2D> ended;
 };
 NativeRenderTarget native_target;
 
@@ -861,6 +871,7 @@ void gfx_shutdown()
 #if GBTG_OPTIMIZE
     g.supported_words = {};
     g.supported_program = nullptr;
+    g.program_memo.clear();
     g.native_pipeline = false;
     g.last_pixel = nullptr;
     g.readback_staging.Reset();
@@ -1432,6 +1443,17 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
     {
         return false;
     }
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 13: the memo answers before the map's whole-program comparisons.
+    if (const auto memo = g.program_memo.find(program.data()); memo != g.program_memo.end()
+        && memo->second.words.size() == program.size()
+        && std::memcmp(memo->second.words.data(), program.data(), program.size_bytes()) == 0)
+    {
+        g.supported_words = program;
+        g.supported_program = memo->second.program;
+        return memo->second.program->shader != nullptr;
+    }
+#endif
     auto found = g.native_programs.find(program);
     if (found != g.native_programs.end())
     {
@@ -1439,6 +1461,11 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
         // GBTG_OPTIMIZE step 2: the draw that follows reuses this lookup.
         g.supported_words = program;
         g.supported_program = &found->second;
+        if (g.program_memo.size() >= 4096)
+        {
+            g.program_memo.clear();
+        }
+        g.program_memo[program.data()] = {std::vector<u32>(program.begin(), program.end()), &found->second};
 #endif
         return found->second.shader != nullptr;
     }
@@ -2534,6 +2561,100 @@ void gfx_end_native_target(RgbaImage& output)
     g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
     g.context->RSSetViewports(1, &native_target.saved_viewport);
     native_target.rendering = false;
+}
+
+bool gfx_end_native_target_into(const RgbaImage& image)
+{
+#if GBTG_OPTIMIZE
+    if (!g.ok)
+    {
+        return false;
+    }
+    if (!native_target.rendering)
+    {
+        throw Error("native render target is not bound");
+    }
+    if (image.width != native_target.width || image.height != native_target.height)
+    {
+        return false;
+    }
+    // The texture native_texture binds for `image`: kept when it already has the target's shape.
+    GfxD3D11::SpriteGpu& sprite = g.sprites[&image];
+    ComPtr<ID3D11Texture2D> texture;
+    if (sprite.srv)
+    {
+        ComPtr<ID3D11Resource> resource;
+        sprite.srv->GetResource(resource.GetAddressOf());
+        D3D11_TEXTURE2D_DESC desc{};
+        if (SUCCEEDED(resource.As(&texture)))
+        {
+            texture->GetDesc(&desc);
+            if (desc.Width != u32(image.width) || desc.Height != u32(image.height) || desc.MipLevels != 1
+                || desc.ArraySize != 1 || desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM || desc.SampleDesc.Count != 1
+                || desc.Usage != D3D11_USAGE_DEFAULT)
+            {
+                texture.Reset();
+            }
+        }
+    }
+    if (!texture)
+    {
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = u32(image.width);
+        desc.Height = u32(image.height);
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        sprite.srv.Reset();
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, texture.GetAddressOf()))
+            || FAILED(g.device->CreateShaderResourceView(texture.Get(), nullptr, sprite.srv.GetAddressOf())))
+        {
+            throw Error("native render target texture creation failed");
+        }
+    }
+    g.context->CopyResource(texture.Get(), native_target.color.Get());
+    g.context->CopyResource(native_target.staging.Get(), native_target.color.Get());
+    sprite.serial = image.serial;
+    native_target.ended = native_target.staging;
+    // Submitted now, so the GPU has drawn and copied the target by the time gfx_read_ended_native_target maps it;
+    // otherwise the driver holds the frame's commands until that Map and it waits for all of them.
+    g.context->Flush();
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
+    g.context->RSSetViewports(1, &native_target.saved_viewport);
+    native_target.rendering = false;
+    return true;
+#else
+    (void)image;
+    return false;
+#endif
+}
+
+void gfx_read_ended_native_target(RgbaImage& output)
+{
+    if (!native_target.ended)
+    {
+        throw Error("no native target ended on the GPU");
+    }
+    D3D11_TEXTURE2D_DESC desc{};
+    native_target.ended->GetDesc(&desc);
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(g.context->Map(native_target.ended.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    {
+        throw Error("native render target readback failed");
+    }
+    output.width = int(desc.Width);
+    output.height = int(desc.Height);
+    output.bgra.resize(size_t(output.width) * size_t(output.height) * 4);
+    for (int y = 0; y < output.height; ++y)
+    {
+        std::memcpy(output.bgra.data() + size_t(y) * size_t(output.width) * 4,
+            static_cast<const u8*>(mapped.pData) + size_t(y) * mapped.RowPitch, size_t(output.width) * 4);
+    }
+    g.context->Unmap(native_target.ended.Get(), 0);
+    native_target.ended.Reset();
 }
 
 void gfx_begin_native_scene_target(u32 key, int width, int height)

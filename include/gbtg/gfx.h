@@ -163,6 +163,12 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
 // stencil neither test nor write.
 void gfx_begin_native_target(int width, int height, bool depth);
 void gfx_end_native_target(RgbaImage& output);
+// GBTG_OPTIMIZE step 12: ends the native target by copying it on the GPU into the texture native draws sample for
+// `image`, which then stands at image.serial, and starts reading it back without waiting. False, with the target
+// still bound, when the backend has no such path or the sizes differ: gfx_end_native_target ends it instead.
+bool gfx_end_native_target_into(const RgbaImage& image);
+// The BGRA pixels of the target gfx_end_native_target_into last ended. Waits only for the GPU work not yet done.
+void gfx_read_ended_native_target(RgbaImage& output);
 // D3DDevice_SetRenderTarget onto a texture surface with the device's own depth surface: native draws and clears go
 // to a colour surface shaped like the back buffer, depth-testing and stencilling against the back buffer's
 // depth-stencil under the same fitted viewport. Ending scales the frame's 640x480 area down to width x height BGRA.

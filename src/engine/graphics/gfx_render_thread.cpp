@@ -831,6 +831,24 @@ void gfx_end_native_target(RgbaImage& output)
     inner->gfx_end_native_target(output);
 }
 
+bool gfx_end_native_target_into(const RgbaImage& image)
+{
+    if (running)
+    {
+        drain();
+    }
+    return inner->gfx_end_native_target_into(image);
+}
+
+void gfx_read_ended_native_target(RgbaImage& output)
+{
+    if (running)
+    {
+        drain();
+    }
+    inner->gfx_read_ended_native_target(output);
+}
+
 void gfx_begin_native_scene_target(u32 key, int width, int height)
 {
     if (!running)

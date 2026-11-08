@@ -2423,6 +2423,17 @@ void gfx_end_native_target(RgbaImage& output)
     g.viewport = g.target_saved_viewport;
 }
 
+// GBTG_OPTIMIZE step 12 is D3D11 only: targets end through gfx_end_native_target here.
+bool gfx_end_native_target_into(const RgbaImage&)
+{
+    return false;
+}
+
+void gfx_read_ended_native_target(RgbaImage&)
+{
+    throw Error("the Vulkan backend ends no native target on the GPU");
+}
+
 void gfx_begin_native_scene_target(u32 key, int width, int height)
 {
     if (!g.ok)

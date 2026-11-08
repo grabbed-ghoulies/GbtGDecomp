@@ -93,6 +93,16 @@ void gfx_end_native_target(RgbaImage&)
 {
 }
 
+bool gfx_end_native_target_into(const RgbaImage&)
+{
+    return false;
+}
+
+void gfx_read_ended_native_target(RgbaImage& output)
+{
+    output = {};
+}
+
 void gfx_begin_native_scene_target(u32, int, int)
 {
 }

@@ -3393,6 +3393,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
                 [this](u32 texture)
                 {
                     copy_back_buffer(texture);
+                },
+                [this]()
+                {
+                    finish_render_target();
                 }};
             present_scene_d3d_commands(commands, present);
             d3d_device.commands = std::move(snapshot_saved);

@@ -970,22 +970,33 @@ void SceneActorServices::State::close_render_target()
     }
     if (render_target_texture != 0 && created_textures.contains(render_target_texture))
     {
+#if GBTG_OPTIMIZE
+        // GBTG_OPTIMIZE step 12: the target is copied on the GPU into the texture its image samples as, so draws
+        // after this one sample it without a readback. Its data is written by finish_render_target, after the
+        // presenter's last command and before native code runs again; nothing reads the data in between.
+        if (!render_target_scene && render_target_texture != pending_target_texture)
+        {
+            finish_render_target();
+        }
+        if (!render_target_scene)
+        {
+            const u8* key = resources.memory.pointer(render_target_texture);
+            texture_image(key);
+            RgbaImage& image = *texture_images.at(key);
+            ++image.serial;
+            if (gfx_end_native_target_into(image))
+            {
+                pending_target_texture = render_target_texture;
+                render_target_texture = 0;
+                return;
+            }
+            --image.serial;
+        }
+#endif
         // A created swizzled A8R8G8B8 (or linear) texture takes the rendered rows in its own texel order.
         RgbaImage rendered;
         end_render_target(rendered);
-        const auto& record = resources.d3d.resources.at(render_target_texture);
-        const auto texels = resources.memory.tail(record.data).first(size_t(record.header[0]) * record.header[1] * 4);
-        if (rendered.width == i32(record.header[0]) && rendered.height == i32(record.header[1]))
-        {
-            if (record.header[4] == 6)
-            {
-                swizzle_nv2a_into(texels, rendered.bgra, record.header[0], record.header[1], 4);
-            }
-            else
-            {
-                std::memcpy(texels.data(), rendered.bgra.data(), texels.size());
-            }
-        }
+        write_target_texels(render_target_texture, rendered);
         movie_textures.insert(resources.memory.pointer(render_target_texture));
         render_target_texture = 0;
         return;
@@ -1002,6 +1013,51 @@ void SceneActorServices::State::close_render_target()
                 row);
         }
         render_target_texture = 0;
+    }
+}
+
+// A created texture's data takes a rendered target's rows: swizzled for SZ_A8R8G8B8 (6), as they are otherwise.
+void SceneActorServices::State::write_target_texels(u32 texture, const RgbaImage& rendered)
+{
+    const auto& record = resources.d3d.resources.at(texture);
+    const auto texels = resources.memory.tail(record.data).first(size_t(record.header[0]) * record.header[1] * 4);
+    if (rendered.width == i32(record.header[0]) && rendered.height == i32(record.header[1]))
+    {
+        if (record.header[4] == 6)
+        {
+            swizzle_nv2a_into(texels, rendered.bgra, record.header[0], record.header[1], 4);
+        }
+        else
+        {
+            std::memcpy(texels.data(), rendered.bgra.data(), texels.size());
+        }
+    }
+}
+
+// GBTG_OPTIMIZE step 12: the target that last ended on the GPU is read back and written to its texture's data,
+// as close_render_target writes it otherwise. Its image already samples those pixels on the GPU (at the serial
+// close_render_target gave it), so the image takes them too instead of being decoded again.
+void SceneActorServices::State::finish_render_target()
+{
+    if (pending_target_texture == 0)
+    {
+        return;
+    }
+    const u32 texture = pending_target_texture;
+    pending_target_texture = 0;
+    RgbaImage rendered;
+    gfx_read_ended_native_target(rendered);
+    write_target_texels(texture, rendered);
+    const u8* key = resources.memory.pointer(texture);
+    const auto cached = texture_images.find(key);
+    if (cached != texture_images.end() && cached->second->width == rendered.width
+        && cached->second->height == rendered.height && cached->second->bgra.size() == rendered.bgra.size())
+    {
+        cached->second->bgra = std::move(rendered.bgra);
+    }
+    else
+    {
+        movie_textures.insert(key);
     }
 }
 
@@ -1052,6 +1108,14 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
         render_target_scene = true;
         return;
     }
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 12: the backend keeps one readback of an ended target; another texture's target would
+    // replace it.
+    if (pending_target_texture != 0 && pending_target_texture != texture)
+    {
+        finish_render_target();
+    }
+#endif
     // A null depth surface (D3DDevice_SetRenderTarget(surface, NULL)) leaves the target without a depth buffer.
     gfx_begin_native_target(i32(registered->second.header[0]), i32(registered->second.header[1]), depth != 0);
     const auto depth_texture = d3d_device.surface_textures.find(depth);
@@ -1463,6 +1527,9 @@ void SceneActorServices::inspect_view(const InspectionView& camera, InspectionFr
             }, [&state](u32 texture)
             {
                 state.copy_back_buffer(texture);
+            }, [&state]()
+            {
+                state.finish_render_target();
             }};
         stage = "recorded D3D presentation";
         present_scene_d3d_commands(commands, present);

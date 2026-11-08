@@ -149,6 +149,10 @@ void SceneActorServices::present_views()
         [&state](u32 texture)
         {
             state.copy_back_buffer(texture);
+        },
+        [&state]()
+        {
+            state.finish_render_target();
         }};
     present_runtime_display_views([&state, &present](i32 slot)
     {

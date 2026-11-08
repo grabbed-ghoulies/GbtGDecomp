@@ -534,6 +534,54 @@ u64 mix_retained_key(u64 hash, const void* data, size_t size)
     return hash;
 }
 
+// GBTG_OPTIMIZE step 14: a vertex stream resource's registered bytes, remembered within one presented command list.
+// Neither the resource registry nor the scene memory changes while the presenter runs (no native code runs), so
+// an answer stays right until present_scene_d3d_commands starts the next list, which clears the entries.
+struct StreamBytesCache
+{
+    struct Entry
+    {
+        u32 resource = 0;
+        u32 pass = 0;
+        const u8* data = nullptr;
+        size_t size = 0;
+    };
+    std::array<Entry, 16> entries{};
+    u32 pass = 1;
+    u32 next = 0;
+};
+thread_local StreamBytesCache g_stream_bytes;
+
+std::span<const u8> stream_bytes(u32 resource_address, const SceneD3DPresentContext& context)
+{
+    auto& cache = g_stream_bytes;
+    for (const auto& entry : cache.entries)
+    {
+        if (entry.pass == cache.pass && entry.resource == resource_address)
+        {
+            return {entry.data, entry.size};
+        }
+    }
+    const auto resource = context.resources.resources.find(resource_address);
+    if (resource == context.resources.resources.end() || resource->second.data == 0)
+    {
+        throw Error("vertex stream has no registered data");
+    }
+    const auto bytes = context.memory.tail(resource->second.data);
+    cache.entries[cache.next] = {resource_address, cache.pass, bytes.data(), bytes.size()};
+    cache.next = (cache.next + 1) % u32(cache.entries.size());
+    return bytes;
+}
+
+void begin_stream_bytes_pass()
+{
+    if (++g_stream_bytes.pass == 0)
+    {
+        g_stream_bytes.entries = {};
+        g_stream_bytes.pass = 1;
+    }
+}
+
 // Drops entries no draw has used for a while; called once per presented command list.
 void age_retained_geometry()
 {
@@ -603,12 +651,16 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         {
             throw Error("vertex declaration reads an unbound stream");
         }
+#if GBTG_OPTIMIZE
+        const auto bytes = stream_bytes(binding->second.resource, context);
+#else
         const auto resource = context.resources.resources.find(binding->second.resource);
         if (resource == context.resources.resources.end() || resource->second.data == 0)
         {
             throw Error("vertex stream has no registered data");
         }
         const auto bytes = context.memory.tail(resource->second.data);
+#endif
         stream = {bytes.data(), bytes.size(), binding->second.stride};
     }
     const auto indices = draw.sequential ? std::span<const u8>{}
@@ -1447,6 +1499,7 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
     render_profile::Scope measurement(render_profile::Presenter);
 #if GBTG_OPTIMIZE
     age_retained_geometry();
+    begin_stream_bytes_pass();
 #endif
     struct Batch
     {
@@ -1528,5 +1581,11 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
             }
         }
     }
+#if GBTG_OPTIMIZE
+    if (context.finish)
+    {
+        context.finish();
+    }
+#endif
 }
 }

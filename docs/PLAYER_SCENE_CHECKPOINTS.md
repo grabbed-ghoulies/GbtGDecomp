@@ -4,6 +4,35 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-08: the failing driven scenes, and released actors a dead mind still names
+
+- Of the 30 driven scene modes that did not pass, nearly all reach no untranslated code: the driver loses fights,
+  gets stuck, or breaks an event's rule. Cooper's starting energy is the scene's own (script node type 7 stores
+  DAT_00430D10, which `0x0007EF10` loads), so scene 3a5's 5 is retail's.
+- The driver's `invincible` cheat now holds Cooper at 30 energy or more, so one hit bigger than a scene's starting
+  energy (3a5's pirates take 6 of its 5) no longer knocks him out. Turned on for the modes that only fainted:
+  2b3, 2b5, 2b7, 2c4b, 3a5, 3a9, 3a10, 3a11, 3c10 and 3c14 now pass. `--scene3b5` had stopped passing before
+  these changes (it fails on the previous commit's build too: the ogres knock Cooper out); invincible, it passes.
+  One Release run of `--scene2b7`, among eight at once, stopped with an access violation at frame 46560; a
+  debugger run and a later Release run passed. A touch that takes his energy to 0 in one go (the
+  Grim Reaper's; in 3a12 a class 0x16 ghouly in the untitled section) still knocks him out: 3a12 and 3c9 still fail.
+- `--scene3c5` takes the room's one-hit-kill soup (kind 8) before "kill all/limited attacks", and passes.
+- `furnace_class`: the furnace (type 0x17) burns any body but a player's whose contact probes are inside its
+  sphere, +0x38 x 50 (37.5 in the foundry) (`0x0006E4D0`). A bare-handed Cooper waits inside it on the ghouly's
+  side and fights a ghouly of that class only there. In `--scene3c1` the mummies (class 0x22), which die no other
+  way without the candle, follow him in and burn, and the mode passes.
+- Released actors: `0x001232D0` sends {0x7C, actor} to every actor, but a dead ghouly's mind (a skeleton with
+  player +0xCE0 0 in 3b4) keeps the released actor's address at +0xC. Retail keeps a dangling pointer, which the
+  script actor queries compare (`0x00028C10` under flag 0x40000), the mind's gaze reads, and the struggle state
+  reads for its opponent's position. The port raised "scene address range exceeds its native instance" there.
+  `SceneActorServices::State::retired_actors` keeps a copy of each actor 0x001232D0 releases, as it was, with its
+  pointers cleared (as `retire_target` does). The actor-by-address reads used by strategies, minds, bodies and
+  positions (`actor_or_retired`) resolve a released address to that copy, and the reads that change actors still
+  raise. `--scene3b4` and `--scene3c12` get past it, and 3b4 passes.
+- Still failing, each for its own reason: 2a14, 3c8 and 3c13b (the walk to the exit is stuck), 3a12 and 3c9 (one
+  touch takes all his energy), 3c12 ("event - minimum damage" fails and his energy goes to 0), and the rule events
+  (3a8 no damage, 5_5 no hits, 5_9 no points / spare the skeletons) and the rest of the earlier list.
+
 ### 2026-11-08: a large projectile's contact shapes go off when it lands (issue #53)
 
 - Issue #53: thrown objects kept hurting long after they should have.

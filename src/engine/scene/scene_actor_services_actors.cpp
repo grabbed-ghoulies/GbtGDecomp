@@ -735,6 +735,15 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::case_actors(
     return views;
 }
 
+Actor* SceneActorServices::State::actor_or_retired(u32 address)
+{
+    if (const auto retired = retired_actors.find(address); retired != retired_actors.end())
+    {
+        return retired->second.get();
+    }
+    return actors->actors.at(scene.resolve_address(address, 0).data());
+}
+
 Actor* SceneActorServices::State::actor_at_address(u32 address)
 {
     return address == 0 ? nullptr : actors->actors.at(scene.resolve_address(address, 0).data());
@@ -803,7 +812,8 @@ std::vector<RuntimeScriptActorQueryView> SceneActorServices::State::marked_actor
             {
                 unbound("DAT_00511B38 player mind (actor +0x958) without its +0x10 word");
             }
-            view->reference.source = actor_at_address(mind_record(owner->mind).target);
+            const u32 source = mind_record(owner->mind).target;
+            view->reference.source = source == 0 ? nullptr : actor_or_retired(source);
             view->reference.binding = nullptr;
             if (const u32 record = mind_record(owner->mind).target_record; record != 0)
             {

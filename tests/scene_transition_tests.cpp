@@ -9523,7 +9523,7 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
 void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_range, const std::string& range_title,
     bool doors_first, bool answer_challenges, const std::string& calm_title, const std::string& powerup_box,
     gbtg::u32 powerup_kind, bool spare_watched, gbtg::u16 flee_class, float weapon_reach, bool invincible,
-    bool take_dropped)
+    bool take_dropped, gbtg::u16 furnace_class)
 {
     // With `powerup_box`, Cooper first goes to the bg-break setup (type 0x24) whose ghoulybox (+0x934) names it and
     // punches until its background part (+0xA50) breaks, then walks onto the powerup (type 0xD) of `powerup_kind`
@@ -9626,10 +9626,12 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 held_weapon = mark.body.empty() ? 0u : gbtg::body_record(mark.body).attached;
                 energy = mark.body.empty() ? 0 : gbtg::body_record(mark.body).energy; // Body +0x94.
                 // A driver cheat, not game behaviour: with `invincible`, Cooper's energy goes back to the most he has
-                // had each frame, so a fight the driver cannot win safely still reaches its later phases.
+                // had each frame, so a fight the driver cannot win safely still reaches its later phases. It is held
+                // at 30 or more, so a single hit bigger than the scene's starting energy (scene 3a5's pirates take 6
+                // of its 5) does not knock him out either.
                 if (invincible && !mark.body.empty())
                 {
-                    invincible_energy = std::max(invincible_energy, energy);
+                    invincible_energy = std::max<gbtg::u16>(std::max(invincible_energy, energy), 30);
                     if (energy != 0 && energy < invincible_energy)
                     {
                         std::memcpy(const_cast<gbtg::u8*>(mark.body.data()) + 0x94, &invincible_energy, 2);
@@ -10179,10 +10181,59 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         // A weapon Cooper took from a ghouly (scene 4_1b's cane) is swung from close by; the reach is for weapons the
         // scene hands him (4_1b's popcan gun against the plane).
         const float reach = holding && held_weapon != taken_weapon ? weapon_reach : 16.f;
-        const bool close = ghouly
+        bool close = ghouly
             && (ghouly->x - cooper->x) * (ghouly->x - cooper->x) + (ghouly->z - cooper->z) * (ghouly->z - cooper->z)
                 < reach * reach;
-        if (ghouly && !close && ghouly_actor != nullptr)
+        // With `furnace_class`, a bare-handed Cooper fights a ghouly of that class only inside the furnace's sphere
+        // (factory type 0x17, +0x38 x 50, 0x0006E4D0), where its contact probes burn any body but a player's
+        // (state 0x75): scene 3c1's mummies die no other way without the candle. Otherwise he waits inside the sphere
+        // on the ghouly's side, and the ghouly comes to him.
+        std::optional<gbtg::Vec3> furnace_spot;
+        bool furnace_wait = false;
+        if (furnace_class != 0 && ghouly && cooper && !holding && ghouly_class == furnace_class)
+        {
+            std::optional<gbtg::Vec3> furnace;
+            float sphere = 0.f;
+            for (const auto& object : game.factory_scene->objects)
+            {
+                if (object.type == 0x17 && object.bytes != nullptr)
+                {
+                    if (const gbtg::Actor* actor = actor_of_object(game, object); actor != nullptr)
+                    {
+                        furnace = gbtg::actor_world_position(*actor);
+                        sphere = actor->radius_xz * 50.f;
+                    }
+                }
+            }
+            if (furnace && sphere > 0.f)
+            {
+                if (frame % 1200 == 0)
+                {
+                    std::cout << label << " frame " << frame << ": the furnace at " << furnace->x << ", " << furnace->z
+                              << " burns within " << sphere << "\n";
+                }
+                float dx = ghouly->x - furnace->x;
+                float dz = ghouly->z - furnace->z;
+                const float length = std::sqrt(dx * dx + dz * dz);
+                if (length >= sphere && length > 0.01f)
+                {
+                    dx /= length;
+                    dz /= length;
+                    const gbtg::Vec3 spot{furnace->x + dx * sphere * 0.6f, cooper->y, furnace->z + dz * sphere * 0.6f};
+                    close = false;
+                    if ((cooper->x - spot.x) * (cooper->x - spot.x) + (cooper->z - spot.z) * (cooper->z - spot.z)
+                        > 4.f * 4.f)
+                    {
+                        furnace_spot = spot;
+                    }
+                    else
+                    {
+                        furnace_wait = true;
+                    }
+                }
+            }
+        }
+        if (ghouly && !close && ghouly_actor != nullptr && !furnace_spot && !furnace_wait)
         {
             if (ghouly_actor != chased)
             {
@@ -10218,11 +10269,12 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 fought_frames.erase(ghouly_actor);
             }
         }
-        if (ghouly && !close)
+        if (ghouly && !close && !furnace_wait)
         {
-            goal = ghouly;
+            goal = furnace_spot ? furnace_spot : ghouly;
             std::ostringstream name;
-            name << "a ghouly (class 0x" << std::hex << ghouly_class << ")";
+            name << (furnace_spot ? "the furnace, for a ghouly (class 0x" : "a ghouly (class 0x") << std::hex
+                 << ghouly_class << ")";
             goal_name = name.str();
         }
         if (!ghouly && cooper && !page && powerup_done)
@@ -10562,12 +10614,13 @@ void play_scene7(gbtg::Game& game, const std::string& label, float fight_range =
     const std::string& range_title = {}, bool doors_first = false, bool answer_challenges = false,
     const std::string& calm_title = {}, const std::string& powerup_box = {}, gbtg::u32 powerup_kind = 0,
     bool spare_watched = false, gbtg::u16 flee_class = 0, float weapon_reach = 16.f, bool invincible = false,
-    bool take_dropped = false)
+    bool take_dropped = false, gbtg::u16 furnace_class = 0)
 {
     try
     {
         play_scene7_run(game, label, fight_range, range_title, doors_first, answer_challenges, calm_title, powerup_box,
-            powerup_kind, spare_watched, flee_class, weapon_reach, invincible, take_dropped);
+            powerup_kind, spare_watched, flee_class, weapon_reach, invincible, take_dropped,
+            furnace_class);
     }
     catch (const std::exception& error)
     {
@@ -12195,14 +12248,14 @@ int main(int argc, char** argv)
         if (scene3c14_test)
         {
             pass_chapter_title(game, "scene3c14", "aid_script_ghoulies_chapter3c_scene14_1playcam", false);
-            play_scene7(game, "scene3c14", 1000.f, {}, true, true, {}, "aid_ghoulybox_powerups_supersoups_energyboost5", 3, false, 0, 60.f);
+            play_scene7(game, "scene3c14", 1000.f, {}, true, true, {}, "aid_ghoulybox_powerups_supersoups_energyboost5", 3, false, 0, 60.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
         if (scene3c13b_test)
         {
             pass_chapter_title(game, "scene3c13b", "aid_script_ghoulies_chapter3c_scene13_3playcam", false);
-            play_scene7(game, "scene3c13b", 1000.f, {}, true, true, {}, "aid_ghoulybox_powerups_supersoups_onehitkill", 8);
+            play_scene7(game, "scene3c13b", 1000.f, {}, true, true, {}, "aid_ghoulybox_powerups_supersoups_onehitkill", 8, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12216,7 +12269,7 @@ int main(int argc, char** argv)
         if (scene3c12_test)
         {
             pass_chapter_title(game, "scene3c12", "aid_script_ghoulies_chapter3c_scene12_1playcam", false);
-            play_scene7(game, "scene3c12", 1000.f, {}, true, true, "free play", "aid_ghoulybox_single_warlock", 0);
+            play_scene7(game, "scene3c12", 1000.f, {}, true, true, "free play", "aid_ghoulybox_single_warlock", 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12230,7 +12283,7 @@ int main(int argc, char** argv)
         if (scene3c10_test)
         {
             pass_chapter_title(game, "scene3c10", "aid_script_ghoulies_chapter3c_scene10_1playcam", false);
-            play_scene7(game, "scene3c10", 0.f, {}, true, true, {}, "aid_ghoulybox_powerups_supersoups_energyboost1", 0);
+            play_scene7(game, "scene3c10", 0.f, {}, true, true, {}, "aid_ghoulybox_powerups_supersoups_energyboost1", 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12238,14 +12291,14 @@ int main(int argc, char** argv)
         {
             pass_chapter_title(game, "scene3c9", "aid_script_ghoulies_chapter3c_scene9_1playcam", false);
             play_scene7(game, "scene3c9", 1000.f, {}, true, true, "event - one type(random)/time limit", {}, 0,
-                false, 0xF);
+                false, 0xF, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
         if (scene3c8_test)
         {
             pass_chapter_title(game, "scene3c8", "aid_script_ghoulies_chapter3c_scene8_1playcam", false);
-            play_scene7(game, "scene3c8", 1000.f, {}, true, true);
+            play_scene7(game, "scene3c8", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12266,7 +12319,7 @@ int main(int argc, char** argv)
         if (scene3c5_test)
         {
             pass_chapter_title(game, "scene3c5", "aid_script_ghoulies_chapter3c_scene5_1playcam", false);
-            play_scene7(game, "scene3c5", 1000.f, {}, true, true);
+            play_scene7(game, "scene3c5", 1000.f, {}, true, true, {}, "aid_ghoulybox_powerups_supersoups_onehitkill", 8);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12294,7 +12347,7 @@ int main(int argc, char** argv)
         if (scene3c1_test)
         {
             pass_chapter_title(game, "scene3c1", "aid_script_ghoulies_chapter3c_scene1_1playcam", false);
-            play_scene7(game, "scene3c1", 1000.f, {}, true, true);
+            play_scene7(game, "scene3c1", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true, false, 0x22);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12315,7 +12368,8 @@ int main(int argc, char** argv)
         if (scene3b5_test)
         {
             pass_chapter_title(game, "scene3b5", "aid_script_ghoulies_chapter3b_scene5_2playcam", false);
-            play_scene7(game, "scene3b5", 0.f, {}, true, true, {}, "aid_ghoulybox_powerups_supersoups_energyboost5", 3);
+            play_scene7(game, "scene3b5", 0.f, {}, true, true, {}, "aid_ghoulybox_powerups_supersoups_energyboost5", 3,
+                false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12323,7 +12377,7 @@ int main(int argc, char** argv)
         {
             pass_chapter_title(game, "scene3b4", "aid_script_ghoulies_chapter3b_scene4_2playcam", false);
             play_scene7(game, "scene3b4", 1000.f, "event - survive/no weapons", true, true, {},
-                "aid_ghoulybox_powerups_supersoups_energyboost5", 3);
+                "aid_ghoulybox_powerups_supersoups_energyboost5", 3, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12351,28 +12405,28 @@ int main(int argc, char** argv)
         if (scene3a12_test)
         {
             pass_chapter_title(game, "scene3a12", "aid_script_ghoulies_chapter3a_scene12_1playcam", false);
-            play_scene7(game, "scene3a12", 1000.f, {}, true, true);
+            play_scene7(game, "scene3a12", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
         if (scene3a11_test)
         {
             pass_chapter_title(game, "scene3a11", "aid_script_ghoulies_chapter3a_scene11_1playcam", false);
-            play_scene7(game, "scene3a11", 1000.f, {}, true, true);
+            play_scene7(game, "scene3a11", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
         if (scene3a10_test)
         {
             pass_chapter_title(game, "scene3a10", "aid_script_ghoulies_chapter3a_scene10_2playcam", false);
-            play_scene7(game, "scene3a10", 1000.f, {}, true, true);
+            play_scene7(game, "scene3a10", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
         if (scene3a9_test)
         {
             pass_chapter_title(game, "scene3a9", "aid_script_ghoulies_chapter3a_scene9_1playcam", false);
-            play_scene7(game, "scene3a9", 1000.f, {}, true, true);
+            play_scene7(game, "scene3a9", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12400,7 +12454,7 @@ int main(int argc, char** argv)
         if (scene3a5_test)
         {
             pass_chapter_title(game, "scene3a5", "aid_script_ghoulies_chapter3a_scene5_1playcam", false);
-            play_scene7(game, "scene3a5", 1000.f, {}, true, true, "free play");
+            play_scene7(game, "scene3a5", 1000.f, {}, true, true, "free play", {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12546,7 +12600,7 @@ int main(int argc, char** argv)
         if (scene2c4b_test)
         {
             pass_chapter_title(game, "scene2c4b", "aid_script_ghoulies_chapter2c_scene4_2playcam", false);
-            play_scene7(game, "scene2c4b", 1000.f, {}, true, true, "FREE PLAY");
+            play_scene7(game, "scene2c4b", 1000.f, {}, true, true, "FREE PLAY", {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12615,7 +12669,7 @@ int main(int argc, char** argv)
             pass_chapter_title(game, "scene2b7", "aid_script_ghoulies_chapter2b_scene7_1playcam", false);
             // Free play's mummies keep coming from the workshop spawn; the driver walks to the exit rather than fight
             // them.
-            play_scene7(game, "scene2b7", 1000.f, {}, true, true, "FREE PLAY");
+            play_scene7(game, "scene2b7", 1000.f, {}, true, true, "FREE PLAY", {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12636,7 +12690,7 @@ int main(int argc, char** argv)
         if (scene2b5_test)
         {
             pass_chapter_title(game, "scene2b5", "aid_script_ghoulies_chapter2b_scene5_1playcam", false);
-            play_scene7(game, "scene2b5", 1000.f, {}, true, true);
+            play_scene7(game, "scene2b5", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12657,7 +12711,7 @@ int main(int argc, char** argv)
         if (scene2b3_test)
         {
             pass_chapter_title(game, "scene2b3", "aid_script_ghoulies_chapter2b_scene3_2playcam", false);
-            play_scene7(game, "scene2b3", 1000.f, {}, true, true);
+            play_scene7(game, "scene2b3", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }
@@ -12699,7 +12753,7 @@ int main(int argc, char** argv)
         if (scene2a14_test)
         {
             pass_chapter_title(game, "scene2a14", "aid_script_ghoulies_chapter2a_scene14_1playcam", false);
-            play_scene7(game, "scene2a14", 1000.f, {}, true, true);
+            play_scene7(game, "scene2a14", 1000.f, {}, true, true, {}, {}, 0, false, 0, 16.f, true);
             gbtg::gfx_shutdown();
             return 0;
         }

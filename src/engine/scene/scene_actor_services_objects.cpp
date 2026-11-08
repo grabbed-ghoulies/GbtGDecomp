@@ -526,7 +526,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             {
                 return nullptr;
             }
-            return actors->actors.at(scene.resolve_address(address, 0).data());
+            return actor_or_retired(address);
         };
         auto bindings = word_messages;
         if (message[0] == 0x7C)
@@ -554,7 +554,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             {
                 return nullptr;
             }
-            return actors->actors.at(scene.resolve_address(address, 0).data());
+            return actor_or_retired(address);
         };
         auto bindings = word_messages;
         if (message[0] == 0x7C)
@@ -624,7 +624,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
             {
                 return nullptr;
             }
-            return actors->actors.at(scene.resolve_address(address, 0).data());
+            return actor_or_retired(address);
         };
         auto bindings = word_messages;
         if (message[0] == 0x7C)
@@ -2037,7 +2037,7 @@ RuntimeSceneActivation SceneActorServices::State::activation_context()
         },
         [this](u32 address) -> const Actor*
         {
-            return actors->actors.at(scene.resolve_address(address, 0).data());
+            return actor_or_retired(address);
         }};
 }
 

@@ -597,6 +597,32 @@ struct SceneActorServices::State
         std::unique_ptr<RuntimeMindTarget> target;
     };
     std::unordered_map<u32, std::unique_ptr<RetiredTarget>> retired_targets;
+    // Actors 0x001232D0 has released, by address, each copied as it was with its pointers cleared (as in
+    // `retire_target`). A dead ghouly's mind does not clear its +0xC target on the 0x7C notice, so it keeps a
+    // released actor's address: retail holds a dangling pointer, which 0x00028C10's caller compares with live actors
+    // (the copy equals none) and the mind's gaze reads (the copy holds the last pose).
+    std::unordered_map<u32, std::unique_ptr<Actor>> retired_actors;
+    std::unique_ptr<Actor> retire_actor(const Actor& actor)
+    {
+        auto copy = std::make_unique<Actor>(actor);
+        copy->render_registration = nullptr;
+        copy->model = nullptr;
+        copy->attach = nullptr;
+        copy->bind = nullptr;
+        copy->link = nullptr;
+        copy->euler_out = nullptr;
+        copy->spawn_points = nullptr;
+        copy->spawn_point_count = 0;
+        copy->accepted_classes = nullptr;
+        copy->accepted_class_count = 0;
+        copy->spawn_owner = nullptr;
+        copy->goal_ring = nullptr;
+        for (auto& slot : copy->sound_slots)
+        {
+            static_cast<RuntimeActorSound&>(slot) = RuntimeActorSound{};
+        }
+        return copy;
+    }
     // The copy keeps the actor's own pose, scales and cached matrix; every block it pointed at is freed or owned
     // elsewhere, so those pointers are cleared and reads through them raise or fall back as for an unbound actor.
     std::unique_ptr<RetiredTarget> retire_target(const SceneMindTargetRow& row, const RuntimeMindTarget& live)
@@ -1184,6 +1210,8 @@ struct SceneActorServices::State
     std::unordered_map<const NativePlayerInstance*, std::unique_ptr<SceneMarkedActor>> marked_actor_query_views;
     std::vector<RuntimeScriptActorQueryView> marked_actor_views();
     Actor* actor_at_address(u32 address); // Null for address zero.
+    // A read of an actor by address that may name one 0x001232D0 released (see `retired_actors`).
+    Actor* actor_or_retired(u32 address);
     FactoryObject& object_of_actor(Actor& actor);
     void start_background();
     void notify_body_list(u32 id); // Message {id} to each DAT_00511B20 (+0x934 list) node's actor.

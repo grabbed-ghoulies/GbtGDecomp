@@ -607,8 +607,9 @@ void SceneActorServices::State::remove_retired_actors()
             remove_runtime_scared_actor(address(actor), scare);
         },
         address,
-        [this](Actor& actor)
+        [this, address](Actor& actor)
         {
+            retired_actors[address(actor)] = retire_actor(actor);
             release_factory_object(scene.factory, object_of_actor(actor));
         }};
     remove_runtime_retired_actors(removal);

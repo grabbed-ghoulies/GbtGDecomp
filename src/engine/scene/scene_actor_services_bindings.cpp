@@ -64,7 +64,7 @@ RuntimeBodyStateContext SceneActorServices::State::body_state_context(u32 body_a
             {
                 throw Error("0x000412A0 reads an actor through address zero");
             }
-            return actor_world_position(*actors->actors.at(scene.resolve_address(address, 0).data()));
+            return actor_world_position(*actor_or_retired(address));
         }};
 }
 
@@ -535,7 +535,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             {
                 throw Error("a strategy reads an actor through address zero");
             }
-            return actors->actors.at(scene.resolve_address(address, 0).data());
+            return actor_or_retired(address);
         },
         skeleton_fetch_delay, data(0x004288B0, 0x40), sounds,
         [this](u32 address) -> u8*
@@ -776,7 +776,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             {
                 return nullptr;
             }
-            return actors->actors.at(scene.resolve_address(address, 0).data());
+            return actor_or_retired(address);
         },
         [this](Actor& actor) -> ActorFrameState&
         {
@@ -3705,7 +3705,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         [this](u32 address) -> Actor*
         {
-            return actors->actors.at(scene.resolve_address(address, 0).data());
+            return actor_or_retired(address);
         },
         [this](u32 address) -> std::span<const u8>
         {
@@ -4146,7 +4146,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             {
                 return &retired->second->actor;
             }
-            return actors->actors.at(scene.resolve_address(address, 0).data());
+            return actor_or_retired(address);
         },
         [this](u32 address) -> std::span<const u8>
         {

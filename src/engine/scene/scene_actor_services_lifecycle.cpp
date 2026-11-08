@@ -1124,6 +1124,7 @@ SceneActorServices::State::~State()
     }
     // The decoded images go with the scene; their uploads must not serve a later image at the same address.
     resources.memory.on_free = nullptr;
+    resources.on_texture_restored = nullptr;
     for (const auto& [record, image] : texture_images)
     {
         gfx_release_sprite(*image);

@@ -1199,6 +1199,7 @@ RuntimeMovieLockedSurface SceneActorServices::State::lock_movie_texture(u32 reco
         throw Error(detail);
     }
     movie_textures.insert(resources.memory.pointer(record));
+    resources.keep_texture_original(registered->second.data, size_t(header[0]) * header[1] * 4);
     return RuntimeMovieLockedSurface{i32(header[0] * 4), resources.memory.pointer(registered->second.data)};
 }
 

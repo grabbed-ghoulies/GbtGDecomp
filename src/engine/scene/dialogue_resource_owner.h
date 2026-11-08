@@ -72,8 +72,17 @@ public:
     // Retail words of each loaded row (DAT_004DF09C +8..+0x14), parallel to registry.loaded, as
     // 0x00035D90 reads them: CPU pointer, CPU size, resource-chunk pointer (or null) and its size.
     std::vector<RuntimeBodyLoadedResourceSize> loaded_sizes = std::vector<RuntimeBodyLoadedResourceSize>(0x1000);
+    // Retail frees a scene's bundle pools when it ends (0x00034880) and reads them from the disc again on the next
+    // load, so a texture the game wrote into (a movie's frames) comes back as the disc has it. These copies are
+    // boot-owned instead: the first write to a texture's data keeps its bytes, and the scene end puts them back
+    // into each texture of a scene bundle (not common.bnl, which stays open) or of a demand file nothing holds.
+    void keep_texture_original(u32 data, size_t size);
+    void restore_scene_textures();
+    // Told each restored texture's data address, so decoded copies of it are made again.
+    std::function<void(u32 data)> on_texture_restored;
 
 private:
+    std::map<u32, std::vector<u8>> texture_originals_; // Texture data address to its bytes before the first write.
     void publish_shape_views(std::span<const u8> bytes, u32 shapes);
     struct Resource
     {

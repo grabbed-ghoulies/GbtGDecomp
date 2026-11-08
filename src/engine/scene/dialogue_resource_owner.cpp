@@ -347,6 +347,55 @@ void SceneDialogueResourceOwner::prepare_model(Resource& resource, const BundleE
         RuntimePreparedModelResource{{cpu.bytes, cpu.address}, &resource.gpu_segments});
 }
 
+void SceneDialogueResourceOwner::keep_texture_original(u32 data, size_t size)
+{
+    if (texture_originals_.contains(data))
+    {
+        return;
+    }
+    const auto bytes = memory.resolve(data, size);
+    texture_originals_.emplace(data, std::vector<u8>(bytes.begin(), bytes.end()));
+}
+
+void SceneDialogueResourceOwner::restore_scene_textures()
+{
+    for (auto kept = texture_originals_.begin(); kept != texture_originals_.end();)
+    {
+        const u32 data = kept->first;
+        bool restore = false;
+        for (const auto& [name, resource] : resources_)
+        {
+            for (const auto& segment : resource.segments)
+            {
+                if (segment.address <= data && data - segment.address < segment.size)
+                {
+                    // A scene bundle's resource is read again with its bundle whatever still holds it (retired
+                    // actors let go of their models later); common.bnl stays open, and a demand file goes when
+                    // nothing references it.
+                    const auto& common = aids_.common.entries;
+                    const bool in_common = resource.entry != nullptr && resource.entry >= common.data()
+                        && resource.entry < common.data() + common.size();
+                    restore = resource.entry != nullptr ? !in_common : resource.record.references == 0;
+                }
+            }
+        }
+        if (restore)
+        {
+            const auto target = memory.resolve(data, kept->second.size());
+            std::memcpy(target.data(), kept->second.data(), kept->second.size());
+            if (on_texture_restored)
+            {
+                on_texture_restored(data);
+            }
+            kept = texture_originals_.erase(kept);
+        }
+        else
+        {
+            ++kept;
+        }
+    }
+}
+
 void SceneDialogueResourceOwner::prepare_text(Resource& resource)
 {
     // Pointer-width adapter for the disk INFO/LSBL representation. Retain the

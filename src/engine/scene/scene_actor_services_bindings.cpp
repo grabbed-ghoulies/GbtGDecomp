@@ -4244,6 +4244,17 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         forget_texture_images(begin, size);
     };
+    // A texture given back its disc bytes is decoded again, as after a movie frame.
+    resources.on_texture_restored = [this](u32 data)
+    {
+        for (const auto& [record, resource] : resources.d3d.resources)
+        {
+            if (resource.kind == 3 && resource.data == data)
+            {
+                movie_textures.insert(resources.memory.pointer(record));
+            }
+        }
+    };
     active_services = this;
     query.actors = [this]()
     {

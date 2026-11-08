@@ -140,6 +140,7 @@ void load_scene_contents(Game& g, std::string_view name)
             flush_animation_resource_unloads(registry);
         }
         while (unloaded);
+        g.native_resources->restore_scene_textures();
     }
     script_set_default_name(g);
     if (name.empty())

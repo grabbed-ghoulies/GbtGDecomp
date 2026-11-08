@@ -4,6 +4,25 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-08: a restarted scene's textures come back from the disc (issue #55)
+
+- Issue #55 ("Chapter 3 Scene 24", chapter3c_scene5_1playcam): after a faint, the challenge door already wore its
+  question mark before the mark was drawn on again.
+- The mark is a movie. "exit door closes" moves door 21 to state 5, and its
+  `aid_cutscene_ghoulies_doors_square_1_highright_openevent` clip loads
+  `aid_movie_misc_questionmarkappear` (event 0xD) into the hooked texture of `aid_model_ghoulies_door_square_1`
+  (256 x 256, first transparent).
+- Retail frees a scene's bundle pools when it ends (`0x00034880`) and reads them again on the next load, so the
+  texture is transparent until the movie's first frame.
+- The boot-owned scene resource owner keeps its relocated copies across scenes. The texture kept the last frame,
+  and so did the scene's decoded image of it.
+- Now the first movie write to a texture keeps its bytes. After the scene end's unload pass, every kept texture of a
+  scene bundle (not common.bnl), or of a demand file nothing holds, gets them back, and its decoded image is made
+  again.
+- `--scene3c5` (captures every 10 frames around both "exit door closes"): the door is blank in the restarted pass
+  until the smoke draws the mark (3940), as in the first pass (1400). `--scene2b6`, `--scene2c8` and `--gameselect`
+  pass.
+
 ### 2026-11-08: book panels wider than their textures (issue #44)
 
 - Issue #44 (chapter2b_scene6_1book): the last panels held a still frame. Of the page's ten clips, p7 (483 x 240)

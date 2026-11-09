@@ -1,10 +1,12 @@
 #if defined(GBTG_INSPECTOR_APP)
 #include "inspector_session.h"
 #include "inspector_ui.h"
+#include "asset_viewer.h"
 #include "inspector_graphics.h"
 #include "loctext_tool.h"
 #include "scene_build_tool.h"
 #include "scene_builder.h"
+#include "../scene/factory_scene_runtime.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../plugins/plugins.h"
 #endif
@@ -14,6 +16,7 @@
 #include "gbtg/language.h"
 #include "gbtg/log.h"
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <cstdio>
 
@@ -41,6 +44,94 @@ bool flag(int argc, char** argv, std::string_view key)
     }
     return false;
 }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+// --edit-check: the viewport editor end to end. Edit this scene, move and turn a marker and copy it through the
+// editor interface the gizmo uses, Apply, then compare the native marker block the rebuilt scene loaded.
+struct EditCheck
+{
+    int stage = 0; // 0 off, 1 start editing, 2 edit, 3 check, 4 done
+    bool passed = false;
+    gbtg::u32 kind = 0;
+    gbtg::u32 id = 0;
+    gbtg::u32 copy = 0;
+    gbtg::Vec3 moved{};
+    gbtg::Vec3 copied{};
+    float yaw = 0.f;
+
+    void step(gbtg::InspectorSession& session, gbtg::SceneBuilder& builder, gbtg::InspectorUI& ui)
+    {
+        using namespace gbtg;
+        if (stage == 1)
+        {
+            builder.start_editing(session);
+            log::info("edit check: %s", builder.status().c_str());
+            stage = builder.busy() ? 2 : 4;
+            return;
+        }
+        if (!builder.editing(session))
+        {
+            log::error("edit check: the loaded scene is not the recipe's (%s)", builder.status().c_str());
+            stage = 4;
+            return;
+        }
+        if (stage == 2)
+        {
+            for (size_t index = 0; index < session.items.size(); ++index)
+            {
+                InspectionItem& item = session.items[index];
+                if (item.marker && item.position && item.euler && item.failure.empty())
+                {
+                    kind = item.type;
+                    id = item.address;
+                    moved = {item.position->x + 2.f, item.position->y, item.position->z - 1.f};
+                    yaw = item.euler->y + 0.5f;
+                    item.position = moved;
+                    item.euler->y = yaw;
+                    builder.set_marker_pose(item);
+                    copied = {moved.x, moved.y, moved.z + 3.f};
+                    const InspectionItem source = item;
+                    copy = builder.duplicate_marker(session, source, copied);
+                    session.selection = int(index);
+                    ui.reselect = std::pair{kind, id};
+                    log::info("edit check: marker kind %u id %u to %.2f %.2f %.2f yaw %.3f; copy id %u", kind, id,
+                        moved.x, moved.y, moved.z, yaw, copy);
+                    builder.apply(session);
+                    stage = 3;
+                    return;
+                }
+            }
+            log::error("edit check: the scene has no marker with a position and rotation");
+            stage = 4;
+            return;
+        }
+        if (stage == 3)
+        {
+            const auto native = inspect_marker_records(session.game->factory_scene->markers());
+            bool found_moved = false;
+            bool found_copy = false;
+            const auto near = [](const Vec3& a, const Vec3& b)
+            {
+                return std::abs(a.x - b.x) < 1e-3f && std::abs(a.y - b.y) < 1e-3f && std::abs(a.z - b.z) < 1e-3f;
+            };
+            for (const auto& item : native)
+            {
+                if (item.type == kind && item.address == id && item.position && item.euler)
+                {
+                    found_moved = near(*item.position, moved) && std::abs(item.euler->y - yaw) < 1e-4f;
+                }
+                if (item.type == kind && item.address == copy && item.position)
+                {
+                    found_copy = near(*item.position, copied);
+                }
+            }
+            passed = found_moved && found_copy && !builder.pending();
+            log::info("edit check: native moved marker %s, copy %s, pending %d -> %s", found_moved ? "matches" : "differs",
+                found_copy ? "matches" : "missing", int(builder.pending()), passed ? "PASS" : "FAIL");
+            stage = 4;
+        }
+    }
+};
+#endif
 }
 
 int main(int argc, char** argv)
@@ -90,7 +181,9 @@ int main(int argc, char** argv)
         }
         const auto screenshot = argument(argc, argv, "--screenshot");
         const auto viewport_capture = argument(argc, argv, "--viewport-screenshot");
-        config.visible = !flag(argc, argv, "--headless") && screenshot.empty() && viewport_capture.empty();
+        const auto preview_capture = argument(argc, argv, "--preview-screenshot");
+        config.visible = !flag(argc, argv, "--headless") && screenshot.empty() && viewport_capture.empty()
+            && preview_capture.empty();
         config.title = "GbtG Runtime Scene Inspector";
         int remaining = std::stoi(argument(argc, argv, "--frames", config.visible ? "0" : "180"));
         if (remaining < 0)
@@ -116,6 +209,13 @@ int main(int argc, char** argv)
             InspectorUI ui;
             ui.directory = argument(argc, argv, "--game-dir", "OriginalFiles");
             ui.depth_test = flag(argc, argv, "--depth-overlays");
+            AssetViewer assets(ui.directory);
+            ui.assets = &assets;
+            // --asset <aid>: open the asset viewer on a model or texture once the scene is ready, then
+            // --asset-animation <aid> on the model; --asset-seek <0..1> pauses it there.
+            std::string asset_request = argument(argc, argv, "--asset");
+            std::string animation_request = argument(argc, argv, "--asset-animation");
+            const std::string seek_request = argument(argc, argv, "--asset-seek");
 #if !defined(GBTG_RETAIL_GAME_ONLY)
             // Plugins as the game loads them (docs/PLUGINS.md), so plugin scenes and files load here too, and the
             // scene builder, which edits the recipes of the plugin in --scene-plugin.
@@ -142,6 +242,9 @@ int main(int argc, char** argv)
                     builder.resolve();
                 }
             }
+            ui.editor = &builder;
+            EditCheck edit_check;
+            edit_check.stage = flag(argc, argv, "--edit-check") ? 1 : 0;
             ui.extra_windows = [&builder, &ui](InspectorSession& inspected)
             {
                 if (ui.show_scene_builder)
@@ -233,9 +336,57 @@ int main(int argc, char** argv)
                     camera_arguments_applied = true;
                     ui.sync_angles = true;
                 }
+                if (session.state == InspectionState::Ready && !asset_request.empty())
+                {
+                    ui.show_assets = true;
+                    assets.select(session, asset_request);
+                    if (const std::string view = argument(argc, argv, "--asset-view"); !view.empty())
+                    {
+                        float yaw = 0.f;
+                        float pitch = 0.f;
+                        if (std::sscanf(view.c_str(), "%f,%f", &yaw, &pitch) != 2)
+                        {
+                            throw Error("--asset-view expects yaw,pitch in degrees");
+                        }
+                        assets.set_view(yaw * .01745329252f, pitch * .01745329252f);
+                    }
+                    asset_request.clear();
+                    if (!animation_request.empty())
+                    {
+                        session.preview_animation(animation_request);
+                        animation_request.clear();
+                        if (!seek_request.empty())
+                        {
+                            session.seek_preview(std::stof(seek_request));
+                        }
+                    }
+                    if (!session.preview_error.empty())
+                    {
+                        log::error("asset viewer: %s", session.preview_error.c_str());
+                    }
+                }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+                // --edit-check: Edit this scene, move/turn a marker and copy it, Apply, then check that the native
+                // markers the rebuilt scene loaded have the edits.
+                if (edit_check.stage > 0 && session.state == InspectionState::Ready && !builder.busy())
+                {
+                    edit_check.step(session, builder, ui);
+                }
+#endif
                 gfx_begin_frame();
                 session.present();
-                void* viewport = inspector_capture_viewport(ui.depth_test && session.state == InspectionState::Ready);
+                void* viewport = inspector_capture_viewport(ui.wants_depth() && session.state == InspectionState::Ready);
+                ui.preview_viewport = nullptr;
+                if (ui.show_assets && assets.wants_preview(session))
+                {
+                    // The asset viewer's model, drawn alone by the native model draw on a cleared target.
+                    inspector_begin_preview(assets.preview_background);
+                    session.present_preview(dt);
+                    if (session.preview_ready())
+                    {
+                        ui.preview_viewport = inspector_capture_viewport(false, 1);
+                    }
+                }
                 ui.build(session, viewport, dt);
                 if (ui.capture)
                 {
@@ -258,7 +409,8 @@ int main(int argc, char** argv)
                 inspector_finish_frame();
 #if !defined(GBTG_RETAIL_GAME_ONLY)
                 // A scene builder build counts no frames until it has loaded.
-                if (builder.busy() || session.state == InspectionState::Loading)
+                if (builder.busy() || session.state == InspectionState::Loading
+                    || (edit_check.stage > 0 && edit_check.stage < 4))
                 {
                     continue;
                 }
@@ -273,12 +425,12 @@ int main(int argc, char** argv)
                 }
             }
             ui.release_capture();
-            const auto save = [](const std::string& path, bool viewport)
+            const auto save = [](const std::string& path, int viewport)
             {
                 if (!path.empty())
                 {
                     RgbaImage image;
-                    if (!(viewport ? inspector_viewport_readback(image) : gfx_readback(image)))
+                    if (!(viewport >= 0 ? inspector_viewport_readback(image, viewport) : gfx_readback(image)))
                     {
                         throw Error("inspector screenshot readback failed");
                     }
@@ -286,8 +438,9 @@ int main(int argc, char** argv)
                     log::info("screenshot %s", path.c_str());
                 }
             };
-            save(screenshot, false);
-            save(viewport_capture, true);
+            save(screenshot, -1);
+            save(viewport_capture, 0);
+            save(preview_capture, 1);
             log::info("inspector state=%d scene=%s native_frame=%u objects_and_markers=%zu commands=%zu "
                       "omitted_markers=%zu log=%s", int(session.state), session.requested.c_str(), session.frozen_frame,
                       session.items.size(), session.frame.draws.size(), session.inspection.omitted.size(),
@@ -297,6 +450,13 @@ int main(int argc, char** argv)
                 log::error("%s", session.error.empty() ? "scene did not reach Ready" : session.error.c_str());
                 result = 1;
             }
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            if (edit_check.stage > 0 && !edit_check.passed)
+            {
+                log::error("edit check failed");
+                result = 1;
+            }
+#endif
         }
         inspector_release_graphics();
         gfx_shutdown();
@@ -313,7 +473,8 @@ int main(int argc, char** argv)
         log::error("usage: gbtg-inspector --game-dir DIR [--scene name-or-index] [--frames N] "
             "[--screenshot workspace.bmp] [--viewport-screenshot scene.bmp] [--headless] "
             "[--width W --height H --vsync N] [--depth-overlays] "
-            "[--camera-offset X,Y,Z --camera-angles yaw,pitch] [--log errors.log]");
+            "[--camera-offset X,Y,Z --camera-angles yaw,pitch] [--log errors.log] "
+            "[--asset aid [--asset-animation aid [--asset-seek 0..1]] --preview-screenshot model.bmp]");
 #if !defined(GBTG_RETAIL_GAME_ONLY)
         log::error("       gbtg-inspector --write-loctext <source dir> --out <plugin dir>");
         log::error("       gbtg-inspector --check-loctext <game loctext dir>");

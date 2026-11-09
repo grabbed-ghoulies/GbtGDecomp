@@ -3318,10 +3318,16 @@ void gfx_present_again()
 using namespace d3d11;
 namespace
 {
-ComPtr<ID3D11Texture2D> inspection_color;
-ComPtr<ID3D11ShaderResourceView> inspection_srv;
+// Slot 0 is the scene view, slot 1 the asset viewer's preview.
+std::array<ComPtr<ID3D11Texture2D>, 2> inspection_color;
+std::array<ComPtr<ID3D11ShaderResourceView>, 2> inspection_srv;
 ComPtr<ID3D11Texture2D> inspection_depth_staging;
 std::vector<u32> inspection_depth;
+
+int inspection_pixel(float retail, int size, float scale, float extent)
+{
+    return int((size - extent * scale) * .5f + retail * scale);
+}
 }
 
 void* inspector_window()
@@ -3364,8 +3370,11 @@ void inspector_resize_surface(int width, int height)
 
 void inspector_release_graphics()
 {
-    inspection_srv.Reset();
-    inspection_color.Reset();
+    for (size_t slot = 0; slot < inspection_color.size(); ++slot)
+    {
+        inspection_srv[slot].Reset();
+        inspection_color[slot].Reset();
+    }
     inspection_depth_staging.Reset();
     inspection_depth.clear();
 }
@@ -3375,8 +3384,12 @@ void* inspector_texture_preview(const RgbaImage& image)
     return native_texture(&image);
 }
 
-void* inspector_capture_viewport(bool read_depth)
+void* inspector_capture_viewport(bool read_depth, int slot)
 {
+    if (slot < 0 || size_t(slot) >= inspection_color.size())
+    {
+        throw Error("inspector viewport slot is out of range");
+    }
     if (!g.ok)
     {
         return nullptr;
@@ -3386,13 +3399,15 @@ void* inspector_capture_viewport(bool read_depth)
     {
         throw Error("inspector cannot access the viewport target");
     }
-    if (!inspection_color)
+    auto& color = inspection_color[size_t(slot)];
+    auto& view = inspection_srv[size_t(slot)];
+    if (!color)
     {
         D3D11_TEXTURE2D_DESC desc{};
         source->GetDesc(&desc);
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, inspection_color.GetAddressOf()))
-            || FAILED(g.device->CreateShaderResourceView(inspection_color.Get(), nullptr, inspection_srv.GetAddressOf())))
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, color.GetAddressOf()))
+            || FAILED(g.device->CreateShaderResourceView(color.Get(), nullptr, view.GetAddressOf())))
         {
             throw Error("inspector viewport texture creation failed");
         }
@@ -3400,9 +3415,12 @@ void* inspector_capture_viewport(bool read_depth)
     g.context->OMSetRenderTargets(0, nullptr, nullptr);
     ID3D11ShaderResourceView* empty[4]{};
     g.context->PSSetShaderResources(0, 4, empty);
-    g.context->CopyResource(inspection_color.Get(), source.Get());
-    inspection_depth.clear();
-    if (read_depth)
+    g.context->CopyResource(color.Get(), source.Get());
+    if (slot == 0)
+    {
+        inspection_depth.clear();
+    }
+    if (read_depth && slot == 0)
     {
         if (!inspection_depth_staging)
         {
@@ -3431,7 +3449,7 @@ void* inspector_capture_viewport(bool read_depth)
         g.context->Unmap(inspection_depth_staging.Get(), 0);
     }
     g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
-    return inspection_srv.Get();
+    return view.Get();
 }
 
 bool inspector_depth_visible(float retail_x, float retail_y, float depth)
@@ -3440,25 +3458,56 @@ bool inspector_depth_visible(float retail_x, float retail_y, float depth)
     {
         return true;
     }
+    float sampled;
+    if (!inspector_depth_at(retail_x, retail_y, sampled))
+    {
+        return false;
+    }
+    return depth <= sampled + 0.00005f;
+}
+
+bool inspector_depth_at(float retail_x, float retail_y, float& depth)
+{
+    if (inspection_depth.empty())
+    {
+        return false;
+    }
     const float scale = std::min(float(g.cfg.width) / 640.f, float(g.cfg.height) / 480.f);
-    const int x = int((g.cfg.width - 640.f * scale) * .5f + retail_x * scale);
-    const int y = int((g.cfg.height - 480.f * scale) * .5f + retail_y * scale);
+    const int x = inspection_pixel(retail_x, g.cfg.width, scale, 640.f);
+    const int y = inspection_pixel(retail_y, g.cfg.height, scale, 480.f);
     if (x < 0 || y < 0 || x >= g.cfg.width || y >= g.cfg.height)
     {
         return false;
     }
-    const float sampled = float(inspection_depth[size_t(y) * g.cfg.width + x] & 0xFFFFFFu) / 16777215.f;
-    return depth <= sampled + 0.00005f;
+    depth = float(inspection_depth[size_t(y) * g.cfg.width + x] & 0xFFFFFFu) / 16777215.f;
+    return true;
 }
 
-bool inspector_viewport_readback(RgbaImage& image)
+void inspector_begin_preview(const float color[4])
 {
-    if (!inspection_color)
+    if (!g.ok)
+    {
+        return;
+    }
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
+    g.context->ClearRenderTargetView(g.rtv.Get(), color);
+    g.context->ClearDepthStencilView(g.dsv.Get(), D3D11_CLEAR_DEPTH, 1.f, 0);
+    D3D11_VIEWPORT vp{};
+    vp.Width = float(g.cfg.width);
+    vp.Height = float(g.cfg.height);
+    vp.MaxDepth = 1.f;
+    g.context->RSSetViewports(1, &vp);
+}
+
+bool inspector_viewport_readback(RgbaImage& image, int slot)
+{
+    if (slot < 0 || size_t(slot) >= inspection_color.size() || !inspection_color[size_t(slot)])
     {
         return false;
     }
+    const auto& color = inspection_color[size_t(slot)];
     D3D11_TEXTURE2D_DESC desc{};
-    inspection_color->GetDesc(&desc);
+    color->GetDesc(&desc);
     desc.Usage = D3D11_USAGE_STAGING;
     desc.BindFlags = 0;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -3467,7 +3516,7 @@ bool inspector_viewport_readback(RgbaImage& image)
     {
         return false;
     }
-    g.context->CopyResource(staging.Get(), inspection_color.Get());
+    g.context->CopyResource(staging.Get(), color.Get());
     D3D11_MAPPED_SUBRESOURCE map{};
     if (FAILED(g.context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &map)))
     {

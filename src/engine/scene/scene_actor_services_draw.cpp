@@ -1434,6 +1434,22 @@ InspectionView SceneActorServices::inspection_camera(std::string* source) const
 
 void SceneActorServices::inspect_view(const InspectionView& camera, InspectionFrame& frame)
 {
+    inspect_draw(camera, frame, "native actor view draw 0x0011C240", [this]()
+    {
+        state_->with_view_context(0, [](RuntimeSceneViewPresent& view)
+        {
+            view.mirror();
+            view.refresh_actors();
+            view.bins();
+            view.anchor_sprites();
+            view.billboards();
+        });
+    });
+}
+
+void SceneActorServices::inspect_draw(const InspectionView& camera, InspectionFrame& frame, const char* draw_stage,
+    const std::function<void()>& draw)
+{
     auto& state = *state_;
     auto& setup = *state.display_setup;
     using namespace entity_detail;
@@ -1486,21 +1502,14 @@ void SceneActorServices::inspect_view(const InspectionView& camera, InspectionFr
         bind_display_projection(setup);
         frame.display = view;
         frame.projection = setup.device_projection;
-        stage = "native actor view draw 0x0011C240";
+        stage = draw_stage;
     #if defined(GBTG_INSPECTOR_APP)
     if (state.game.inspection != nullptr)
         {
             state.game.inspection->drawing = true;
         }
 #endif
-        state.with_view_context(0, [](RuntimeSceneViewPresent& view)
-        {
-            view.mirror();
-            view.refresh_actors();
-            view.bins();
-            view.anchor_sprites();
-            view.billboards();
-        });
+        draw();
     #if defined(GBTG_INSPECTOR_APP)
     if (state.game.inspection != nullptr)
         {

@@ -1,5 +1,6 @@
 #pragma once
 #include "gbtg/game.h"
+#include <functional>
 #include <memory>
 #include <span>
 #include <unordered_map>
@@ -14,6 +15,7 @@ struct RuntimeEffectPassScratch;
 #if defined(GBTG_INSPECTOR_APP)
 struct InspectionView;
 struct InspectionFrame;
+struct SceneModelPreviewInfo;
 #endif
 // The scene's actor service graph: the native storage behind the retail globals that actor, player,
 // mind, strategy and scene-class constructors read, the class owners installed over the scene's
@@ -194,10 +196,29 @@ public:
     // Host inspector: native geometry without simulation.
     void inspect_view(const InspectionView& camera, InspectionFrame& frame);
     InspectionView inspection_camera(std::string* source = nullptr) const;
+    // Host inspector asset viewer: one model by AID through the native provider (0x00035E90), instance (0x000F9840)
+    // and draw (0x000F9080, in the passes an actor gets), posed by the native controller (0x00030880, 0x00030BA0, 0x00030C70). An empty AID
+    // releases it.
+    void preview_model(const std::string& aid);
+    // Plays the animation AID on the preview's model; empty clears it to the bind pose. Its bone count must be the
+    // skeleton's.
+    void preview_animation(const std::string& aid);
+    void tick_preview(float dt, bool paused);
+    void seek_preview(float position);
+    void release_preview();
+    // Draws only the preview model with the inspection camera, in an actor's passes. `full_light` sets the ambient
+    // tint to one, as a post model with +0x28 set is drawn (0x0012AB10).
+    void inspect_preview(const InspectionView& camera, bool full_light, InspectionFrame& frame);
+    SceneModelPreviewInfo preview_info() const;
 #endif
     struct State;
 
 private:
+#if defined(GBTG_INSPECTOR_APP)
+    // The inspection camera's display, then `draw` recording into the device, then the recorded commands presented.
+    void inspect_draw(const InspectionView& camera, InspectionFrame& frame, const char* stage,
+        const std::function<void()>& draw);
+#endif
     std::unique_ptr<State> state_;
 };
 }

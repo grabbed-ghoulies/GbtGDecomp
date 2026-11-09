@@ -75,6 +75,10 @@ RgbaImage decode_xbox_texture(const TextureHeader& hdr, std::span<const u8> gpu)
 void swizzle_nv2a_into(std::span<u8> destination, std::span<const u8> linear, u32 width, u32 height, u32 bpp);
 void write_bmp(const std::filesystem::path& path, const RgbaImage& img);
 void write_png(const std::filesystem::path& path, const RgbaImage& img);
+std::vector<u8> encode_png(const RgbaImage& img);
+RgbaImage decode_png(std::span<const u8> png); // 8-bit, non-interlaced PNG images
+RgbaImage resize_image(const RgbaImage& image, int width, int height); // bilinear
+std::vector<u8> encode_dxt1(const RgbaImage& image); // linear (unswizzled) DXT1 blocks; alpha below 128 cut out
 const char* xbox_format_name(XboxFormat f);
 
 } // namespace gbtg

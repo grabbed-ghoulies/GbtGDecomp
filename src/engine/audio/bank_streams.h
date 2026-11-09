@@ -37,6 +37,8 @@ struct AudioBankStreams
     float level = 0.f; // DAT_004E0BCC.
 };
 void initialize_tracked_audio_channels(AudioBankStreams& context); // Xbox 0x00038BF0
+// The six stream slots lose their names and states and take id -1; the slot gate (DAT_004E02E8) opens.
+void initialize_audio_stream_slots(AudioBankStreams& context, i32& gate); // Xbox 0x00038600
 AudioTrackedBank* next_tracked_audio_bank(AudioTrackedBank* bank,
     AudioBankStreams& context); // Xbox 0x00038400
 AudioTrackedBank* find_tracked_audio_bank(const char* name, AudioBankStreams& context); // Xbox 0x00038460

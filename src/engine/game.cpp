@@ -3,12 +3,14 @@
 #include "runtime/rare_replay.h"
 #endif
 #include "scripts/script_actions.h"
+#include "scripts/script_conditions.h"
 #include "scene/ambient.h"
 #include "scene/dialogue_scene_runtime.h"
 #include "scene/executable_resources.h"
 #include "scene/factory_scene_runtime.h"
 #include "scene/scene_actor_services.h"
 #include "scene/scene.h"
+#include "scene/scene_pause.h"
 #include "scripts/script_chapter.h"
 #include "frontend/app_error_screen.h"
 #include "frontend/frontend_sounds.h"
@@ -22,8 +24,10 @@
 #include "frontend/input_stack.h"
 #include "camera/camera.h"
 #include "camera/actor_camera_effects.h"
+#include "camera/entity_camera.h"
 #include "graphics/actor_effect_nodes.h"
 #include "gbtg/gfx.h"
+#include "gbtg/language.h"
 #include "gbtg/log.h"
 #include "camera/display_view.h"
 #include "gbtg/movie.h"
@@ -40,7 +44,13 @@ namespace gbtg
 void Game::init(const std::filesystem::path& game_dir, std::string_view scene_select)
 {
     // Xbox WinMain 0x00032390: gfx_init_32470, fs_init_33980, game_init_32630.
+    restore_language_strings(); // The image's strings again when a host session boots a second time.
+    // fs_init 0x00033980 -> 0x000FF1C0: the host's configured language index is XGetLanguage's answer.
+    select_language(xbox_language_code(g_language), game_dir);
+    boot_pad_rumble(); // Boot 0x00033030 -> 0x000FAD20
     clock_init(clock);
+    reset_pad_samples(); // Boot 0x00033030 -> 0x000FA210
+    build_loctext_folder(); // Boot 0x00033030 -> 0x000FF040
     aids.open(game_dir);
     executable_resources = std::make_shared<SceneExecutableResources>(game_dir);
     // Boot 0x00033030 -> 0x00035A90 and the provider and hook registrations.
@@ -57,7 +67,9 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     entity_detail::g_aspect_preset = entity_detail::g_video_widescreen != 0 ? 1 : 0; // DAT_005077F8 = DAT_00509703 != 0
 #endif
     native_input = boot_native_input_stack(); // Boot 0x00033030 -> 0x00033248, 0x00033274; 0x0011C3F0's push.
+    reset_camera_slots(); // Boot 0x00033030 -> 0x00048980
     reset_runtime_frontend(g_frontend, g_pause_ditty); // Boot 0x00033030 -> 0x000E5A80.
+    initialize_scene_flags(); // Boot 0x00033030 -> 0x000F2B60
     // The object factory, actor lists and scene services, boot-owned like retail's globals.
     factory_scene = std::make_shared<SceneFactoryRuntime>(executable_resources, *native_resources);
     factory_scene->controls->context.chapter = [this]() -> i32
@@ -76,6 +88,10 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     factory_scene->actor_services->hold_boot_scene_order(); // 0x0011C3F0 -> 0x0011C480 -> 0x001234B0
     save_initialize_name_scan(); // 0x0011C3F0 -> 0x0011C480 -> 0x0010D3B0: the saved games on drive U.
     g_scene_active_count = g_scene_active_count + 1; // 0x0011C3F0's last store (DAT_0050E7A0); the first scene's state 1 takes it back.
+    reset_scene_session([this]()
+    {
+        factory_scene->actor_services->reset_scene_score_words();
+    }); // 0x0011EA50, after its 0x0011C3F0
     movie_set_root(game_dir);
     movie_boot_probe();
     log::verbose("fs_init: %s common.bnl entries %zu", aids.game_dir.string().c_str(), aids.common.entries.size());

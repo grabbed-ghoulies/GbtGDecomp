@@ -41,6 +41,18 @@ void initialize_tracked_audio_channels(AudioBankStreams& context)
     }
 }
 
+// Xbox 0x00038600
+void initialize_audio_stream_slots(AudioBankStreams& context, i32& gate)
+{
+    for (auto& slot : context.streams)
+    {
+        slot.name[0] = 0;
+        slot.state = 0;
+        slot.id = -1;
+    }
+    gate = 0;
+}
+
 // Xbox 0x00038BB0
 void retire_tracked_audio_channel(AudioTrackedChannel& channel, AudioBankStreams& context)
 {

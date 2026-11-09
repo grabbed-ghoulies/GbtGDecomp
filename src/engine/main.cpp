@@ -124,16 +124,7 @@ int main(int argc, char** argv)
         // Headless runs are tests, which play at 10% master volume (AGENTS.md).
         const int master_volume = cfg.headless ? 10 : host.master_volume;
         gbtg::pcm_set_master_volume(static_cast<float>(master_volume) / 100.f);
-        gbtg::g_language = host.language;
-        {
-            std::error_code ec;
-            const auto loctext = cfg.game_dir / "loctext" / gbtg::language_folder(gbtg::g_language);
-            if (gbtg::g_language != 0 && !std::filesystem::is_directory(loctext, ec))
-            {
-                gbtg::log::warn("config: %s missing, using English", loctext.string().c_str());
-                gbtg::g_language = 0;
-            }
-        }
+        gbtg::g_language = host.language; // XGetLanguage's answer for fs_init's 0x000FF1C0 (Game::init).
         gbtg::log::info("GbtGDecomp  game-dir=%s  %dx%d%s  volume=%d  language=%s", cfg.game_dir.string().c_str(),
                         cfg.width, cfg.height, cfg.widescreen ? " widescreen" : "", master_volume,
                         gbtg::language_folder(gbtg::g_language));

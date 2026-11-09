@@ -590,4 +590,56 @@ void stop_pad_rumble(u8 port)
     g_rumble[port].right = 0.f; // DAT_0043491C
 }
 
+// Xbox 0x001558F0
+void set_pad_rumble_ports(u8 enable)
+{
+    if (enable != 0)
+    {
+        for (RumbleSlot& slot : g_rumble)
+        {
+            slot.enabled = 1;
+        }
+        return;
+    }
+    for (RumbleSlot& slot : g_rumble)
+    {
+        slot.enabled = 0;
+        slot.active = 0;
+        slot.left = 0.f;
+        slot.right = 0.f;
+    }
+}
+
+// Xbox 0x00155960
+void submit_pad_rumble(i32 port, float left, float right, float duration)
+{
+    RumbleSlot& slot = g_rumble[port];
+    if (slot.enabled == 0)
+    {
+        return;
+    }
+    if (left == 0.f && right == 0.f)
+    {
+        slot.active = 0;
+        slot.port = u8(port);
+        slot.left = left;
+        slot.right = right;
+        slot.timer = duration;
+    }
+    else
+    {
+        slot.left = left;
+        slot.active = 1;
+        slot.port = u8(port);
+        slot.right = right;
+        slot.timer = duration;
+        if (duration != 0.f)
+        {
+            slot.armed = 0;
+            return;
+        }
+    }
+    slot.armed = 1;
+}
+
 } // namespace gbtg

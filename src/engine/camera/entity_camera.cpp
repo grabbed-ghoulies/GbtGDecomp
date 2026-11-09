@@ -6,6 +6,7 @@
 #include "display_view.h"
 #include "wide_aspect.h"
 #include "../entities/player_mind_events.h"
+#include "actor_camera_effects.h"
 
 #include <bit>
 #include <cmath>
@@ -848,4 +849,21 @@ void camera_fit_display_view(float focal, i32 aspect_slot, i32& fit_w, i32& fit_
 }
  // namespace
 
+} // namespace gbtg
+
+namespace gbtg
+{
+// Xbox 0x00048980
+void reset_camera_slots()
+{
+    for (i32 slot = 0; slot < 4; ++slot)
+    {
+        entity_detail::g_cam_anchor[slot].prev = nullptr;
+        entity_detail::g_cam_anchor[slot].next = nullptr;
+        entity_detail::g_cam_active[slot] = nullptr;
+        entity_detail::g_cam_saved_name[slot][0] = 0; // The copy of "" (0x00315A98).
+    }
+    g_actor_camera_effects.previous = nullptr;
+    g_actor_camera_effects.next = nullptr;
+}
 } // namespace gbtg

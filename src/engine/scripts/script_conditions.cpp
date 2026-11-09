@@ -1468,6 +1468,17 @@ SceneFlagBlock g_scene_flag_block{9, 2, g_scene_flag_bytes};
 
 SceneFlagBlock* g_scene_flags = &g_scene_flag_block;
 
+// Xbox 0x000F2B60
+void initialize_scene_flags()
+{
+    // 0x000F72D0(0xE): kind 9, two bytes after the header, cleared.
+    g_scene_flag_block.kind = 9;
+    g_scene_flag_block.size = 2;
+    g_scene_flag_block.bytes = g_scene_flag_bytes;
+    g_scene_flags = &g_scene_flag_block;
+    std::fill_n(g_scene_flags->bytes, g_scene_flags->size, u8(0));
+}
+
 
 extern u32 g_flags_ea9c; // DAT_0050EA9C
 

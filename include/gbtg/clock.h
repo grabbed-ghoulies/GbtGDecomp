@@ -76,5 +76,9 @@ struct RuntimePadRumbleCommand
 };
 static_assert(sizeof(RuntimePadRumbleCommand) == 0x10);
 std::span<RuntimePadRumbleCommand, 4> runtime_pad_rumble_commands();
+// Boot: every port's rumble slot is on and quiet, and every rumble command is off.
+void boot_pad_rumble(); // Xbox 0x000FAD20
+// Boot: the pads open (the XInput boundary) and every pad's current and previous samples are cleared.
+void reset_pad_samples(); // Xbox 0x000FA210
 
 } // namespace gbtg

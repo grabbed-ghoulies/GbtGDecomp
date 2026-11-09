@@ -4,6 +4,35 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-09: the boot's resets, the language and a reachability census
+
+- `tools/ghidra_scripts/ListReferences.java` (read-only) lists every call, tail jump and data reference into game
+  code, and `tools/census/reachability.py` classes each untranslated function by it: frontier, reachable from
+  WinMain, table-held, unreached, untagged (named `// 0x` without `Xbox`) or a split fragment. The README's
+  completion section carries the table.
+- The boot `0x00033030` ran in host pieces. Its resets are translated and run in `Game::init` in retail order:
+  `0x000FAD20` (every port's rumble slot on and quiet, every rumble command off), `0x000FA210` (each pad's samples
+  cleared; its device opening `0x00155540` is the XInput boundary), `0x000FF040` (the loctext folder),
+  `0x00038600` (the stream slots, id -1, gate open) after the tracked banks' ids clear, `0x00048980` (the camera
+  slots and the camera effect list), `0x000F2B60` (the scene flag bytes), `0x0011EA50` (the pause title "No Name
+  Available", the pause's input, icon and flags, the score words, the profile times and the record's plate flags)
+  and the statsheet's `0x00133B10` / `0x00133B70`.
+- The pad library's rumble records (`DAT_00434910`) were kept twice: the controller's and a second copy that the
+  rumble submit `0x000FAD80` wrote and nothing read. The copy is gone; `0x000FAD80` calls `0x00155960`
+  (`submit_pad_rumble`) on the controller's records, and `0x001558F0` turns their ports on. Nothing presents the
+  feedback packets (`0x001557B0` has no caller), so no rumble reaches a pad yet.
+- Language: `0x000FF1C0` (fs_init) maps XGetLanguage's code to the folder name (`0x0042A610`) and index
+  (`DAT_0042A710`), and falls back to English when the disc has no `loctext\<name>` folder. The host's configured
+  language is XGetLanguage's answer (`xbox_language_code`); `main.cpp`'s own fallback is gone. Loctext resources
+  are read from the folder `0x000FF040` builds, as `0x00034F00` names them. `gbtg-transition-tests` makes both
+  before its pre-boot resource checks.
+- Not translated: the boot's device setup (`0x00061C40` gamma, `0x000620C0` render targets, `0x000F8740` the sound
+  engine) and the retail resource loader the host replaces (`0x00035A90`, `0x00034C30`, `0x00033CF0`, `0x00035010`,
+  `0x001243B0` and the pending-record path).
+- `--scene7`, `--player-opening`, `--player-fight`, `--scene2a1`, `--pause`, `--pause-quit-save`, `--scene2c4`,
+  `--scene4`, `--dialogue-resources` and `--scene-models` pass; 900-frame headless runs in English and French exit
+  0; ctest passes.
+
 ### 2026-11-08: the effect table's 200 slots and its category ranges
 
 - The effect allocator `0x000ED550` takes a category's first slot and count from `DAT_0042A41C` (`[category * 2]`,

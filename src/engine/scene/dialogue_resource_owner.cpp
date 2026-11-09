@@ -4,6 +4,7 @@
 #include "../plugins/plugins.h"
 #endif
 
+#include <algorithm>
 #include <cstring>
 
 namespace gbtg
@@ -242,7 +243,10 @@ SceneDialogueResourceOwner::Resource* SceneDialogueResourceOwner::find_resource(
     const std::string key(name);
     if (key.starts_with("aid_loctext_"))
     {
-        auto path = aids_.game_dir / "loctext" / language_folder(g_language) / aid_hash_hex(aid_hash(key));
+        // 0x00034F00: "%s%s%08x" over the disc root, the loctext folder (0x000FF040) and the name's hash.
+        std::string folder = g_loctext_folder;
+        std::replace(folder.begin(), folder.end(), '\\', '/');
+        auto path = aids_.game_dir / folder / aid_hash_hex(aid_hash(key));
 #if !defined(GBTG_RETAIL_GAME_ONLY)
         path = plugin_disc_path(path);
 #endif

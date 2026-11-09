@@ -87,6 +87,8 @@ void script_release_event(LiveScript* node); // Xbox 0x000E9210
 void release_script_events(); // Xbox 0x00116790, every DAT_0050E4DC node
 
 extern SceneFlagBlock* g_scene_flags;
+// Boot: the two scene flag bytes (DAT_00506C74, kind 9) are allocated and cleared.
+void initialize_scene_flags(); // Xbox 0x000F2B60
 
 // Xbox 0x00124BE0. A zero keeps the record. Any other value queues the link
 // at +4. A return of exactly 1 also removes the record and the slot that

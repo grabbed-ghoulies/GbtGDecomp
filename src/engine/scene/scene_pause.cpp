@@ -22,6 +22,7 @@
 #include "../saves/runtime_profile.h"
 #include "../camera/runtime_display_setup.h"
 #include "../scripts/script_event_sequence.h"
+#include "../scripts/script_vm.h"
 #include "challenge_runtime.h"
 #include "../transitions/native_book.h"
 #include "../transitions/scene_transitions.h"
@@ -38,13 +39,25 @@ extern i32 g_frontend_next_row; // DAT_00429BC0, scene.cpp.
 extern u16 g_frontend_selected_game[0x80]; // DAT_00429BC4, scene.cpp.
 extern u16 g_challenge_game_name[0x40]; // DAT_004E19B4, scene.cpp.
 
-ScenePause g_scene_pause = []()
+ScenePause g_scene_pause;
+
+// Xbox 0x0011EA50
+void reset_scene_session(const std::function<void()>& clear_score_words)
 {
-    ScenePause pause;
-    const char16_t name[] = u"No Name Available"; // 0x0011EA50
-    std::memcpy(pause.title.data(), name, sizeof(name));
-    return pause;
-}();
+    const char16_t name[] = u"No Name Available"; // lstrcpyW into DAT_00510D00
+    std::memcpy(g_scene_pause.title.data(), name, sizeof(name));
+    g_scene_pause.input = {}; // DAT_00510CFC
+    g_scene_pause.input_address = 0;
+    g_scene_pause.icon = {}; // DAT_00510E40
+    g_pause_holds_transition = 0; // DAT_00510E34
+    g_scene_pause.e38 = 0.f; // DAT_00510E38
+    g_scene_paused = 0; // DAT_00510CE8
+    clear_score_words(); // DAT_00545970, DAT_00545974, DAT_0054597C
+    g_broken_background_parts = 0; // DAT_00545978
+    g_running_score = 0; // DAT_00545980
+    g_runtime_profile.times.fill(0); // DAT_00506C78..DAT_00506C8C
+    std::memset(g_scene_record + 0x124, 0, 8); // DAT_00510F7C, DAT_00510F80
+}
 
 namespace
 {

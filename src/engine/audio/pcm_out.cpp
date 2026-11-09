@@ -10,6 +10,7 @@
 #include "wavebank_files.h"
 #include "listener_settings.h"
 #include "../scene/dialogue_resource_owner.h"
+#include "../scene/scene.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../plugins/plugins.h"
 #endif
@@ -2159,6 +2160,11 @@ std::shared_ptr<NativeAudioRuntime> boot_native_audio(const Game& game)
         copies});
     register_runtime_wavebank_files(runtime.wavebank_streams, *wavebank_files); // 0x00039DD0
     initialize_tracked_audio_channels(runtime.streams); // Boot 0x00033030 runs 0x00038BF0 over DAT_004E030C.
+    for (auto& bank : runtime.streams.banks)
+    {
+        bank.id = 0; // Boot 0x00033030: every tracked bank's id (DAT_004DF370, stride 0x9C) is cleared.
+    }
+    initialize_audio_stream_slots(runtime.streams, g_stream_slot_gate); // Boot 0x00033030 -> 0x00038600
     g_native_audio_runtime = &runtime;
     return owned;
 }

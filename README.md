@@ -24,7 +24,7 @@ such as AID, body, mind and "unbound" are defined in the [Glossary](docs/GLOSSAR
 
 ## Completion
 
-Last counted 2026-11-08. The game plays from boot through the attract, game select and every chapter to the final
+Last counted 2026-11-09. The game plays from boot through the attract, game select and every chapter to the final
 score and credits on translated code. It is not complete: code the tests and playthroughs have not reached is still
 untranslated, and raises when reached.
 
@@ -35,24 +35,45 @@ them.
 | Measure | Count |
 |---|---|
 | Game functions known | 5,084 (Ghidra's 4,078, plus 1,006 more found while translating) |
-| Translated | 4,636 (91.2%) |
-| Untranslated, known | 448, about 69 KB of code |
+| Translated | 4,646 (91.4%) |
+| Untranslated, known | 438, about 67.5 KB of code |
 
 Ghidra's analysis missed about a fifth of the functions translated so far, so the untranslated count is a lower
 bound. The known untranslated functions, grouped by the source area of their nearest translated neighbour:
 
 | Area | Translated | Untranslated | Untranslated bytes |
 |---|---:|---:|---:|
-| entities | 2,430 | 156 | 14,993 |
-| frontend | 595 | 119 | 34,165 |
-| scene | 433 | 30 | 3,019 |
-| include (shared headers) | 240 | 26 | 2,534 |
+| entities | 2,430 | 154 | 14,828 |
+| frontend | 595 | 117 | 33,665 |
+| scene | 436 | 28 | 2,811 |
+| include (shared headers) | 244 | 26 | 2,534 |
 | graphics | 230 | 15 | 1,867 |
-| scripts | 167 | 22 | 1,284 |
+| scripts | 168 | 21 | 1,209 |
 | video | 47 | 18 | 2,558 |
 | saves | 81 | 11 | 696 |
-| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 413 | 51 | 7,922 |
-| **Total** | **4,636** | **448** | **69,038** |
+| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 415 | 48 | 7,332 |
+| **Total** | **4,646** | **438** | **67,500** |
+
+**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 438 by the call graph
+Ghidra resolves (counted 2026-11-09):
+
+| Class | Functions | Bytes | Meaning |
+|---|---:|---:|---|
+| Frontier | 145 | 26,591 | A translated function calls or references it. 115 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 12 on a line that raises, 18 nowhere |
+| Reachable | 63 | 8,216 | WinMain reaches it, but only through other untranslated functions |
+| Table | 71 | 14,955 | Reached only from a vtable or handler table, or from the C runtime's initializer list |
+| Unreached | 78 | 7,563 | Nothing resolved reaches it: dead code, or a computed call Ghidra did not resolve |
+| Untagged | 72 | 8,253 | Translated, but its declaration is named with `// 0x` instead of the `// Xbox 0x` tag |
+| Fragment | 9 | 1,922 | Not a function: Ghidra split a translated function's body |
+
+The largest groups still missing: the retail resource loader, which the host replaces with a synchronous bundle
+store and its own registry (the boot's provider registrations `0x00035A90`, `0x00034C30`, `0x00033CF0` and
+`0x00035010`, the `common.bnl` load `0x001243B0`, and the pending-record path `0x00034290`, `0x000348D0`,
+`0x00034110`); the boot's device setup (the gamma ramp `0x00061C40`, the render targets `0x000620C0`, the sound
+engine `0x000F8740`); and the virtual keyboard's other layouts (`0x00012920` and the boards under `0x00011870`).
+The boot's resets (`0x000FAD20`, `0x000FA210`, `0x000FF040`, `0x00038600`, `0x00048980`, `0x000F2B60`,
+`0x0011EA50`, `0x00133B10`, `0x00133B70`) and the language choice `0x000FF1C0` run in `Game::init` in retail
+order.
 
 **Object factory types.** 163 of the 168 types with a getter (`0x0030D41C`) are installed. Not installed: 0x0E,
 0x11, 0x2F, 0x6C and 0x9C (by the table's name rows, an effect emitter, the explode effect, the dust-up effect,
@@ -74,7 +95,10 @@ others fail because the scripted driver loses fights, gets stuck or breaks an ev
 code; see [Player scenes](docs/PLAYER_SCENE.md). No host stand-in for game behavior remains.
 
 To recount, list Ghidra's functions with the read-only headless run of `tools/ghidra_scripts/ListFunctions.java`
-(the command form is in `AGENTS.md`), then run `python tools/census/completion.py`.
+(the command form is in `AGENTS.md`), then run `python tools/census/completion.py`. For the reachability classes,
+also run `tools/ghidra_scripts/ListReferences.java` the same way, then `python tools/census/reachability.py`
+(`--all` lists every function with a path from WinMain or a table; the full list is written to
+`cache/census/reachability.txt`).
 
 ## Game data
 

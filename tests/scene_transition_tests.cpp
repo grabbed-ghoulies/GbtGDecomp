@@ -38,6 +38,7 @@
 #include "../src/engine/camera/wide_aspect.h"
 #endif
 #include "gbtg/gfx.h"
+#include "gbtg/language.h"
 #include "gbtg/anim.h"
 #include "gbtg/loctext.h"
 #include "../src/engine/cutscenes/curve_sampling.h"
@@ -11756,6 +11757,10 @@ int main(int argc, char** argv)
     }
     try
     {
+        // fs_init's language (0x000FF1C0) and the boot's loctext folder (0x000FF040), for the modes that load
+        // resources before Game::init; Game::init makes them again.
+        gbtg::select_language(gbtg::xbox_language_code(gbtg::g_language), argv[1]);
+        gbtg::build_loctext_folder();
         if (model_resources_test)
         {
             gbtg::AidStore aids;

@@ -8,6 +8,46 @@
 // The State's construction: every service binding the scene's actors, bodies, minds and controls call.
 namespace gbtg
 {
+namespace
+{
+// Statsheet rows are 0x87 bytes, each starting with its tag; the objTag_Null row (*0x0042A850) ends the sheet.
+constexpr size_t kStatsheetRow = 0x87;
+
+// Xbox 0x00133B10, EAX the statsheet: walks the rows until one is objTag_Null and returns 1.
+i32 statsheet_find_null_row(std::span<const u8> rows, const char* null_tag)
+{
+    for (size_t row = 0;; row += kStatsheetRow)
+    {
+        if (row + kStatsheetRow > rows.size())
+        {
+            throw Error("statsheet has no objTag_Null row");
+        }
+        if (std::strcmp(reinterpret_cast<const char*>(rows.data() + row), null_tag) == 0)
+        {
+            return 1;
+        }
+    }
+}
+
+// Xbox 0x00133B70, EAX the statsheet: the rows before objTag_Null, plus one.
+i32 statsheet_row_count(std::span<const u8> rows, const char* null_tag)
+{
+    i32 count = 0;
+    for (size_t row = 0;; row += kStatsheetRow)
+    {
+        if (row + kStatsheetRow > rows.size())
+        {
+            throw Error("statsheet has no objTag_Null row");
+        }
+        if (std::strcmp(reinterpret_cast<const char*>(rows.data() + row), null_tag) == 0)
+        {
+            return count + 1;
+        }
+        ++count;
+    }
+}
+} // namespace
+
 void SceneActorServices::State::actor_callouts(u32 address, u32 id, const RuntimeActorCreationOptions* options)
 {
     auto* object = object_of(scene.resolve_address(address, 0).data());
@@ -122,18 +162,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         throw Error("scene actors require aid_misc_ghoulies_statsheet_actors");
     }
     const char* null_tag = image.string(read_u32(data(0x0042A850, 4), 0));
-    for (size_t row = 0;; row += 0x87)
-    {
-        if (row + 0x87 > statsheet.size())
-        {
-            throw Error("statsheet has no objTag_Null row");
-        }
-        ++statsheet_rows;
-        if (std::strcmp(reinterpret_cast<const char*>(statsheet.data() + row), null_tag) == 0)
-        {
-            break;
-        }
-    }
+    statsheet_find_null_row(statsheet, null_tag); // 0x00133B10; the boot drops its 1.
+    statsheet_rows = u32(statsheet_row_count(statsheet, null_tag)); // 0x00133B70 into DAT_00545AC8
     case_body_bits = [this](const entity_detail::ListHead* node) -> const EntityBitBlock*
     {
         // A DAT_00511B40 node is a player's actor +0x93C (links[1]); its actor +0x95C +0x15C is the bit block.

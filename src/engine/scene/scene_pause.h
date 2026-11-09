@@ -72,6 +72,10 @@ struct ScenePauseServices
     std::function<const char*()> map_spot; // 0x001410F0 on DAT_00545D40: the room's map spot, or null.
 };
 void request_scene_resume(ScenePauseServices& services); // Xbox 0x0011EBA0
+// Boot, after its 0x0011C3F0 over the scene record: the pause's title is "No Name Available", its input,
+// icon, hold and pause flag clear, the scene's score words (DAT_00545970..DAT_00545980; the scene services'
+// share through `clear_score_words`), the profile's times and the record's plate flags (+0x124, +0x128) clear.
+void reset_scene_session(const std::function<void()>& clear_score_words); // Xbox 0x0011EA50
 // The current game ends: its scene flags, name and times cleared, then the held order's first script requested.
 void clear_runtime_game(ScenePauseServices& services); // Xbox 0x0011EAD0
 void set_scene_pause_phase(i32 phase, ScenePauseServices& services); // Xbox 0x0011D490, EAX the phase

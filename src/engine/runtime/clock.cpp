@@ -185,27 +185,7 @@ PadSlot g_pads[kPadPorts + 1];
 constexpr float kRumbleScale = 0.01f;
 
 
-// Device records at 0x00434910, stride 0x14. Boot 0x000FAD20 calls 0x001558F0(1)
-// before the first frame, so the ports are present when this pass runs.
-struct RumbleDevice
-{
-    u8 enabled = 1;
-    u8 attached = 0;
-    u8 motors_on = 0;
-    u8 pad3 = 0;
-    u8 armed = 0;
-    u8 port = 0;
-    u16 pad6 = 0;
-    float left = 0.f;
-    float right = 0.f;
-    float extra = 0.f;
-};
-
-static_assert(sizeof(RumbleDevice) == 0x14);
-static_assert(offsetof(RumbleDevice, left) == 8);
-
 RuntimePadRumbleCommand g_rumble[kPadPorts]; // DAT_00507D40
-RumbleDevice g_rumble_dev[kPadPorts];
 
 // Xbox 0x000FA4F0. ±9800 is zero; ±32700 is ±1.
 float stick_axis(i32 raw)
@@ -414,29 +394,33 @@ void pad_process(float dt, const InputState& in)
 // Xbox 0x000FAD80
 void pad_buttons()
 {
-    // 0x00155960 drops the sample when the port is disabled. The third argument
-    // is 0, which arms the device. Both motors at 0 clear motors_on.
     for (int port = 0; port < kPadPorts; ++port)
     {
         const RuntimePadRumbleCommand& slot = g_rumble[port];
-        if (slot.active == 0)
+        if (slot.active != 0)
         {
-            continue;
+            submit_pad_rumble(port, slot.left * kRumbleScale, slot.right * kRumbleScale, 0.f); // 0x00155960
         }
-        RumbleDevice& dev = g_rumble_dev[port];
-        if (dev.enabled == 0)
-        {
-            continue;
-        }
-        const float left = slot.left * kRumbleScale;
-        const float right = slot.right * kRumbleScale;
-        dev.port = u8(port);
-        dev.motors_on = (left == 0.f && right == 0.f) ? 0 : 1;
-        dev.armed = 1;
-        dev.left = left;
-        dev.right = right;
-        dev.extra = 0.f;
     }
+}
+
+void clear_pad_sample(PadSample& sample)
+{
+    sample.lx = 0.f;
+    sample.ly = 0.f;
+    sample.rx = 0.f;
+    sample.ry = 0.f;
+    sample.menu_x = 0.f;
+    sample.menu_y = 0.f;
+    sample.lx_out = 0.f;
+    sample.ly_out = 0.f;
+    sample.rx_out = 0.f;
+    sample.ry_out = 0.f;
+    sample.spare0 = 0.f;
+    sample.spare1 = 0.f;
+    sample.trigger_l = 0.f;
+    sample.trigger_r = 0.f;
+    sample.buttons = 0; // A word store; +0x3A is not written.
 }
 
 } // namespace
@@ -446,6 +430,33 @@ void pad_tick(Game& g, const InputState& in)
     // Xbox 0x000FA3C0, then rumble submit 0x000FAD80.
     pad_process(g.clock.dt, in);
     pad_buttons();
+}
+
+// Xbox 0x000FAD20
+void boot_pad_rumble()
+{
+    set_pad_rumble_ports(1); // 0x001558F0
+    for (i32 port = 0; port < 4; ++port)
+    {
+        stop_pad_rumble(u8(port)); // 0x00155930
+    }
+    for (RuntimePadRumbleCommand& command : g_rumble)
+    {
+        command.shakes_allowed = 0; // DAT_00507D48 + port * 0x10
+        command.active = 0; // DAT_00507D4C
+    }
+}
+
+// Xbox 0x000FA210
+void reset_pad_samples()
+{
+    // 0x00155540 opens the gamepads (XInitDevices, XGetDevices) and installs the pad library's hooks: the host's
+    // XInput boundary, which opens its devices itself.
+    for (PadSlot& slot : g_pads)
+    {
+        clear_pad_sample(slot.cur); // +0x00..+0x38
+        clear_pad_sample(slot.prev); // +0x3C..+0x74
+    }
 }
 
 std::span<RuntimePadRumbleCommand, 4> runtime_pad_rumble_commands()

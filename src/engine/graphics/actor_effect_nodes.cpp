@@ -9,8 +9,15 @@
 
 namespace gbtg
 {
-std::array<ActorEffectNode*, 150> g_actor_effect_nodes{};
+ActorEffectSlots g_actor_effect_nodes{};
 i32 g_last_actor_effect = -1;
+std::array<ActorEffectSlotRange, 3> g_actor_effect_slot_ranges{{{0, 150}, {0, 30}, {0, 20}}};
+
+void initialize_actor_effect_slot_ranges()
+{
+    g_actor_effect_slot_ranges[1].start = g_actor_effect_slot_ranges[0].count + g_actor_effect_slot_ranges[0].start;
+    g_actor_effect_slot_ranges[2].start = g_actor_effect_slot_ranges[1].count + g_actor_effect_slot_ranges[1].start;
+}
 
 namespace
 {
@@ -104,9 +111,8 @@ i32 allocate_actor_effect_slot(i32 category, const char* name, u16 count,
     const Vec3& position, const Vec3& euler, AnimationResourceRegistry& registry,
     ResourceErrorState& error)
 {
-    constexpr i32 ranges[3][2] = {{0, 150}, {0, 30}, {0, 20}};
-    i32 slot = ranges[category][0];
-    const i32 end = slot + ranges[category][1];
+    i32 slot = g_actor_effect_slot_ranges[size_t(category)].start;
+    const i32 end = g_actor_effect_slot_ranges[size_t(category)].count + slot;
     if (slot < end)
     {
         while (g_actor_effect_nodes[slot] != nullptr)

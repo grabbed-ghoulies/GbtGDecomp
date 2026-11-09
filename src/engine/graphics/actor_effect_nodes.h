@@ -126,8 +126,22 @@ struct ActorEffectModelContext
     RuntimeShaderAnimationScratch& scratch;
     const std::function<void(u8*)>& heap_free;
 };
-extern std::array<ActorEffectNode*, 150> g_actor_effect_nodes; // DAT_00506930
+// DAT_00506930..0x00506C50: 200 effect slots. Every loop over them (0x000ED450, 0x000ED480, 0x000ED5B0, 0x0011C240)
+// and the boot clear (0x0011C480) take all 200.
+using ActorEffectSlots = std::array<ActorEffectNode*, 200>;
+extern ActorEffectSlots g_actor_effect_nodes; // DAT_00506930
 extern i32 g_last_actor_effect; // DAT_0042A434
+// DAT_0042A41C: an effect category's first slot and slot count, indexed by the stream's category byte. The data
+// holds {0, 150}, {0, 30}, {0, 20}; the boot (0x0011C480) then stores each start after the one before, so the
+// categories own slots 0..149, 150..179 and 180..199.
+struct ActorEffectSlotRange
+{
+    i32 start = 0; // +0
+    i32 count = 0; // +4
+};
+extern std::array<ActorEffectSlotRange, 3> g_actor_effect_slot_ranges; // DAT_0042A41C
+// 0x0011C480's stores at DAT_0042A424 and DAT_0042A42C: category 1 starts after category 0, category 2 after 1.
+void initialize_actor_effect_slot_ranges();
 
 void initialize_actor_effect_free_chain(ActorEffectNode& effect); // Xbox 0x000ED170
 ActorEffectNode* create_actor_effect_node(const char* name, u16 count,

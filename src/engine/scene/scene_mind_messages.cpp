@@ -565,7 +565,6 @@ void SceneMindMessages::prepare_tick()
     path_search_ = player_.mind_storage;
     navigation_.body = player_.body;
     eligibility_.body = player_.body;
-    eligibility_.attached = player_.attached;
     movement_.mind = player_.mind;
     movement_.body = player_.body;
     movement_.required = player_.room;

@@ -8,7 +8,7 @@ namespace gbtg
 {
 struct RuntimeGlobalEffectTick
 {
-    std::array<ActorEffectNode*, 150>& nodes; // DAT_00506930.
+    ActorEffectSlots& nodes; // DAT_00506930.
     RuntimeEffectTickContext& effects;
     RuntimeModelSoundRelease& release;
     RuntimeEffectDebris& debris;
@@ -18,9 +18,9 @@ struct RuntimeGlobalEffectTick
 // The frame caller ignores the incidental final EAX value.
 void tick_global_actor_effects(RuntimeGlobalEffectTick& context); // Xbox 0x000ED480
 // Scene teardown: every effect node is released and its slot cleared, then the debris and trail pools.
-void release_global_actor_effects(std::array<ActorEffectNode*, 150>& nodes, RuntimeModelSoundRelease& release,
+void release_global_actor_effects(ActorEffectSlots& nodes, RuntimeModelSoundRelease& release,
     RuntimeEffectDebrisStorage& debris, RuntimeEffectTrailStorage& trails,
     AnimationResourceRegistry& registry); // Xbox 0x000ED450
 void detach_actor_from_global_effects(void* actor,
-    std::array<ActorEffectNode*, 150>& nodes); // Xbox 0x000ED5B0
+    ActorEffectSlots& nodes); // Xbox 0x000ED5B0
 }

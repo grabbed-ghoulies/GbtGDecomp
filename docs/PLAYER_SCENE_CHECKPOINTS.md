@@ -4,6 +4,36 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-08: the effect table's 200 slots and its category ranges
+
+- The effect allocator `0x000ED550` takes a category's first slot and count from `DAT_0042A41C` (`[category * 2]`,
+  `[category * 2 + 1]`). The data holds {0, 150}, {0, 30}, {0, 20}, but the boot (`0x0011C3F0` → `0x0011C480`) stores
+  `DAT_0042A424` = 0 + 150 and `DAT_0042A42C` = 150 + 30, so the categories own slots 0..149, 150..179 and 180..199 of
+  the 200 at `DAT_00506930`. Every loop over the table (`0x000ED450`, `0x000ED480`, `0x000ED5B0`, the view present
+  in `0x0011C240`) and the boot clear take all 200.
+- The port had a 150-slot table and started every category at slot 0 (`game.cpp` said the two sums had no reader).
+  A category 1 or 2 effect therefore took one of the first 30 or 20 ordinary slots, and none could start once that
+  many ordinary effects were alive. `g_actor_effect_nodes` now has 200 slots, `g_actor_effect_slot_ranges` is
+  `DAT_0042A41C`, and `initialize_actor_effect_slot_ranges` makes the boot's two stores.
+- Checked with a temporary log: the bramble dust (`aid_fxparticle_ghoulies_misc_brambledust`, category 1) now
+  takes slot 150 in 2b7, 3a12, 3c1 and 5_3. `--player-opening`, `--player-fight`, `--scene2a1`, `--scene3c1` and
+  `--scene7` pass; both 900-frame headless runs exit 0; ctest passes. `--scene5_3` and `--actor-loading` fail
+  the same way on the previous commit's build.
+
+### 2026-11-08: a target's held weapon read after its release (the 2b7 crash)
+
+- `--scene2b7` stopped at frame 46560 in some runs: an access violation in Release, "read_u32 out of range" with
+  the checks on, never under cdb. Runs diverge before it (one in three to six fails). An AddressSanitizer build
+  (`build-asan`) named it: a heap use after free of a 0xF08-byte weapon object (created by a ghouly's animation
+  command, `command_runtime_body_create_attachment`), freed by the retired-actor removal (`0x001232D0`), then read
+  at +0x93D by `runtime_player_body_attachment_radius` (`0x0001D3D0`) from another player's focus update.
+- Cause: the focus update reads its target's eligibility through `target_eligibility`, the target mind's own
+  `eligibility_`, whose `attached` (body +0x48) was a copy refreshed only by the target's own mind tick. The
+  release's 0x7C notice clears the target's real pointer, but a mind that ran before the target's next tick read
+  the copy. Retail reads the target's body +0x48 there.
+- `RuntimePlayerAttachmentEligibility::attached` is now an alias of the owner's own pointer
+  (`RuntimeBodyAttachedActor* const&`), so every reader sees the current body +0x48.
+
 ### 2026-11-08: the failing driven scenes, and released actors a dead mind still names
 
 - Of the 30 driven scene modes that did not pass, nearly all reach no untranslated code: the driver loses fights,

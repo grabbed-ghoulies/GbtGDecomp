@@ -587,7 +587,7 @@ void SceneActorServices::State::present_view(i32 view)
         },
         [this]()
         {
-            // DAT_00506930..DAT_00506C50: 0x000ED390 for each nonzero word (the port's table holds 150 of them).
+            // DAT_00506930..DAT_00506C50: 0x000ED390 for each nonzero word, all 200.
             for (ActorEffectNode* effect : g_actor_effect_nodes)
             {
                 if (effect != nullptr)

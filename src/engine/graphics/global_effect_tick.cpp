@@ -5,9 +5,9 @@ namespace gbtg
 {
 // Xbox 0x000ED5B0
 void detach_actor_from_global_effects(void* actor,
-    std::array<ActorEffectNode*, 150>& nodes)
+    ActorEffectSlots& nodes)
 {
-    for (size_t index = 0; index < 150; ++index)
+    for (size_t index = 0; index < nodes.size(); ++index)
     {
         if (nodes[index] != nullptr && nodes[index]->binding_actor == actor)
         {
@@ -22,7 +22,7 @@ void detach_actor_from_global_effects(void* actor,
 }
 
 // Xbox 0x000ED450
-void release_global_actor_effects(std::array<ActorEffectNode*, 150>& nodes, RuntimeModelSoundRelease& release,
+void release_global_actor_effects(ActorEffectSlots& nodes, RuntimeModelSoundRelease& release,
     RuntimeEffectDebrisStorage& debris, RuntimeEffectTrailStorage& trails, AnimationResourceRegistry& registry)
 {
     for (ActorEffectNode*& node : nodes)
@@ -40,7 +40,7 @@ void release_global_actor_effects(std::array<ActorEffectNode*, 150>& nodes, Runt
 // Xbox 0x000ED480
 void tick_global_actor_effects(RuntimeGlobalEffectTick& context)
 {
-    for (size_t index = 0; index < 150; ++index)
+    for (size_t index = 0; index < context.nodes.size(); ++index)
     {
         if (context.nodes[index] != nullptr)
         {

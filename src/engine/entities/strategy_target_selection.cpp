@@ -719,7 +719,8 @@ u32 retreat_runtime_strategy_from_reached_target(RuntimeStrategyTargetChecks& co
     {
         return 0;
     }
-    const RuntimePlayerAttachmentEligibility body{goals.entry.body, *goals.body_bits, goals.entry.actor, nullptr};
+    RuntimeBodyAttachedActor* const none = nullptr;
+    const RuntimePlayerAttachmentEligibility body{goals.entry.body, *goals.body_bits, goals.entry.actor, none};
     if (runtime_body_target_surface_distance(goals.entry.actor, body, target->bytes) > 50.f) // DAT_0032B1E0.
     {
         return 0;

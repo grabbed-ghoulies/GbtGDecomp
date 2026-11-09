@@ -22,6 +22,7 @@
 #include "frontend/input_stack.h"
 #include "camera/camera.h"
 #include "camera/actor_camera_effects.h"
+#include "graphics/actor_effect_nodes.h"
 #include "gbtg/gfx.h"
 #include "gbtg/log.h"
 #include "camera/display_view.h"
@@ -67,9 +68,9 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     // Boot 0x00033030 -> 0x0011EA50 -> 0x0011C3F0. Its input push and handler inits run in the boot above and the
     // scene services' start; its zeroed globals are already zero. 0x001233C0, 0x0011B630 and 0x00123B30 clear lists
     // that are empty at boot, 0x00057D40 fills a host table nothing native reads (0x00119160's depth ramp is
-    // made with the scene services' D3D resources), and the sums it
-    // stores at DAT_0042A424 / DAT_0042A42C have no reader in the dumps.
+    // made with the scene services' D3D resources).
     scene_initialize_handle_slots(); // 0x0011C3F0 -> 0x00129F30: the named sound rows' ids become 0xFFFF.
+    initialize_actor_effect_slot_ranges(); // 0x0011C3F0 -> 0x0011C480: DAT_0042A424 / DAT_0042A42C, read by 0x000ED550.
     lighting_initialize_volume(); // 0x0011C3F0 -> 0x000FD620
     ambient_initialize_beds(); // 0x0011C3F0 -> 0x0011C480 -> 0x00118470
     factory_scene->actor_services->hold_boot_scene_order(); // 0x0011C3F0 -> 0x0011C480 -> 0x001234B0

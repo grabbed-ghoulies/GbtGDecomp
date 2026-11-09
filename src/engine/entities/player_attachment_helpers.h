@@ -8,7 +8,10 @@ struct RuntimePlayerAttachmentEligibility
     std::span<const u8> body;
     const EntityBitBlock& flags;
     Actor& body_actor;
-    RuntimeBodyAttachedActor* attached;
+    // Body +0x48: an alias of the owner's own pointer, not a copy. Another player's mind reads this view
+    // (0x0001D3D0 from the focus update), and retail reads the target's body there; a copy refreshed only by the
+    // target's own mind tick kept a weapon that 0x001232D0 had released in between.
+    RuntimeBodyAttachedActor* const& attached;
 };
 bool runtime_player_body_allows_attachment(const RuntimePlayerAttachmentEligibility& body,
     const Actor& target); // Xbox 0x00027DA0

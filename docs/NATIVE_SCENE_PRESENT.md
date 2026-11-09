@@ -90,7 +90,7 @@ The passes behind a gate, and where their writers stand (2026-11-08):
 | Pass | Gate | Status |
 |---|---|---|
 | `0x0012AB10` post models | `DAT_00512AF0` | Translated, with `0x0012A9B0` / `0x0012A9E0` / `0x0012AA70` |
-| `0x000ED390` effect draw | each `DAT_00506930` word | Translated; an effect's mode 2 sprite (`0x0005CA10`) raises. The port's table has 150 entries; retail loops to `0x00506C50` (200) |
+| `0x000ED390` effect draw | each `DAT_00506930` word | Translated; an effect's mode 2 sprite (`0x0005CA10`) raises. The table holds 200 slots, as retail's loop to `0x00506C50` does: effect categories 0, 1 and 2 own slots 0..149, 150..179 and 180..199 (`DAT_0042A41C`, whose starts the boot sets) |
 | `0x000EBCB0` trails | live type-2 trail records | Translated; the pool is native |
 | `0x0011AF90` light cones | `DAT_00510560` and a background | Translated (`light_cones.cpp`); the Medusa's gaze opens it |
 | `0x00119230` shadow volumes | `DAT_0050EC00`, `DAT_0050484C < 1` | Translated (`shadow_volume_pass.cpp`); 12 scenes have regions (see below) |

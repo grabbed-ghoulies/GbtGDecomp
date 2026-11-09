@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 
 namespace gbtg
 {
@@ -221,7 +222,7 @@ bool SceneBuilder::add_part(const std::string& aid)
     }
     const BundleEntry* entry = find_entry(bundles_.open(chosen->bundle), aid);
     recipe_.parts.push_back({chosen->bundle, entry != nullptr ? entry->name : aid});
-    dirty_ = true;
+    mark_changed();
     return true;
 }
 
@@ -309,6 +310,8 @@ void SceneBuilder::new_scene(const std::string& scene, bool from_scene, const st
         }
         has_recipe_ = true;
         dirty_ = true;
+        unapplied_ = true;
+        reset_history();
         const std::string file = name.substr(std::strlen("aid_script_")) + ".scene";
         copy_text(recipe_file_, sizeof(recipe_file_),
             (std::filesystem::path(plugin_dir_) / "scenes" / file).string());
@@ -327,6 +330,8 @@ void SceneBuilder::open_recipe(const std::filesystem::path& path)
         recipe_ = read_scene_recipe(path);
         has_recipe_ = true;
         dirty_ = false;
+        unapplied_ = true;
+        reset_history();
         copy_text(recipe_file_, sizeof(recipe_file_), path.string());
         status_ = "Opened " + path.string();
     }
@@ -431,6 +436,7 @@ void SceneBuilder::after_load(InspectorSession& session)
     waiting_ = false;
     if (session.state == InspectionState::Ready)
     {
+        unapplied_ = false;
         status_ = "Loaded " + requested_ + ".";
         const bool resolved = resolve_rounds_ > 0;
         resolve_rounds_ = 0;
@@ -479,7 +485,6 @@ void SceneBuilder::after_load(InspectorSession& session)
 
 void SceneBuilder::draw(InspectorSession& session, bool& open)
 {
-    after_load(session);
     if (indexing_.valid() && indexing_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
     {
         try
@@ -663,7 +668,7 @@ void SceneBuilder::draw_parts_tab()
     {
         recipe_.parts.erase(recipe_.parts.begin() + selected_part_);
         selected_part_ = -1;
-        dirty_ = true;
+        mark_changed();
     }
     ImGui::SeparatorText("Add from the disc");
     static const char* kTypes[] = {"any", "model", "anim", "texture", "actor goals", "actor attribs", "callout",
@@ -740,19 +745,19 @@ void SceneBuilder::draw_item_editor(RecipeResource& resource, RecipeItem& item, 
         if (ImGui::InputInt("Id", &id))
         {
             item.id = u16(std::clamp(id, 1, 0xFFFF));
-            dirty_ = true;
+            mark_changed();
         }
         float position[3] = {read_float(bytes, 0xC), read_float(bytes, 0x10), read_float(bytes, 0x14)};
         if (ImGui::DragFloat3("Position", position, 0.05f))
         {
             item.position = Vec3{position[0], position[1], position[2]};
-            dirty_ = true;
+            mark_changed();
         }
         float rotation[3] = {read_float(bytes, 0x18), read_float(bytes, 0x1C), read_float(bytes, 0x20)};
         if (ImGui::DragFloat3("Rotation (radians)", rotation, 0.01f))
         {
             item.rotation = Vec3{rotation[0], rotation[1], rotation[2]};
-            dirty_ = true;
+            mark_changed();
         }
     }
     ImGui::SeparatorText("Field edits (set)");
@@ -765,7 +770,7 @@ void SceneBuilder::draw_item_editor(RecipeResource& resource, RecipeItem& item, 
         if (ImGui::InputInt("##offset", &offset, 1, 4, ImGuiInputTextFlags_CharsHexadecimal))
         {
             patch.offset = u32(std::max(0, offset));
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         static const char* kKinds[] = {"u8", "u16", "u32", "i32", "f32", "hex", "str"};
@@ -774,7 +779,7 @@ void SceneBuilder::draw_item_editor(RecipeResource& resource, RecipeItem& item, 
         if (ImGui::Combo("##kind", &kind, kKinds, IM_ARRAYSIZE(kKinds)))
         {
             patch.kind = kKinds[kind];
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         char value[256];
@@ -783,13 +788,13 @@ void SceneBuilder::draw_item_editor(RecipeResource& resource, RecipeItem& item, 
         if (ImGui::InputText("##value", value, sizeof(value)))
         {
             patch.value = value;
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (ImGui::SmallButton("x"))
         {
             item.patches.erase(item.patches.begin() + std::ptrdiff_t(index));
-            dirty_ = true;
+            mark_changed();
             ImGui::PopID();
             break;
         }
@@ -798,7 +803,7 @@ void SceneBuilder::draw_item_editor(RecipeResource& resource, RecipeItem& item, 
     if (ImGui::SmallButton("Add field edit"))
     {
         item.patches.push_back({marker ? 0x24u : 8u, "u32", "0"});
-        dirty_ = true;
+        mark_changed();
     }
     ImGui::TextWrapped("Offsets count from the item's first byte (its size word). A str edit writes the text and a "
         "zero; the item keeps its size.");
@@ -846,13 +851,13 @@ void SceneBuilder::draw_markers_tab(InspectorSession& session)
         if (ImGui::Button("Up"))
         {
             move_item(markers.items, selected_row_, -1);
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (ImGui::Button("Down"))
         {
             move_item(markers.items, selected_row_, 1);
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (ImGui::Button("Duplicate"))
@@ -872,20 +877,20 @@ void SceneBuilder::draw_markers_tab(InspectorSession& session)
             copy.id = next;
             markers.items.insert(markers.items.begin() + selected_row_ + 1, std::move(copy));
             ++selected_row_;
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (ImGui::Button("Place at inspector camera"))
         {
             markers.items[size_t(selected_row_)].position = session.camera.position;
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (ImGui::Button("Delete"))
         {
             markers.items.erase(markers.items.begin() + selected_row_);
             selected_row_ = -1;
-            dirty_ = true;
+            mark_changed();
         }
         if (selected_row_ >= 0)
         {
@@ -918,7 +923,7 @@ void SceneBuilder::draw_markers_tab(InspectorSession& session)
             item.source = RecipeSource{bundle, entry->name};
             item.index = id;
             selected_row_ = int(markers.items.size()) - 1;
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (row.size() >= 0x18)
@@ -974,27 +979,27 @@ void SceneBuilder::draw_script_tab()
         if (ImGui::Button("Up"))
         {
             move_item(script.items, selected_node_, -1);
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (ImGui::Button("Down"))
         {
             move_item(script.items, selected_node_, 1);
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (ImGui::Button("Duplicate"))
         {
             script.items.insert(script.items.begin() + selected_node_ + 1, script.items[size_t(selected_node_)]);
             ++selected_node_;
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (ImGui::Button("Delete"))
         {
             script.items.erase(script.items.begin() + selected_node_);
             selected_node_ = -1;
-            dirty_ = true;
+            mark_changed();
         }
         if (selected_node_ >= 0)
         {
@@ -1018,7 +1023,7 @@ void SceneBuilder::draw_script_tab()
                 + std::to_string(new_type_) + (new_hex_[0] != 0 ? std::string(" ") + new_hex_ : ""), "new node");
             script.items.push_back(parsed.resources[0].items[0]);
             selected_node_ = int(script.items.size()) - 1;
-            dirty_ = true;
+            mark_changed();
         }
         catch (const std::exception& error)
         {
@@ -1049,7 +1054,7 @@ void SceneBuilder::draw_script_tab()
             item.source = RecipeSource{bundle, entry->name};
             item.index = index;
             selected_node_ = int(script.items.size()) - 1;
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         ImGui::Text("%3u type 0x%02x %-12s %4zu bytes %s", index, type, node_type_name(type), nodes[index].size(),
@@ -1090,7 +1095,7 @@ void SceneBuilder::draw_resources_tab()
         if (ImGui::InputText("Name", name, sizeof(name)))
         {
             resource.aid = lower(name);
-            dirty_ = true;
+            mark_changed();
         }
         ImGui::SameLine();
         if (ImGui::Button("Delete resource"))
@@ -1102,7 +1107,7 @@ void SceneBuilder::draw_resources_tab()
                 return &candidate == target;
             }));
             selected_resource_ = -1;
-            dirty_ = true;
+            mark_changed();
             return;
         }
         if (!resource.items.empty())
@@ -1124,8 +1129,343 @@ void SceneBuilder::draw_resources_tab()
         RecipeItem& item = added.items.emplace_back();
         item.source = RecipeSource{bundle, entry != nullptr ? entry->name : resource_source_};
         selected_resource_ = int(data.size());
-        dirty_ = true;
+        mark_changed();
     }
+}
+
+// --- The viewport's scene editor (InspectorEditor) ---
+
+void SceneBuilder::mark_changed()
+{
+    if (!burst_open_)
+    {
+        undo_.push_back(committed_);
+        if (undo_.size() > 200)
+        {
+            undo_.pop_front();
+        }
+        redo_.clear();
+        burst_open_ = true;
+    }
+    last_change_frame_ = ImGui::GetFrameCount();
+    dirty_ = true;
+    unapplied_ = true;
+}
+
+void SceneBuilder::reset_history()
+{
+    undo_.clear();
+    redo_.clear();
+    committed_ = recipe_;
+    burst_open_ = false;
+}
+
+void SceneBuilder::frame(InspectorSession& session)
+{
+    after_load(session);
+    // A run of changes ends once nothing is being dragged or typed into and a frame passed without a change.
+    if (burst_open_ && ImGui::GetFrameCount() > last_change_frame_ + 1 && !ImGui::IsAnyItemActive()
+        && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+    {
+        committed_ = recipe_;
+        burst_open_ = false;
+    }
+}
+
+bool SceneBuilder::editing(const InspectorSession& session) const
+{
+    return has_recipe_ && session.state == InspectionState::Ready && session.game
+        && lower(session.game->scene_script.name) == lower(scene_name());
+}
+
+void SceneBuilder::start_editing(InspectorSession& session)
+{
+    if (!session.game || session.state != InspectionState::Ready)
+    {
+        status_ = "Load a scene to edit it.";
+        return;
+    }
+    const std::string source = lower(session.game->scene_script.name);
+    if (!source.starts_with("aid_script_"))
+    {
+        status_ = "The loaded scene " + source + " is not a script AID.";
+        return;
+    }
+    std::string suffix = source.substr(std::strlen("aid_script_"));
+    if (suffix.starts_with("ghoulies_"))
+    {
+        suffix = suffix.substr(std::strlen("ghoulies_"));
+    }
+    const std::string name = ("aid_script_edit_" + suffix).substr(0, 0x7F);
+    const std::filesystem::path file = std::filesystem::path(plugin_dir_) / "scenes"
+        / (name.substr(std::strlen("aid_script_")) + ".scene");
+    if (std::filesystem::exists(file))
+    {
+        open_recipe(file);
+    }
+    else
+    {
+        new_scene(name, true, source);
+    }
+    if (!has_recipe_ || lower(scene_name()) != name)
+    {
+        return;
+    }
+    session.next_camera = session.camera;
+    resolve_rounds_ = 0;
+    if (build_and_load())
+    {
+        status_ = "Editing " + name + " (" + file.string() + "), remade from " + source + ". " + status_;
+    }
+}
+
+RecipeResource& SceneBuilder::marker_resource()
+{
+    return resource_of(RecipeResource::Kind::Markers, scene_marker_name(scene_name()));
+}
+
+int SceneBuilder::marker_row(RecipeResource& markers, u16 kind, u16 id)
+{
+    for (size_t index = 0; index < markers.items.size(); ++index)
+    {
+        try
+        {
+            const std::vector<u8> bytes = resolve_recipe_item(markers, markers.items[index], bundles_.source());
+            if (bytes.size() >= 8 && read_u16(bytes, 4) == kind && read_u16(bytes, 6) == id)
+            {
+                return int(index);
+            }
+        }
+        catch (const std::exception&)
+        {
+        }
+    }
+    return -1;
+}
+
+bool SceneBuilder::set_marker_pose(const InspectionItem& item)
+{
+    RecipeResource& markers = marker_resource();
+    const int row = marker_row(markers, u16(item.type), u16(item.address));
+    if (row < 0 || !item.position)
+    {
+        status_ = "Marker kind " + std::to_string(item.type) + " id " + std::to_string(item.address)
+            + " is not a row of the recipe.";
+        return false;
+    }
+    RecipeItem& edited = markers.items[size_t(row)];
+    edited.position = *item.position;
+    if (item.euler)
+    {
+        edited.rotation = *item.euler;
+    }
+    mark_changed();
+    return true;
+}
+
+u16 SceneBuilder::duplicate_marker(InspectorSession& session, const InspectionItem& item, const Vec3& position)
+{
+    RecipeResource& markers = marker_resource();
+    const int row = marker_row(markers, u16(item.type), u16(item.address));
+    if (row < 0)
+    {
+        status_ = "The selected marker is not a row of the recipe.";
+        return 0;
+    }
+    u16 next = 1;
+    for (const RecipeItem& other : markers.items)
+    {
+        try
+        {
+            next = std::max<u16>(next, u16(read_u16(resolve_recipe_item(markers, other, bundles_.source()), 6) + 1));
+        }
+        catch (const std::exception&)
+        {
+        }
+    }
+    RecipeItem copy = markers.items[size_t(row)];
+    copy.id = next;
+    copy.position = position;
+    markers.items.insert(markers.items.begin() + row + 1, std::move(copy));
+    mark_changed();
+    sync_items(session);
+    status_ = "Added marker id " + std::to_string(next) + " (a copy of id " + std::to_string(item.address)
+        + "). Apply to construct it.";
+    return next;
+}
+
+bool SceneBuilder::delete_marker(InspectorSession& session, const InspectionItem& item)
+{
+    RecipeResource& markers = marker_resource();
+    const int row = marker_row(markers, u16(item.type), u16(item.address));
+    if (row < 0)
+    {
+        status_ = "The selected marker is not a row of the recipe.";
+        return false;
+    }
+    markers.items.erase(markers.items.begin() + row);
+    mark_changed();
+    sync_items(session);
+    status_ = "Deleted marker id " + std::to_string(item.address) + ". Apply to rebuild the scene without it.";
+    return true;
+}
+
+void SceneBuilder::draw_marker_fields(InspectorSession& session, int index)
+{
+    if (index < 0 || size_t(index) >= session.items.size())
+    {
+        return;
+    }
+    const u32 kind = session.items[size_t(index)].type;
+    const u32 id = session.items[size_t(index)].address;
+    RecipeResource& markers = marker_resource();
+    const int row = marker_row(markers, u16(kind), u16(id));
+    if (row < 0)
+    {
+        ImGui::TextWrapped("This marker is not a row of the recipe.");
+        return;
+    }
+    const int changes = last_change_frame_;
+    draw_item_editor(markers, markers.items[size_t(row)], true);
+    if (last_change_frame_ != changes)
+    {
+        // Show the edit in the viewport now; the native scene has it after Apply.
+        sync_items(session);
+    }
+}
+
+void SceneBuilder::sync_items(InspectorSession& session)
+{
+    RecipeResource& markers = marker_resource();
+    std::vector<u8> block(8, 0);
+    u32 count = 0;
+    for (const RecipeItem& item : markers.items)
+    {
+        try
+        {
+            const std::vector<u8> row = resolve_recipe_item(markers, item, bundles_.source());
+            block.insert(block.end(), row.begin(), row.end());
+            ++count;
+        }
+        catch (const std::exception& error)
+        {
+            status_ = std::string("A marker row does not resolve: ") + error.what();
+        }
+    }
+    const u32 used = u32(block.size());
+    std::memcpy(block.data(), &count, 4);
+    std::memcpy(block.data() + 4, &used, 4);
+    std::vector<InspectionItem> rows;
+    try
+    {
+        rows = inspect_marker_records(block);
+    }
+    catch (const std::exception& error)
+    {
+        status_ = error.what();
+        return;
+    }
+    std::optional<std::pair<u32, u32>> selected;
+    if (session.selection >= 0 && size_t(session.selection) < session.items.size()
+        && session.items[size_t(session.selection)].marker)
+    {
+        selected = std::pair{session.items[size_t(session.selection)].type,
+            session.items[size_t(session.selection)].address};
+    }
+    std::vector<InspectionItem> items;
+    for (InspectionItem& row : rows)
+    {
+        const auto old = std::find_if(session.items.begin(), session.items.end(), [&](const InspectionItem& item)
+        {
+            return item.marker && item.type == row.type && item.address == row.address;
+        });
+        if (old != session.items.end() && !old->failure.empty())
+        {
+            row.label += " [not loaded]";
+            row.failure = old->failure;
+        }
+        if (old == session.items.end())
+        {
+            row.label += " [new]";
+        }
+        row.source = "Recipe row (edited; Apply to construct)";
+        items.push_back(std::move(row));
+    }
+    for (InspectionItem& item : session.items)
+    {
+        if (!item.marker)
+        {
+            items.push_back(std::move(item));
+        }
+    }
+    session.items = std::move(items);
+    session.selection = -1;
+    if (selected)
+    {
+        for (size_t index = 0; index < session.items.size(); ++index)
+        {
+            if (session.items[index].marker && session.items[index].type == selected->first
+                && session.items[index].address == selected->second)
+            {
+                session.selection = int(index);
+            }
+        }
+    }
+}
+
+void SceneBuilder::undo(InspectorSession& session)
+{
+    if (burst_open_)
+    {
+        committed_ = recipe_;
+        burst_open_ = false;
+    }
+    if (undo_.empty())
+    {
+        return;
+    }
+    redo_.push_back(recipe_);
+    recipe_ = std::move(undo_.back());
+    undo_.pop_back();
+    committed_ = recipe_;
+    dirty_ = true;
+    unapplied_ = true;
+    if (editing(session))
+    {
+        sync_items(session);
+    }
+    status_ = "Undone. Apply to rebuild the scene.";
+}
+
+void SceneBuilder::redo(InspectorSession& session)
+{
+    if (redo_.empty())
+    {
+        return;
+    }
+    undo_.push_back(recipe_);
+    recipe_ = std::move(redo_.back());
+    redo_.pop_back();
+    committed_ = recipe_;
+    burst_open_ = false;
+    dirty_ = true;
+    unapplied_ = true;
+    if (editing(session))
+    {
+        sync_items(session);
+    }
+    status_ = "Redone. Apply to rebuild the scene.";
+}
+
+void SceneBuilder::apply(InspectorSession& session)
+{
+    if (!has_recipe_)
+    {
+        return;
+    }
+    session.next_camera = session.camera;
+    resolve_rounds_ = 0;
+    build_and_load();
 }
 
 } // namespace gbtg

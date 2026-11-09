@@ -5,6 +5,7 @@
 #include "inspector_audio.h"
 #include "gbtg/game.h"
 #include "../scene/scene_inspection.h"
+#include "../scene/scene_model_preview.h"
 #include <optional>
 
 namespace gbtg
@@ -36,6 +37,8 @@ Vec3 inspection_forward(const Quat& rotation);
 Quat inspection_rotation(float yaw, float pitch);
 // Project with the native view/projection; returns NDC x/y and D3D depth.
 bool project_inspection_point(const InspectionFrame& frame, const Vec3& point, Vec3& projected);
+// The inverse: the world point under NDC x/y at D3D depth.
+Vec3 unproject_inspection_point(const InspectionFrame& frame, float ndc_x, float ndc_y, float depth);
 
 class InspectorSession
 {
@@ -48,6 +51,16 @@ public:
     void advance_loading();
     void present();
     void fail(const std::string& message);
+    // Asset viewer (docs/INSPECTOR.md): the native model preview. Errors go to preview_error, not the scene.
+    void preview_model(const std::string& aid);
+    void preview_animation(const std::string& aid);
+    void seek_preview(float position);
+    // Ticks the preview's animation by dt and draws it into preview_frame. Call after present(), on a cleared target.
+    void present_preview(float dt);
+    bool preview_ready() const
+    {
+        return state == InspectionState::Ready && !preview.model.empty();
+    }
     InspectionState state = InspectionState::Empty;
     std::string requested;
     std::string error;
@@ -59,8 +72,17 @@ public:
     std::unique_ptr<InspectorAudio> audio;
     InspectionView camera;
     InspectionView initial_camera;
+    // The camera the next load that reaches Ready starts with, instead of the native one (the editor's Apply).
+    std::optional<InspectionView> next_camera;
     InspectionFrame frame;
     std::vector<InspectionItem> items;
+    InspectionView preview_camera;
+    InspectionFrame preview_frame;
+    SceneModelPreviewInfo preview;
+    std::string preview_error;
+    bool preview_paused = false;
+    bool preview_full_light = true;
+    float preview_speed = 1.f;
     int selection = -1;
     int selected_draw = -1;
     u32 loading_frames = 0;
@@ -71,6 +93,7 @@ public:
 private:
     void collect_items();
     void release();
+    void release_preview();
     std::vector<u8> progression_snapshot() const;
     std::vector<u8> frozen_progression_;
     bool initialized_ = false;

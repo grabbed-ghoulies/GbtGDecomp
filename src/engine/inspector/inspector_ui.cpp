@@ -1,6 +1,7 @@
 #if defined(GBTG_INSPECTOR_APP)
 #include "inspector_ui.h"
 #include "inspector_graphics.h"
+#include "asset_viewer.h"
 #include "gbtg/debug_ui.h"
 #include "gbtg/gfx.h"
 #include "imgui.h"
@@ -58,6 +59,82 @@ const char* state_name(InspectionState state)
     return "Unknown";
 }
 
+// A world point on the scene view's screen, as the overlays draw it.
+bool to_screen(const InspectionFrame& frame, const ScreenPoint& origin, float scale, const Vec3& world, ImVec2& pixel)
+{
+    Vec3 ndc;
+    if (!project_inspection_point(frame, world, ndc))
+    {
+        return false;
+    }
+    const auto& display = frame.display;
+    const float x = display.fitted_x + (ndc.x + 1.f) * .5f * display.fitted_width;
+    const float y = display.fitted_y + (1.f - ndc.y) * .5f * display.fitted_height;
+    pixel = {origin.x + x * scale, origin.y + y * scale};
+    return true;
+}
+
+// The screen position as NDC and as a 640x480 retail pixel.
+void from_screen(const InspectionFrame& frame, const ScreenPoint& origin, float scale, const ImVec2& pixel,
+    float& ndc_x, float& ndc_y, float& retail_x, float& retail_y)
+{
+    const auto& display = frame.display;
+    retail_x = (pixel.x - origin.x) / scale;
+    retail_y = (pixel.y - origin.y) / scale;
+    ndc_x = (retail_x - display.fitted_x) / display.fitted_width * 2.f - 1.f;
+    ndc_y = 1.f - (retail_y - display.fitted_y) / display.fitted_height * 2.f;
+}
+
+// Where the ray under the screen position meets the horizontal plane at `height`.
+bool plane_hit(const InspectionFrame& frame, const ScreenPoint& origin, float scale, const ImVec2& pixel, float height,
+    Vec3& hit)
+{
+    float nx, ny, rx, ry;
+    from_screen(frame, origin, scale, pixel, nx, ny, rx, ry);
+    const Vec3 a = unproject_inspection_point(frame, nx, ny, 0.f);
+    const Vec3 b = unproject_inspection_point(frame, nx, ny, 0.999f);
+    const float dy = b.y - a.y;
+    if (std::abs(dy) < 1e-6f)
+    {
+        return false;
+    }
+    const float t = (height - a.y) / dy;
+    if (t < 0.f)
+    {
+        return false;
+    }
+    hit = {a.x + (b.x - a.x) * t, height, a.z + (b.z - a.z) * t};
+    return true;
+}
+
+float segment_distance(const ImVec2& p, const ImVec2& a, const ImVec2& b)
+{
+    const float dx = b.x - a.x;
+    const float dy = b.y - a.y;
+    const float length = dx * dx + dy * dy;
+    const float t = length > 0.f ? std::clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / length, 0.f, 1.f) : 0.f;
+    const float x = a.x + dx * t - p.x;
+    const float y = a.y + dy * t - p.y;
+    return std::sqrt(x * x + y * y);
+}
+
+float snapped(float value, float step)
+{
+    return step > 0.f ? std::round(value / step) * step : value;
+}
+
+void select_marker(InspectorSession& session, u32 kind, u32 id)
+{
+    for (size_t index = 0; index < session.items.size(); ++index)
+    {
+        if (session.items[index].marker && session.items[index].type == kind && session.items[index].address == id)
+        {
+            session.selection = int(index);
+            return;
+        }
+    }
+}
+
 void frame_item(InspectorSession& session)
 {
     if (session.selection < 0 || size_t(session.selection) >= session.items.size())
@@ -82,6 +159,8 @@ void debug_ui_init(void* hwnd, void* device, void* context)
     auto& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // Floating windows move by their title bar only, so drags inside views (orbit, gizmo, pan) stay with the view.
+    io.ConfigWindowsMoveFromTitleBarOnly = true;
     ImGui::StyleColorsDark();
     if (hwnd != nullptr)
     {
@@ -169,6 +248,17 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
         io.DeltaTime = 1.f / 60.f;
     }
     ImGui::NewFrame();
+    if (editor != nullptr)
+    {
+        editor->frame(session);
+        editor_depth = editor->editing(session);
+    }
+    if (reselect && session.state == InspectionState::Ready && !session.items.empty()
+        && (editor == nullptr || !editor->busy()))
+    {
+        select_marker(session, reselect->first, reselect->second);
+        reselect.reset();
+    }
     const float width = io.DisplaySize.x;
     const float height = io.DisplaySize.y;
     const float right = std::clamp(width * .24f, 230.f, 320.f);
@@ -268,6 +358,10 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
     ImGui::Checkbox("Bounds", &bounds);
     ImGui::Checkbox("Depth-tested overlays", &depth_test);
     ImGui::TextUnformatted("RMB: fly | WASD + Q/E | Shift: fast | F: frame");
+    if (editor != nullptr)
+    {
+        draw_editor_toolbar(session);
+    }
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float scale = std::max(0.01f, std::min(avail.x / 640.f, avail.y / 480.f));
     const ImVec2 size{640.f * scale, 480.f * scale};
@@ -414,10 +508,10 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
             }
             const float dx = io.MousePos.x - point.x;
             const float dy = io.MousePos.y - point.y;
-            if (hovered && !flying && dx * dx + dy * dy < 64.f)
+            if (hovered && !flying && drag_handle < 0 && !gizmo_hover && dx * dx + dy * dy < 64.f)
             {
                 ImGui::SetTooltip("%s", item.label.c_str());
-                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyCtrl)
                 {
                     session.selection = int(index);
                 }
@@ -466,6 +560,19 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
             }
         }
         draw->PopClipRect();
+        if (editor != nullptr && editor->editing(session))
+        {
+            const ScreenPoint at{origin.x, origin.y};
+            draw_gizmo(session, at, scale, hovered && !flying);
+            if (hovered && !flying && io.KeyCtrl && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && drag_handle < 0)
+            {
+                place_at_cursor(session, at, scale, io.KeyShift);
+            }
+            if ((hovered || ImGui::IsWindowFocused()) && !flying)
+            {
+                editor_keys(session);
+            }
+        }
     }
     ImGui::End();
 
@@ -521,6 +628,7 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
         {
             ImGui::TextWrapped("Model: %s", item.model_resource.c_str());
         }
+        const bool editable = editor != nullptr && item.marker && editor->editing(session);
         if (ImGui::CollapsingHeader("Raw record (read only)"))
         {
             ImGui::BeginChild("raw-bytes", {0.f, 180.f}, ImGuiChildFlags_Borders);
@@ -540,6 +648,13 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
                 }
             }
             ImGui::EndChild();
+        }
+        // Last: the editor may rebuild the item list, so `item` is not used after it.
+        if (editable && ImGui::CollapsingHeader("Edit marker (recipe)", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::PushID("marker-fields");
+            editor->draw_marker_fields(session, session.selection);
+            ImGui::PopID();
         }
     }
     else
@@ -589,6 +704,14 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
     if (ImGui::Button("Sound player"))
     {
         show_audio = true;
+    }
+    if (assets != nullptr)
+    {
+        ImGui::SameLine();
+        if (ImGui::Button("Asset viewer"))
+        {
+            show_assets = true;
+        }
     }
     if (extra_windows)
     {
@@ -791,11 +914,423 @@ void InspectorUI::build(InspectorSession& session, void* viewport, float dt)
         }
         ImGui::End();
     }
+    if (assets != nullptr && show_assets)
+    {
+        assets->draw(session, preview_viewport, show_assets);
+    }
     if (extra_windows)
     {
         extra_windows(session);
     }
     ImGui::Render();
+}
+void InspectorUI::draw_editor_toolbar(InspectorSession& session)
+{
+    ImGui::Separator();
+    if (!editor->editing(session))
+    {
+        ImGui::BeginDisabled(session.state != InspectionState::Ready || editor->busy());
+        if (ImGui::Button("Edit this scene"))
+        {
+            editor->start_editing(session);
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("Remakes it as a recipe in the plugin folder to move, add and delete markers.");
+        if (!editor->status().empty())
+        {
+            ImGui::TextWrapped("%s", editor->status().c_str());
+        }
+        return;
+    }
+    if (ImGui::RadioButton("Move (G)", gizmo == Gizmo::Move))
+    {
+        gizmo = Gizmo::Move;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Rotate (R)", gizmo == Gizmo::Rotate))
+    {
+        gizmo = Gizmo::Rotate;
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("Snap", &snap);
+    if (snap)
+    {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(60.f);
+        if (gizmo == Gizmo::Move)
+        {
+            ImGui::DragFloat("##step", &snap_step, 0.05f, 0.01f, 100.f, "%.2f");
+        }
+        else
+        {
+            ImGui::DragFloat("##angle", &snap_angle, 1.f, 1.f, 90.f, "%.0f deg");
+        }
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!editor->can_undo());
+    if (ImGui::Button("Undo"))
+    {
+        editor->undo(session);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!editor->can_redo());
+    if (ImGui::Button("Redo"))
+    {
+        editor->redo(session);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(editor->busy());
+    if (ImGui::Button(editor->pending() ? "Apply (rebuild)*" : "Apply (rebuild)"))
+    {
+        apply_edits(session);
+    }
+    ImGui::EndDisabled();
+    ImGui::TextDisabled("Drag a handle | Ctrl+click: move to surface | Ctrl+Shift+click: copy there | Ctrl+D | Del "
+        "| Ctrl+Z/Y | Ctrl+Enter: apply");
+    if (!editor->status().empty())
+    {
+        ImGui::TextWrapped("%s", editor->status().c_str());
+    }
+}
+
+void InspectorUI::apply_edits(InspectorSession& session)
+{
+    if (session.selection >= 0 && size_t(session.selection) < session.items.size()
+        && session.items[size_t(session.selection)].marker)
+    {
+        reselect = std::pair{session.items[size_t(session.selection)].type,
+            session.items[size_t(session.selection)].address};
+    }
+    editor->apply(session);
+}
+
+void InspectorUI::draw_gizmo(InspectorSession& session, const ScreenPoint& origin, float scale, bool hovered)
+{
+    gizmo_hover = false;
+    auto& io = ImGui::GetIO();
+    if (session.selection < 0 || size_t(session.selection) >= session.items.size())
+    {
+        drag_handle = -1;
+        return;
+    }
+    InspectionItem& item = session.items[size_t(session.selection)];
+    if (!item.marker || !item.position)
+    {
+        drag_handle = -1;
+        return;
+    }
+    const Vec3 p = *item.position;
+    ImVec2 center;
+    if (!to_screen(session.frame, origin, scale, p, center))
+    {
+        drag_handle = -1;
+        return;
+    }
+    const Vec3& eye = session.camera.position;
+    const float distance = std::sqrt((p.x - eye.x) * (p.x - eye.x) + (p.y - eye.y) * (p.y - eye.y)
+        + (p.z - eye.z) * (p.z - eye.z));
+    const float length = std::max(0.05f, distance * 0.12f);
+    const std::array<Vec3, 3> axes{Vec3{1.f, 0.f, 0.f}, Vec3{0.f, 1.f, 0.f}, Vec3{0.f, 0.f, 1.f}};
+    const std::array<ImU32, 3> colors{IM_COL32(245, 90, 80, 255), IM_COL32(100, 235, 110, 255),
+        IM_COL32(90, 160, 255, 255)};
+    std::array<ImVec2, 3> ends{};
+    std::array<bool, 3> visible{};
+    for (size_t axis = 0; axis < 3; ++axis)
+    {
+        visible[axis] = to_screen(session.frame, origin, scale,
+            {p.x + axes[axis].x * length, p.y + axes[axis].y * length, p.z + axes[axis].z * length}, ends[axis]);
+    }
+    std::vector<ImVec2> ring;
+    const bool can_rotate = item.euler.has_value();
+    if (gizmo == Gizmo::Rotate && can_rotate)
+    {
+        for (int step = 0; step <= 48; ++step)
+        {
+            const float a = float(step) / 48.f * 6.2831853f;
+            ImVec2 point;
+            if (to_screen(session.frame, origin, scale, {p.x + length * std::cos(a), p.y, p.z + length * std::sin(a)},
+                point))
+            {
+                ring.push_back(point);
+            }
+        }
+    }
+    int hot = -1;
+    const ImVec2 mouse = io.MousePos;
+    if (hovered && drag_handle < 0)
+    {
+        if (gizmo == Gizmo::Move)
+        {
+            if (std::abs(mouse.x - center.x) < 7.f && std::abs(mouse.y - center.y) < 7.f)
+            {
+                hot = 3;
+            }
+            for (size_t axis = 0; axis < 3 && hot < 0; ++axis)
+            {
+                if (visible[axis] && segment_distance(mouse, center, ends[axis]) < 6.f)
+                {
+                    hot = int(axis);
+                }
+            }
+        }
+        else
+        {
+            for (size_t point = 1; point < ring.size() && hot < 0; ++point)
+            {
+                if (segment_distance(mouse, ring[point - 1], ring[point]) < 6.f)
+                {
+                    hot = 4;
+                }
+            }
+        }
+    }
+    gizmo_hover = hot >= 0 || drag_handle >= 0;
+    if (hot >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyCtrl)
+    {
+        drag_handle = hot;
+        drag_start = p;
+        drag_euler = item.euler.value_or(Vec3{});
+        drag_mouse = {mouse.x, mouse.y};
+        drag_axes = {};
+        for (size_t axis = 0; axis < 3; ++axis)
+        {
+            if (visible[axis])
+            {
+                drag_axes[axis] = {(ends[axis].x - center.x) / length, (ends[axis].y - center.y) / length};
+            }
+        }
+        if (hot == 3 && !plane_hit(session.frame, origin, scale, mouse, p.y, drag_hit))
+        {
+            drag_handle = -1;
+        }
+    }
+    if (drag_handle >= 0)
+    {
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            drag_handle = -1;
+        }
+        else
+        {
+            Vec3 position = drag_start;
+            Vec3 euler = drag_euler;
+            const float mx = mouse.x - drag_mouse.x;
+            const float my = mouse.y - drag_mouse.y;
+            if (drag_handle < 3)
+            {
+                // Along the axis as the screen showed it when the drag began: pixels per world unit.
+                const float sx = drag_axes[size_t(drag_handle)].x;
+                const float sy = drag_axes[size_t(drag_handle)].y;
+                const float squared = sx * sx + sy * sy;
+                if (squared > 1e-6f)
+                {
+                    const float t = (mx * sx + my * sy) / squared;
+                    const Vec3& axis = axes[size_t(drag_handle)];
+                    position = {drag_start.x + axis.x * t, drag_start.y + axis.y * t, drag_start.z + axis.z * t};
+                    if (snap)
+                    {
+                        if (drag_handle == 0)
+                        {
+                            position.x = snapped(position.x, snap_step);
+                        }
+                        else if (drag_handle == 1)
+                        {
+                            position.y = snapped(position.y, snap_step);
+                        }
+                        else
+                        {
+                            position.z = snapped(position.z, snap_step);
+                        }
+                    }
+                }
+            }
+            else if (drag_handle == 3)
+            {
+                Vec3 hit;
+                if (plane_hit(session.frame, origin, scale, mouse, drag_start.y, hit))
+                {
+                    position.x = drag_start.x + hit.x - drag_hit.x;
+                    position.z = drag_start.z + hit.z - drag_hit.z;
+                    if (snap)
+                    {
+                        position.x = snapped(position.x, snap_step);
+                        position.z = snapped(position.z, snap_step);
+                    }
+                }
+            }
+            else if (drag_handle == 4)
+            {
+                euler.y = drag_euler.y + mx * 0.01f;
+                if (snap)
+                {
+                    euler.y = snapped(euler.y, snap_angle * 0.01745329252f);
+                }
+            }
+            const bool moved = position.x != p.x || position.y != p.y || position.z != p.z
+                || (item.euler && (euler.x != item.euler->x || euler.y != item.euler->y || euler.z != item.euler->z));
+            if (moved)
+            {
+                item.position = position;
+                if (item.euler)
+                {
+                    item.euler = euler;
+                }
+                editor->set_marker_pose(item);
+            }
+        }
+    }
+    auto* draw = ImGui::GetWindowDrawList();
+    if (gizmo == Gizmo::Move)
+    {
+        for (size_t axis = 0; axis < 3; ++axis)
+        {
+            if (visible[axis])
+            {
+                const bool bright = hot == int(axis) || drag_handle == int(axis);
+                const ImU32 color = bright ? IM_COL32(255, 255, 255, 255) : colors[axis];
+                draw->AddLine(center, ends[axis], color, 3.f);
+                draw->AddCircleFilled(ends[axis], 4.5f, color);
+            }
+        }
+        const bool bright = hot == 3 || drag_handle == 3;
+        draw->AddRectFilled({center.x - 5.f, center.y - 5.f}, {center.x + 5.f, center.y + 5.f},
+            bright ? IM_COL32(255, 255, 255, 230) : IM_COL32(255, 220, 80, 200));
+    }
+    else if (can_rotate)
+    {
+        const bool bright = hot == 4 || drag_handle == 4;
+        if (ring.size() > 1)
+        {
+            draw->AddPolyline(ring.data(), int(ring.size()), bright ? IM_COL32(255, 255, 255, 255)
+                : IM_COL32(100, 235, 110, 255), ImDrawFlags_None, 2.5f);
+        }
+        const float yaw = item.euler->y;
+        ImVec2 heading;
+        if (to_screen(session.frame, origin, scale, {p.x + length * std::sin(yaw), p.y, p.z + length * std::cos(yaw)},
+            heading))
+        {
+            draw->AddLine(center, heading, IM_COL32(255, 220, 80, 255), 2.f);
+        }
+        if (drag_handle == 4)
+        {
+            char text[48];
+            std::snprintf(text, sizeof(text), "yaw %.1f deg", item.euler->y * 57.29577951f);
+            draw->AddText({center.x + 10.f, center.y + 10.f}, IM_COL32(255, 255, 255, 255), text);
+        }
+    }
+    else
+    {
+        draw->AddText({center.x + 10.f, center.y + 10.f}, IM_COL32(255, 200, 120, 255), "no rotation field");
+    }
+}
+
+void InspectorUI::place_at_cursor(InspectorSession& session, const ScreenPoint& origin, float scale, bool duplicate)
+{
+    if (session.selection < 0 || size_t(session.selection) >= session.items.size())
+    {
+        return;
+    }
+    const InspectionItem item = session.items[size_t(session.selection)];
+    if (!item.marker || !item.position)
+    {
+        return;
+    }
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    float nx, ny, rx, ry, depth;
+    from_screen(session.frame, origin, scale, mouse, nx, ny, rx, ry);
+    Vec3 target;
+    // The scene's own surface under the cursor, from the depth readback; the marker's height plane without one.
+    if (inspector_depth_at(rx, ry, depth) && depth < 0.99999f)
+    {
+        target = unproject_inspection_point(session.frame, nx, ny, depth);
+    }
+    else if (!plane_hit(session.frame, origin, scale, mouse, item.position->y, target))
+    {
+        return;
+    }
+    if (snap)
+    {
+        target.x = snapped(target.x, snap_step);
+        target.z = snapped(target.z, snap_step);
+    }
+    if (duplicate)
+    {
+        const u16 id = editor->duplicate_marker(session, item, target);
+        if (id != 0)
+        {
+            select_marker(session, item.type, id);
+        }
+        return;
+    }
+    InspectionItem& moved = session.items[size_t(session.selection)];
+    moved.position = target;
+    editor->set_marker_pose(moved);
+}
+
+void InspectorUI::editor_keys(InspectorSession& session)
+{
+    auto& io = ImGui::GetIO();
+    if (io.WantTextInput)
+    {
+        return;
+    }
+    if (!io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_G, false))
+    {
+        gizmo = Gizmo::Move;
+    }
+    if (!io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_R, false))
+    {
+        gizmo = Gizmo::Rotate;
+    }
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false))
+    {
+        if (io.KeyShift)
+        {
+            editor->redo(session);
+        }
+        else
+        {
+            editor->undo(session);
+        }
+    }
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false))
+    {
+        editor->redo(session);
+    }
+    if (io.KeyCtrl && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false))
+        && !editor->busy())
+    {
+        apply_edits(session);
+        return;
+    }
+    if (session.selection < 0 || size_t(session.selection) >= session.items.size())
+    {
+        return;
+    }
+    const InspectionItem item = session.items[size_t(session.selection)];
+    if (!item.marker)
+    {
+        return;
+    }
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false) && item.position)
+    {
+        const Vec3 offset{item.position->x + 1.f, item.position->y, item.position->z};
+        const u16 id = editor->duplicate_marker(session, item, offset);
+        if (id != 0)
+        {
+            select_marker(session, item.type, id);
+        }
+    }
+    else if (ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+    {
+        if (editor->delete_marker(session, item))
+        {
+            session.selection = -1;
+        }
+    }
 }
 }
 #endif

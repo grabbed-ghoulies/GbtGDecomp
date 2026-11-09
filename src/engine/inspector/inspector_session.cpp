@@ -164,13 +164,127 @@ bool project_inspection_point(const InspectionFrame& frame, const Vec3& point, V
         && projected.z >= 0.f && projected.z <= 1.f;
 }
 
+Vec3 unproject_inspection_point(const InspectionFrame& frame, float ndc_x, float ndc_y, float depth)
+{
+    // project_inspection_point solved for the view point: depth' = (p10 * z + p11) / -z.
+    const auto& p = frame.projection;
+    const float signed_depth = depth * 2.f - 1.f;
+    const float z = -p[11] / (p[10] + signed_depth);
+    const Vec3 view{ndc_x * -z / p[0], ndc_y * -z / p[5], z};
+    // The view transform is a rotation and a translation: world = R^T (view - t).
+    const auto& v = frame.display.transform;
+    const Vec3 d{view.x - v[3], view.y - v[7], view.z - v[11]};
+    return {v[0] * d.x + v[4] * d.y + v[8] * d.z, v[1] * d.x + v[5] * d.y + v[9] * d.z,
+        v[2] * d.x + v[6] * d.y + v[10] * d.z};
+}
+
 InspectorSession::~InspectorSession()
 {
     release();
 }
 
+void InspectorSession::release_preview()
+{
+    if (!preview.model.empty() && game && game->factory_scene)
+    {
+        try
+        {
+            game->factory_scene->start_actors(*game).release_preview();
+        }
+        catch (const std::exception& error)
+        {
+            record_issue("ASSET VIEWER: releasing " + preview.model + ": " + error.what());
+        }
+    }
+    preview = {};
+    preview_frame = {};
+}
+
+void InspectorSession::preview_model(const std::string& aid)
+{
+    preview_error.clear();
+    if (state != InspectionState::Ready)
+    {
+        preview_error = "The asset viewer draws through a ready scene's native services.";
+        return;
+    }
+    try
+    {
+        auto& services = game->factory_scene->start_actors(*game);
+        release_preview();
+        services.preview_model(aid);
+        preview = services.preview_info();
+    }
+    catch (const std::exception& error)
+    {
+        preview = {};
+        preview_error = aid + ": " + error.what();
+    }
+}
+
+void InspectorSession::preview_animation(const std::string& aid)
+{
+    preview_error.clear();
+    if (!preview_ready())
+    {
+        preview_error = "Choose a model first.";
+        return;
+    }
+    auto& services = game->factory_scene->start_actors(*game);
+    try
+    {
+        services.preview_animation(aid);
+        preview_paused = false;
+    }
+    catch (const std::exception& error)
+    {
+        preview_error = error.what();
+    }
+    preview = services.preview_info();
+}
+
+void InspectorSession::seek_preview(float position)
+{
+    if (preview_ready() && !preview.animation.empty())
+    {
+        auto& services = game->factory_scene->start_actors(*game);
+        services.seek_preview(position);
+        preview_paused = true;
+        preview = services.preview_info();
+    }
+}
+
+void InspectorSession::present_preview(float dt)
+{
+    if (!preview_ready())
+    {
+        return;
+    }
+    try
+    {
+        auto& services = game->factory_scene->start_actors(*game);
+        services.tick_preview(preview_paused ? 0.f : dt * preview_speed, preview_paused);
+        services.inspect_preview(preview_camera, preview_full_light, preview_frame);
+        preview = services.preview_info();
+    }
+    catch (const std::exception& error)
+    {
+        preview_error = preview.model + ": " + error.what();
+        record_issue("ASSET VIEWER: " + preview_error);
+        release_preview();
+        return;
+    }
+    // The preview is not part of the scene: its draw must leave the scene's progression as it was.
+    if (game->clock.frame != frozen_frame || game->clock.time != frozen_time
+        || progression_snapshot() != frozen_progression_)
+    {
+        fail("the asset viewer's draw changed the native clock, actor poses or script progression");
+    }
+}
+
 void InspectorSession::release()
 {
+    release_preview();
     audio.reset();
     initialized_ = false;
     selection = -1;
@@ -205,11 +319,15 @@ void InspectorSession::fail(const std::string& message)
     selected_draw = -1;
     items.clear();
     frame = {};
+    // The native preview stays with the failed graph's services until the next preview releases it.
+    preview = {};
+    preview_frame = {};
     // Keep failed storage alive until retry/teardown, but never draw or tick it again.
 }
 
 void InspectorSession::load(const std::filesystem::path& directory, const std::string& scene)
 {
+    release_preview();
     if (audio)
     {
         audio->stop();
@@ -338,8 +456,9 @@ void InspectorSession::advance_loading()
         {
             record_issue("CAMERA: no active runtime camera; using " + camera_source + " for inspection");
         }
-        camera = preserve_camera_ ? preserved_camera_ : initial_camera;
+        camera = preserve_camera_ ? preserved_camera_ : next_camera ? *next_camera : initial_camera;
         preserve_camera_ = false;
+        next_camera.reset();
         frozen_frame = game->clock.frame;
         frozen_time = game->clock.time;
         collect_items();

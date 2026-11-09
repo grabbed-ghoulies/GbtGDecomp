@@ -4,14 +4,18 @@
 // inspector. Plugin builds only.
 #if defined(GBTG_INSPECTOR_APP) && !defined(GBTG_RETAIL_GAME_ONLY)
 #include "inspector_session.h"
+#include "inspector_ui.h"
 #include "scene_build_tool.h"
 
+#include <deque>
 #include <future>
 
 namespace gbtg
 {
 
-class SceneBuilder
+// Also the viewport's scene editor (InspectorEditor): it edits the open recipe's markers when the loaded scene is the
+// recipe's.
+class SceneBuilder : public InspectorEditor
 {
 public:
     SceneBuilder(std::filesystem::path game_dir, std::filesystem::path plugin_dir);
@@ -23,12 +27,40 @@ public:
     void open_recipe(const std::filesystem::path& path);
     // Build, load and resolve parts, as the Scene tab's button does (--resolve).
     void resolve();
-    // While a build is loading or waits for the session to restart on it.
-    bool busy() const
+    std::string scene_name() const;
+
+    // InspectorEditor.
+    void frame(InspectorSession& session) override;
+    bool editing(const InspectorSession& session) const override;
+    void start_editing(InspectorSession& session) override;
+    bool set_marker_pose(const InspectionItem& item) override;
+    u16 duplicate_marker(InspectorSession& session, const InspectionItem& item, const Vec3& position) override;
+    bool delete_marker(InspectorSession& session, const InspectionItem& item) override;
+    void draw_marker_fields(InspectorSession& session, int index) override;
+    void sync_items(InspectorSession& session) override;
+    bool can_undo() const override
+    {
+        return !undo_.empty() || burst_open_;
+    }
+    bool can_redo() const override
+    {
+        return !redo_.empty();
+    }
+    void undo(InspectorSession& session) override;
+    void redo(InspectorSession& session) override;
+    bool pending() const override
+    {
+        return has_recipe_ && (dirty_ || unapplied_);
+    }
+    void apply(InspectorSession& session) override;
+    bool busy() const override
     {
         return waiting_ || !restart_scene.empty();
     }
-    std::string scene_name() const;
+    const std::string& status() const override
+    {
+        return status_;
+    }
 
 private:
     void draw_scene_tab(InspectorSession& session);
@@ -52,6 +84,12 @@ private:
     bool in_recipe(const std::string& aid) const;
     RecipeResource& resource_of(RecipeResource::Kind kind, const std::string& aid);
     void after_load(InspectorSession& session);
+    // A change to the recipe: one undo step for each run of changes on consecutive frames (a drag is one step).
+    void mark_changed();
+    void reset_history();
+    // The marker row with this kind and id, or -1.
+    int marker_row(RecipeResource& markers, u16 kind, u16 id);
+    RecipeResource& marker_resource();
 
     std::filesystem::path game_dir_;
     char plugin_dir_[260]{};
@@ -84,6 +122,13 @@ private:
     int resolve_rounds_ = 0;
     bool waiting_ = false;
     std::string requested_;
+    // Undo history: whole recipes, the state before each step.
+    std::deque<SceneRecipe> undo_;
+    std::deque<SceneRecipe> redo_;
+    SceneRecipe committed_; // The recipe as the last step left it.
+    bool burst_open_ = false;
+    int last_change_frame_ = -10;
+    bool unapplied_ = false; // Changed since the scene last loaded from the recipe.
 };
 
 } // namespace gbtg

@@ -71,6 +71,33 @@ loads plugins as the game does (`--plugins-dir`, `--no-plugins`), and the builde
 
 The scene must load as the game loads it: the builder never draws or simulates a scene of its own.
 
+### Scene editing
+
+In plugin builds the scene view edits the loaded scene's markers through the scene builder's recipe. **Edit this
+scene** (under the view toggles) remakes the loaded disc scene by reference as `aid_script_edit_<scene>` in the
+plugin folder's `scenes/` (or opens that recipe when it exists) and loads it. While the loaded scene is the open
+recipe's:
+
+- **Move (G)** shows axis handles on the selected marker; drag an axis, or the centre square to move it on its
+  horizontal plane. **Rotate (R)** shows a yaw ring for markers with a rotation field (+0x18). **Snap** rounds to a step
+  or angle.
+- **Ctrl+click** moves the selected marker to the scene surface under the cursor (the viewport's depth readback;
+  without depth there, the marker's own height plane). **Ctrl+Shift+click** places a copy there. **Ctrl+D** copies
+  it one unit along X; **Delete** removes its row.
+- The Inspector panel's **Edit marker (recipe)** section edits the row's id, position, rotation and field edits.
+- **Ctrl+Z** / **Ctrl+Y** undo and redo; each drag or run of edits is one step.
+- **Apply (rebuild)** (**Ctrl+Enter**) saves the recipe, builds it and loads it again with the current camera and
+  selection. The view and marker list show edits at once, but the native scene constructs them only after Apply: the
+  editor never moves native objects.
+
+`--edit-check` runs this end to end without a window: Edit this scene, move and turn the first marker with a position
+and rotation, copy it, Apply, then compare the marker block the rebuilt scene loaded. It returns nonzero unless both
+edits are there. Give it a scratch `--scene-plugin` folder; it writes the recipe there.
+
+```powershell
+.\build-inspector\Release\gbtg-inspector.exe --game-dir OriginalFiles --no-plugins --scene-plugin $env:TEMP\edit-check --headless --frames 30 --edit-check
+```
+
 The scene argument accepts the game's scene-order index or substring. The
 opening gameplay scene is selected by default. The scene browser uses the same
 retail scene-order list. Selecting a scene or Reload / Retry clears selections
@@ -141,6 +168,36 @@ stop loading and are logged. Failed graphs are never presented. Native scenes
 draw their backgrounds through the recording D3D boundary; the inspector
 uses recorded native draws. A partial view does not establish feature completeness.
 
+## Asset viewer
+
+**Asset viewer** (beside Sound player) browses models, animations and textures. The list shows what the scene's native
+resource registry has loaded; clear **Loaded by the scene only** to list everything in the bundles the AID store has
+open (common, the scene's, demand files), and **Open** any disc bundle below the list to add its resources. Opening a
+bundle only lets the native provider find its AIDs; the scene is not reloaded.
+
+- **Models** are loaded by the native resource provider (0x00035E90), instanced by 0x000F9840 and drawn alone by
+  0x000F9080 in the passes an actor's model gets (kinds 0, 1 and 2, gated by the model header's byte 8 as 0x0003C9E0
+  gates them) into the recording device, then presented like the scene view. Drag to orbit,
+  right or middle drag to pan, and scroll to zoom. **Skeleton** draws each joint's world point under the current pose
+  (0x000316B0); **Full light** draws with the ambient tint at one, as a post model's +0x28 does. The textures the
+  model's draws bound are listed under it. A model whose draw reaches an untranslated function reports the error in
+  the viewer and the log; the scene is unaffected.
+- **Animations** play on the chosen model through the native controller (0x00030740, 0x00030880, 0x00030BA0,
+  0x00030C70). **Fits the model** lists animations whose bone count (MINA +0x14) is the skeleton's joint count; others
+  are refused. Play, pause, step, scrub (0x0003B2E0), speed, and **Bind pose** to clear it.
+- **Textures** are decoded for presentation with the decoder the native texture cache uses: format, size, frames,
+  zoom (wheel, or Fit), drag to pan, alpha on a checkerboard, the texel under the cursor, and **Save PNG** (a disc
+  texture: keep it local).
+
+Floating windows move by their title bar only, so drags inside the previews and the scene view stay with them.
+
+The preview must leave the scene as it was: after each preview draw the clock, actor poses and script progression are
+checked as for the scene view. Command-line captures:
+
+```powershell
+.\build-inspector\Release\gbtg-inspector.exe --game-dir OriginalFiles --asset <model aid> --asset-animation <anim aid> --asset-seek 0.5 --preview-screenshot model.bmp --screenshot workspace.bmp
+```
+
 ## Captures and checks
 
 **Sound player** opens a searchable list of native sound-bank cues. Select a cue
@@ -164,8 +221,8 @@ The path is editable. Command-line captures work offscreen:
 `--width` / `--height` set the workspace size (minimum 800x600); `--vsync` sets
 presentation sync. `--headless` uses an offscreen D3D11 target. `--depth-overlays`
 enables overlay occlusion at startup. Automated runs return nonzero if the scene
-fails or never reaches Ready. Retail files are read only; there is no asset save
-or editing function.
+fails or never reaches Ready. Retail files are read only; scene edits go to a plugin
+recipe (Scene editing) and texture exports to a file you name.
 
 For repeatable camera comparisons, `--camera-offset X,Y,Z` offsets the initial
 native camera and `--camera-angles yaw,pitch` sets orientation in degrees. Reset

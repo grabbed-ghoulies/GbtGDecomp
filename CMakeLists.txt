@@ -92,6 +92,7 @@ add_library(gbtg_lib STATIC
     src/engine/scene/scene_actor_services_actors.cpp
     src/engine/scene/scene_actor_services_bindings.cpp
     src/engine/scene/scene_actor_services_draw.cpp
+    src/engine/scene/scene_actor_services_preview.cpp
     src/engine/scene/scene_actor_services_lifecycle.cpp
     src/engine/scene/scene_actor_services_objects.cpp
     src/engine/scene/scene_actor_activation.cpp
@@ -1291,6 +1292,7 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
         set_target_properties(gbtg-inspector-lib gbtg-inspector-runtime PROPERTIES FOLDER "Tools")
 
         set(GBTG_INSPECTOR_SOURCES
+            src/engine/inspector/asset_viewer.cpp
             src/engine/inspector/inspector_audio.cpp
             src/engine/inspector/inspector_session.cpp
             src/engine/inspector/inspector_ui.cpp

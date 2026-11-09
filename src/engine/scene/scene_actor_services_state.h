@@ -40,6 +40,7 @@
 #if defined(GBTG_INSPECTOR_APP)
 #include "scene_inspection.h"
 #include "../inspector/inspection_view.h"
+#include "scene_model_preview.h"
 #endif
 #include "scene.h"
 #include "../camera/camera.h"
@@ -1224,6 +1225,7 @@ struct SceneActorServices::State
 #if defined(GBTG_INSPECTOR_APP)
     void with_view_context(i32 view, const std::function<void(RuntimeSceneViewPresent&)>& present);
     std::map<size_t, u32> inspection_draw_owners;
+    std::unique_ptr<SceneModelPreview> model_preview; // The asset viewer's model (SceneActorServices::preview_model).
 #endif
     // The ambient sampler's view of DAT_0050D770/DAT_0050D780 (filled by 0x000FEFD0), the DAT_00509B20..28 tint and
     // DAT_005120F0, refreshed before a view draws.

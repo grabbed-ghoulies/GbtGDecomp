@@ -45,6 +45,10 @@ bool plugin_recipe_exists(const std::filesystem::path& path);
 // Makes `recipe` (a scene recipe file) the source of its bundle, replacing any plugin's, as if a plugin shipped it.
 // The inspector's scene builder registers the recipe it edits this way. Returns the bundle's path under bundles/.
 std::string plugin_register_recipe(const std::filesystem::path& recipe);
+// Makes `file` (an aid/ loose resource named by its AID) replace that AID, as if a plugin shipped it. The inspector's
+// model import registers the model it writes this way; bundles opened from then on are patched with it. Returns the
+// AID.
+std::string plugin_register_aid(const std::filesystem::path& file);
 // The disc scene whose scene directory row (0x00116220) a recipe's scene uses ([Bundle] Transition), or null.
 const char* plugin_scene_transition(const char* scene);
 // The objparams (aid_objparams_*) the registered recipes add to the executable's pools, built from `executable`'s

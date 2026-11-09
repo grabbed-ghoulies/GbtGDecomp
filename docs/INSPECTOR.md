@@ -198,6 +198,140 @@ checked as for the scene view. Command-line captures:
 .\build-inspector\Release\gbtg-inspector.exe --game-dir OriginalFiles --asset <model aid> --asset-animation <anim aid> --asset-seek 0.5 --preview-screenshot model.bmp --screenshot workspace.bmp
 ```
 
+## Model export and import
+
+In plugin builds a skinned disc model goes out to FBX (or glTF 2.0) and comes back as a plugin's replacement for it.
+The Asset viewer's **Export / import (FBX, glTF)** section does this for the model on show; the file's extension picks
+the format. The same runs from the command line:
+
+```powershell
+# The boy as binary FBX (or .glb): skeleton, skin, materials, colour textures, and the head's MORPH_TARGET_* shapes.
+.\build-inspector\Release\gbtg-inspector.exe --export-model aid_model_ghoulies_actor_boy --out boy.fbx --game-dir OriginalFiles
+# An .fbx or .glb skinned to that skeleton, built on the disc model and written to <plugin>/aid/aid_model_ghoulies_actor_boy.
+.\build-inspector\Release\gbtg-inspector.exe --import-model boy_new.fbx --as aid_model_ghoulies_actor_boy --plugin plugins\boy_reskin --game-dir OriginalFiles
+# The serialized model's directory, node tree and textures as text.
+.\build-inspector\Release\gbtg-inspector.exe --describe-model aid_model_ghoulies_actor_boy --game-dir OriginalFiles
+```
+
+**Export** reads the serialized model as the loader receives it (`serialized_model.cpp`): the `ndSkeleton` joints
+(named from the tree's name table), each material's palette groups (`ndRigidSkinIdx` slot to `ndMtxArray` row to joint;
+the bone stream holds `24 + 3 * slot`), the vertex streams by record kind (9 position, 0xA normal, 0xD UV, 0 bones,
+8 weights, 0xB colour), and the `ndBlendShape` branch, whose targets hold offsets from its base (0x00157650 adds
+`weight * target`). The body and the head are separate meshes, with materials named after the shader
+(`shader_jumper`, one per material variant). Joints are unrotated, translated from their parent's bind point.
+
+The FBX (`fbx_export.cpp`, binary version 7.4, written without Autodesk's SDK by `fbx_document.cpp`) holds the joints
+as LimbNode models, a Skin deformer with one cluster per joint and a bind pose on each mesh, the head's 12
+`MORPH_TARGET_*` shapes as BlendShape channels, and the colour textures as PNG files in `<name>.fbm` beside it as well
+as embedded in it. It is Y up in the game's units (one unit is one centimetre to FBX tools).
+
+**Import** keeps the disc model as a template (`model_import.cpp`). Its skeleton, materials, shaders, textures' formats
+and blend-shape layout stay; every template node keeps its offset. The new vertex streams join the first GPU chunk
+(the tree's vertex data relocates against it), and the index lists, skin palettes, extra palette groups and grown matrix
+rows go after the CPU block with tree-relative pointers, so the native loader (0x00052910) relocates the result as it
+does the disc model. An FBX is read by `fbx_import.cpp` (binary only: polygons as fans, normals, UVs and colours in any
+mapping, Skin clusters, BlendShape channels, embedded or neighbouring PNG textures). Rules for the file:
+
+- Skin every mesh to the exported skeleton; joints match by name. A package that turned the scene to its own up axis or
+  units (3ds Max is Z up) is undone: the bones' bind points are fitted to the template's over every axis turn and mirror
+  with a uniform scale, and the meshes follow. A joint that still sits away from the template's is reported; the game
+  keeps the template skeleton.
+- Keep the material names. A copy suffix after a separator (`.001`, ` #2`, `_1`, ` (2)`) is ignored, so
+  `shader_jeans (1)` reads as `shader_jeans` but `shader_blinn23` never as `shader_blinn2`. The material picks the
+  template's variant: a triangle with a two-bone vertex goes to the two-bone shader, else the one-bone one. Each vertex
+  keeps its two strongest weights; a material with only a one-bone shader keeps the strongest joint.
+- A mesh named `head...`, or with shapes, goes to the blend-shape branch. Shapes match the template's
+  `MORPH_TARGET_*` names (case ignored, or a name containing one); missing ones move nothing. When none of a mesh's
+  shapes has a matching name and it has as many as the template, they are taken in the template's order.
+- A material's diffuse (base colour) PNG replaces its texture at the image's own size (rounded to a power of two from
+  4 to 1024) as DXT1; an unchanged image keeps the disc's data, and other image formats are reported and skipped. A
+  texture that another material also uses (the boy's jeans share theirs with `shader_blinn25`) stays as it is for
+  that material: the changed one gets a copy of its own. Data that does not fit where the disc's was goes in a GPU
+  chunk of its own; postload (0x000534A0) builds the texture's D3D header from the record's size.
+- A material name the template does not have makes a **new material**: a copy of one of its textured materials (every
+  variant, with copied material records and the arrays the loader rewrites) linked beside it, with its own colour
+  texture. Name it `<name>__<base>` to choose the base (`overalls__shader_jumper`); without one the body's base is
+  `shader_jeans` (a neutral grey cel ramp) and the head's `shader_blinn24`. The copy keeps the base's cel ramp and its
+  soft lighting texture (`RARE_lightmap0`, sampled by the view, not by UV), so those still tint it. It is stored as
+  `shader_<name>__<base>` with a name-table entry, so an export of the result names it with its base.
+- `--export-textures <aid> --out <dir>` writes every texture of a model as PNG, named by the materials and roles
+  (colour, celmap, lightmap) that use it.
+- Triangles are regrouped into palettes no larger than the template's largest; joints the template's palettes did not
+  use get new matrix rows.
+
+Checked with Blender's FBX and glTF importers and exporters: an unedited export, re-export and import draws
+pixel-identical to the disc model in the preview and the scene, and so does a Z-up export scaled by three. Importing from
+the Asset viewer registers the file with the plugin overlay (`plugin_register_aid`) and restarts the runtime, so the
+scene and the preview load it at once. The written file holds disc data: keep it local.
+
+### 3ds Max
+
+Use FBX (3ds Max's own importer and exporter; the Khronos glTF plug-in crashed 3ds Max on import).
+
+1. Export the model from the inspector as `.fbx`, to a full path (a bare file name lands in the inspector's working
+   folder). Its textures go in `<name>.fbm` beside it.
+2. In 3ds Max, **Import** the FBX. The body and head come in skinned to the 69 bones, and the head with a Morpher
+   holding the 12 `MORPH_TARGET_*` channels. Up axis and units do not matter: the import fits them back.
+3. Edit or replace the meshes. Skin new geometry to the existing bones (do not rename or move them; weights must total
+   1.0, and the game keeps each vertex's two strongest). Keep the existing materials' names and the Morpher channels'
+   names or order; a material with a new name becomes a new material (`luigi_overalls`, or `luigi_overalls__shader_jumper`
+   to pick its base) with its Base Color Map as its texture. Textures must be PNG, any power-of-two size up to 1024.
+   Apply Reset XForm to mirrored objects.
+4. **Export** as FBX, **Binary**, with Skin and Morph deformations on (Embed Media is optional; without it the PNGs must
+   stay beside the FBX or where it records them).
+5. In the inspector, **Import as this model** with that file.
+
+Checked with 3ds Max 2021 (batch mode, FBX importer and exporter defaults): the boy comes in as two editable meshes with
+Skin (49 and 5 bones) and a Morpher with the 12 named channels, with Physical materials whose Base Color Map holds the
+PNGs. Materials without a map show white: in the game their colour comes from the cel ramp. Max's binary FBX export (in
+inches, Z up) imports and draws as the disc model, apart from shading where Max rebuilds normals from its smoothing
+groups. Every Model needs its `DefaultAttributeIndex` property: without it 3ds Max imports a mesh as an empty Dummy.
+
+### 3ds Max tools
+
+`tools/max/gbtg_tools.ms` (3ds Max 2021 or older) does the steps above from inside Max. Run it with **Scripting > Run
+Script**, then add the **GbtG Tools** action (Customize User Interface, category `GbtG`) to a toolbar or menu. So that
+scenes saved with GbtG Materials open with the material defined, also put a one-line startup script in
+`%LOCALAPPDATA%\Autodesk\3dsMax\2021 - 64bit\ENU\scripts\startup`:
+
+```maxscript
+fileIn @"F:\path\to\GbtGDecomp\tools\max\gbtg_tools.ms"
+```
+
+Keep `gbtg_cel.fx` beside the script. The panel's settings are kept in `gbtg_tools.ini` in Max's plugin configuration
+folder.
+
+- **Export from game and load** runs `gbtg-inspector --export-model` for the panel's model AID into the work folder
+  and loads the result. Every export also writes `<name>.gbtg.ini` beside the model file: the AID, the inspector's
+  path and game folder, and each material with its part (body or head) and its colour, cel ramp and lighting PNGs, all
+  of which go in `<name>.fbm`. It holds no disc data.
+- **Load exported FBX** imports an export (skin and morphs on) and turns every material the manifest names into a
+  **GbtG Material**: a DirectX Shader on `gbtg_cel.fx` with a GbtG rollout. Its **Base** dropdown lists the model's
+  materials; **New material on this base** with a **Name** makes it a new material, and **Colour map** picks its PNG. It
+  names itself as the importer reads it: the base (`shader_jumper`), or `<name>__<base>` for a new one.
+- **New GbtG Material** puts a new one (on the first base) in the active Material Editor slot, to apply to faces.
+- **Send to game** swaps each GbtG Material for a Standard material with that name and its colour map, exports binary
+  FBX with skin and morphs (embedded media) to `<aid>_send.fbx` in the work folder, puts the materials back, and runs
+  `gbtg-inspector --import-model` into the plugin folder (by default the inspector's `plugins\my_models`). The import
+  notes show in the panel.
+
+The viewport look is an approximation for authoring, not the game's combiner: the colour map times the cel ramp at the
+Lambert term of a fixed light (**Light Direction**, world space) and **Ramp Brightness**, plus the lighting blob looked up
+by the view-space normal (**Blob Strength**). It needs Max's DirectX 11 viewport (Nitrous). The inspector draws the real
+thing.
+
+An open inspector reloads models live: once a second it looks at the `*/aid/aid_*` files of its plugins folder, and when
+one is new or changed (and unchanged at the next look, so a file still being written is left alone), it registers the
+file, restarts the scene with the camera kept, and shows the model again in the Asset viewer. The Export / import
+section's **Reload when a plugin model file changes** turns it off, as does `--no-live-reload`. Imports write
+`<aid>.partial` and rename it over the model, so a reload never reads half a file.
+
+Checked with 3ds Max 2021 in batch mode: loading an export turns 22 material slots of the boy into GbtG Materials with
+their ramps and blobs; a new `maxshirt__shader_jumper` with a recoloured PNG saved by Max (16 bits a channel, which the
+importer's PNG reader takes along with 1, 2 and 4-bit grey and palette images) is sent, imported as its own material and
+texture, and drawn in the inspector; a running inspector picked up the changed file and restarted the scene. The shader
+compiles as `fx_5_0` with `d3dcompiler_47`; the Max viewport itself was not looked at.
+
 ## Captures and checks
 
 **Sound player** opens a searchable list of native sound-bank cues. Select a cue

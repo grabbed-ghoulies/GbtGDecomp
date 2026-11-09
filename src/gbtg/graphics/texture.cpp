@@ -388,7 +388,7 @@ void append_png_chunk(std::vector<u8>& output, const char type[4], std::span<con
 }
 }
 
-void write_png(const std::filesystem::path& path, const RgbaImage& img)
+std::vector<u8> encode_png(const RgbaImage& img)
 {
     if (img.width <= 0 || img.height <= 0 || img.width > 0x7FFFFFFF / 4
         || img.bgra.size() != size_t(img.width) * size_t(img.height) * 4)
@@ -428,7 +428,432 @@ void write_png(const std::filesystem::path& path, const RgbaImage& img)
     append_png_chunk(png, "IHDR", header);
     append_png_chunk(png, "IDAT", compressed);
     append_png_chunk(png, "IEND", std::span<const u8>{});
-    write_file(path, png);
+    return png;
+}
+
+void write_png(const std::filesystem::path& path, const RgbaImage& img)
+{
+    write_file(path, encode_png(img));
+}
+
+RgbaImage resize_image(const RgbaImage& image, int width, int height)
+{
+    if (image.width <= 0 || image.height <= 0 || width <= 0 || height <= 0)
+    {
+        throw Error("cannot resize an empty image");
+    }
+    if (image.width == width && image.height == height)
+    {
+        return image;
+    }
+    RgbaImage out;
+    out.width = width;
+    out.height = height;
+    out.bgra.resize(size_t(width) * height * 4);
+    for (int y = 0; y < height; ++y)
+    {
+        const float sy = std::clamp((float(y) + .5f) * float(image.height) / float(height) - .5f, 0.f,
+            float(image.height - 1));
+        const int y0 = int(sy);
+        const int y1 = std::min(y0 + 1, image.height - 1);
+        const float fy = sy - float(y0);
+        for (int x = 0; x < width; ++x)
+        {
+            const float sx = std::clamp((float(x) + .5f) * float(image.width) / float(width) - .5f, 0.f,
+                float(image.width - 1));
+            const int x0 = int(sx);
+            const int x1 = std::min(x0 + 1, image.width - 1);
+            const float fx = sx - float(x0);
+            for (int channel = 0; channel < 4; ++channel)
+            {
+                const auto at = [&](int px, int py)
+                {
+                    return float(image.bgra[(size_t(py) * image.width + px) * 4 + size_t(channel)]);
+                };
+                const float top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * fx;
+                const float bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * fx;
+                out.bgra[(size_t(y) * width + x) * 4 + size_t(channel)] = u8(std::lround(top + (bottom - top) * fy));
+            }
+        }
+    }
+    return out;
+}
+
+namespace
+{
+u16 pack_rgb565(float r, float g, float b)
+{
+    const auto q = [](float value, int levels)
+    {
+        return u16(std::clamp(int(std::lround(value * float(levels) / 255.f)), 0, levels));
+    };
+    return u16(q(r, 31) << 11 | q(g, 63) << 5 | q(b, 31));
+}
+}
+
+std::vector<u8> encode_dxt1(const RgbaImage& image)
+{
+    const int bw = (image.width + 3) / 4;
+    const int bh = (image.height + 3) / 4;
+    std::vector<u8> out(size_t(bw) * bh * 8);
+    for (int by = 0; by < bh; ++by)
+    {
+        for (int bx = 0; bx < bw; ++bx)
+        {
+            float pixels[16][3];
+            bool transparent[16];
+            bool any_transparent = false;
+            for (int i = 0; i < 16; ++i)
+            {
+                const int x = std::min(bx * 4 + (i & 3), image.width - 1);
+                const int y = std::min(by * 4 + (i >> 2), image.height - 1);
+                const u8* p = image.bgra.data() + (size_t(y) * image.width + x) * 4;
+                pixels[i][0] = p[2];
+                pixels[i][1] = p[1];
+                pixels[i][2] = p[0];
+                transparent[i] = p[3] < 128;
+                any_transparent = any_transparent || transparent[i];
+            }
+            // Endpoints along the principal axis of the opaque texels.
+            float mean[3]{};
+            int opaque = 0;
+            for (int i = 0; i < 16; ++i)
+            {
+                if (!transparent[i])
+                {
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        mean[c] += pixels[i][c];
+                    }
+                    ++opaque;
+                }
+            }
+            u8* block = out.data() + (size_t(by) * bw + bx) * 8;
+            if (opaque == 0)
+            {
+                // All transparent: the three-colour mode's index 3.
+                block[0] = block[1] = block[2] = block[3] = 0;
+                block[4] = block[5] = block[6] = block[7] = 0xFF;
+                continue;
+            }
+            for (float& value : mean)
+            {
+                value /= float(opaque);
+            }
+            float cov[6]{};
+            for (int i = 0; i < 16; ++i)
+            {
+                if (transparent[i])
+                {
+                    continue;
+                }
+                const float d[3]{pixels[i][0] - mean[0], pixels[i][1] - mean[1], pixels[i][2] - mean[2]};
+                cov[0] += d[0] * d[0];
+                cov[1] += d[0] * d[1];
+                cov[2] += d[0] * d[2];
+                cov[3] += d[1] * d[1];
+                cov[4] += d[1] * d[2];
+                cov[5] += d[2] * d[2];
+            }
+            float axis[3]{1.f, 1.f, 1.f};
+            for (int iteration = 0; iteration < 8; ++iteration)
+            {
+                const float next[3]{cov[0] * axis[0] + cov[1] * axis[1] + cov[2] * axis[2],
+                    cov[1] * axis[0] + cov[3] * axis[1] + cov[4] * axis[2],
+                    cov[2] * axis[0] + cov[4] * axis[1] + cov[5] * axis[2]};
+                const float length = std::sqrt(next[0] * next[0] + next[1] * next[1] + next[2] * next[2]);
+                if (length < 1e-6f)
+                {
+                    break;
+                }
+                for (int c = 0; c < 3; ++c)
+                {
+                    axis[c] = next[c] / length;
+                }
+            }
+            float low = 1e9f;
+            float high = -1e9f;
+            for (int i = 0; i < 16; ++i)
+            {
+                if (transparent[i])
+                {
+                    continue;
+                }
+                const float t = (pixels[i][0] - mean[0]) * axis[0] + (pixels[i][1] - mean[1]) * axis[1]
+                    + (pixels[i][2] - mean[2]) * axis[2];
+                low = std::min(low, t);
+                high = std::max(high, t);
+            }
+            u16 c0 = pack_rgb565(mean[0] + axis[0] * high, mean[1] + axis[1] * high, mean[2] + axis[2] * high);
+            u16 c1 = pack_rgb565(mean[0] + axis[0] * low, mean[1] + axis[1] * low, mean[2] + axis[2] * low);
+            // Four-colour blocks need c0 > c1; three-colour (transparent) blocks need c0 <= c1.
+            if (any_transparent ? c0 > c1 : c0 < c1)
+            {
+                std::swap(c0, c1);
+            }
+            if (!any_transparent && c0 == c1)
+            {
+                if (c1 > 0)
+                {
+                    --c1;
+                }
+                else
+                {
+                    ++c0;
+                }
+            }
+            u8 palette[4][3]{};
+            decode_rgb565(c0, palette[0][0], palette[0][1], palette[0][2]);
+            decode_rgb565(c1, palette[1][0], palette[1][1], palette[1][2]);
+            const int colours = any_transparent ? 3 : 4;
+            for (int c = 0; c < 3; ++c)
+            {
+                if (any_transparent)
+                {
+                    palette[2][c] = u8((palette[0][c] + palette[1][c]) / 2);
+                }
+                else
+                {
+                    palette[2][c] = u8((2 * palette[0][c] + palette[1][c]) / 3);
+                    palette[3][c] = u8((palette[0][c] + 2 * palette[1][c]) / 3);
+                }
+            }
+            u32 indices = 0;
+            for (int i = 0; i < 16; ++i)
+            {
+                u32 best = 3;
+                if (!transparent[i])
+                {
+                    float best_distance = 1e30f;
+                    for (int candidate = 0; candidate < colours; ++candidate)
+                    {
+                        float distance = 0.f;
+                        for (int c = 0; c < 3; ++c)
+                        {
+                            const float d = pixels[i][c] - float(palette[candidate][c]);
+                            distance += d * d;
+                        }
+                        if (distance < best_distance)
+                        {
+                            best_distance = distance;
+                            best = u32(candidate);
+                        }
+                    }
+                }
+                indices |= best << (i * 2);
+            }
+            block[0] = u8(c0);
+            block[1] = u8(c0 >> 8);
+            block[2] = u8(c1);
+            block[3] = u8(c1 >> 8);
+            block[4] = u8(indices);
+            block[5] = u8(indices >> 8);
+            block[6] = u8(indices >> 16);
+            block[7] = u8(indices >> 24);
+        }
+    }
+    return out;
+}
+
+RgbaImage decode_png(std::span<const u8> png)
+{
+    static constexpr u8 kSignature[8]{137, 80, 78, 71, 13, 10, 26, 10};
+    if (png.size() < 8 || std::memcmp(png.data(), kSignature, 8) != 0)
+    {
+        throw Error("not a PNG image");
+    }
+    const auto be32 = [&](size_t at)
+    {
+        if (at + 4 > png.size())
+        {
+            throw Error("truncated PNG image");
+        }
+        return u32(png[at]) << 24 | u32(png[at + 1]) << 16 | u32(png[at + 2]) << 8 | u32(png[at + 3]);
+    };
+    u32 width = 0;
+    u32 height = 0;
+    u8 depth = 0;
+    u8 color = 0;
+    u8 interlace = 0;
+    std::vector<u8> idat;
+    std::vector<u8> palette;
+    std::vector<u8> palette_alpha;
+    size_t at = 8;
+    while (at + 8 <= png.size())
+    {
+        const u32 length = be32(at);
+        const std::string_view type(reinterpret_cast<const char*>(png.data() + at + 4), 4);
+        const size_t data = at + 8;
+        if (data + length + 4 > png.size())
+        {
+            throw Error("truncated PNG chunk");
+        }
+        if (type == "IHDR")
+        {
+            width = be32(data);
+            height = be32(data + 4);
+            depth = png[data + 8];
+            color = png[data + 9];
+            interlace = png[data + 12];
+        }
+        else if (type == "PLTE")
+        {
+            palette.assign(png.begin() + std::ptrdiff_t(data), png.begin() + std::ptrdiff_t(data + length));
+        }
+        else if (type == "tRNS")
+        {
+            palette_alpha.assign(png.begin() + std::ptrdiff_t(data), png.begin() + std::ptrdiff_t(data + length));
+        }
+        else if (type == "IDAT")
+        {
+            idat.insert(idat.end(), png.begin() + std::ptrdiff_t(data), png.begin() + std::ptrdiff_t(data + length));
+        }
+        else if (type == "IEND")
+        {
+            break;
+        }
+        at = data + length + 4;
+    }
+    if (width == 0 || height == 0 || width > 16384 || height > 16384)
+    {
+        throw Error("PNG image has an unsupported size");
+    }
+    const u32 channels = color == 0 ? 1 : color == 2 ? 3 : color == 3 ? 1 : color == 4 ? 2 : color == 6 ? 4 : 0;
+    if (channels == 0)
+    {
+        throw Error("PNG image has an unsupported colour type");
+    }
+    // 8 and 16 bits a sample (16 keeps its high byte), and 1, 2 or 4 bits for grey and palette images.
+    const bool packed = depth == 1 || depth == 2 || depth == 4;
+    if (interlace != 0 || !(depth == 8 || depth == 16 || (packed && (color == 0 || color == 3)))
+        || (color == 3 && depth == 16))
+    {
+        throw Error("PNG image uses an unsupported bit depth or interlacing");
+    }
+    const size_t row_bytes = (size_t(width) * channels * depth + 7) / 8;
+    const size_t step = std::max<size_t>(1, size_t(channels) * depth / 8); // The filters' bytes per pixel.
+    std::vector<u8> raw((row_bytes + 1) * height);
+    uLongf raw_size = uLongf(raw.size());
+    if (uncompress(raw.data(), &raw_size, idat.data(), uLong(idat.size())) != Z_OK || raw_size != raw.size())
+    {
+        throw Error("PNG image data does not inflate");
+    }
+    std::vector<u8> pixels(row_bytes * height);
+    for (u32 y = 0; y < height; ++y)
+    {
+        const u8 filter = raw[y * (row_bytes + 1)];
+        const u8* line = raw.data() + y * (row_bytes + 1) + 1;
+        u8* out = pixels.data() + y * row_bytes;
+        const u8* previous = y == 0 ? nullptr : pixels.data() + (y - 1) * row_bytes;
+        for (size_t x = 0; x < row_bytes; ++x)
+        {
+            const int a = x >= step ? out[x - step] : 0;
+            const int b = previous != nullptr ? previous[x] : 0;
+            const int c = previous != nullptr && x >= step ? previous[x - step] : 0;
+            int value = line[x];
+            switch (filter)
+            {
+            case 0:
+                break;
+            case 1:
+                value += a;
+                break;
+            case 2:
+                value += b;
+                break;
+            case 3:
+                value += (a + b) / 2;
+                break;
+            case 4:
+            {
+                const int p = a + b - c;
+                const int pa = std::abs(p - a);
+                const int pb = std::abs(p - b);
+                const int pc = std::abs(p - c);
+                value += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+                break;
+            }
+            default:
+                throw Error("PNG image uses an unknown filter");
+            }
+            out[x] = u8(value);
+        }
+    }
+    if (depth != 8)
+    {
+        // To one byte a sample: a 16-bit sample's high byte; packed samples unpacked (grey scaled to 0..255).
+        std::vector<u8> samples(size_t(width) * channels * height);
+        for (u32 y = 0; y < height; ++y)
+        {
+            const u8* row = pixels.data() + y * row_bytes;
+            for (size_t i = 0; i < size_t(width) * channels; ++i)
+            {
+                u8 value;
+                if (depth == 16)
+                {
+                    value = row[i * 2];
+                }
+                else
+                {
+                    const size_t bit = i * depth;
+                    const u32 max = (1u << depth) - 1;
+                    const u32 raw = (row[bit / 8] >> (8 - depth - bit % 8)) & max;
+                    value = u8(color == 0 ? raw * 255 / max : raw);
+                }
+                samples[y * size_t(width) * channels + i] = value;
+            }
+        }
+        pixels = std::move(samples);
+    }
+    RgbaImage image;
+    image.width = int(width);
+    image.height = int(height);
+    image.bgra.resize(size_t(width) * height * 4);
+    for (size_t index = 0; index < size_t(width) * height; ++index)
+    {
+        const u8* source = pixels.data() + index * channels;
+        u8 r, g, b, alpha = 255;
+        switch (color)
+        {
+        case 0:
+            r = g = b = source[0];
+            break;
+        case 4:
+            r = g = b = source[0];
+            alpha = source[1];
+            break;
+        case 2:
+            r = source[0];
+            g = source[1];
+            b = source[2];
+            break;
+        case 3:
+        {
+            const size_t entry = source[0];
+            if (entry * 3 + 2 >= palette.size())
+            {
+                throw Error("PNG palette index out of range");
+            }
+            r = palette[entry * 3];
+            g = palette[entry * 3 + 1];
+            b = palette[entry * 3 + 2];
+            alpha = entry < palette_alpha.size() ? palette_alpha[entry] : 255;
+            break;
+        }
+        default:
+            r = source[0];
+            g = source[1];
+            b = source[2];
+            alpha = source[3];
+            break;
+        }
+        u8* target = image.bgra.data() + index * 4;
+        target[0] = b;
+        target[1] = g;
+        target[2] = r;
+        target[3] = alpha;
+    }
+    return image;
 }
 
 void write_bmp(const std::filesystem::path& path, const RgbaImage& img)

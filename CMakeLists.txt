@@ -1297,6 +1297,15 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
             src/engine/inspector/inspector_session.cpp
             src/engine/inspector/inspector_ui.cpp
             src/engine/inspector/loctext_tool.cpp
+            src/engine/inspector/model_io.cpp
+            src/engine/inspector/serialized_model.cpp
+            src/engine/inspector/gltf_export.cpp
+            src/engine/inspector/fbx_document.cpp
+            src/engine/inspector/fbx_export.cpp
+            src/engine/inspector/fbx_import.cpp
+            src/engine/inspector/gltf_import.cpp
+            src/engine/inspector/json_value.cpp
+            src/engine/inspector/model_import.cpp
             src/engine/inspector/scene_build_tool.cpp
             src/engine/inspector/scene_builder.cpp
             src/engine/graphics/gfx_dispatch.cpp

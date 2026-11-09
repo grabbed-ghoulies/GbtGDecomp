@@ -513,6 +513,27 @@ std::string plugin_register_recipe(const std::filesystem::path& recipe)
     return parsed.bundle;
 }
 
+std::string plugin_register_aid(const std::filesystem::path& file)
+{
+    const std::string aid = lower_copy(file.filename().string());
+    if (!aid.starts_with("aid_"))
+    {
+        throw Error(file.string() + " is not named aid_...");
+    }
+    g_aid_files[aid] = file;
+    // Read again when a bundle is next patched. Bundles already patched still point into the old bytes, so they stay
+    // alive (a moved vector keeps its storage).
+    static std::vector<LooseResource> retired;
+    if (const auto old = g_aid_resources.find(aid); old != g_aid_resources.end())
+    {
+        retired.push_back(std::move(old->second));
+        g_aid_resources.erase(old);
+    }
+    g_overlay[aid_disc_relative(aid)] = file;
+    log::verbose("plugin aid %s registered from %s", aid.c_str(), file.string().c_str());
+    return aid;
+}
+
 bool plugin_recipe_exists(const std::filesystem::path& path)
 {
     if (g_recipes.empty())

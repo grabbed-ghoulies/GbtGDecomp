@@ -2,12 +2,18 @@
 #include "asset_viewer.h"
 #include "inspector_graphics.h"
 #include "gbtg/gfx.h"
+#include "gbtg/log.h"
 #include "../scene/factory_scene_runtime.h"
 #include "../scene/dialogue_resource_owner.h"
 #include "imgui.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "model_io.h"
+#include "../plugins/plugins.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <set>
 
 namespace gbtg
@@ -212,6 +218,14 @@ void AssetViewer::draw(InspectorSession& session, void* preview, bool& open)
 {
     wants_preview_ = false;
     refresh(session);
+    if (!pending_model_.empty() && session.state == InspectionState::Ready && restart_scene.empty())
+    {
+        if (session.preview.model != pending_model_)
+        {
+            select(session, pending_model_);
+        }
+        pending_model_.clear();
+    }
     ImGui::SetNextWindowSize({1120.f, 720.f}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(1.f);
     if (!ImGui::Begin("Asset viewer", &open))
@@ -569,6 +583,7 @@ void AssetViewer::draw_model(InspectorSession& session, void* preview)
     {
         draw_animations(session, true);
     }
+    draw_model_files(session);
     // Textures the model's own draws bound, from the recorded commands.
     std::vector<const RgbaImage*> textures;
     for (const auto& command : session.preview_frame.draws)
@@ -645,6 +660,164 @@ void AssetViewer::draw_animations(InspectorSession& session, bool)
     ImGui::Text("%.2f / %.2f s", position * info.duration, info.duration);
     ImGui::SetNextItemWidth(200.f);
     ImGui::SliderFloat("Speed", &session.preview_speed, 0.f, 4.f, "%.2fx");
+}
+
+void AssetViewer::watch(InspectorSession& session)
+{
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    const double now = ImGui::GetTime();
+    if (!live_reload || watch_dirs.empty() || now - watch_clock_ < 1.0)
+    {
+        return;
+    }
+    watch_clock_ = now;
+    std::vector<std::filesystem::path> settled;
+    std::error_code error;
+    for (const auto& root : watch_dirs)
+    {
+        for (const auto& plugin : std::filesystem::directory_iterator(root, error))
+        {
+            const std::filesystem::path aid_dir = plugin.path() / "aid";
+            if (!plugin.is_directory(error) || !std::filesystem::is_directory(aid_dir, error))
+            {
+                continue;
+            }
+            for (const auto& file : std::filesystem::directory_iterator(aid_dir, error))
+            {
+                const std::string name = file.path().filename().string();
+                if (!file.is_regular_file(error) || name.rfind("aid_", 0) != 0 || file.path().has_extension())
+                {
+                    continue; // Skips aid_x.partial, written before the rename over aid_x.
+                }
+                const Watched seen{file.last_write_time(error), file.file_size(error)};
+                auto [it, added] = watched_.try_emplace(file.path(), seen);
+                if (!watch_primed_)
+                {
+                    continue;
+                }
+                if (added || it->second.time != seen.time || it->second.size != seen.size)
+                {
+                    it->second = seen;
+                    it->second.pending = true;
+                }
+                else if (it->second.pending)
+                {
+                    it->second.pending = false;
+                    settled.push_back(file.path());
+                }
+            }
+        }
+    }
+    watch_primed_ = true;
+    if (settled.empty() || session.state != InspectionState::Ready || !restart_scene.empty() || !session.game)
+    {
+        for (const auto& file : settled)
+        {
+            watched_[file].pending = true; // Try again once the scene is ready.
+        }
+        return;
+    }
+    import_notes_.clear();
+    for (const auto& file : settled)
+    {
+        try
+        {
+            const std::string aid = plugin_register_aid(file);
+            import_notes_.push_back("Live reload: " + file.string() + " changed.");
+            log::info("asset viewer: live reload of %s", file.string().c_str());
+        }
+        catch (const std::exception& failure)
+        {
+            import_notes_.push_back(std::string("Live reload failed: ") + failure.what());
+        }
+    }
+    // The model on view comes back once the restarted runtime is ready (the camera is kept by the restart).
+    pending_model_ = session.preview.model;
+    restart_scene = session.game->scene_script.name;
+#else
+    (void)session;
+#endif
+}
+
+bool AssetViewer::import_glb(InspectorSession& session, const std::string& aid, const std::filesystem::path& glb,
+    const std::filesystem::path& folder)
+{
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    import_notes_.clear();
+    try
+    {
+        const std::filesystem::path written = import_model_file(glb, aid, game_dir_, folder, import_notes_);
+        plugin_register_aid(written);
+        // Boot a new runtime so bundles are opened again with the new model in place of the disc's.
+        restart_scene = session.game->scene_script.name;
+        pending_model_ = aid;
+        import_notes_.push_back("Reloading " + restart_scene + " with the imported model.");
+        return true;
+    }
+    catch (const std::exception& error)
+    {
+        import_notes_.push_back(std::string("Import failed: ") + error.what());
+        return false;
+    }
+#else
+    (void)session;
+    (void)aid;
+    (void)glb;
+    (void)folder;
+    return false;
+#endif
+}
+
+void AssetViewer::draw_model_files(InspectorSession& session)
+{
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    const std::string& aid = session.preview.model;
+    if (aid.empty() || !ImGui::CollapsingHeader("Export / import (FBX, glTF)"))
+    {
+        return;
+    }
+    if (import_for_ != aid)
+    {
+        import_for_ = aid;
+        const std::string file = aid + ".fbx";
+        std::snprintf(glb_path_, sizeof(glb_path_), "%s", file.c_str());
+        const std::filesystem::path folder = plugin_dir.empty() ? std::filesystem::path("plugins/my_models") : plugin_dir;
+        std::snprintf(import_dir_, sizeof(import_dir_), "%s", folder.string().c_str());
+        import_notes_.clear();
+    }
+    ImGui::Checkbox("Reload when a plugin model file changes", &live_reload);
+    ImGui::SetNextItemWidth(-140.f);
+    ImGui::InputText("Model file (.fbx, .glb)", glb_path_, sizeof(glb_path_));
+    if (ImGui::Button("Export"))
+    {
+        import_notes_.clear();
+        try
+        {
+            const DiscModel disc = load_disc_model(aid, game_dir_);
+            import_notes_.push_back(export_model_file(*disc.entry, glb_path_));
+            import_notes_.push_back("The bones keep their names; skin the new mesh to them, keep the material "
+                "names (shader_...) and the Morpher channels' order, and export a binary FBX (or .glb) with skin and morphs.");
+        }
+        catch (const std::exception& error)
+        {
+            import_notes_.push_back(std::string("Export failed: ") + error.what());
+        }
+    }
+    ImGui::SetNextItemWidth(-140.f);
+    ImGui::InputText("Plugin folder", import_dir_, sizeof(import_dir_));
+    if (ImGui::Button("Import as this model"))
+    {
+        import_glb(session, aid, glb_path_, import_dir_);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("Built on the disc model; it replaces it from the plugin folder's aid/.");
+    for (const auto& line : import_notes_)
+    {
+        ImGui::TextWrapped("%s", line.c_str());
+    }
+#else
+    (void)session;
+#endif
 }
 
 const RgbaImage* AssetViewer::texture_image(InspectorSession& session, const AssetEntry& entry, int frame, bool opaque)

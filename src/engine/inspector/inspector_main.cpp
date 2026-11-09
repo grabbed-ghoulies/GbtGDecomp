@@ -6,6 +6,7 @@
 #include "loctext_tool.h"
 #include "scene_build_tool.h"
 #include "scene_builder.h"
+#include "model_io.h"
 #include "../scene/factory_scene_runtime.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "../plugins/plugins.h"
@@ -147,6 +148,15 @@ int main(int argc, char** argv)
             log::warn("log: could not open %s", log_file.string().c_str());
         }
 #if !defined(GBTG_RETAIL_GAME_ONLY)
+        {
+            // Recorded in model export manifests for the 3ds Max tools (tools/max/gbtg_tools.ms).
+            std::filesystem::path self = std::filesystem::path(argc > 0 ? argv[0] : "gbtg-inspector").filename();
+            if (!self.has_extension())
+            {
+                self += ".exe";
+            }
+            set_model_io_host(host_exe_dir(argc > 0 ? argv[0] : "") / self, argument(argc, argv, "--game-dir", "OriginalFiles"));
+        }
         // Plugin authoring tools (docs/PLUGINS.md); they run without a window.
         if (const auto source = argument(argc, argv, "--write-loctext"); !source.empty())
         {
@@ -159,6 +169,25 @@ int main(int argc, char** argv)
         if (const auto bundles = argument(argc, argv, "--check-bundle-builder"); !bundles.empty())
         {
             return check_bundle_builder(bundles);
+        }
+        if (const auto glb = argument(argc, argv, "--import-model"); !glb.empty())
+        {
+            return import_model_command(glb, argument(argc, argv, "--as"),
+                argument(argc, argv, "--game-dir", "OriginalFiles"), argument(argc, argv, "--plugin", "plugins/my_models"));
+        }
+        if (const auto model = argument(argc, argv, "--export-textures"); !model.empty())
+        {
+            return export_textures_command(model, argument(argc, argv, "--game-dir", "OriginalFiles"),
+                argument(argc, argv, "--out", model + "_textures"));
+        }
+        if (const auto model = argument(argc, argv, "--export-model"); !model.empty())
+        {
+            return export_model_command(model, argument(argc, argv, "--game-dir", "OriginalFiles"),
+                argument(argc, argv, "--out", model + ".fbx"));
+        }
+        if (const auto model = argument(argc, argv, "--describe-model"); !model.empty())
+        {
+            return describe_model_command(model, argument(argc, argv, "--game-dir", "OriginalFiles"));
         }
         if (const auto recipe = argument(argc, argv, "--build-recipe"); !recipe.empty())
         {
@@ -211,16 +240,24 @@ int main(int argc, char** argv)
             ui.depth_test = flag(argc, argv, "--depth-overlays");
             AssetViewer assets(ui.directory);
             ui.assets = &assets;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+            assets.plugin_dir = host_exe_dir(argv[0]) / "plugins" / "my_models";
+            assets.live_reload = !flag(argc, argv, "--no-live-reload");
+#endif
             // --asset <aid>: open the asset viewer on a model or texture once the scene is ready, then
             // --asset-animation <aid> on the model; --asset-seek <0..1> pauses it there.
             std::string asset_request = argument(argc, argv, "--asset");
             std::string animation_request = argument(argc, argv, "--asset-animation");
             const std::string seek_request = argument(argc, argv, "--asset-seek");
+            // --asset-import <file.glb> [--asset-import-dir <plugin folder>]: imports it as the --asset model, as the
+            // asset viewer's Import button does (plugin builds), then reloads.
+            std::string import_request = argument(argc, argv, "--asset-import");
 #if !defined(GBTG_RETAIL_GAME_ONLY)
             // Plugins as the game loads them (docs/PLUGINS.md), so plugin scenes and files load here too, and the
             // scene builder, which edits the recipes of the plugin in --scene-plugin.
             const std::filesystem::path exe_dir = host_exe_dir(argv[0]);
             const std::string plugins_dir = argument(argc, argv, "--plugins-dir");
+            assets.watch_dirs = {plugins_dir.empty() ? exe_dir / "plugins" : std::filesystem::path(plugins_dir)};
             if (!flag(argc, argv, "--no-plugins"))
             {
                 load_plugins({plugins_dir.empty() ? exe_dir / "plugins" : std::filesystem::path(plugins_dir)},
@@ -282,6 +319,18 @@ int main(int argc, char** argv)
                 const float dt = config.visible ? std::chrono::duration<float>(now - last).count() : 1.f / 60.f;
                 last = now;
 #if !defined(GBTG_RETAIL_GAME_ONLY)
+                assets.watch(session);
+                if (!assets.restart_scene.empty())
+                {
+                    // The asset viewer imported a model: boot a new runtime so bundles open with it in place.
+                    ui.release_capture();
+                    const std::string scene = assets.restart_scene;
+                    assets.restart_scene.clear();
+                    session.next_camera = session.camera;
+                    session.restart(ui.directory, scene);
+                    ui.sync_angles = true;
+                    camera_arguments_applied = false;
+                }
                 if (!builder.restart_scene.empty())
                 {
                     // The scene builder rebuilt its recipe: boot a new runtime so the bundle is assembled again.
@@ -336,7 +385,25 @@ int main(int argc, char** argv)
                     camera_arguments_applied = true;
                     ui.sync_angles = true;
                 }
-                if (session.state == InspectionState::Ready && !asset_request.empty())
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+                if (session.state == InspectionState::Ready && !import_request.empty() && !asset_request.empty())
+                {
+                    const std::string folder = argument(argc, argv, "--asset-import-dir",
+                        (host_exe_dir(argv[0]) / "plugins" / "my_models").string());
+                    const bool imported = assets.import_glb(session, asset_request, import_request, folder);
+                    for (const auto& line : assets.import_notes())
+                    {
+                        log::info("asset import: %s", line.c_str());
+                    }
+                    if (!imported)
+                    {
+                        throw Error("--asset-import failed");
+                    }
+                    import_request.clear();
+                    continue;
+                }
+#endif
+                if (session.state == InspectionState::Ready && !asset_request.empty() && assets.restart_scene.empty())
                 {
                     ui.show_assets = true;
                     assets.select(session, asset_request);

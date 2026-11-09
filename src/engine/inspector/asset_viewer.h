@@ -36,6 +36,24 @@ public:
     // Opens a model or texture by AID (command line and tests).
     void select(InspectorSession& session, const std::string& aid);
     float preview_background[4]{0.16f, 0.17f, 0.2f, 1.f};
+    // Plugin builds: after a model import, the scene the inspector's loop restarts the runtime on (then cleared), and
+    // the plugin folder imports go to.
+    std::string restart_scene;
+    std::filesystem::path plugin_dir;
+    // Imports `glb` as the model `aid` into the plugin folder `folder`, registers it and requests the restart. The
+    // Import button and --asset-import use it.
+    bool import_glb(InspectorSession& session, const std::string& aid, const std::filesystem::path& glb,
+        const std::filesystem::path& folder);
+    // Plugin builds, live reload: the plugin folders whose */aid/aid_* files are watched. When one is written (by the
+    // 3ds Max tools' Send to game, or the --import-model command) and has settled, it is registered and the scene
+    // restarts with it, as after an import. Called every frame.
+    std::vector<std::filesystem::path> watch_dirs;
+    bool live_reload = true;
+    void watch(InspectorSession& session);
+    const std::vector<std::string>& import_notes() const
+    {
+        return import_notes_;
+    }
     // The orbit angles in radians (command line --asset-view).
     void set_view(float yaw, float pitch)
     {
@@ -54,6 +72,7 @@ private:
     void draw_model(InspectorSession& session, void* preview);
     void draw_animations(InspectorSession& session, bool compact);
     void draw_texture(InspectorSession& session);
+    void draw_model_files(InspectorSession& session);
     void frame_preview(InspectorSession& session);
     void orbit(InspectorSession& session);
     const RgbaImage* texture_image(InspectorSession& session, const AssetEntry& entry, int frame, bool opaque);
@@ -80,6 +99,20 @@ private:
     char bundle_filter_[128]{};
     char export_path_[260] = "texture.png";
     std::string selected_texture_;
+    char glb_path_[260]{};
+    char import_dir_[260]{};
+    std::string import_for_; // The model the paths were filled for.
+    std::string pending_model_; // Selected again once the restarted runtime is ready.
+    std::vector<std::string> import_notes_;
+    struct Watched
+    {
+        std::filesystem::file_time_type time{};
+        uintmax_t size = 0;
+        bool pending = false; // Changed at the last scan; reloaded once a scan sees it unchanged.
+    };
+    std::map<std::filesystem::path, Watched> watched_;
+    bool watch_primed_ = false;
+    double watch_clock_ = 0.0;
     std::string status_;
     // The orbit camera around the model at the origin.
     Vec3 target_{};

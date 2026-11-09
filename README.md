@@ -34,9 +34,9 @@ them.
 
 | Measure | Count |
 |---|---|
-| Game functions known | 5,084 (Ghidra's 4,078, plus 1,006 more found while translating) |
-| Translated | 4,649 (91.4%) |
-| Untranslated, known | 435, about 67 KB of code |
+| Game functions known | 5,086 (Ghidra's 4,078, plus 1,008 more found while translating) |
+| Translated | 4,657 (91.6%) |
+| Untranslated, known | 429, about 65 KB of code |
 
 Ghidra's analysis missed about a fifth of the functions translated so far, so the untranslated count is a lower
 bound. The known untranslated functions, grouped by the source area of their nearest translated neighbour:
@@ -46,21 +46,21 @@ bound. The known untranslated functions, grouped by the source area of their nea
 | entities | 2,431 | 154 | 14,828 |
 | frontend | 595 | 117 | 33,665 |
 | scene | 436 | 28 | 2,811 |
-| include (shared headers) | 244 | 26 | 2,534 |
+| include (shared headers) | 246 | 26 | 2,534 |
 | graphics | 232 | 15 | 1,867 |
 | scripts | 168 | 21 | 1,209 |
 | video | 47 | 18 | 2,558 |
 | saves | 81 | 11 | 696 |
-| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 415 | 45 | 6,967 |
-| **Total** | **4,649** | **435** | **67,135** |
+| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 421 | 39 | 5,113 |
+| **Total** | **4,657** | **429** | **65,281** |
 
-**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 435 by the call graph
+**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 429 by the call graph
 Ghidra resolves (counted 2026-11-09):
 
 | Class | Functions | Bytes | Meaning |
 |---|---:|---:|---|
-| Frontier | 143 | 26,354 | A translated function calls or references it. 115 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 11 on a line that raises, 17 nowhere |
-| Reachable | 62 | 8,088 | WinMain reaches it, but only through other untranslated functions |
+| Frontier | 141 | 25,429 | A translated function calls or references it. 114 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 11 on a line that raises, 16 nowhere |
+| Reachable | 58 | 7,159 | WinMain reaches it, but only through other untranslated functions |
 | Table | 71 | 14,955 | Reached only from a vtable or handler table, or from the C runtime's initializer list |
 | Unreached | 78 | 7,563 | Nothing resolved reaches it: dead code, or a computed call Ghidra did not resolve |
 | Untagged | 72 | 8,253 | Translated, but its declaration is named with `// 0x` instead of the `// Xbox 0x` tag |

@@ -4,6 +4,22 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-09: the MINA keyframe sampler
+
+- Animation poses came from a host decoder (`sample_mina_channel` in `src/gbtg/animation/anim.cpp`), shaped after
+  the retail sampler but not translated from it. `src/gbtg/animation/mina_sampler.inl` now translates it:
+  `0x0002E8A0` (frames, stream, each bone's rotation, translation and scale, then the weight toward the identity),
+  `0x0002EB50` (frame selection, looping or clamped), `0x0002E810` (the 0x2C-byte stream), `0x0002E520` /
+  `0x0002E270` (rotation and vector components), the shared-cursor bit readers `0x0002EC40` / `0x0002ED60`, the
+  three interpolations (`0x0002E130` linear, `0x0002E150` and `0x0002E1D0` cubic; both retail callers of the player
+  setup pass 0, so only linear plays) and the root's cycle displacement `0x0002E750` / `0x0002E650`. The weight
+  moved into the sampler, as retail applies it; `0x0002DBB0` and `0x00031D00` call it as retail does.
+- Checked before the host decoder was removed: every Anim resource in every bundle (22062 entries), sampled at ten
+  times looping and clamped, its root where it has one and its cycle displacement, gave bit-identical poses
+  (493853 samples, 0 differences).
+- `--player-opening`, `--player-fight`, `--player-death`, `--scene7`, `--scene4`, `--attract`, `--scene2c4`,
+  `--scene3b4` and `--scene2a1` pass; ctest passes.
+
 ### 2026-11-09: the boot's gamma ramp, and script type 0x39
 
 - The boot sets the four gammas (`DAT_005044B8`..`DAT_005044C4`) to 1 and builds the ramp (`0x00061C40`, entries by

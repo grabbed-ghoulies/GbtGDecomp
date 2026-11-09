@@ -110,11 +110,19 @@ int main()
         mina[0x54] = 100;
         mina[0x56] = 1;
         mina[0x59] = 3;
-        require(sample_mina_root(mina, 0.f).translation.x == 100.f, "root first frame differs");
-        require(sample_mina_root(mina, 1.f).translation.x == 103.f, "root last frame differs");
-        require(sample_mina_root(mina, 0.5f).translation.x == 101.5f, "root interpolation differs");
-        require(mina_root_cycle_translation(mina).x == 3.f, "root loop displacement differs");
         player.mina = mina;
+        const auto root_at = [&player](float position)
+        {
+            const i32 clamp = 0;
+            player.position = position;
+            JointPose pose;
+            sample_mina_pose(&pose, player, nullptr, &clamp, true, 1.f);
+            return pose;
+        };
+        require(root_at(0.f).translation.x == 100.f, "root first frame differs");
+        require(root_at(1.f).translation.x == 103.f, "root last frame differs");
+        require(root_at(0.5f).translation.x == 101.5f, "root interpolation differs");
+        require(mina_root_cycle_translation(player).x == 3.f, "root loop displacement differs");
         player.mode = 0;
         player.position = 0.75f;
         player.speed = 1.f;

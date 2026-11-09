@@ -58,14 +58,6 @@ void begin_animation_events(std::span<const u8> events, AnimationEventClock& clo
 void end_animation_events(std::span<const u8> events, AnimationEventClock& clock,
                           const AnimationEventCallback& callback); // Xbox 0x0002DE70
 
-// Linear-interp sample of a MINA block (player+0x2B == 0, blend weight 1).
-// `time_norm` is seconds/duration, the value the cutscene writes to the anim player at +0x14.
-// `loop` is player+0x2A == 0. Cutscene init (0x31AC0 from 0x2D8E0) stores 1, so playback clamps.
-std::vector<JointPose> sample_mina(std::span<const u8> mina, float time_norm, bool loop = false);
-// Root channel selected by 0x0002E8A0's param_4, and the loop displacement
-// decoded by 0x0002E750 / 0x0002E650. Callers test the root-frame count first.
-JointPose sample_mina_root(std::span<const u8> mina, float time_norm);
-Vec3 mina_root_cycle_translation(std::span<const u8> mina);
 
 struct MinaPlayback : AnimationEventClock
 {
@@ -77,6 +69,14 @@ struct MinaPlayback : AnimationEventClock
     u8 mode = 0;             // +0x2A: loop, clamp, ping-pong
     u8 sampling_mode = 0;    // +0x2B
 };
+
+// The player's pose at `time` (null: its position times the frame span) into `out` (one JointPose per bone, or the
+// root alone when `root`), looping as `loop_override` says (null: player +0x2A == 0), through the player's
+// interpolation (+0x2B), then weighted toward the identity by `weight`.
+void sample_mina_pose(JointPose* out, const MinaPlayback& player, const float* time, const i32* loop_override,
+    bool root, float weight); // Xbox 0x0002E8A0
+// The root's translation over one cycle, from its first frame to its last; zero without a root translation.
+Vec3 mina_root_cycle_translation(const MinaPlayback& player); // Xbox 0x0002E750, EAX the player
 
 struct AnimationRoot
 {

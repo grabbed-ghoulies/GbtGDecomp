@@ -5,21 +5,13 @@ namespace
 void sample_playback_root(const MinaPlayback& player, float previous, u32 cycles,
                           AnimationRoot& output, AnimationRoot* cached, bool sampled)
 {
-    JointPose current = sample_mina_root(player.mina, player.position);
-    if (player.weight != 1.f)
-    {
-        current.rotation = slerp(Quat{0.f, 0.f, 0.f, 1.f}, current.rotation, player.weight);
-        current.translation.x *= player.weight;
-        current.translation.y *= player.weight;
-        current.translation.z *= player.weight;
-        current.scale.x *= player.weight;
-        current.scale.y *= player.weight;
-        current.scale.z *= player.weight;
-    }
+    const i32 clamp = 0;
+    JointPose current;
+    sample_mina_pose(&current, player, nullptr, &clamp, true, player.weight); // 0x0002E8A0 into DAT_004DD7C8
     Vec3 displacement{};
     if (u16(cycles) != 0)
     {
-        displacement = mina_root_cycle_translation(player.mina);
+        displacement = mina_root_cycle_translation(player); // 0x0002E750
     }
     output.rotation = current.rotation;
     const float count = float(u16(cycles));
@@ -43,17 +35,10 @@ void sample_playback_root(const MinaPlayback& player, float previous, u32 cycles
         cached->translation = current.translation;
         return;
     }
-    JointPose old = sample_mina_root(player.mina, previous);
-    if (player.weight != 1.f)
-    {
-        old.rotation = slerp(Quat{0.f, 0.f, 0.f, 1.f}, old.rotation, player.weight);
-        old.translation.x *= player.weight;
-        old.translation.y *= player.weight;
-        old.translation.z *= player.weight;
-        old.scale.x *= player.weight;
-        old.scale.y *= player.weight;
-        old.scale.z *= player.weight;
-    }
+    const float at = float(i32(read_u16(player.mina, 0x1A)) - 1) * previous;
+    JointPose old;
+    sample_mina_pose(&old, player, &at, &clamp, true, player.weight); // 0x0002E8A0
+
     if (cached == nullptr)
     {
         output.translation.x -= old.translation.x;
@@ -497,20 +482,8 @@ void tick_mina_player(MinaPlayer& player, float dt, bool skip_pose)
         advance_mina_playback(player, player.step, &player.root, &player.cached_root, player.sampled);
         if (!skip_pose)
         {
-            player.pose->joints = sample_mina(player.mina, player.position, player.mode == 0);
-            if (player.weight != 1.f)
-            {
-                for (JointPose& pose : player.pose->joints)
-                {
-                    pose.rotation = slerp(Quat{0.f, 0.f, 0.f, 1.f}, pose.rotation, player.weight);
-                    pose.translation.x *= player.weight;
-                    pose.translation.y *= player.weight;
-                    pose.translation.z *= player.weight;
-                    pose.scale.x *= player.weight;
-                    pose.scale.y *= player.weight;
-                    pose.scale.z *= player.weight;
-                }
-            }
+            player.pose->joints.resize(read_u16(player.mina, 0x14)); // The pose buffer holds one per bone.
+            sample_mina_pose(player.pose->joints.data(), player, nullptr, nullptr, false, player.weight); // 0x0002E8A0
             sample_mina_auxiliary(player, player.pose->auxiliary);
             player.sampled = true;
         }

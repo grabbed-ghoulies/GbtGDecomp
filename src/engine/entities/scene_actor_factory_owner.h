@@ -242,6 +242,7 @@ public:
     // A weapon's +0x998 collision state slot (0x0013F150); `bytes` must be a weapon of this owner.
     RuntimeBodyCollisionState*& weapon_markers(const u8* bytes);
     bool owns_weapon(const u8* bytes) const;
+    RuntimeWeaponActor& weapon(const u8* bytes); // `bytes` must be a weapon of this owner.
     // Each trigger's ghouly controller and the trigger's actor, for the spawn queues' distance tests.
     void controller_actors(std::unordered_map<const GhoulyController*, Actor*>& output);
 

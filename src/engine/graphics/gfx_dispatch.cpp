@@ -215,8 +215,29 @@ void gfx_size(int& width, int& height)
     backend().gfx_size(width, height);
 }
 
+namespace
+{
+bool g_gamma_identity = true;
+}
+
+void gfx_set_gamma_ramp(const u8* red, const u8* green, const u8* blue)
+{
+    g_gamma_identity = true;
+    for (u32 index = 0; index < 256; ++index)
+    {
+        if (red[index] != index || green[index] != index || blue[index] != index)
+        {
+            g_gamma_identity = false;
+        }
+    }
+}
+
 void gfx_end_frame()
 {
+    if (!g_gamma_identity)
+    {
+        throw Error("a frame presented under a gamma ramp other than the identity: the presenter has none");
+    }
     backend().gfx_end_frame();
 }
 

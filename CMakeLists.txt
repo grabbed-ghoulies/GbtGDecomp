@@ -513,6 +513,7 @@ add_executable(gbtg
     src/engine/camera/runtime_display_setup.cpp
     src/engine/camera/display_clip_limits.cpp
     src/engine/graphics/actor_effect_nodes.cpp
+    src/engine/graphics/gamma_ramp.cpp
     src/engine/graphics/actor_effect_draw.cpp
     src/engine/graphics/scene_render_helpers.cpp
     src/engine/graphics/scene_light_upload.cpp

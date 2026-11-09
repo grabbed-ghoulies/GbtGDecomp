@@ -35,32 +35,32 @@ them.
 | Measure | Count |
 |---|---|
 | Game functions known | 5,084 (Ghidra's 4,078, plus 1,006 more found while translating) |
-| Translated | 4,646 (91.4%) |
-| Untranslated, known | 438, about 67.5 KB of code |
+| Translated | 4,649 (91.4%) |
+| Untranslated, known | 435, about 67 KB of code |
 
 Ghidra's analysis missed about a fifth of the functions translated so far, so the untranslated count is a lower
 bound. The known untranslated functions, grouped by the source area of their nearest translated neighbour:
 
 | Area | Translated | Untranslated | Untranslated bytes |
 |---|---:|---:|---:|
-| entities | 2,430 | 154 | 14,828 |
+| entities | 2,431 | 154 | 14,828 |
 | frontend | 595 | 117 | 33,665 |
 | scene | 436 | 28 | 2,811 |
 | include (shared headers) | 244 | 26 | 2,534 |
-| graphics | 230 | 15 | 1,867 |
+| graphics | 232 | 15 | 1,867 |
 | scripts | 168 | 21 | 1,209 |
 | video | 47 | 18 | 2,558 |
 | saves | 81 | 11 | 696 |
-| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 415 | 48 | 7,332 |
-| **Total** | **4,646** | **438** | **67,500** |
+| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 415 | 45 | 6,967 |
+| **Total** | **4,649** | **435** | **67,135** |
 
-**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 438 by the call graph
+**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 435 by the call graph
 Ghidra resolves (counted 2026-11-09):
 
 | Class | Functions | Bytes | Meaning |
 |---|---:|---:|---|
-| Frontier | 145 | 26,591 | A translated function calls or references it. 115 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 12 on a line that raises, 18 nowhere |
-| Reachable | 63 | 8,216 | WinMain reaches it, but only through other untranslated functions |
+| Frontier | 143 | 26,354 | A translated function calls or references it. 115 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 11 on a line that raises, 17 nowhere |
+| Reachable | 62 | 8,088 | WinMain reaches it, but only through other untranslated functions |
 | Table | 71 | 14,955 | Reached only from a vtable or handler table, or from the C runtime's initializer list |
 | Unreached | 78 | 7,563 | Nothing resolved reaches it: dead code, or a computed call Ghidra did not resolve |
 | Untagged | 72 | 8,253 | Translated, but its declaration is named with `// 0x` instead of the `// Xbox 0x` tag |
@@ -69,8 +69,8 @@ Ghidra resolves (counted 2026-11-09):
 The largest groups still missing: the retail resource loader, which the host replaces with a synchronous bundle
 store and its own registry (the boot's provider registrations `0x00035A90`, `0x00034C30`, `0x00033CF0` and
 `0x00035010`, the `common.bnl` load `0x001243B0`, and the pending-record path `0x00034290`, `0x000348D0`,
-`0x00034110`); the boot's device setup (the gamma ramp `0x00061C40`, the render targets `0x000620C0`, the sound
-engine `0x000F8740`); and the virtual keyboard's other layouts (`0x00012920` and the boards under `0x00011870`).
+`0x00034110`); the boot's render targets `0x000620C0` and model library setup `0x000F8740`, which the scene
+services build in pieces; and the virtual keyboard's other layouts (`0x00012920` and the boards under `0x00011870`).
 The boot's resets (`0x000FAD20`, `0x000FA210`, `0x000FF040`, `0x00038600`, `0x00048980`, `0x000F2B60`,
 `0x0011EA50`, `0x00133B10`, `0x00133B70`) and the language choice `0x000FF1C0` run in `Game::init` in retail
 order.

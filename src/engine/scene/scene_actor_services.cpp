@@ -1746,6 +1746,20 @@ void SceneActorServices::run_script_effect_stream(const char* name)
     load_actor_effect_stream(name, nullptr, state_->effects); // 0x00053170
 }
 
+void SceneActorServices::step_weapon_spawn_blocks(i32 unblock)
+{
+    auto& state = *state_;
+    step_runtime_weapon_spawn_blocks(unblock, [&state](Actor& actor) -> RuntimeWeaponActor&
+    {
+        const u8* bytes = state.object_of_actor(actor).bytes.get();
+        if (!state.classes->owns_weapon(bytes))
+        {
+            throw Error("a DAT_00511B24 actor that is not a scene weapon");
+        }
+        return state.classes->weapon(bytes);
+    }); // 0x0012D050
+}
+
 void SceneActorServices::reset_scene_score_words()
 {
     auto& state = *state_;

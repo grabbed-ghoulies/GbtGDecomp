@@ -2816,6 +2816,32 @@ void block_runtime_weapon_spawn(RuntimeWeaponActor& weapon)
     set_spawn_blocked(weapon, weapon.actor.spawn_blocked + 1);
 }
 
+// Xbox 0x0012D050, EDI unblock
+void step_runtime_weapon_spawn_blocks(i32 unblock, const std::function<RuntimeWeaponActor&(Actor&)>& weapon_of)
+{
+    for (auto* node = static_cast<ActorSpawnLink*>(entity_detail::g_world.body_b.next); node != nullptr;
+         node = node->next) // DAT_00511B28
+    {
+        if (node->actor == nullptr)
+        {
+            throw Error("DAT_00511B24 node has no actor");
+        }
+        RuntimeWeaponActor& weapon = weapon_of(*node->actor); // EBX = node - 0x934
+        if (unblock == 0)
+        {
+            block_runtime_weapon_spawn(weapon); // 0x00147860
+        }
+        else
+        {
+            set_spawn_blocked(weapon, weapon.actor.spawn_blocked - 1); // +0xAD0
+            if (weapon.actor.spawn_blocked == 0)
+            {
+                register_actor_model_anchors(weapon.actor, weapon.view.anchors); // 0x0003EEB0
+            }
+        }
+    }
+}
+
 // Xbox 0x00145C80
 bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon, std::span<const u8> parameters)
 {

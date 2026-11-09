@@ -3477,7 +3477,7 @@ int script_handle_world_actions(Game& g, const ScriptNode& node, int live_7d, in
 // DAT_00511B28, the first node of DAT_00511B24. A zero EDI calls 0x00147860
 // on each object. A nonzero EDI decrements the dword at object+0xAD0 and
 // calls 0x0003EEB0 when that counter hits 0. The case returns 2. 0x0012D050
-// is not translated, so the case raises.
+// steps the scene weapons' spawn blocks.
 //
 // Type 0x59 stores 1 in the incoming argument slot, then calls 0x000FBFB0
 // with count 0xE9, the names at 0x0042A854, and the cstring at node+8. A miss
@@ -3527,9 +3527,12 @@ int script_handle_broadcast_actions(Game& g, const ScriptNode& node)
 {
     if (node.type == 0x39)
     {
-        // 0x0012D050 with EDI the dword at node+8 walks DAT_00511B28.
-        throw Error("script type 0x39 calls 0x0012D050 (EDI " + std::to_string(node_u32(g.scene_script, node, 8))
-            + "), which is not translated");
+        if (g.factory_scene == nullptr || g.factory_scene->actor_services == nullptr)
+        {
+            throw Error("script type 0x39 without the boot scene services");
+        }
+        g.factory_scene->actor_services->step_weapon_spawn_blocks(i32(node_u32(g.scene_script, node, 8))); // 0x0012D050
+        return 2;
     }
     if (node.type != 0x59)
     {

@@ -26,6 +26,7 @@
 #include "camera/actor_camera_effects.h"
 #include "camera/entity_camera.h"
 #include "graphics/actor_effect_nodes.h"
+#include "graphics/gamma_ramp.h"
 #include "gbtg/gfx.h"
 #include "gbtg/language.h"
 #include "gbtg/log.h"
@@ -50,6 +51,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     boot_pad_rumble(); // Boot 0x00033030 -> 0x000FAD20
     clock_init(clock);
     reset_pad_samples(); // Boot 0x00033030 -> 0x000FA210
+    boot_gamma_ramp(g_gamma_ramp); // Boot 0x00033030: the gammas, then 0x00061C40
     build_loctext_folder(); // Boot 0x00033030 -> 0x000FF040
     aids.open(game_dir);
     executable_resources = std::make_shared<SceneExecutableResources>(game_dir);

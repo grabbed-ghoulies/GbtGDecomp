@@ -85,6 +85,7 @@ public:
     // 0x00116E00's clears of the scene's score words: DAT_00545970 and DAT_00545974 (the dialogue measurement's
     // additional counts) and DAT_0054597C (the score total).
     void reset_scene_score_words();
+    void step_weapon_spawn_blocks(i32 unblock); // 0x0012D050 over the scene's weapons
     // Script type 0xD: the effect stream named at node+8 with no creation options (0x00053170, a stack 0).
     void run_script_effect_stream(const char* name);
     void clear_scene_light_cones(); // 0x0011AEA0, in the teardown 0x00117330

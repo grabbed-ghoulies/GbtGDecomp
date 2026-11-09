@@ -4,6 +4,22 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-09: the boot's gamma ramp, and script type 0x39
+
+- The boot sets the four gammas (`DAT_005044B8`..`DAT_005044C4`) to 1 and builds the ramp (`0x00061C40`, entries by
+  `0x00061BC0`): with brightness and contrast still 0 (BSS) every entry is 0, then both become 1 and the rebuilt
+  ramp is the identity. `gfx_set_gamma_ramp` is the D3DDevice_SetGammaRamp boundary; the presenters have no ramp,
+  so `gfx_end_frame` raises if a frame is presented under anything but the identity. Nothing else calls
+  `0x00061C40`.
+- Script type 0x39 (handler 16) called `0x0012D050`, which raised. It walks the weapons (`DAT_00511B24`): a zero
+  argument blocks each one's spawn (`0x00147860`), any other lifts one block and re-registers the model anchors
+  (`0x0003EEB0`) of a weapon left with none. Translated, but no retail script holds a type 0x39 node (a walk of the
+  166 `aid_script_` resources), so nothing exercises it.
+- The boot's render targets (`0x000620C0`) and model library setup (`0x000F8740`) stay as the scene services build
+  them (book pages and glow targets at construction, the light volume target on the first light volume).
+- `--scene7`, `--player-opening`, `--pause`, `--scene2c4`, `--attract` and `--gameselect` pass; a 300-frame headless
+  run exits 0.
+
 ### 2026-11-09: the boot's resets, the language and a reachability census
 
 - `tools/ghidra_scripts/ListReferences.java` (read-only) lists every call, tail jump and data reference into game

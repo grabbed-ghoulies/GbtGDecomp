@@ -1991,6 +1991,11 @@ RuntimeBodyCollisionState*& NativeSceneActorClassOwner::weapon_markers(const u8*
     return weapons_.at(bytes)->context.markers;
 }
 
+RuntimeWeaponActor& NativeSceneActorClassOwner::weapon(const u8* bytes)
+{
+    return weapons_.at(bytes)->context;
+}
+
 bool NativeSceneActorClassOwner::owns_weapon(const u8* bytes) const
 {
     return weapons_.find(bytes) != weapons_.end();

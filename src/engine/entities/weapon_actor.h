@@ -236,6 +236,10 @@ bool initialize_runtime_weapon_actor(RuntimeWeaponActor& weapon,
 bool initialize_runtime_chair_weapon(RuntimeWeaponActor& weapon,
     std::span<const u8> parameters); // Xbox 0x000CEFE0
 void block_runtime_weapon_spawn(RuntimeWeaponActor& weapon); // Xbox 0x00147860, EBX actor
+// Script type 0x39 over the weapons (DAT_00511B24, node at +0x934): a zero `unblock` blocks each one's spawn
+// (0x00147860); any other lifts one block, and a weapon left with none registers its model anchors again.
+void step_runtime_weapon_spawn_blocks(i32 unblock,
+    const std::function<RuntimeWeaponActor&(Actor&)>& weapon_of); // Xbox 0x0012D050, EDI unblock
 void set_runtime_weapon_mask(RuntimeWeaponActor& weapon, u8 value); // Xbox 0x00146230, ESI actor, EAX value
 void register_runtime_weapon_cells(RuntimeWeaponActor& weapon); // Xbox 0x00145BC0, EAX actor
 void start_runtime_weapon_idle(RuntimeWeaponActor& weapon); // Xbox 0x00144D00, ESI actor

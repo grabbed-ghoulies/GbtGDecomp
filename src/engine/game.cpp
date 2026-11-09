@@ -193,28 +193,11 @@ void frame_tick(Game& g, float dt, const InputState& in)
         return;
     }
     pad_tick(g, in); // 0x000FA3C0 / 0x000FAD80
-    // 0x00033C47. 0x0011E4C0. A queued aid_script loads when the stream enters state 4; run state 1
-    // (or 2) ticks the scene through 0x0011E7F0: the dialogue (0x00057E60), the fired script and
-    // its condition timers (0x00117100).
-    script_pump(g);
-    // 0x00033B50 runs 0x0011E4C0 and 0x0011E640 while DAT_0050EA9C has bits 0x80 and 0x40000 clear.
-    if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1 && (g_flags_ea9c & 0x40080u) == 0)
-    {
-        g.factory_scene->start_actors(g).run_scene_pass(); // 0x0011E640 after 0x0011E4C0.
-        g.factory_scene->start_actors(g).update_scoreboard_hud(); // 0x00132210
-        g.factory_scene->start_actors(g).tick_screen_effects(); // 0x00060D50
-        tick_actor_camera_effects(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f); // 0x00048F90
-    }
-    if ((g_flags_ea9c & 0x80u) == 0)
-    {
-        tick_app_error_screen(); // 0x00032AB0
-    }
     tick_native_audio(g.clock.dt, g_stream_slot_gate); // 0x0015B780, 0x0003A040, 0x000396F0, 0x00038640, 0x00038C20
-    // 0x00033B50: the file rows (0x000E9E60), the movie list (0x00107420 over DAT_0050E0B8) and the finished
-    // movie event slots (0x00106C70).
+    // The file rows (0x000E9E60), then the first queued file copy steps while no file transfer or utility format
+    // is pending (0x000E9280).
     auto& movies = *g.native_movies;
     pump_runtime_movie_files(movies.session->files());
-    // 0x00033B50: the first queued file copy steps while no file transfer or utility format is pending.
     auto& copies = movies.session->copies();
     if (copies.files.pending == 0 && copies.state.utility_pending == 0 && copies.state.copy_head.next != nullptr)
     {
@@ -224,11 +207,30 @@ void frame_tick(Game& g, float dt, const InputState& in)
     tick_actor_camera_shakes(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f,
         native_audio_runtime().streams.voices.listener, g.native_input->port_masks[1], // DAT_005077A8, DAT_0050E0F8
         runtime_pad_rumble_commands(), g.native_resources->registry);
-    tick_native_movie_list(movies);
-    release_finished_movie_events(movies.session->slots, movies.session->startup());
-    // 0x00033BF2: the save timer and the queued saves (0x0010F440).
+    // 0x000F7290 walks the heap table (DAT_0050786C) and writes nothing.
+    tick_native_movie_list(movies); // 0x00107420 over DAT_0050E0B8
+    release_finished_movie_events(movies.session->slots, movies.session->startup()); // 0x00106C70
+    // The save timer and the queued saves (0x0010F440).
     SaveGameContext saves{movies.session->files(), g_runtime_profile, {}};
     tick_save_games(g_sim_dt, saves);
+    if ((g_flags_ea9c & 0x80u) != 0)
+    {
+        throw Error("0x00033B50 with DAT_0050EA9C bit 0x80 calls 0x0011D410, which is not translated");
+    }
+    if ((g_flags_ea9c & 0x40000u) == 0)
+    {
+        // 0x0011E4C0. A queued aid_script loads when the stream enters state 4; run state 1 (or 2) ticks the scene
+        // through 0x0011E7F0: the dialogue (0x00057E60), the fired script and its condition timers (0x00117100).
+        script_pump(g);
+        if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+        {
+            g.factory_scene->start_actors(g).run_scene_pass(); // 0x0011E640
+            g.factory_scene->start_actors(g).update_scoreboard_hud(); // 0x00132210
+            g.factory_scene->start_actors(g).tick_screen_effects(); // 0x00060D50
+            tick_actor_camera_effects(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f); // 0x00048F90
+        }
+    }
+    tick_app_error_screen(); // 0x00032AB0, after 0x00033480 (the backend's end of frame)
     // The Bink decoder's clock (BinkWait's timer).
     movie_advance_time(g.clock.dt);
     // 0x00033A90 collects the deferred model releases (0x000F9780) and flushes the deferred resource unloads

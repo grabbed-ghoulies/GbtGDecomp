@@ -179,12 +179,14 @@ void draw_runtime_dialogue_page(DialoguePageLayout& page, float fade,
                 }
                 if ((token_flags & 0x8000) != 0)
                 {
+                    // 0x0005A8C0, inline: the run's score (DAT_004E18F0) through swprintf("%d") into DAT_00507E78.
                     m.wide_scratch[0] = 0;
                     scene_detail::crt_format_wide_string(m.wide_scratch, u"%d", m.tags.high_score);
                     draw_runtime_dialogue_text(m.wide_scratch, next_x, y, 0, nullptr, 0.f, 0.f, 0.f, 1, c);
                 }
                 if ((token_flags & 0x10000) != 0)
                 {
+                    // 0x0005A8F0, inline: the run's score as seconds (0x000FB860) into DAT_00507E78.
                     m.wide_scratch[0] = 0;
                     append_dialogue_seconds(m.wide_scratch, static_cast<float>(m.tags.high_score), 1, m.localtext);
                     draw_runtime_dialogue_text(m.wide_scratch, next_x, y, 0, nullptr, 0.f, 0.f, 0.f, 1, c);

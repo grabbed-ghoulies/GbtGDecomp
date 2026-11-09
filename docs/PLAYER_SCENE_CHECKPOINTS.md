@@ -4,6 +4,37 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-09: the frame in retail order, and the frontier's unnamed callees
+
+- `frame_tick` now runs `0x00033B50`'s order: the clock, the pads (`0x000FA3C0`, `0x000FAD80`), the audio
+  (`0x0015B780`..`0x00038C20`), the file rows and copies (`0x000E9E60`, `0x000E9280`), the camera shakes
+  (`0x000FAF70`), the movie list and finished movie events (`0x00107420`, `0x00106C70`), the saves (`0x0010F440`),
+  then the scene. The port had pumped the script and run the scene before the audio, files and saves, and pumped
+  the script (`0x0011E4C0`) even while the app error screen holds `DAT_0050EA9C` bit 0x40000, which retail skips.
+  Bit 0x80 sends retail through `0x0011D410` (the pause book's page flags) and skips the scene and the app error
+  screen; nothing in the executable or the scripts sets that bit, so the port raises there. `0x000F7290` walks the
+  heap table and writes nothing. `--attract` now counts 9 clip starts where it counted 8.
+- The census's unnamed frontier, checked caller by caller: `0x0005A8C0` / `0x0005A8F0` (the run's score in a
+  dialogue page) and `0x001432A0` (the keyboard's input test) were inline and are now named. `0x00038FE0`,
+  `0x00039040` and `0x0002DD90` rebase arena pointers after a realloc, and `0x00017BD0` / `0x00018EE0` free a
+  container's storage: heap details the host's containers own. `0x00124770` is Ghidra's split of `0x00124760`.
+  `0x000535C0` picks an animated texture's frame for a push buffer's SetTexture through the hook `0x000F9BE0`
+  (`0x000F8740` installs it with `0x001565F0`); the port's push-buffer draw (`0x001582A0`) makes no texture
+  call, so it is not reached.
+- The reachability census no longer credits a reference past a Ghidra function's end to that function.
+- `gfx_present_logic.cpp` stands in for `0x00033480`, the controller-disconnect machine: retail watches the
+  active input's device (`0x001082B0`) and `0x000337B0` raises the reconnect prompt, pauses (bit 0x2000) and holds
+  the movies. The stand-in starts in phase 4 with no pad mask, so it never leaves it. Five of `0x000337B0`'s
+  callees are untranslated (`0x00033750`, `0x00033720`, `0x00033610`, `0x001095F0`, `0x00108180`).
+- Full regression on the sampler commit's build (`0ca082e8`, 130 modes): 92 pass, 37 fail, and
+  `--scene6-save-reload` failed only because it ran before `--scene6-save` wrote its save. 35 of the failures fail
+  the same way on `b349dae3`'s build (scene5 and 2a4 among them, which earlier sessions passed), and `--scene2b8`
+  raises at a type 0x51 node without the scene's actors on both. `--scene3c5` and `--scene3a11` pass on
+  `b349dae3` and fail from `4a26b3c4` on. Reverting that commit's held-weapon alias changes nothing. The effect
+  table's category ranges (slots 150.. for category 1, as `0x0011C480` sets them) change the run from frame 720
+  (Cooper 0.01 off), and from there the driver loses 3c5's limited-attacks event and gets stuck on 3a11's walk to
+  the exit. The ranges follow the dump, so these two count as driver failures.
+
 ### 2026-11-09: the MINA keyframe sampler
 
 - Animation poses came from a host decoder (`sample_mina_channel` in `src/gbtg/animation/anim.cpp`), shaped after

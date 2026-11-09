@@ -1093,7 +1093,7 @@ u32 read_keyboard_input(VirtualKeyboard& k, GameSelectControlServices& s)
         {
             return false;
         }
-        return edge(4, s) == 0 && edge(8, s) == 0 && edge(1, s) == 0 && edge(2, s) == 0; // 0x00143280..0x001432C0
+        return edge(4, s) == 0 && edge(8, s) == 0 && edge(1, s) == 0 && edge(2, s) == 0; // 0x00143280, 0x001432A0, 0x001432C0
     };
     const auto direction = [&]()
     {

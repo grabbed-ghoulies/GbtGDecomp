@@ -92,7 +92,13 @@ def main():
 
     def owner_of(address):
         index = bisect.bisect_right(known, address) - 1
-        return known[index] if index >= 0 else None
+        if index < 0:
+            return None
+        entry = known[index]
+        # A Ghidra function knows its size: an address past its end lies in code Ghidra has no function for.
+        if entry in game and not game[entry][2] and address >= entry + game[entry][0]:
+            return None
+        return entry
 
     edges = defaultdict(set)
     referrers = defaultdict(set)

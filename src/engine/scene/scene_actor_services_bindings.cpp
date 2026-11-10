@@ -2931,13 +2931,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }});
     g_chapter5_countdown = chapter5_countdown_services.get();
     // The Super Scary challenge (factory type 0x98) a trophy head's attack creates.
-    const i32 button_count = i32(read_u32(data(0x00427958, 4), 0));
     const u32 panel_color = read_u32(data(0x0042795C, 4), 0);
     super_scary_services = std::make_unique<SuperScaryControlServices>(SuperScaryControlServices{
         resources.registry, resources.error, scene_cutscene_runtime(game), voices, audio.streams, random, g_pause_count,
         g_flags_ea9c, g_scene_flags->bytes[0], g_runtime_profile.progress.bytes, frontend_state, prompt_owner,
         powerup_rows[0x12].active, // DAT_005122F0, the ShockerBlocker powerup row.
-        powerup_rows[0xA].active, data(0x00302198, 4 * 0x50), button_count,
+        powerup_rows[0xA].active, data(0x00302198, 4 * 0x50), g_flag_27958,
         panel_color, 0xFFFFFFFFu, 0xFF0000FFu, // DAT_00314F48, DAT_00314F30.
         hud_size, display_view, scene_name.data(), clock,
         [](u8 mask, i32 release)

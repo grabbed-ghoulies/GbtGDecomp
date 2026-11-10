@@ -3059,8 +3059,9 @@ int script_handle_actor_effects(Game& g, const ScriptNode& node, int live_7d, in
 // DAT_0050EA98. Type 0x4 stores the dword at node+8.
 u32 g_flag_ea98 = 0;
 
-// DAT_00427958. Type 0x6 stores the dword at node+8.
-u32 g_flag_27958 = 0;
+// DAT_00427958, the Super Scary challenge's button count. The XBE starts it at 4; type 0x6 stores the dword at
+// node+8, and the value carries to later scenes (only 0x00084340 reads it).
+u32 g_flag_27958 = 4;
 
 // DAT_00430D10. Type 0x7 stores the dword at node+8. entity.cpp keeps a
 // private copy of this address.

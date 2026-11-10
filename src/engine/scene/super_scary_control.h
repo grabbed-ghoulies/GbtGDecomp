@@ -63,7 +63,7 @@ struct SuperScaryControlServices
     const u32& auto_presses; // DAT_005122F0
     const u32& override_health; // DAT_00512230
     std::span<const u8> button_rows; // 0x00302198, rows of 0x50 bytes.
-    i32 button_count; // DAT_00427958
+    const u32& button_count; // DAT_00427958, set by script type 0x6.
     u32 panel_color; // DAT_0042795C
     u32 button_color; // DAT_00314F48
     u32 highlight_color; // DAT_00314F30

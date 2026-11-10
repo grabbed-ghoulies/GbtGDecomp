@@ -4,6 +4,18 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-10: the Super Scary button count follows the script (issue #62)
+
+- Issue #62: every Super Scary challenge asked for 4 buttons; retail asks for more as the game goes on (15 in
+  Bonus Challenge 3).
+- The count is `DAT_00427958`. The XBE starts it at 4, script world action type 6 (`0x00128050`) stores node+8 there,
+  and the challenge's constructor (`0x00084340`) copies it to +0x210. Nothing else in the XBE touches the address,
+  so a stored count carries into later scenes. The port read the XBE's 4 once when it bound the challenge's services
+  and never saw the script's value. The services now hold a reference to the script global, which starts at 4.
+- Measured in `--scene2a7` with temporary traces (removed): its script stores 5, and each Medusa shock shows five
+  buttons and is won on the fifth press. The scene still does not move on; it did not with the count held at 4
+  either (the driver's later fights, not the challenge).
+
 ### 2026-11-09: the frame in retail order, and the frontier's unnamed callees
 
 - `frame_tick` now runs `0x00033B50`'s order: the clock, the pads (`0x000FA3C0`, `0x000FAD80`), the audio

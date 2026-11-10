@@ -72,6 +72,7 @@ bool script_seek_node_type(const SceneScript& script, u32& cursor, u32 type); //
 
 // DAT_0050EA9C. Type 0x1A tests bit 0x10 of the low byte.
 extern u32 g_flag_ea98; // DAT_0050EA98
+extern u32 g_flag_27958; // DAT_00427958, the Super Scary button count (script type 0x6).
 extern u32 g_flags_ea9c;
 extern float g_script_6c60; // DAT_00506C60, the chapter 5 countdown seconds (type 0x89).
 // DAT_00506540 / DAT_00506544: script type 0x54's first two floats, the Grim Reaper's (0x000CF7B0).

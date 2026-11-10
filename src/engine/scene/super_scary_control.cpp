@@ -303,7 +303,7 @@ bool construct_runtime_super_scary_control(std::span<const u8> parameters,
     control.head = get(parameters, parameter::head);
     control.input_pushed = 0;
     control.phase = 0;
-    control.button_count = services.button_count;
+    control.button_count = i32(services.button_count);
     control.presses = 0;
     control.bat = 0;
     control.heartbeats_left = 8;

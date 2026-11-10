@@ -26,6 +26,7 @@ tools/ghidra
 # Build
 /build/
 /build-inspector/
+/build-retail/
 /build-opt/
 /build-asan/
 /build-vulkan/

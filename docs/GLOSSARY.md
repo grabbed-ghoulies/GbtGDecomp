@@ -96,8 +96,9 @@ or a null backend.
 
 ## Build flags
 
-**`GBTG_RETAIL_GAME_ONLY`** (default ON): builds only retail behavior. Plugins
-and other non-retail code live inside `#if !defined(GBTG_RETAIL_GAME_ONLY)`.
+**`GBTG_RETAIL_GAME_ONLY`** (default OFF; ON in the `vs-retail` and
+`ninja-retail` presets): builds only retail behavior. Plugins and other
+non-retail code live inside `#if !defined(GBTG_RETAIL_GAME_ONLY)`.
 
 **`GBTG_OPTIMIZE`**: enables the host presenter optimizations. Output matches
 the default path.

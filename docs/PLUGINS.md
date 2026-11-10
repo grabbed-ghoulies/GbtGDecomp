@@ -1,9 +1,9 @@
 # Plugins
 
-Plugins add files and features to the port without touching `OriginalFiles/`. They exist only in builds configured
-with `-DGBTG_RETAIL_GAME_ONLY=OFF`. The default retail build compiles none of this code, and every call into it is
-inside `#if !defined(GBTG_RETAIL_GAME_ONLY)`. Behaviour retail does not have belongs in a plugin, so the retail build
-stays the game as shipped.
+Plugins add files and features to the port without touching `OriginalFiles/`. Builds have them by default
+(`GBTG_RETAIL_GAME_ONLY=OFF`). The retail build (`-DGBTG_RETAIL_GAME_ONLY=ON`, or the `vs-retail` and `ninja-retail`
+presets) compiles none of this code, and every call into it is inside `#if !defined(GBTG_RETAIL_GAME_ONLY)`.
+Behaviour retail does not have belongs in a plugin, so the retail build stays the game as shipped.
 
 A plugin is a folder with a `plugin.ini`. It can carry any of:
 

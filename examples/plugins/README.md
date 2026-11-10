@@ -10,4 +10,5 @@ and built with `cmake/GbtgPlugin.cmake`. Copy one to start a plugin repository o
 | [dlc_story](dlc_story) | A data plugin (no library): a Features menu story and a scene of its own, as a recipe made with the inspector's scene builder |
 | [xbox_one_buttons](xbox_one_buttons) | A data plugin (no library): textures in `aid/` in place of the game's White and Black button pictures, labelled LB and RB |
 
-Plugins only load in gbtg builds configured with `-DGBTG_RETAIL_GAME_ONLY=OFF`.
+Plugins load in every gbtg build except the retail-only ones (`-DGBTG_RETAIL_GAME_ONLY=ON`, the `vs-retail` and
+`ninja-retail` presets).

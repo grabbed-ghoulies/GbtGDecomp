@@ -941,7 +941,8 @@ if(UNIX)
     set_target_properties(gbtg PROPERTIES INSTALL_RPATH "$ORIGIN" BUILD_WITH_INSTALL_RPATH ON)
 endif()
 
-option(GBTG_RETAIL_GAME_ONLY "Only compile retail game. No modifications." ON)
+# Off by default: builds carry plugin support. The vs-retail and ninja-retail presets build the game as shipped.
+option(GBTG_RETAIL_GAME_ONLY "Only compile retail game. No modifications." OFF)
 if(GBTG_RETAIL_GAME_ONLY)
     target_compile_definitions(gbtg PRIVATE GBTG_RETAIL_GAME_ONLY)
     target_compile_definitions(gbtg_lib PRIVATE GBTG_RETAIL_GAME_ONLY)

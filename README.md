@@ -163,10 +163,17 @@ ctest --preset tests
 
 cmake --preset vs-inspector           # build-inspector/: adds gbtg-inspector
 cmake --build --preset inspector
+
+cmake --preset vs-retail              # build-retail/: the game as shipped
+cmake --build --preset retail-game
 ```
 
-Ninja presets (`ninja-release`, `ninja-relpdb`, `ninja-debug` and
-`ninja-inspector`, under `out/`) need the MSVC x64 environment.
+Builds include plugin support by default. The retail presets (`vs-retail` and
+`ninja-retail`) set `GBTG_RETAIL_GAME_ONLY=ON`, which compiles out plugins and
+every other non-retail feature.
+
+Ninja presets (`ninja-release`, `ninja-retail`, `ninja-relpdb`, `ninja-debug`
+and `ninja-inspector`, under `out/`) need the MSVC x64 environment.
 `tools\build\ninja.ps1` loads it through `vswhere` and then configures and builds:
 
 ```powershell
@@ -266,8 +273,8 @@ Console output is also written to `gbtg.log` beside the executable
 each line starts with `[INFO]`, `[WARN]` or `[ERROR]` and the time since boot.
 `--verbose` also shows `[VERBOSE]` lines, which are dropped otherwise.
 
-The ImGui diagnostics are the `debug_ui` plugin, so they exist only in builds
-configured with `-DGBTG_RETAIL_GAME_ONLY=OFF` and a D3D11 or Vulkan backend: **F8**
+The ImGui diagnostics are the `debug_ui` plugin, so they exist only in plugin
+builds (not the retail presets) with a D3D11 or Vulkan backend: **F8**
 opens the menu and **F12** toggles the timing overlay (shown at start in Debug,
 hidden in Release). `OpenMenu = 1` in `plugins/debug_ui/plugin.ini` opens the menu
 at startup. See [Plugins](docs/PLUGINS.md).

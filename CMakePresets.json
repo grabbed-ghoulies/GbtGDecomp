@@ -65,6 +65,14 @@
             "binaryDir": "${sourceDir}/build"
         },
         {
+            "name": "vs-retail",
+            "displayName": "VS 2022 retail game only",
+            "description": "The game as shipped: GBTG_RETAIL_GAME_ONLY compiles out plugins and every non-retail feature.",
+            "inherits": "vs-base",
+            "binaryDir": "${sourceDir}/build-retail",
+            "cacheVariables": { "GBTG_RETAIL_GAME_ONLY": "ON" }
+        },
+        {
             "name": "vs-inspector",
             "displayName": "VS 2022 with inspector",
             "inherits": "vs-base",
@@ -77,6 +85,17 @@
             "inherits": "ninja-base",
             "binaryDir": "${sourceDir}/out/ninja-release",
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        },
+        {
+            "name": "ninja-retail",
+            "displayName": "Ninja Release retail game only",
+            "description": "The game as shipped: GBTG_RETAIL_GAME_ONLY compiles out plugins and every non-retail feature.",
+            "inherits": "ninja-base",
+            "binaryDir": "${sourceDir}/out/ninja-retail",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "GBTG_RETAIL_GAME_ONLY": "ON"
+            }
         },
         {
             "name": "ninja-relpdb",
@@ -106,6 +125,7 @@
     "buildPresets": [
         { "name": "game", "configurePreset": "vs", "configuration": "Release", "targets": [ "gbtg" ] },
         { "name": "game-debug", "configurePreset": "vs", "configuration": "Debug", "targets": [ "gbtg" ] },
+        { "name": "retail-game", "configurePreset": "vs-retail", "configuration": "Release", "targets": [ "gbtg" ] },
         {
             "name": "tests",
             "configurePreset": "vs",
@@ -120,6 +140,7 @@
         },
         { "name": "ninja-game", "configurePreset": "ninja-release", "targets": [ "gbtg" ] },
         { "name": "ninja-tests", "configurePreset": "ninja-release", "targets": [ "all", "gbtg-transition-tests" ] },
+        { "name": "ninja-retail-game", "configurePreset": "ninja-retail", "targets": [ "gbtg" ] },
         { "name": "ninja-relpdb-tests", "configurePreset": "ninja-relpdb", "targets": [ "gbtg", "gbtg-transition-tests" ] },
         { "name": "ninja-debug-game", "configurePreset": "ninja-debug", "targets": [ "gbtg" ] },
         { "name": "linux-game", "configurePreset": "linux-release", "targets": [ "gbtg" ] },

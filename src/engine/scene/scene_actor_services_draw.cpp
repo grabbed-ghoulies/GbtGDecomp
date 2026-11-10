@@ -1249,6 +1249,26 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
         render_target_scene = true;
         return;
     }
+    // The point lights' mode 1 pass (0x00062B00) draws the light page against a LIN_D24S8 texture of the back
+    // buffer's size (0x00177840, the only such texture the translated code makes). Nothing reads that texture's
+    // words: the pass's reset (0x00123640) releases it unread. So the page draws at the window's resolution
+    // like the others, with a depth-stencil of its own, and the depth texture's memory is left as it is.
+    if (record == glow_targets.page_texture)
+    {
+        const auto depth_surface = d3d_device.surface_textures.find(depth);
+        if (depth_surface != d3d_device.surface_textures.end())
+        {
+            const auto depth_record = resources.d3d.resources.find(u32(depth_surface->second));
+            if (depth_record != resources.d3d.resources.end() && depth_record->second.kind == 3
+                && depth_record->second.header[4] == 0x2E)
+            {
+                gfx_begin_native_scene_target(texture, i32(registered->second.header[0]),
+                    i32(registered->second.header[1]), true);
+                render_target_scene = true;
+                return;
+            }
+        }
+    }
 #if GBTG_OPTIMIZE
     // GBTG_OPTIMIZE step 12: the backend keeps one readback of an ended target; another texture's target would
     // replace it.

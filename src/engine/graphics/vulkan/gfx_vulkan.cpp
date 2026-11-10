@@ -214,7 +214,10 @@ struct GfxVulkan
     // A texture target that shares the back buffer's depth-stencil, between gfx_begin_native_scene_target and
     // gfx_end_native_scene_target: a colour image shaped like frame_color, drawn under the fitted viewport.
     std::unordered_map<u32, vk::Image> scene_target_colors; // By texture, each keeping its contents between opens.
+    // The depth-stencils of targets opened with own_depth, by texture, shaped like frame_depth.
+    std::unordered_map<u32, vk::Image> scene_target_depths;
     vk::Image* scene_target_open = nullptr;
+    vk::Image* scene_target_depth = nullptr; // The open target's own depth-stencil, or null for frame_depth.
     bool scene_target_rendering = false;
     int scene_target_width = 0; // The texture's size.
     int scene_target_height = 0;
@@ -483,7 +486,8 @@ const vk::Image& render_color()
 
 const vk::Image& render_depth()
 {
-    return g.target_rendering ? g.target_depth : g.frame_depth;
+    return g.target_rendering ? g.target_depth
+        : g.scene_target_rendering && g.scene_target_depth != nullptr ? *g.scene_target_depth : g.frame_depth;
 }
 
 void begin_rendering()
@@ -1775,6 +1779,11 @@ void release_all()
     {
         vk::image_destroy(g.context, *image);
     }
+    for (auto& [key, depth] : g.scene_target_depths)
+    {
+        vk::image_destroy(g.context, depth);
+    }
+    g.scene_target_depths.clear();
     for (vk::Buffer* buffer : {&g.ring, &g.readback, &g.zero_uniform})
     {
         vk::buffer_destroy(g.context, *buffer);
@@ -2623,7 +2632,7 @@ void gfx_read_ended_native_target(RgbaImage&)
 }
 #endif
 
-void gfx_begin_native_scene_target(u32 key, int width, int height)
+void gfx_begin_native_scene_target(u32 key, int width, int height, bool own_depth)
 {
     if (!g.ok)
     {
@@ -2644,6 +2653,22 @@ void gfx_begin_native_scene_target(u32 key, int width, int height)
         ensure_recording();
         vk::image_barrier(g.command, surface.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL);
+    }
+    g.scene_target_depth = nullptr;
+    if (own_depth)
+    {
+        vk::Image& depth = g.scene_target_depths[key];
+        if (depth.width != g.frame_depth.width || depth.height != g.frame_depth.height)
+        {
+            retire(depth);
+            depth = vk::image_create(g.context, g.frame_depth.width, g.frame_depth.height, g.context.depth_format,
+                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
+            ensure_recording();
+            vk::image_barrier(g.command, depth.image, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        }
+        g.scene_target_depth = &depth;
     }
     g.scene_target_open = &surface;
     g.scene_target_width = width;

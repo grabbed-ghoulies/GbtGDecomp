@@ -209,3 +209,17 @@ the background round the Grim Reaper (#51) and the frozen frame in a transition 
   are still 640x480 or their own size.
 - Benchmark (`tools/render_benchmark.py`, 1920x1080, hall, tutorial, transition): frame times are unchanged. Not
   measured: scenes that end a page every frame (the point-light pass), which now upload the window-sized frame.
+
+### The point lights' own depth (issue #60)
+
+The point-light pass (`0x00062B00`) has two modes. Mode 2 draws the light page against the device's depth and already
+went to the window-sized target above. Mode 1 pairs the page with a LIN_D24S8 texture of the back buffer's size
+(`0x00177840`, the only such texture the translated code makes), so it fell to `gfx_begin_native_target` and the
+candle's light was drawn at 640x480 and stretched: hard edges in a larger window (chapter 5 scene 7).
+
+- `gfx_begin_native_scene_target` takes `own_depth`: the window-sized surface gets a depth-stencil of its own (the
+  back buffer's shape, both backends) instead of the back buffer's, and whole clears go to it.
+- The light page with a LIN_D24S8 depth texture opens it so. Nothing reads that texture's words (`0x00123640`
+  releases it unread), so its memory is no longer written.
+- Checked: `--scene5_7` takes the route and passes; the reporter sees the candle's edges fixed.
+- Still 640x480: the glow capture (`0x00062220`), whose depth over `DAT_005047E8` is sampled as a texture.

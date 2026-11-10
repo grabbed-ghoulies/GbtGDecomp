@@ -195,9 +195,9 @@ void gfx_read_ended_native_target(RgbaImage& output)
     backend().gfx_read_ended_native_target(output);
 }
 
-void gfx_begin_native_scene_target(u32 key, int width, int height)
+void gfx_begin_native_scene_target(u32 key, int width, int height, bool own_depth)
 {
-    backend().gfx_begin_native_scene_target(key, width, height);
+    backend().gfx_begin_native_scene_target(key, width, height, own_depth);
 }
 
 void gfx_end_native_scene_target(RgbaImage& output)

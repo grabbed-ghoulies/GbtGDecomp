@@ -349,12 +349,16 @@ struct NativeSceneSurface
     ComPtr<ID3D11RenderTargetView> rtv;
     ComPtr<ID3D11Texture2D> resolved;
     ComPtr<ID3D11Texture2D> staging;
+    // A depth-stencil of the surface's own, made the first time the surface opens with own_depth.
+    ComPtr<ID3D11Texture2D> depth;
+    ComPtr<ID3D11DepthStencilView> dsv;
 };
 struct NativeSceneTarget
 {
     int width = 0; // The texture's size.
     int height = 0;
     bool rendering = false;
+    bool own_depth = false; // The open surface draws against its own depth-stencil, not the back buffer's.
     D3D11_VIEWPORT saved_viewport{};
     std::unordered_map<u32, NativeSceneSurface> surfaces; // By texture, each keeping its contents between opens.
     NativeSceneSurface* open = nullptr;
@@ -2892,7 +2896,7 @@ void gfx_read_ended_native_target(RgbaImage& output)
     native_target.ended.Reset();
 }
 
-void gfx_begin_native_scene_target(u32 key, int width, int height)
+void gfx_begin_native_scene_target(u32 key, int width, int height, bool own_depth)
 {
     if (!g.ok)
     {
@@ -2945,12 +2949,32 @@ void gfx_begin_native_scene_target(u32 key, int width, int height)
         }
         surface.desc = desc;
     }
+    if (own_depth && !surface.dsv)
+    {
+        ComPtr<ID3D11Resource> back_depth;
+        g.dsv->GetResource(back_depth.GetAddressOf());
+        ComPtr<ID3D11Texture2D> back_depth_texture;
+        if (FAILED(back_depth.As(&back_depth_texture)))
+        {
+            throw Error("native scene target: the back buffer's depth-stencil is not a 2D texture");
+        }
+        D3D11_TEXTURE2D_DESC depth_desc{};
+        back_depth_texture->GetDesc(&depth_desc);
+        D3D11_DEPTH_STENCIL_VIEW_DESC view{};
+        g.dsv->GetDesc(&view);
+        if (FAILED(g.device->CreateTexture2D(&depth_desc, nullptr, surface.depth.GetAddressOf())) ||
+            FAILED(g.device->CreateDepthStencilView(surface.depth.Get(), &view, surface.dsv.GetAddressOf())))
+        {
+            throw Error("native scene target depth creation failed");
+        }
+    }
     scene_target.open = &surface;
     scene_target.width = width;
     scene_target.height = height;
+    scene_target.own_depth = own_depth;
     UINT viewports = 1;
     g.context->RSGetViewports(&viewports, &scene_target.saved_viewport);
-    g.context->OMSetRenderTargets(1, surface.rtv.GetAddressOf(), g.dsv.Get());
+    g.context->OMSetRenderTargets(1, surface.rtv.GetAddressOf(), own_depth ? surface.dsv.Get() : g.dsv.Get());
     scene_target.rendering = true;
     present_hud_viewport();
 }
@@ -3077,7 +3101,8 @@ void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags,
     ID3D11RenderTargetView* target = native_target.rendering ? native_target.rtv.Get()
         : scene_target.rendering ? scene_target.open->rtv.Get() : g.rtv.Get();
     ID3D11DepthStencilView* depth_view = native_target.rendering
-        ? (native_target.depth_bound ? native_target.dsv.Get() : nullptr) : g.dsv.Get();
+        ? (native_target.depth_bound ? native_target.dsv.Get() : nullptr)
+        : scene_target.rendering && scene_target.own_depth ? scene_target.open->dsv.Get() : g.dsv.Get();
     // A single rectangle over the whole 640x480 back buffer (the full view's fitted rectangle) clears as a whole.
     const bool whole = rectangles.size() == 1 && rectangles[0][0] == 0 && rectangles[0][1] == 0
         && rectangles[0][2] == 640 && rectangles[0][3] == 480;

@@ -181,7 +181,9 @@ void gfx_read_ended_native_target(RgbaImage& output);
 // resolution; the caller scales it to the texture's width x height for the texture's memory.
 // Each `key` (the texture's address) keeps its own surface, which holds what was last drawn into it: the texture's
 // memory is not loaded back, so a user clears it before drawing (0x00119230 does, before its first region).
-void gfx_begin_native_scene_target(u32 key, int width, int height);
+// With `own_depth` the surface has a depth-stencil of its own, the back buffer's size, instead of the back buffer's:
+// for a target the Xbox pairs with a frame-sized depth texture nobody reads (0x00062B00's mode 1 light pass).
+void gfx_begin_native_scene_target(u32 key, int width, int height, bool own_depth = false);
 void gfx_end_native_scene_target(RgbaImage& output);
 // The open texture target's depth-stencil as the Xbox D24S8 words its memory holds (depth << 8 | stencil),
 // width x height in rows. Empty without a device.

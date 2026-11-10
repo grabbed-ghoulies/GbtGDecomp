@@ -103,7 +103,7 @@ void gfx_read_ended_native_target(RgbaImage& output)
     output = {};
 }
 
-void gfx_begin_native_scene_target(u32, int, int)
+void gfx_begin_native_scene_target(u32, int, int, bool)
 {
 }
 

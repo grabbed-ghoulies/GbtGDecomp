@@ -244,7 +244,8 @@ void execute(Command& command)
         inner->gfx_begin_native_target(command.values[0], command.values[1], command.values[2] != 0);
         break;
     case Kind::BeginSceneTarget:
-        inner->gfx_begin_native_scene_target(command.flags, command.values[0], command.values[1]);
+        inner->gfx_begin_native_scene_target(command.flags, command.values[0], command.values[1],
+            command.values[2] != 0);
         break;
     case Kind::ClearUiDepth:
         inner->gfx_clear_ui_depth(command.values[0], command.values[1], command.values[2], command.values[3]);
@@ -954,16 +955,16 @@ void gfx_read_ended_native_target(RgbaImage& output)
     inner->gfx_read_ended_native_target(output);
 }
 
-void gfx_begin_native_scene_target(u32 key, int width, int height)
+void gfx_begin_native_scene_target(u32 key, int width, int height, bool own_depth)
 {
     if (!running)
     {
-        inner->gfx_begin_native_scene_target(key, width, height);
+        inner->gfx_begin_native_scene_target(key, width, height, own_depth);
         return;
     }
     Command& command = push(Kind::BeginSceneTarget);
     command.flags = key;
-    command.values = {width, height, 0, 0};
+    command.values = {width, height, own_depth ? 1 : 0, 0};
 }
 
 void gfx_end_native_scene_target(RgbaImage& output)

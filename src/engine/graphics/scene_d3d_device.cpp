@@ -163,6 +163,7 @@ SceneD3DDevice::SceneD3DDevice()
         const float far_z = std::bit_cast<float>(viewport[5]);
         constants_[96 - 38] = {width, -height, kDepthScale * (far_z - near_z), 0.f};
         constants_[96 - 37] = {float(viewport[0]) + width, float(viewport[1]) + height, kDepthScale * near_z, 0.f};
+        forget_constants(); // GBTG_OPTIMIZE step 21
     };
     dialogue_.constants_not_inline = [this](u32 reg, const u32* data, u32 count)
     {
@@ -172,6 +173,7 @@ SceneD3DDevice::SceneD3DDevice()
             throw Error("D3D vertex constant outside the device");
         }
         std::memcpy(constants_[reg].data(), data, count * 4);
+        forget_constants(); // GBTG_OPTIMIZE step 21
     };
     dialogue_.constants = [this](u32 reg, const float* data, u32 count)
     {
@@ -185,6 +187,7 @@ SceneD3DDevice::SceneD3DDevice()
                     + std::to_string(count));
             }
             std::memcpy(constants_[slot].data(), data + index * 4, 16);
+            forget_constants(); // GBTG_OPTIMIZE step 21
         }
     };
     dialogue_.multiply = [](float* output, const float* first, const float* second)
@@ -458,9 +461,15 @@ void SceneD3DDevice::decode_push(const u32* begin, const u32* end)
                 if (shader != 0)
                 {
                     flush_deferred_states();
+#if GBTG_OPTIMIZE
+                    SceneD3DInlineDraw output{SceneD3DIndexedDraw{primitive, 0, 0, constant_snapshot(), textures_,
+                        snapshot(), vertex_streams_, pixel_constants_, pixel_constants_set_, address_u_,
+                        address_v_}, {}};
+#else
                     SceneD3DInlineDraw output{SceneD3DIndexedDraw{primitive, 0, 0, constants_, textures_,
                         snapshot(), vertex_streams_, pixel_constants_, pixel_constants_set_, address_u_,
                         address_v_}, {}};
+#endif
                     output.vertices.resize(vertices.size());
                     std::memcpy(output.vertices.data(), vertices.data(), vertices.size() * sizeof(u32));
                     commands.push_back(std::move(output));
@@ -567,6 +576,25 @@ void SceneD3DDevice::erase_state(u32 key)
 #endif
 }
 
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 21: draws recorded while no constant is written share one copy of the constants.
+SceneD3DConstantSnapshot SceneD3DDevice::constant_snapshot()
+{
+    if (constants_snapshot_.identity() == nullptr)
+    {
+        constants_snapshot_ = SceneD3DConstantSnapshot(constants_);
+    }
+    return constants_snapshot_;
+}
+#endif
+
+void SceneD3DDevice::forget_constants()
+{
+#if GBTG_OPTIMIZE
+    constants_snapshot_ = {};
+#endif
+}
+
 SceneD3DStateSnapshot SceneD3DDevice::snapshot()
 {
 #if GBTG_OPTIMIZE
@@ -591,6 +619,7 @@ void SceneD3DDevice::set_constant_words(u32 reg, const u32* data, u32 count)
             throw Error("D3D vertex constant outside the device");
         }
         std::memcpy(constants_[slot].data(), data + index * 4, 16);
+        forget_constants(); // GBTG_OPTIMIZE step 21
     }
 }
 
@@ -616,9 +645,16 @@ SceneD3DIndexedDraw& SceneD3DDevice::draw_indexed(u32 primitive, u32 count, u32 
 {
     render_profile::Scope measurement(render_profile::Recording);
     flush_deferred_states();
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 16: the draw is built in the command list, not in a temporary that is then copied there.
+    return std::get<SceneD3DIndexedDraw>(commands.emplace_back(std::in_place_type<SceneD3DIndexedDraw>, primitive,
+        count, indices, constant_snapshot(), textures_, snapshot(), vertex_streams_, pixel_constants_, pixel_constants_set_,
+        address_u_, address_v_));
+#else
     commands.push_back(SceneD3DIndexedDraw{primitive, count, indices, constants_, textures_, snapshot(),
         vertex_streams_, pixel_constants_, pixel_constants_set_, address_u_, address_v_});
     return std::get<SceneD3DIndexedDraw>(commands.back());
+#endif
 }
 
 SceneD3DIndexedDraw& SceneD3DDevice::draw_vertices(u32 primitive, u32 first, u32 count)

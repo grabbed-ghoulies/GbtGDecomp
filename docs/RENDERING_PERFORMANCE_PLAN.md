@@ -348,10 +348,19 @@ optimized exe; otherwise the menu case starts from different save data.
 | 10 (Vulkan) | `gfx_vulkan` | A GPU-program draw copies into its 3 KB constant ring slot only the registers its program can read: every operand of constant kind reads the instruction's index, and any relative read takes the whole file. The descriptor range is unchanged; the rest of the slot keeps earlier ring contents, which the shader never reads. |
 | 3 (presenter) | `scene_d3d_present` | Address-validation checks are kept per program (keyed by the address of its words, verified against a copy) instead of in one entry, so draws alternating programs do not rebuild them. |
 | 8 | `scene_resource_memory` | `resolve`, `tail` and `find_address` try the four blocks recent lookups found before searching the map (`find_address` scanned every block; a draw alternates between its stream and index blocks). Blocks never move, resize or overlap, and the cache answers only for addresses and pointers strictly inside its block, so results are those of the map; `free` clears it. The member exists in every build so the class layout does not depend on the option. |
-| 11 | `gfx_render_thread`, `gfx_dispatch`, `gfx_vulkan` | The Vulkan backend runs on a render thread. `gfx_init` swaps the dispatch table for a wrapper (`[Video] RenderThread=0` or `--render-thread 0` keeps it synchronous; D3D11 and null are never wrapped). The game thread keeps the tick, recording and translation, and queues each `gfx_*` call in batches of up to 128 commands, copying what it points at: vertices, indices and program inputs into the batch's arena (a retained-geometry id is copied once and aged after 600 frames), the 60-word pixel definition, and only the constant registers the program reads (the step 10 range, now `vertex_program_constants.h`). Vertex programs are interned by the address of their words and verified with `memcmp`, so the backend's step 3 memo still sees one address per program. Images reach the backend through proxies: a new serial queues the new pixels as a command, so draws queued earlier keep the pixels they were queued with, and `gfx_release_sprite` is queued in order. Calls that return results (`end_native_target`, `read_native_target_depth`, `readback`, `readback_ui`, the first program query for a new program, the loading screen, warmup) drain the queue and run on the game thread. One frame may present while the next is recorded; `present_again` waits for the previous present, and plugin overlays (the debug UI) wait for it before their next build. Window resizes reach the render thread through atomics; profile counters are per thread and the render thread's are added to the next frame. |
-| 12 | `scene_actor_services_draw`, `scene_d3d_present`, `gfx_d3d11` | A created texture's render target (not a scene target) ends on the GPU (`gfx_end_native_target_into`): the target is copied into the texture native draws bind for the texture's image, at a new serial, and into a staging texture, with no wait. The texture's data is written once, from the last such target, by `finish_render_target`, which the presenter calls after its last command (`SceneD3DPresentContext::finish`). No native code runs between a target's end and that point, so native code sees the same data as before; the presenter's own draws in between sample the GPU copy. The image takes the read-back pixels instead of being decoded again. Before a target on a different texture opens, the pending one is finished, since the backend keeps one staging copy. D3D11 only: Vulkan and null return false and keep the synchronous path. The D3D11 context is flushed after each such copy, so the GPU starts on the frame's commands instead of receiving them at the final Map. |
+| 11 | `gfx_render_thread`, `gfx_dispatch`, `gfx_vulkan` | The Vulkan backend runs on a render thread. `gfx_init` swaps the dispatch table for a wrapper (`[Video] RenderThread=0` or `--render-thread 0` keeps it synchronous; null is never wrapped; D3D11 is wrapped since step 20). The game thread keeps the tick, recording and translation, and queues each `gfx_*` call in batches of up to 128 commands, copying what it points at: vertices, indices and program inputs into the batch's arena (a retained-geometry id is copied once and aged after 600 frames), the 60-word pixel definition, and only the constant registers the program reads (the step 10 range, now `vertex_program_constants.h`). Vertex programs are interned by the address of their words and verified with `memcmp`, so the backend's step 3 memo still sees one address per program. Images reach the backend through proxies: a new serial queues the new pixels as a command, so draws queued earlier keep the pixels they were queued with, and `gfx_release_sprite` is queued in order. Calls that return results (`end_native_target`, `read_native_target_depth`, `readback`, `readback_ui`, the first program query for a new program, the loading screen, warmup) drain the queue and run on the game thread. One frame may present while the next is recorded; `present_again` waits for the previous present, and plugin overlays (the debug UI) wait for it before their next build. Window resizes reach the render thread through atomics; profile counters are per thread and the render thread's are added to the next frame. |
+| 12 | `scene_actor_services_draw`, `scene_d3d_present`, `gfx_d3d11` | A created texture's render target (not a scene target) ends on the GPU (`gfx_end_native_target_into`): the target is copied into the texture native draws bind for the texture's image, at a new serial, and into a staging texture, with no wait. The texture's data is written once, from the last such target, by `finish_render_target`, which the presenter calls after its last command (`SceneD3DPresentContext::finish`). No native code runs between a target's end and that point, so native code sees the same data as before; the presenter's own draws in between sample the GPU copy. The image takes the read-back pixels instead of being decoded again. Before a target on a different texture opens, the pending one is finished, since the backend keeps one staging copy. Vulkan since step 23; null returns false and keeps the synchronous path. The D3D11 context is flushed after each such copy, so the GPU starts on the frame's commands instead of receiving them at the final Map. |
 | 13 | `gfx_d3d11` | `gfx_native_vertex_program_supported` finds the program through a memo keyed by the address of its words and verified with `memcmp` against a copy (the Vulkan step 3 memo), before the `std::map` keyed by whole programs. |
 | 14 | `scene_d3d_present` | A vertex stream's resource lookup (the `SceneD3DResources` map, then `SceneResourceMemory::tail`) is remembered in a 16-entry cache that each presented command list clears. The registry and the memory do not change while the presenter runs. |
+| 15 | `gfx_d3d11` | `compile_shader` keeps the bytecode D3DCompile returns in `cache/dxbc/<FNV-1a of source, entry, profile, strictness and a cache version>.dxbc`, beside the Vulkan backend's `cache/spirv`, and reads it back on later runs. An entry must start with `DXBC` and hold its own length; anything else compiles again. Bump `kDxbcCacheVersion` when the D3DCompile flags change. |
+| 16 | `scene_d3d_device` | A recorded draw's stream bindings are a fixed sorted array (`SceneD3DStreamBindings`, 16 entries: a declaration names its stream in four bits) with the part of `std::map`'s interface the device and its readers use. The map cost a heap node per stream per draw, freed when the frame's commands were cleared. `draw_indexed` builds the draw in the command list instead of copying a temporary there. |
+| 17 | `scene_d3d_present`, `scene_actor_services_draw` | A retained geometry entry's bytes are compared once per epoch, not once per draw. An epoch is a span of the presenter in which nothing writes scene memory: no native code runs inside `present_scene_d3d_commands`, so the only writers are the context's callbacks. A new epoch starts with each command list, after each back-buffer copy, and whenever a callback reports a write through `scene_d3d_memory_written` (a target's texels or depth words, a locked texture surface). What names the bytes (declaration, shape, index and stream pointers, strides) is still compared for every draw. |
+| 18 | `gfx_d3d11`, `scene_d3d_present` | Per-draw lookups. Backend: the blend, depth-stencil, rasterizer and sampler objects and the four texture views are taken from the previous draw of the batch when their keys (for a view: image and serial) are the same, and `gfx_release_sprite` forgets the images; the specialized pixel shader is the previous one when the 60 definition words are the same (the generic fallback is not remembered); the vertex constants are compared and uploaded only over the registers the program reads (the step 10 range), the rest of the buffer being undefined after `WRITE_DISCARD` and never read; a program's words are compared against the memo's copy once per native batch. Presenter: a program's words are compared once per command list for its address checks; the eight most recent declarations stay decoded; the raw combiner register overrides are read from the snapshot in one ordered walk instead of 57 searches. |
+| 19 | `scene_d3d_present` | The command two ahead of the one being presented is prefetched whole, and the sorted states of the next draw's snapshot. A recorded command is 3.5 KB and cold by the time it is presented. |
+| 20 | `gfx_render_thread`, `gfx_d3d11`, `inspector_main` | The D3D11 backend runs on step 11's render thread too (`--render-thread 0` keeps it synchronous). Its immediate context is used by one thread at a time: the render thread, or the game thread while the queue is drained. The window and its messages stay on the game thread; the game's swap chain is windowed (borderless for full screen) and never resized. A texture target's end into an image (step 12) is queued instead of drained: D3D11 accepts every end whose size matches the open target, so the wrapper answers for it (Vulkan and null decline, now without a drain), and the render thread gives the image's proxy the image's new serial before copying the target into it. The proxy keeps its old pixels at that serial, as the backend's texture is the copy; a proxy of another size first takes the image's pixels. Draws on the thread carry the wrapper's interned program words, so `gfx_draw_native` finds their program through the step 13 memo by address (`draw_program`) instead of the whole-program map. The inspector, which calls the backend directly and resizes its swap chain, sets `render_thread = false`. |
+| 21 | `scene_d3d_device`, `scene_d3d_present`, `gfx_d3d11`, `gfx_render_thread` | Draws recorded while no vertex constant is written share one copy of the constants (`SceneD3DConstantSnapshot`), as states share a snapshot (step 1); every write to the device's constants forgets the copy. In the hall 82% of draws record the same constants as the draw before them, and a recorded draw shrinks from 3.5 KB to a pointer. Each copy carries a serial, never reused, that `GfxNativeDraw::vertex_constants_id` passes on: D3D11 skips comparing the constants when the id matches the uploaded ones, and the render thread copies a batch's constants once per id. |
+| 23 | `gfx_vulkan`, `gfx_render_thread` | The Vulkan backend takes the D3D11 shortcuts. A stage's view and sampler come from the previous draw of the batch when the image and serial (or address modes) match, and `gfx_release_sprite` forgets the images; a program's words are compared once per native batch; a draw whose constants id matches the previous slot's binds that ring slot while the ring keeps it (`ring_epoch`, bumped at each submission and ring replacement). Step 12 on Vulkan: `gfx_end_native_target_into` copies the target into the texture native draws bind for the image and records a readback copy, with no submission; `gfx_read_ended_native_target` submits and reads it. The render thread queues Vulkan target ends as it does D3D11's. |
+| 24 | `scene_actor_services_draw` | The light volume texture (`DAT_00504844`, 256x256) is not read back after a target ends on the GPU. The whole executable references its handle and surface in four instructions (a byte scan of the XBE for both addresses finds only these): `0x000620C0` creates them, `0x000FE5A0` sets the surface as the render target, and `0x000FE960` passes the texture to `0x00064820`, whose one use of it is `D3DDevice_SetTexture(0, ...)`. No native code reads its texels, so its memory keeps the texels it was created with. The inspector shows textures from those texels, so its build keeps the readback. This removes the presenter's last wait in the hall. |
 
 Step 12 (2026-11-08). Temporary per-stage probes in the presenter (removed) found that 10 `render_target` calls a
 frame took about 40% of the replayed heavy hall frame (`--render-replay-after 70`, 1080p): the hall draws into the
@@ -378,12 +387,93 @@ flush). The readback still waits: a non-blocking Map at that point finds the cop
 cases (labels `rt14_retail` / `rt14_opt`) match with maximum channel delta 0, and hall frames 80 and 95 are
 byte-identical to the retail presenter.
 
+Steps 15–19 (2026-11-09). A CPU sampling profile of a 200-frame hall run (the method under "Profiling round
+after step 7"; `xperf -a stack -butterfly` gives callers and callees) put 64% of the whole run in D3DCompile:
+`gfx_init`'s own shaders and each scene's first use of a program or pixel definition, 2.3 s in all and a worst
+frame of 2.1 s. In the frame loop it showed `std::map` copies and frees of each draw's stream bindings (most of
+the 43,000 allocations a heavy frame) and the retained geometry `memcmp`.
+Temporary cycle probes (removed) then gave, per draw of the replayed heavy frame after steps 15–18: setup 620,
+program lookup 180, retained geometry check 1,300, output assembly 590, backend 2,535 (of it the constants
+compare, Map and copy 740, the retained upload lookup 400, the four views 345, DrawIndexed 200). Step 19 took the
+total from 5,390 to 4,080, the backend to 1,740: its constant compares had been waiting on memory.
+
+Release, D3D11, 1920x1080, `--vsync 0`, `--scene chapter1_scene1_2playcam`, 4:3 settings, medians of frames
+60–95 / 120–199, best of three runs, with `--render-profile` on (its clocks cost about 0.3 ms of a heavy frame):
+
+| Build | Frame ms | Presenter ms | Recording ms | Allocations |
+| --- | --- | --- | --- | --- |
+| Retail presenter (`GBTG_OPTIMIZE` off) | 19.98 / 22.88 | 15.54 / 16.27 | 1.76 / 1.91 | 48,771 / 69,043 |
+| Steps 1–14 | 9.46 / 11.06 | 5.70 / 5.78 | 1.40 / 1.56 | 43,059 / 62,857 |
+| + 15, 16 | 6.67 / 7.85 | 4.71 / 4.65 | 0.31 / 0.30 | 1,953 / 21,070 |
+| + 17 | 5.33 / 6.79 | 3.63 / 3.81 | 0.25 / 0.27 | 1,953 / 21,070 |
+| + 18 | 5.16 / 6.41 | 3.42 / 3.41 | 0.29 / 0.29 | 1,074 / 20,195 |
+| + 19 | 4.37 / 5.70 | 2.72 / 2.75 | 0.24 / 0.25 | 1,074 / 20,195 |
+
+With a warm `cache/dxbc`, the 300-frame run's compilation falls from 2,378 ms to 16 ms, its worst frame from
+2,160 ms to about 125 ms (scene loading), and its wall time from 5.6 s to 1.5 s. The first run on a machine, or
+after a shader source change, still compiles everything.
+
+Checks: eight captures at 1280x720 (the six benchmark cases and hall frames 80 and 95, labels `p19_retail` /
+`p19_opt`) match the retail presenter with maximum channel delta 0, as does hall frame 300 at 1920x1080;
+`--validate-render-boundary` passes; hall frame 95 was looked at. The retail presenter here is a
+`GBTG_OPTIMIZE=OFF` build run with `--gfx d3d11`.
+
+Vulkan takes steps 16, 17 and 19 and the presenter half of 18 (15 and the backend half are D3D11's; Vulkan has
+`cache/spirv`). Same runs with `--gfx vulkan`, frame / presenter ms: retail presenter 19.44 / 14.65 and
+20.91 / 14.66; optimized 6.05 / 4.31 and 7.56 / 4.48 on the render thread, 7.11 / 5.12 and 8.18 / 4.99 with
+`--render-thread 0`. Hall frame 300 is byte-identical between the Vulkan retail presenter and both optimized runs.
+
+Step 20 (2026-11-09), same runs: D3D11 heavy frames 4.37 / 5.70 → 3.60 / 4.86 frame ms (presenter, which now
+includes queueing, 2.72 → 2.09). With the target ends still draining, the thread gave only 4.16 → 3.89: the hall
+ends its 256x256 target five times a frame. One drain remains per command list, at `finish_render_target`'s
+readback. Vulkan, whose target ends no longer drain either: 6.05 / 7.56 → 4.99 / 6.30. Hall frame 300 is
+byte-identical to the retail presenter on both. The eight 1280x720 captures (label `p20_opt`) match `p19_retail`
+except the menu: with the thread on, this executable's game select screen reaches the same content one frame later
+from frame 182 (draw and vertex counts shift by one frame), giving one stable other image. It is timing, not
+drawing: the render thread changes game state only through readbacks, which drain first, and the screen's movie
+thumbnails are paced by real time (`GetTickCount`, completed asynchronous reads). The virtual audio clock does not
+remove it, `--render-thread 0` on the same executable matches, and the same code in a second build tree
+(`GBTG_GFX=vulkan;d3d11`, `--gfx d3d11`) matches the retail image with the thread on. `--validate-render-boundary`
+passes. A visible windowed run with every plugin (the debug UI, shader warm-up) ran 900 frames without error; the
+debug UI's overlay was not opened. Shader warm-up of 425 vertex and 173 pixel permutations took 16.2 s on a cold
+`cache/dxbc` and 2.5 s warm.
+
+Steps 21–24 (2026-11-09), same hall runs (1920x1080, D3D11 and Vulkan on the render thread unless noted), frame /
+presenter ms, heavy frames 60–95 and frames 120–199:
+
+| Build | D3D11 | Vulkan |
+| --- | --- | --- |
+| Retail presenter | 19.98 / 15.54; 22.88 / 16.27 | 19.44 / 14.65; 20.91 / 14.66 |
+| Steps 1–20 | 3.60 / 2.09; 4.86 / 2.12 | 4.99 / 3.53; 6.30 / 3.65 |
+| + 21 | 3.38 / 1.89; 4.53 / 1.89 | |
+| + 23 (Vulkan shortcuts; target ends still synchronous) | | 5.01 / 3.48; 6.17 / 3.51 |
+| + 23 (step 12 on Vulkan) | | 3.56 / 2.13; 4.84 / 2.27 |
+| + 24 | 3.04 / 1.58; 4.27 / 1.66 | 2.92 / 1.52; 4.08 / 1.59 |
+| + 24, `--render-thread 0` | 3.54 / 2.05; 4.82 / 2.17 | 3.91 / 2.05; 5.19 / 2.16 |
+
+Hall frame 300 is byte-identical to the retail presenter on both backends after each step. The eight 1280x720
+captures match the retail presenter on D3D11 with the thread off (with it on, all but the timing-sensitive menu,
+as in step 20) and on Vulkan with the thread off (labels `p24_off`, `vk24_p`). The `GBTG_OPTIMIZE=OFF` tree, the
+inspector and the transition-test executable build; a headless inspector run of the hall exits cleanly. `--validate-render-boundary`
+passes; Vulkan with `GBTG_VULKAN_VALIDATION=1` on the render thread reports 0 validation errors over 300 hall frames.
+
+Tried and not kept (step 22): watching scene memory for writes (`VirtualAlloc` with `MEM_WRITE_WATCH` for the
+scene's blocks, `GetWriteWatch` when each command list starts and after callbacks that report a write) so that
+retained geometry whose pages were not written skips even step 17's once-per-list comparison. Large blocks were
+page-aligned so per-frame writes to small blocks did not mark static vertex data. It skipped 59% of the
+comparisons, but 5.7 MB a heavy frame was still compared (geometry the game rewrites every frame, unchanged while
+actor updates are held), and a collection costs about 28 µs: heavy frames measured 3.37 ms against 3.38 without it.
+It also relied on every write to scene memory going through the CPU. Reverted.
+
+Not done, by the probes: offsetting into one constant buffer instead of a `WRITE_DISCARD` Map per draw (D3D11), and
+uploading only the declared input registers (every GPU-program vertex is a full 256-byte `GfxNativeInputs`).
+
 Tried and not kept: sharing equal retained-stream copies between entries so each region is compared once per
 command list. The check compares 30 MB a frame, of which 14 MB is unique, but the probe time did not fall: reading the
 unique bytes and the per-list region map cost what the duplicates did. Removing that check needs tracking of
 writes to scene memory.
 
-Not done: removing the remaining wait in step 12's end-of-present readback (about 1.2 ms of the
+Not done (step 24 has since removed this wait for the hall's light volume texture): removing the remaining wait in step 12's end-of-present readback (about 1.2 ms of the
 replayed heavy hall frame at 1080p, the GPU still drawing the frame). Moving it later, up to the next
 native read of the texture, needs proof of when native code reads that memory. Also not done: R16 index uploads, GPU decoding of packed streams, and uploading only the
 declared input registers (every GPU-program vertex is a full 16-register, 256-byte `GfxNativeInputs`).

@@ -11,7 +11,8 @@ namespace gbtg
 // presenter's translation; the gfx_* calls it makes are copied into a queue the render thread replays, so a frame's
 // submission and present overlap the presenter's later draws and the next tick. Calls that return results (target
 // readbacks, readback_ui, the program query on a new program) drain the queue and run on the game thread while the
-// render thread waits. Only the Vulkan backend runs this way; D3D11 and null stay synchronous.
+// render thread waits. The Vulkan and (step 20) D3D11 backends run this way; null stays synchronous. A texture
+// target's end into an image (step 12) is queued, not drained: D3D11 accepts every one whose size matches.
 
 // The threaded table wrapping `inner`, or nullptr when that backend stays on the game thread.
 const GfxBackend* gfx_render_thread_backend(const GfxBackend& inner);

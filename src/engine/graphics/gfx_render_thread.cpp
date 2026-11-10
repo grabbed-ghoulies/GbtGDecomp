@@ -57,6 +57,8 @@ struct Proxy
 {
     std::shared_ptr<RgbaImage> image;
     u32 serial = 0; // The source serial last queued.
+    int width = 0; // The size of the pixels last queued, as the proxy will hold them.
+    int height = 0;
 };
 
 enum class Kind : u8
@@ -73,6 +75,7 @@ enum class Kind : u8
     SpriteClear,
     SpriteSubmit,
     UpdateImage,
+    EndTargetInto,
     ReleaseImage,
     EndFrame,
     PresentAgain
@@ -97,9 +100,19 @@ struct Command
     std::array<float, 4> sprite_color{};
 };
 
+// The constants copied for the batch's last program draw (step 21).
+struct ConstantsCopy
+{
+    const std::array<std::array<float, 4>, 192>* copy = nullptr;
+    u64 id = 0;
+    u32 first = 0;
+    u32 count = 0;
+};
+
 // Commands and the arena their copied data lives in. Batches are recycled; command slots and chunks keep their storage.
 struct Batch
 {
+    ConstantsCopy last_constants;
     std::vector<Command> commands;
     size_t count = 0;
     std::vector<std::unique_ptr<std::byte[]>> chunks;
@@ -162,6 +175,7 @@ struct Batch
         count = 0;
         chunk = 0;
         used = 0;
+        last_constants = {};
         large.clear();
         bytes = 0;
         presents = 0;
@@ -199,6 +213,11 @@ std::unordered_map<const u32*, std::unique_ptr<Program>> programs;
 std::vector<std::unique_ptr<Program>> replaced_programs; // Earlier words at a reused address; queued draws may hold them
 std::unordered_map<const RgbaImage*, Proxy> proxies;
 std::unordered_map<u64, std::shared_ptr<RetainedCopy>> retained;
+// Step 20: the backend ends a texture target into an image (gfx_end_native_target_into) whenever their sizes match,
+// so the wrapper answers for it and queues the end instead of draining. Set for D3D11 and (step 23) Vulkan.
+bool ends_into = false;
+int target_width = 0; // The texture target gfx_begin_native_target last opened.
+int target_height = 0;
 
 void execute(Command& command)
 {
@@ -254,6 +273,17 @@ void execute(Command& command)
         image.movie_slot = command.pixels.movie_slot;
         image.movie_seen = command.pixels.movie_seen;
         image.movie_front = command.pixels.movie_front;
+        break;
+    }
+    case Kind::EndTargetInto:
+    {
+        // Step 20: the proxy takes the serial the game gave the image, then the backend copies the target into it.
+        RgbaImage& image = *command.images[0];
+        image.serial = command.flags;
+        if (!inner->gfx_end_native_target_into(image))
+        {
+            throw Error("gfx render thread: the backend declined a render target end queued for it");
+        }
         break;
     }
     case Kind::ReleaseImage:
@@ -416,6 +446,8 @@ const std::shared_ptr<RgbaImage>& image_proxy(const RgbaImage& source)
         proxy.image = std::make_shared<RgbaImage>();
         copy_image(*proxy.image, source);
         proxy.serial = source.serial;
+        proxy.width = source.width;
+        proxy.height = source.height;
     }
     else if (proxy.serial != source.serial)
     {
@@ -423,6 +455,8 @@ const std::shared_ptr<RgbaImage>& image_proxy(const RgbaImage& source)
         update.images[0] = proxy.image;
         copy_image(update.pixels, source);
         proxy.serial = source.serial;
+        proxy.width = source.width;
+        proxy.height = source.height;
     }
     return proxy.image;
 }
@@ -755,12 +789,25 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         command.draw.vertex_program = program->words;
         if (draw.vertex_constants != nullptr)
         {
-            // The backend reads only the registers the program can (step 10), so only those are copied.
+            // The backend reads only the registers the program can (step 10), so only those are copied. Step 21:
+            // draws with the constants id of the previous copy in this batch share it when it holds their registers.
             using Constants = std::array<std::array<float, 4>, 192>;
-            auto* constants = static_cast<Constants*>(batch.allocate(sizeof(Constants)));
-            std::memcpy(&(*constants)[program->constants_first], &(*draw.vertex_constants)[program->constants_first],
-                        size_t(program->constants_count) * sizeof((*constants)[0]));
-            command.draw.vertex_constants = constants;
+            const u32 first = program->constants_first;
+            const u32 count = program->constants_count;
+            ConstantsCopy& last = batch.last_constants;
+            if (draw.vertex_constants_id != 0 && last.copy != nullptr && last.id == draw.vertex_constants_id
+                && first >= last.first && first + count <= last.first + last.count)
+            {
+                command.draw.vertex_constants = last.copy;
+            }
+            else
+            {
+                auto* constants = static_cast<Constants*>(batch.allocate(sizeof(Constants)));
+                std::memcpy(&(*constants)[first], &(*draw.vertex_constants)[first],
+                            size_t(count) * sizeof((*constants)[0]));
+                command.draw.vertex_constants = constants;
+                last = {constants, draw.vertex_constants_id, first, count};
+            }
         }
         if (kept)
         {
@@ -824,6 +871,8 @@ void gfx_begin_native_target(int width, int height, bool depth)
         return;
     }
     push(Kind::BeginTarget).values = {width, height, depth ? 1 : 0, 0};
+    target_width = width;
+    target_height = height;
 }
 
 void gfx_end_native_target(RgbaImage& output)
@@ -835,13 +884,41 @@ void gfx_end_native_target(RgbaImage& output)
     inner->gfx_end_native_target(output);
 }
 
+// Step 20: the backend's draws see the image through its proxy, so the GPU copy is made into the proxy's texture, in
+// queue order. The caller has just raised the image's serial; the proxy takes that serial without the image's pixels,
+// which are the old ones, so no UpdateImage follows and later draws sample the copy. The backend keeps the copy for
+// the proxy at that serial and reads nothing else of it. A proxy of another size first takes the image's pixels, so
+// its size and buffer agree when the backend checks the size against the target's.
 bool gfx_end_native_target_into(const RgbaImage& image)
 {
-    if (running)
+    if (!running)
     {
-        drain();
+        return inner->gfx_end_native_target_into(image);
     }
-    return inner->gfx_end_native_target_into(image);
+    if (!ends_into || image.width != target_width || image.height != target_height)
+    {
+        return false; // As the backend answers: it has no such path, or the sizes differ.
+    }
+    auto [it, inserted] = proxies.try_emplace(&image);
+    Proxy& proxy = it->second;
+    if (inserted)
+    {
+        proxy.image = std::make_shared<RgbaImage>();
+        copy_image(*proxy.image, image);
+    }
+    else if (proxy.width != image.width || proxy.height != image.height)
+    {
+        Command& update = push(Kind::UpdateImage);
+        update.images[0] = proxy.image;
+        copy_image(update.pixels, image);
+    }
+    proxy.serial = image.serial;
+    proxy.width = image.width;
+    proxy.height = image.height;
+    Command& command = push(Kind::EndTargetInto);
+    command.images[0] = proxy.image;
+    command.flags = image.serial;
+    return true;
 }
 
 void gfx_read_ended_native_target(RgbaImage& output)
@@ -945,6 +1022,7 @@ const GfxBackend* backend_table(const GfxBackend& backend)
 #undef GBTG_RENDER_THREAD_CHECK
     inner = &backend;
     table.name = backend.name;
+    ends_into = std::strcmp(backend.name, "d3d11") == 0 || std::strcmp(backend.name, "vulkan") == 0;
     return &table;
 }
 
@@ -952,7 +1030,11 @@ const GfxBackend* backend_table(const GfxBackend& backend)
 
 const GfxBackend* gfx_render_thread_backend(const GfxBackend& backend)
 {
-    if (std::strcmp(backend.name, "vulkan") != 0)
+    // Step 20: D3D11 too. Its immediate context is used by one thread at a time: the render thread, or the game
+    // thread while the queue is drained (calls that return results, start-up overlay set-up). The window and its
+    // messages stay on the game thread; the game's swap chain is windowed (borderless for full screen) and is
+    // never resized, so Present on the render thread sends the window nothing to wait on.
+    if (std::strcmp(backend.name, "vulkan") != 0 && std::strcmp(backend.name, "d3d11") != 0)
     {
         return nullptr;
     }

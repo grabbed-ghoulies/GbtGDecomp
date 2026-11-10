@@ -116,6 +116,9 @@ struct GfxNativeDraw
     std::span<const GfxNativeInputs> program_inputs;
     std::span<const u32> vertex_program;
     const std::array<std::array<float, 4>, 192>* vertex_constants = nullptr;
+    // Non-zero: names the contents of *vertex_constants. Draws with the same id carry the same constants, so a backend
+    // may skip comparing them (GBTG_OPTIMIZE step 21). Zero says nothing.
+    u64 vertex_constants_id = 0;
     std::span<const u32> indices; // Optional triangle-list indices, in original draw order.
     // Non-zero: program_inputs and indices are the presenter's retained geometry with this id, unchanged for as
     // long as the id is, so a backend may keep their upload. Each rebuild gets a new id (GBTG_OPTIMIZE step 7).

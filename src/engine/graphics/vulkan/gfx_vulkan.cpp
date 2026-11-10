@@ -261,8 +261,33 @@ struct GfxVulkan
     {
         std::vector<u32> words;
         ProgramGpu* program = nullptr;
+        u64 batch = 0; // GBTG_OPTIMIZE step 23: native_batch_serial when the words were last compared.
     };
     std::unordered_map<const u32*, ProgramMemo> program_memo;
+    // GBTG_OPTIMIZE step 23 (the D3D11 step 18 and 21 shortcuts): what the previous native draw of this batch found.
+    // A view stands for the image at the serial it was found for; gfx_release_sprite forgets the images. The constant
+    // slot stands for the constants id it was copied for while the ring keeps its contents (ring_epoch).
+    struct NativeLast
+    {
+        std::array<const RgbaImage*, 4> images{};
+        std::array<u32, 4> image_serials{};
+        std::array<VkImageView, 4> views{};
+        std::array<u32, 4> sampler_keys{};
+        std::array<VkSampler, 4> samplers{};
+        bool samplers_valid = false;
+        u64 constants_id = 0;
+        u64 constants_epoch = 0;
+        VkDeviceSize constants_offset = 0;
+        u32 constants_first = 0;
+        u32 constants_count = 0;
+    } native_last;
+    u64 native_batch_serial = 0; // gfx_begin_native_batch calls.
+    // GBTG_OPTIMIZE step 23: the readback gfx_end_native_target_into last recorded, until gfx_read_ended_native_target.
+    vk::Buffer ended_readback;
+    bool ended_pending = false;
+    int ended_width = 0;
+    int ended_height = 0;
+    u64 ring_epoch = 1; // Bumped whenever the ring's earlier contents may be overwritten or the ring is replaced.
     // GBTG_OPTIMIZE step 2 (Vulkan): what the current command buffer last set, so a draw sets only what differs.
     // Push descriptors stay in effect until overwritten or until the set is disturbed, and dynamic state until set
     // again; both are undefined when a command buffer begins, so `valid` starts false there and after any pass that
@@ -519,6 +544,9 @@ void submit(VkSemaphore wait = VK_NULL_HANDLE, VkSemaphore signal = VK_NULL_HAND
     vk::check(vkWaitForFences(g.context.device, 1, &g.fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
     vk::check(vkResetFences(g.context.device, 1, &g.fence), "vkResetFences");
     g.ring_cursor = 0;
+#if GBTG_OPTIMIZE
+    ++g.ring_epoch;
+#endif
     for (vk::Image& image : g.retired)
     {
         vk::image_destroy(g.context, image);
@@ -617,6 +645,9 @@ void ring_reserve(VkDeviceSize bytes)
     if (needed > g.ring.size)
     {
         vk::buffer_destroy(g.context, g.ring);
+#if GBTG_OPTIMIZE
+        ++g.ring_epoch;
+#endif
         g.ring = vk::buffer_create(g.context, std::max(needed, g.ring.size * 2),
                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
                                        | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
@@ -1748,6 +1779,10 @@ void release_all()
     {
         vk::buffer_destroy(g.context, *buffer);
     }
+#if GBTG_OPTIMIZE
+    vk::buffer_destroy(g.context, g.ended_readback);
+    g.ended_pending = false;
+#endif
     if (g.pipeline_layout != VK_NULL_HANDLE)
     {
         vkDestroyPipelineLayout(g.context.device, g.pipeline_layout, nullptr);
@@ -2034,9 +2069,12 @@ void gfx_clear_ui_depth(int left, int top, int right, int bottom)
 GfxVulkan::ProgramGpu* find_native_program(std::span<const u32> program)
 {
     const auto memo = g.program_memo.find(program.data());
+    // Step 23: within a native batch the caller issues draws only, so words compared once in it stand.
     if (memo != g.program_memo.end() && memo->second.words.size() == program.size()
-        && std::memcmp(memo->second.words.data(), program.data(), program.size_bytes()) == 0)
+        && ((g.native_batch && memo->second.batch == g.native_batch_serial)
+            || std::memcmp(memo->second.words.data(), program.data(), program.size_bytes()) == 0))
     {
+        memo->second.batch = g.native_batch_serial;
         return memo->second.program;
     }
     const auto found = g.native_programs.find(program);
@@ -2048,7 +2086,8 @@ GfxVulkan::ProgramGpu* find_native_program(std::span<const u32> program)
     {
         g.program_memo.clear();
     }
-    g.program_memo[program.data()] = {std::vector<u32>(program.begin(), program.end()), &found->second};
+    g.program_memo[program.data()] = {std::vector<u32>(program.begin(), program.end()), &found->second,
+                                      g.native_batch_serial};
     return &found->second;
 }
 #endif
@@ -2129,6 +2168,11 @@ void gfx_compiled_shader_permutations(std::vector<std::vector<u32>>& vertex_prog
 void gfx_begin_native_batch()
 {
     g.native_batch = !render_profile::reference;
+#if GBTG_OPTIMIZE
+    ++g.native_batch_serial;
+    g.native_last.images = {};
+    g.native_last.samplers_valid = false;
+#endif
 }
 
 void gfx_end_native_batch()
@@ -2159,11 +2203,41 @@ void gfx_draw_native(const GfxNativeDraw& draw)
 
     // Texture uploads record copies outside the draw's rendering, so they come first.
     DrawBindings bindings;
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 23: the previous draw's view of the same image at the same serial, and its sampler for the
+    // same address modes, are the ones native_texture and native_sampler would find.
+    auto& last = g.native_last;
+    for (size_t stage = 0; stage < 4; ++stage)
+    {
+        const RgbaImage* image = draw.textures[stage];
+        if (g.native_batch && image != nullptr && image == last.images[stage] && image->serial == last.image_serials[stage]
+            && !image->bgra.empty() && image->width > 0 && image->height > 0)
+        {
+            bindings.views[stage] = last.views[stage];
+        }
+        else
+        {
+            bindings.views[stage] = native_texture(image);
+            last.images[stage] = bindings.views[stage] != VK_NULL_HANDLE ? image : nullptr;
+            last.image_serials[stage] = image != nullptr ? image->serial : 0;
+            last.views[stage] = bindings.views[stage];
+        }
+        const u32 sampler_key = draw.address_u[stage] | (draw.address_v[stage] << 8);
+        if (!g.native_batch || !last.samplers_valid || last.sampler_keys[stage] != sampler_key)
+        {
+            last.samplers[stage] = native_sampler(draw.address_u[stage], draw.address_v[stage]);
+            last.sampler_keys[stage] = sampler_key;
+        }
+        bindings.samplers[stage] = last.samplers[stage];
+    }
+    last.samplers_valid = g.native_batch;
+#else
     for (size_t stage = 0; stage < 4; ++stage)
     {
         bindings.views[stage] = native_texture(draw.textures[stage]);
         bindings.samplers[stage] = native_sampler(draw.address_u[stage], draw.address_v[stage]);
     }
+#endif
 
     GpuCB cb;
     cb.mvp[0] = cb.mvp[5] = cb.mvp[10] = cb.mvp[15] = 1.f;
@@ -2238,9 +2312,27 @@ void gfx_draw_native(const GfxNativeDraw& draw)
     if (program_draw)
     {
 #if GBTG_OPTIMIZE
-        bindings.constants = ring_take_range(draw.vertex_constants->data(), kConstantsBytes, alignment,
-                                             VkDeviceSize(program_gpu->constants_first) * 16,
-                                             VkDeviceSize(program_gpu->constants_count) * 16);
+        // Step 23: the slot copied for the same constants id, while the ring still holds it, has this draw's values
+        // for every register the slot was copied for.
+        const u32 first = program_gpu->constants_first;
+        const u32 count = program_gpu->constants_count;
+        auto& last_slot = g.native_last;
+        if (draw.vertex_constants_id != 0 && draw.vertex_constants_id == last_slot.constants_id
+            && last_slot.constants_epoch == g.ring_epoch && first >= last_slot.constants_first
+            && first + count <= last_slot.constants_first + last_slot.constants_count)
+        {
+            bindings.constants = last_slot.constants_offset;
+        }
+        else
+        {
+            bindings.constants = ring_take_range(draw.vertex_constants->data(), kConstantsBytes, alignment,
+                                                 VkDeviceSize(first) * 16, VkDeviceSize(count) * 16);
+            last_slot.constants_id = draw.vertex_constants_id;
+            last_slot.constants_epoch = g.ring_epoch;
+            last_slot.constants_offset = bindings.constants;
+            last_slot.constants_first = first;
+            last_slot.constants_count = count;
+        }
 #else
         bindings.constants = ring_take(draw.vertex_constants->data(), kConstantsBytes, alignment);
 #endif
@@ -2427,6 +2519,90 @@ void gfx_end_native_target(RgbaImage& output)
     g.viewport = g.target_saved_viewport;
 }
 
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 23: step 12 on Vulkan. The target is copied on the GPU into the texture native draws bind for
+// `image`, which then stands at image.serial, and into a readback buffer, with no submission; the copy is ordered
+// after the target's draws and before the texture's next use by the backend's full barriers.
+bool gfx_end_native_target_into(const RgbaImage& image)
+{
+    if (!g.ok)
+    {
+        return false;
+    }
+    if (!g.target_rendering)
+    {
+        throw Error("native render target is not bound");
+    }
+    if (image.width != g.target_color.width || image.height != g.target_color.height)
+    {
+        return false;
+    }
+    const VkDeviceSize bytes = VkDeviceSize(image.width) * VkDeviceSize(image.height) * 4;
+    if (g.ended_readback.size < bytes)
+    {
+        // A recorded copy may still name the old buffer.
+        submit();
+        vk::buffer_destroy(g.context, g.ended_readback);
+        g.ended_readback = vk::buffer_create(g.context, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
+    }
+    ensure_recording();
+    end_rendering();
+    // The texture native_texture binds for `image`: kept when it already has the target's size.
+    auto it = g.textures.find(&image);
+    bool fresh = false;
+    if (it == g.textures.end() || it->second.image.width != image.width || it->second.image.height != image.height)
+    {
+        if (it != g.textures.end())
+        {
+            retire(it->second.image);
+        }
+        Texture texture;
+        texture.image = create_texture(image.width, image.height);
+        it = g.textures.insert_or_assign(&image, texture).first;
+        fresh = true;
+    }
+    vk::Image& texture = it->second.image;
+    vk::image_barrier(g.command, texture.image, VK_IMAGE_ASPECT_COLOR_BIT,
+                      fresh ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy region{};
+    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.dstSubresource = region.srcSubresource;
+    region.extent = {u32(image.width), u32(image.height), 1};
+    vkCmdCopyImage(g.command, g.target_color.image, VK_IMAGE_LAYOUT_GENERAL, texture.image,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vk::image_barrier(g.command, texture.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {u32(image.width), u32(image.height), 1};
+    vkCmdCopyImageToBuffer(g.command, g.target_color.image, VK_IMAGE_LAYOUT_GENERAL, g.ended_readback.buffer, 1, &copy);
+    vk::memory_barrier(g.command);
+    it->second.serial = image.serial;
+    g.native_last.images = {}; // The image's texture may be new.
+    g.ended_pending = true;
+    g.ended_width = image.width;
+    g.ended_height = image.height;
+    g.target_rendering = false;
+    g.viewport = g.target_saved_viewport;
+    return true;
+}
+
+// The pixels of the target gfx_end_native_target_into last ended: the recorded work is submitted and waited for.
+void gfx_read_ended_native_target(RgbaImage& output)
+{
+    if (!g.ended_pending)
+    {
+        throw Error("no native target ended on the GPU");
+    }
+    submit();
+    const VkDeviceSize bytes = VkDeviceSize(g.ended_width) * VkDeviceSize(g.ended_height) * 4;
+    output.width = g.ended_width;
+    output.height = g.ended_height;
+    output.bgra.assign(g.ended_readback.mapped, g.ended_readback.mapped + bytes);
+    g.ended_pending = false;
+}
+#else
 // GBTG_OPTIMIZE step 12 is D3D11 only: targets end through gfx_end_native_target here.
 bool gfx_end_native_target_into(const RgbaImage&)
 {
@@ -2437,6 +2613,7 @@ void gfx_read_ended_native_target(RgbaImage&)
 {
     throw Error("the Vulkan backend ends no native target on the GPU");
 }
+#endif
 
 void gfx_begin_native_scene_target(u32 key, int width, int height)
 {
@@ -2562,6 +2739,9 @@ void gfx_size(int& width, int& height)
 
 void gfx_release_sprite(const RgbaImage& image)
 {
+#if GBTG_OPTIMIZE
+    g.native_last.images = {}; // Step 23: never answer for an image released and allocated again.
+#endif
     auto found = g.textures.find(&image);
     if (found != g.textures.end())
     {

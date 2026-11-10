@@ -125,7 +125,7 @@ An **overlay** (`GbtgOverlay`) is host presentation drawn over each presented fr
 |------|------|
 | `window_event` | Each window message (`GbtgWin32Message`) or `SDL_Event`, before the game. Returning 1 takes it from the game. |
 | `captures_input` | Returning 1 keeps the keyboard from the game, and Escape no longer quits. |
-| `build` | On the game thread after each tick and before each repeated present, with the host seconds since the last call. The previous build has been presented by then (the Vulkan render thread included). |
+| `build` | On the game thread after each tick and before each repeated present, with the host seconds since the last call. The previous build has been presented by then (the render thread included, on Vulkan and D3D11). |
 | `has_draws`, `render` | When the backend presents: D3D11 with the back buffer bound and a null command, Vulkan with the `VkCommandBuffer` inside dynamic rendering onto the swapchain image. The held frame `present_again` repeats is kept without the overlay, so it is drawn again each time. |
 
 The overlay owns its renderer: it creates it from `graphics_device` in its feature's `graphics_ready` hook and

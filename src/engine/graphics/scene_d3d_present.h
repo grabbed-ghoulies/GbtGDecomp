@@ -24,4 +24,7 @@ struct SceneD3DPresentContext
     std::function<void()> finish = nullptr;
 };
 void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const SceneD3DPresentContext& context);
+// GBTG_OPTIMIZE step 17: a context callback calls this when it writes scene memory (a render target's texels, a
+// locked texture surface), so the presenter compares retained geometry bytes again. A no-op in retail builds.
+void scene_d3d_memory_written();
 }

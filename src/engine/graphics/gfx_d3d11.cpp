@@ -2,6 +2,7 @@
 #include "xbox_vertex_hlsl.h"
 #include "xbox_vertex_program.h"
 #include "xg_shader_assembly.h"
+#include "vertex_program_constants.h"
 #if !defined(GBTG_GFX_D3D11)
 #error gfx_d3d11.cpp is the PC DirectX 11 backend
 #endif
@@ -41,7 +42,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <sstream>
 #include <unordered_map>
@@ -143,6 +146,11 @@ struct GfxD3D11
         ComPtr<ID3D11VertexShader> shader;
         ComPtr<ID3D11InputLayout> layout;
         bool validated = false;
+#if GBTG_OPTIMIZE
+        // GBTG_OPTIMIZE step 18: the constant registers the program reads (program_constant_range).
+        u32 constants_first = 0;
+        u32 constants_count = 192;
+#endif
     };
     ComPtr<ID3D11GeometryShader> validation_shader;
     struct ProgramKeyLess
@@ -210,6 +218,20 @@ struct GfxD3D11
         GpuCB cb{};
         std::array<u32, 80> words{};
         std::array<std::array<float, 4>, 192> vertex_constants{};
+        // GBTG_OPTIMIZE step 18: the registers of vertex_constants that native_constants holds (the rest of the
+        // buffer is undefined after a partial upload), the specialized shader of words[0..59], and the keys the
+        // state objects and views above were found under.
+        u32 constants_first = 0;
+        u32 constants_count = 0;
+        u64 constants_id = 0; // GBTG_OPTIMIZE step 21: GfxNativeDraw::vertex_constants_id of vertex_constants.
+        ID3D11PixelShader* definition_shader = nullptr;
+        bool states = false; // blend_key .. sampler_keys name blend, depth, rasterizer and samplers.
+        u64 blend_key = 0;
+        std::array<u32, 9> depth_key{};
+        u64 rasterizer_key = 0;
+        std::array<u32, 4> sampler_keys{};
+        std::array<const RgbaImage*, 4> images{};
+        std::array<u32, 4> image_serials{};
     } native_bound;
     // The program gfx_native_vertex_program_supported just found, for the draw that follows it.
     std::span<const u32> supported_words;
@@ -220,7 +242,11 @@ struct GfxD3D11
     {
         std::vector<u32> words;
         ProgramGpu* program = nullptr;
+        u64 batch = 0; // GBTG_OPTIMIZE step 18: native_batch_serial when the words were last compared.
     };
+    // Counts gfx_begin_native_batch calls. Within a batch the caller issues draws only, so the words a program
+    // span points at were compared against the memo's copy once already.
+    u64 native_batch_serial = 0;
     std::unordered_map<const u32*, ProgramMemo> program_memo;
     // GBTG_OPTIMIZE step 7: immutable uploads of the presenter's retained geometry, by
     // GfxNativeDraw::retained_geometry. An id's contents never change, so an upload is made once.
@@ -377,8 +403,82 @@ LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 15: compiled bytecode is kept in cache/dxbc/<FNV-1a of the inputs>.dxbc, beside the Vulkan
+// backend's cache/spirv, so a shader is compiled by D3DCompile once per machine instead of once per run. Bump the
+// version when the D3DCompile flags change: an entry is keyed by its inputs, not by them.
+constexpr u64 kDxbcCacheVersion = 1;
+
+std::filesystem::path dxbc_cache_path(const char* src, const char* entry, const char* profile, bool strict)
+{
+    u64 hash = 0xcbf29ce484222325ull;
+    const auto mix = [&](std::string_view bytes)
+    {
+        for (const char c : bytes)
+        {
+            hash = (hash ^ u8(c)) * 0x100000001b3ull;
+        }
+        hash = (hash ^ 0xFF) * 0x100000001b3ull;
+    };
+    mix(src);
+    mix(entry);
+    mix(profile);
+    mix(strict ? "strict" : "");
+    mix(std::to_string(kDxbcCacheVersion));
+    char name[32];
+    std::snprintf(name, sizeof(name), "%016llx.dxbc", static_cast<unsigned long long>(hash));
+    return std::filesystem::path("cache") / "dxbc" / name;
+}
+
+bool read_dxbc(const std::filesystem::path& path, ComPtr<ID3DBlob>& blob)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+    {
+        return false;
+    }
+    const std::vector<char> bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    // A container starts with "DXBC" and holds its own size at +24; anything else is a damaged entry.
+    u32 size = 0;
+    if (bytes.size() < 32 || std::memcmp(bytes.data(), "DXBC", 4) != 0)
+    {
+        return false;
+    }
+    std::memcpy(&size, bytes.data() + 24, 4);
+    if (size != bytes.size() || FAILED(D3DCreateBlob(bytes.size(), blob.ReleaseAndGetAddressOf())))
+    {
+        return false;
+    }
+    std::memcpy(blob->GetBufferPointer(), bytes.data(), bytes.size());
+    return true;
+}
+
+void write_dxbc(const std::filesystem::path& path, ID3DBlob* blob)
+{
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    const std::filesystem::path partial = path.string() + ".tmp";
+    {
+        std::ofstream output(partial, std::ios::binary | std::ios::trunc);
+        output.write(static_cast<const char*>(blob->GetBufferPointer()), std::streamsize(blob->GetBufferSize()));
+        if (!output)
+        {
+            return;
+        }
+    }
+    std::filesystem::rename(partial, path, error);
+}
+#endif
+
 bool compile_shader(const char* src, const char* entry, const char* profile, ComPtr<ID3DBlob>& blob, bool strict = false)
 {
+#if GBTG_OPTIMIZE
+    const std::filesystem::path cached = dxbc_cache_path(src, entry, profile, strict);
+    if (read_dxbc(cached, blob))
+    {
+        return true;
+    }
+#endif
     ComPtr<ID3DBlob> err;
     const HRESULT hr = D3DCompile(src, std::strlen(src), "gbtg", nullptr, nullptr, entry, profile, D3DCOMPILE_OPTIMIZATION_LEVEL1 | (strict ? D3DCOMPILE_IEEE_STRICTNESS : 0),
                                   0, blob.GetAddressOf(), err.GetAddressOf());
@@ -390,6 +490,9 @@ bool compile_shader(const char* src, const char* entry, const char* profile, Com
         }
         return false;
     }
+#if GBTG_OPTIMIZE
+    write_dxbc(cached, blob.Get());
+#endif
     return true;
 }
 
@@ -1447,8 +1550,10 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
     // GBTG_OPTIMIZE step 13: the memo answers before the map's whole-program comparisons.
     if (const auto memo = g.program_memo.find(program.data()); memo != g.program_memo.end()
         && memo->second.words.size() == program.size()
-        && std::memcmp(memo->second.words.data(), program.data(), program.size_bytes()) == 0)
+        && ((g.native_batch && memo->second.batch == g.native_batch_serial)
+            || std::memcmp(memo->second.words.data(), program.data(), program.size_bytes()) == 0))
     {
+        memo->second.batch = g.native_batch_serial;
         g.supported_words = program;
         g.supported_program = memo->second.program;
         return memo->second.program->shader != nullptr;
@@ -1465,7 +1570,8 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
         {
             g.program_memo.clear();
         }
-        g.program_memo[program.data()] = {std::vector<u32>(program.begin(), program.end()), &found->second};
+        g.program_memo[program.data()] = {std::vector<u32>(program.begin(), program.end()), &found->second,
+            g.native_batch_serial};
 #endif
         return found->second.shader != nullptr;
     }
@@ -1501,6 +1607,9 @@ bool gfx_native_vertex_program_supported(std::span<const u32> program)
         }
     }
     const bool supported = gpu.shader != nullptr;
+#if GBTG_OPTIMIZE
+    program_constant_range(program, gpu.constants_first, gpu.constants_count);
+#endif
     g.native_programs.emplace(std::vector<u32>(program.begin(), program.end()), std::move(gpu));
     return supported;
 }
@@ -1653,6 +1762,9 @@ void validate_gs(point VSOut input[1], inout PointStream<VSOut> stream)
 void gfx_begin_native_batch()
 {
     g.native_batch = !render_profile::reference;
+#if GBTG_OPTIMIZE
+    ++g.native_batch_serial;
+#endif
 }
 void gfx_end_native_batch()
 {
@@ -1834,6 +1946,29 @@ GfxD3D11::RetainedUpload& retained_upload(const GfxNativeDraw& draw)
     }
     g.retained_bytes += upload.bytes;
     return uploads.emplace(draw.retained_geometry, std::move(upload)).first->second;
+}
+
+// GBTG_OPTIMIZE step 20: the program of a draw that gfx_native_vertex_program_supported did not just answer for.
+// On the render thread every draw is such a draw: the wrapper asks once per program and draws carry its interned
+// copy of the words, whose address is stable. The step 13 memo by address answers before the whole-program map.
+GfxD3D11::ProgramGpu* draw_program(std::span<const u32> program)
+{
+    const auto memo = g.program_memo.find(program.data());
+    if (memo != g.program_memo.end() && memo->second.words.size() == program.size()
+        && ((g.native_batch && memo->second.batch == g.native_batch_serial)
+            || std::memcmp(memo->second.words.data(), program.data(), program.size_bytes()) == 0))
+    {
+        memo->second.batch = g.native_batch_serial;
+        return memo->second.program;
+    }
+    GfxD3D11::ProgramGpu* found = &g.native_programs.find(program)->second;
+    if (g.program_memo.size() >= 4096)
+    {
+        g.program_memo.clear();
+    }
+    g.program_memo[program.data()] = {std::vector<u32>(program.begin(), program.end()), found,
+        g.native_batch_serial};
+    return found;
 }
 
 // gfx_draw_native's dynamic vertex upload (the #else branch there): returns the offset in native_vb.
@@ -2019,6 +2154,14 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         ((draw.color_mask << 3) & 8);
     const u64 blend_key = u64(draw.blend) | (u64(draw.source_blend & 0xFFFF) << 1) |
         (u64(draw.destination_blend & 0xFFFF) << 17) | (u64(draw.blend_equation & 0xFFFF) << 33) | (u64(mask) << 49);
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 18: a state object found for the previous draw of the batch under the same key is that
+    // draw's; the maps are searched only when a key changes.
+    const bool states_known = reuse && bound.states;
+    ID3D11BlendState* blend_state = states_known && bound.blend_key == blend_key ? bound.blend : nullptr;
+    if (blend_state == nullptr)
+    {
+#endif
     auto blend = g.native_blends.find(blend_key);
     if (blend == g.native_blends.end())
     {
@@ -2046,9 +2189,18 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         }
         blend = g.native_blends.emplace(blend_key, state).first;
     }
+#if GBTG_OPTIMIZE
+    blend_state = blend->second.Get();
+    }
+#endif
     const std::array<u32, 9> depth_key{(draw.depth_test ? 1u : 0u) | (draw.depth_write ? 2u : 0u)
         | (draw.depth_function << 2), draw.stencil_test ? 1u : 0u, draw.stencil_function, draw.stencil_read_mask,
         draw.stencil_write_mask, draw.stencil_fail, draw.stencil_depth_fail, draw.stencil_pass, 0};
+#if GBTG_OPTIMIZE
+    ID3D11DepthStencilState* depth_state = states_known && bound.depth_key == depth_key ? bound.depth : nullptr;
+    if (depth_state == nullptr)
+    {
+#endif
     auto depth = g.native_depths.find(depth_key);
     if (depth == g.native_depths.end())
     {
@@ -2079,7 +2231,17 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         }
         depth = g.native_depths.emplace(depth_key, state).first;
     }
+#if GBTG_OPTIMIZE
+    depth_state = depth->second.Get();
+    }
+#endif
     const u64 rasterizer_key = u64(draw.cull) | (u64(u32(draw.z_bias)) << 32);
+#if GBTG_OPTIMIZE
+    ID3D11RasterizerState* rasterizer_state = states_known && bound.rasterizer_key == rasterizer_key
+        ? bound.rasterizer : nullptr;
+    if (rasterizer_state == nullptr)
+    {
+#endif
     auto rasterizer = g.native_rasterizers.find(rasterizer_key);
     if (rasterizer == g.native_rasterizers.end())
     {
@@ -2119,12 +2281,40 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         }
         rasterizer = g.native_rasterizers.emplace(rasterizer_key, state).first;
     }
+#if GBTG_OPTIMIZE
+    rasterizer_state = rasterizer->second.Get();
+    }
+#endif
     ID3D11ShaderResourceView* views[4]{};
     ID3D11SamplerState* samplers[4]{};
     for (size_t stage = 0; stage < 4; ++stage)
     {
+#if GBTG_OPTIMIZE
+        // GBTG_OPTIMIZE step 18: the view of an image the previous draw bound at this stage, at the same serial,
+        // is the view native_texture would find. gfx_release_sprite forgets the images.
+        const RgbaImage* image = draw.textures[stage];
+        if (reuse && image != nullptr && image == bound.images[stage] && image->serial == bound.image_serials[stage]
+            && !image->bgra.empty() && image->width > 0 && image->height > 0)
+        {
+            views[stage] = bound.views[stage];
+        }
+        else
+        {
+            views[stage] = native_texture(image);
+            bound.images[stage] = views[stage] != nullptr ? image : nullptr;
+            bound.image_serials[stage] = image != nullptr ? image->serial : 0;
+        }
+        const u32 sampler_key = draw.address_u[stage] | (draw.address_v[stage] << 8);
+        if (states_known && bound.sampler_keys[stage] == sampler_key)
+        {
+            samplers[stage] = bound.samplers[stage];
+            continue;
+        }
+        bound.sampler_keys[stage] = sampler_key;
+#else
         views[stage] = native_texture(draw.textures[stage]);
         const u32 sampler_key = draw.address_u[stage] | (draw.address_v[stage] << 8);
+#endif
         auto sampler = g.native_samplers.find(sampler_key);
         if (sampler == g.native_samplers.end())
         {
@@ -2173,6 +2363,10 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         words[63] = 3;
         words[64] = 0;
         words[65] = 1;
+        // GBTG_OPTIMIZE step 18: the same 60 definition words select the same specialized shader, and already
+        // passed gfx_check_native_pixel_definition. The generic fallback is not remembered.
+        const bool same_definition = bound.material && bound.definition_shader != nullptr
+            && std::memcmp(bound.words.data(), words.data(), 60 * sizeof(u32)) == 0;
         if (!bound.material || bound.words != words)
         {
             if (FAILED(g.context->Map(g.native_material.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
@@ -2189,7 +2383,15 @@ void gfx_draw_native(const GfxNativeDraw& draw)
             bound.material = true;
             bound.words = words;
         }
-        pixel_shader = native_pixel_shader(draw.pixel_shader);
+        if (same_definition)
+        {
+            pixel_shader = bound.definition_shader;
+        }
+        else
+        {
+            pixel_shader = native_pixel_shader(draw.pixel_shader);
+            bound.definition_shader = pixel_shader != g.model_ps.Get() ? pixel_shader : nullptr;
+        }
     }
     if (bound.pixel_shader != pixel_shader)
     {
@@ -2218,22 +2420,26 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         g.context->PSSetSamplers(0, 4, samplers);
         std::memcpy(bound.samplers.data(), samplers, sizeof(samplers));
     }
-    if (bound.blend != blend->second.Get())
+    if (bound.blend != blend_state)
     {
-        g.context->OMSetBlendState(blend->second.Get(), nullptr, 0xFFFFFFFFu);
-        bound.blend = blend->second.Get();
+        g.context->OMSetBlendState(blend_state, nullptr, 0xFFFFFFFFu);
+        bound.blend = blend_state;
     }
-    if (bound.depth != depth->second.Get() || bound.stencil_reference != (draw.stencil_reference & 0xFF))
+    if (bound.depth != depth_state || bound.stencil_reference != (draw.stencil_reference & 0xFF))
     {
-        g.context->OMSetDepthStencilState(depth->second.Get(), draw.stencil_reference & 0xFF);
-        bound.depth = depth->second.Get();
+        g.context->OMSetDepthStencilState(depth_state, draw.stencil_reference & 0xFF);
+        bound.depth = depth_state;
         bound.stencil_reference = draw.stencil_reference & 0xFF;
     }
-    if (bound.rasterizer != rasterizer->second.Get())
+    if (bound.rasterizer != rasterizer_state)
     {
-        g.context->RSSetState(rasterizer->second.Get());
-        bound.rasterizer = rasterizer->second.Get();
+        g.context->RSSetState(rasterizer_state);
+        bound.rasterizer = rasterizer_state;
     }
+    bound.blend_key = blend_key;
+    bound.depth_key = depth_key;
+    bound.rasterizer_key = rasterizer_key;
+    bound.states = true;
     const UINT stride = program_draw ? sizeof(GfxNativeInputs) : sizeof(GfxNativeVertex);
     const UINT offset = vertex_offset;
     const D3D11_PRIMITIVE_TOPOLOGY topology = draw.lines ? D3D11_PRIMITIVE_TOPOLOGY_LINELIST
@@ -2254,7 +2460,7 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         if (found == nullptr || g.supported_words.data() != draw.vertex_program.data()
             || g.supported_words.size() != draw.vertex_program.size())
         {
-            found = &g.native_programs.find(draw.vertex_program)->second;
+            found = draw_program(draw.vertex_program);
         }
         g.supported_program = nullptr;
         auto& program = *found;
@@ -2264,15 +2470,26 @@ void gfx_draw_native(const GfxNativeDraw& draw)
         {
             throw Error("native vertex constants map failed");
         }
+        // GBTG_OPTIMIZE step 18: only the registers the program reads are compared and uploaded (the Vulkan
+        // step 10 range). The buffer is skipped when it already holds this draw's values for all of them;
+        // WRITE_DISCARD leaves the other registers undefined, and no instruction of the program reads them.
         // Bitwise, so a signed zero or NaN change still uploads.
-        if (!bound.constants || std::memcmp(bound.vertex_constants.data(), draw.vertex_constants->data(),
-            sizeof(bound.vertex_constants)) != 0)
+        const u32 first = program.constants_first;
+        const u32 count = program.constants_count;
+        const size_t register_bytes = sizeof((*draw.vertex_constants)[0]);
+        const bool held = bound.constants && first >= bound.constants_first
+            && first + count <= bound.constants_first + bound.constants_count;
+        // Step 21: the same id is the same constants, so the comparison is skipped.
+        const bool same_id = draw.vertex_constants_id != 0 && draw.vertex_constants_id == bound.constants_id;
+        if (!held || (!same_id && std::memcmp(bound.vertex_constants.data() + first,
+            draw.vertex_constants->data() + first, count * register_bytes) != 0))
         {
             if (FAILED(g.context->Map(g.native_constants.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
             {
                 throw Error("native vertex constants map failed");
             }
-            std::memcpy(mapped.pData, draw.vertex_constants->data(), sizeof(*draw.vertex_constants));
+            std::memcpy(static_cast<u8*>(mapped.pData) + first * register_bytes,
+                draw.vertex_constants->data() + first, count * register_bytes);
             g.context->Unmap(g.native_constants.Get(), 0);
             if (!bound.constants)
             {
@@ -2280,8 +2497,13 @@ void gfx_draw_native(const GfxNativeDraw& draw)
                 g.context->VSSetConstantBuffers(3, 1, &constants);
             }
             bound.constants = true;
-            bound.vertex_constants = *draw.vertex_constants;
+            bound.constants_first = first;
+            bound.constants_count = count;
+            std::memcpy(bound.vertex_constants.data() + first, draw.vertex_constants->data() + first,
+                count * register_bytes);
         }
+        // The held registers are this draw's either way; another id with the same values names them too.
+        bound.constants_id = draw.vertex_constants_id;
     }
     if (bound.layout != layout)
     {
@@ -2846,6 +3068,10 @@ void gfx_size(int& width, int& height)
 void gfx_release_sprite(const RgbaImage& image)
 {
     g.sprites.erase(&image);
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 18: the draw memo must not answer for an image released and allocated again.
+    g.native_bound.images = {};
+#endif
 }
 
 void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)

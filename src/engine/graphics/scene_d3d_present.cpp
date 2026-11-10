@@ -6,6 +6,9 @@
 #include "gbtg/gfx.h"
 
 #include <algorithm>
+#if GBTG_OPTIMIZE && defined(_MSC_VER)
+#include <xmmintrin.h>
+#endif
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -320,6 +323,36 @@ std::array<u32, 60> pixel_shader_words(const u8* definition, const SceneD3DIndex
         words[44] = pack_color(draw.pixel_constants[final_second]);
     }
     // Raw combiner register writes since the shader was bound (the model shader overrides) replace their words.
+#if GBTG_OPTIMIZE
+    // GBTG_OPTIMIZE step 18: the registers in key order against the snapshot's sorted states, in one walk
+    // instead of a search per register. Each word still takes its own register's value, if the snapshot has one.
+    static constexpr auto ordered = []()
+    {
+        std::array<std::pair<u32, u32>, SceneD3DDevice::kPixelShaderRegisters.size()> result{};
+        for (u32 word = 0; word < result.size(); ++word)
+        {
+            result[word] = {SceneD3DDevice::kPixelShaderRegisters[word], word};
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    }();
+    auto raw = draw.states.lower_bound(ordered.front().first);
+    for (const auto& [method, word] : ordered)
+    {
+        while (raw != draw.states.end() && raw->first < method)
+        {
+            ++raw;
+        }
+        if (raw == draw.states.end())
+        {
+            break;
+        }
+        if (raw->first == method && !(word == 54 && modes != draw.states.end()))
+        {
+            words[word] = raw->second;
+        }
+    }
+#else
     for (size_t word = 0; word < SceneD3DDevice::kPixelShaderRegisters.size(); ++word)
     {
         if (word == 54 && modes != draw.states.end())
@@ -332,28 +365,49 @@ std::array<u32, 60> pixel_shader_words(const u8* definition, const SceneD3DIndex
             words[word] = raw->second;
         }
     }
+#endif
     return words;
 }
 
 #if GBTG_OPTIMIZE
 // GBTG_OPTIMIZE step 3: consecutive draws mostly share a declaration, so compare against the
-// last one instead of searching a content-keyed map.
+// last one instead of searching a content-keyed map. Step 18: the eight most recently decoded are kept, so draws
+// that alternate declarations do not decode each one again. The result stands until eight other declarations
+// have been decoded; a draw uses it before the next lookup.
 const std::vector<DeclaredInput>& last_declared_inputs(const std::array<i32, 32>& declaration)
 {
-    thread_local std::array<i32, 32> last{};
-    thread_local std::vector<DeclaredInput> inputs;
-    thread_local bool cached = false;
-    if (!cached || last != declaration)
+    struct Decoded
     {
-        inputs = declared_inputs(declaration);
-        last = declaration;
-        cached = true;
-        if (render_profile::enabled)
+        std::array<i32, 32> declaration{};
+        std::vector<DeclaredInput> inputs;
+        bool cached = false;
+    };
+    thread_local std::array<Decoded, 8> decoded;
+    thread_local u32 last = 0;
+    thread_local u32 next = 0;
+    if (decoded[last].cached && decoded[last].declaration == declaration)
+    {
+        return decoded[last].inputs;
+    }
+    for (u32 index = 0; index < decoded.size(); ++index)
+    {
+        if (decoded[index].cached && decoded[index].declaration == declaration)
         {
-            ++render_profile::frame.declaration_misses;
+            last = index;
+            return decoded[index].inputs;
         }
     }
-    return inputs;
+    Decoded& entry = decoded[next];
+    entry.inputs = declared_inputs(declaration);
+    entry.declaration = declaration;
+    entry.cached = true;
+    last = next;
+    next = (next + 1) % u32(decoded.size());
+    if (render_profile::enabled)
+    {
+        ++render_profile::frame.declaration_misses;
+    }
+    return entry.inputs;
 }
 
 // GBTG_OPTIMIZE step 3: pixel_shader_words for the previous draw, reused while the definition,
@@ -500,6 +554,7 @@ struct RetainedGeometry
     std::vector<u32> indices;
     u64 id = 0; // GfxNativeDraw::retained_geometry: new for every rebuilt entry.
     u64 last_used = 0;
+    u64 verified = 0; // RetainedGeometryCache::epoch when the bytes were last copied or compared.
     size_t bytes = 0;
 };
 
@@ -508,6 +563,12 @@ struct RetainedGeometryCache
     std::unordered_map<u64, RetainedGeometry> entries;
     u64 next_id = 1;
     u64 pass = 0; // present_scene_d3d_commands calls.
+    // GBTG_OPTIMIZE step 17: a span of the presenter in which nothing writes scene memory. No native code runs
+    // inside present_scene_d3d_commands, so the only writers are the context's callbacks (a render target's
+    // texels, a back-buffer copy). A new epoch starts with each command list, after each back-buffer copy and
+    // whenever a callback reports a write (scene_d3d_memory_written). An entry whose bytes were compared in the
+    // current epoch has the same bytes for every later draw of the epoch.
+    u64 epoch = 1;
     size_t bytes = 0;
 };
 
@@ -551,6 +612,7 @@ struct StreamBytesCache
     u32 next = 0;
 };
 thread_local StreamBytesCache g_stream_bytes;
+thread_local u64 g_present_list = 0; // present_scene_d3d_commands calls on this thread.
 
 std::span<const u8> stream_bytes(u32 resource_address, const SceneD3DPresentContext& context)
 {
@@ -586,6 +648,7 @@ void begin_stream_bytes_pass()
 void age_retained_geometry()
 {
     auto& cache = g_retained_geometry;
+    ++cache.epoch;
     if (++cache.pass % 128 != 0)
     {
         return;
@@ -670,10 +733,13 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
     // GBTG_OPTIMIZE step 3: the address checks depend only on the program's words. They are kept per program,
     // keyed by the address of its words and verified against a copy of them, so draws that alternate programs
     // do not rebuild them.
+    // Step 18: the created shaders do not change while one command list is presented (no native code runs), so
+    // a program's words are compared once per list, not once per draw.
     struct ProgramValidation
     {
         std::vector<u32> words;
         std::vector<XboxVertexAddressValidation> checks;
+        u64 list = 0; // g_present_list when the words were last compared.
     };
     thread_local std::unordered_map<const u32*, ProgramValidation> program_validations;
     thread_local const std::vector<XboxVertexAddressValidation> no_validation;
@@ -682,7 +748,8 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
     {
         const auto& words = shader->second.program;
         auto known = program_validations.find(words.data());
-        if (known == program_validations.end() || known->second.words != words)
+        if (known == program_validations.end() || (known->second.list != g_present_list
+            && known->second.words != words) || known->second.words.size() != words.size())
         {
             if (program_validations.size() >= 4096)
             {
@@ -691,6 +758,7 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
             known = program_validations.insert_or_assign(words.data(),
                 ProgramValidation{words, xbox_vertex_address_validation(words)}).first;
         }
+        known->second.list = g_present_list;
         validation_checks = &known->second.checks;
     }
     const auto& address_validation = *validation_checks;
@@ -734,10 +802,13 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         if (found != g_retained_geometry.entries.end())
         {
             const RetainedGeometry& entry = found->second;
+            // GBTG_OPTIMIZE step 17: the bytes are compared once per epoch; what names them is compared every time.
+            const bool compare = entry.verified != g_retained_geometry.epoch;
             bool same = entry.declaration == declaration && entry.primitive == draw.primitive && entry.count == draw.count
                 && entry.sequential == draw.sequential && entry.first == draw.first && entry.index_data == index_data
                 && entry.index_bytes.size() == indices.size()
-                && (indices.empty() || std::memcmp(entry.index_bytes.data(), indices.data(), indices.size()) == 0);
+                && (!compare || indices.empty()
+                    || std::memcmp(entry.index_bytes.data(), indices.data(), indices.size()) == 0);
             for (const RetainedStream& stream : entry.streams)
             {
                 if (!same)
@@ -747,12 +818,14 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
                 const auto& current = streams[stream.stream];
                 same = current.data == stream.data && current.stride == stream.stride
                     && stream.begin + stream.bytes.size() <= current.size
-                    && std::memcmp(current.data + stream.begin, stream.bytes.data(), stream.bytes.size()) == 0;
+                    && (!compare
+                        || std::memcmp(current.data + stream.begin, stream.bytes.data(), stream.bytes.size()) == 0);
             }
             if (same)
             {
                 retained = &found->second;
                 retained->last_used = g_retained_geometry.pass;
+                retained->verified = g_retained_geometry.epoch;
                 // Input-relative addresses passed for these exact inputs when the entry was built; constant-relative
                 // ones are the same for every vertex. One vertex therefore checks what the whole draw would.
                 if (!address_validation.empty())
@@ -944,6 +1017,7 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
                 + entry.indices.size() * sizeof(u32);
             entry.id = g_retained_geometry.next_id++;
             entry.last_used = g_retained_geometry.pass;
+            entry.verified = g_retained_geometry.epoch;
             auto& cache = g_retained_geometry;
             if (const auto previous = cache.entries.find(retained_key); previous != cache.entries.end())
             {
@@ -993,7 +1067,12 @@ void present_indexed(const SceneD3DIndexedDraw& draw, const SceneD3DPresentConte
         output.vertices = {};
         output.program_inputs = gpu_inputs;
         output.vertex_program = shader->second.program;
+#if GBTG_OPTIMIZE
+        output.vertex_constants = &draw.constants.get();
+        output.vertex_constants_id = draw.constants.serial();
+#else
         output.vertex_constants = &draw.constants;
+#endif
     }
 #if GBTG_OPTIMIZE
     if (retained != nullptr)
@@ -1480,6 +1559,59 @@ void present_quads(std::span<const SceneD3DCommand> run, const SceneD3DPresentCo
 #endif
 }
 
+#if GBTG_OPTIMIZE
+namespace
+{
+void prefetch_line(const void* address)
+{
+#if defined(_MSC_VER)
+    _mm_prefetch(static_cast<const char*>(address), _MM_HINT_T0);
+#else
+    __builtin_prefetch(address);
+#endif
+}
+
+// GBTG_OPTIMIZE step 19: a recorded command is 3.5 KB, written during the tick and cold by the time it is
+// presented. The presenter reads both ends of a draw first (its shape, then the textures, state snapshot and
+// stream bindings after the constants) and the backend compares and uploads the constants between them. The
+// command two ahead is requested whole while this one is presented, and the sorted states of the next draw's
+// snapshot, whose pointer the earlier request brought in. A prefetch reads nothing the program can observe.
+void prefetch_commands(std::span<const SceneD3DCommand> commands, size_t index)
+{
+    if (index + 2 < commands.size())
+    {
+        const auto* bytes = reinterpret_cast<const char*>(&commands[index + 2]);
+        for (size_t offset = 0; offset < sizeof(SceneD3DCommand); offset += 64)
+        {
+            prefetch_line(bytes + offset);
+        }
+    }
+    if (index + 1 < commands.size())
+    {
+        if (const auto* next = std::get_if<SceneD3DIndexedDraw>(&commands[index + 1]))
+        {
+            if (const auto* values = next->states.shared().get())
+            {
+                const auto* data = reinterpret_cast<const char*>(values->data());
+                const size_t size = values->size() * sizeof((*values)[0]);
+                for (size_t offset = 0; offset < size; offset += 64)
+                {
+                    prefetch_line(data + offset);
+                }
+            }
+        }
+    }
+}
+}
+#endif
+
+void scene_d3d_memory_written()
+{
+#if GBTG_OPTIMIZE
+    ++g_retained_geometry.epoch;
+#endif
+}
+
 void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const SceneD3DPresentContext& context)
 {
     if (render_profile::capture_replay)
@@ -1500,6 +1632,7 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
 #if GBTG_OPTIMIZE
     age_retained_geometry();
     begin_stream_bytes_pass();
+    ++g_present_list;
 #endif
     struct Batch
     {
@@ -1515,6 +1648,9 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
     for (size_t index = 0; index < commands.size(); ++index)
     {
         const auto& command = commands[index];
+#if GBTG_OPTIMIZE
+        prefetch_commands(commands, index);
+#endif
         if (const auto* draw = std::get_if<SceneD3DIndexedDraw>(&command))
         {
             present_indexed(*draw, context);
@@ -1561,6 +1697,9 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
                 throw Error("back-buffer copy presentation is not bound");
             }
             context.copy_back_buffer(copy->texture);
+#if GBTG_OPTIMIZE
+            ++g_retained_geometry.epoch;
+#endif
             gfx_begin_native_batch();
         }
         else
@@ -1577,6 +1716,7 @@ void present_scene_d3d_commands(std::span<const SceneD3DCommand> commands, const
             }
             else
             {
+                // A target that writes texels to scene memory says so through scene_d3d_memory_written.
                 context.render_target(target.color, target.depth);
             }
         }

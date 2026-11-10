@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <algorithm>
+#include <atomic>
 #include <stdexcept>
 #include <variant>
 #include <vector>
@@ -16,6 +17,58 @@ namespace gbtg
 // clear and target change in issue order with the state it was issued under. Inline arrays with a
 // created shader preserve raw vertex words; zero-handle dialogue quads retain their x,y,z,u,v path.
 using SceneD3DConstants = std::array<std::array<float, 4>, 192>; // Hardware numbering: register + 96.
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 21: the vertex constants a draw was recorded under, shared by the draws recorded while they are
+// unchanged (in the hall, 82% of draws record the same constants as the draw before them). It reads as the
+// constants array. serial() names the contents: equal non-zero serials mean equal contents, and no two different
+// contents share one, so a backend can tell an unchanged constant file without comparing it.
+class SceneD3DConstantSnapshot
+{
+public:
+    SceneD3DConstantSnapshot() = default;
+    explicit SceneD3DConstantSnapshot(const SceneD3DConstants& constants)
+        : stored_(std::make_shared<const Stored>(Stored{constants, next_serial()}))
+    {
+    }
+    const SceneD3DConstants& get() const
+    {
+        static const SceneD3DConstants zero{};
+        return stored_ ? stored_->constants : zero;
+    }
+    operator const SceneD3DConstants&() const
+    {
+        return get();
+    }
+    const std::array<float, 4>& operator[](size_t reg) const
+    {
+        return get()[reg];
+    }
+    u64 serial() const
+    {
+        return stored_ ? stored_->serial : 0;
+    }
+    const void* identity() const
+    {
+        return stored_.get();
+    }
+
+private:
+    struct Stored
+    {
+        SceneD3DConstants constants;
+        u64 serial;
+    };
+    static u64 next_serial()
+    {
+        static std::atomic<u64> next{1};
+        return next.fetch_add(1, std::memory_order_relaxed);
+    }
+    std::shared_ptr<const Stored> stored_;
+};
+using SceneD3DDrawConstants = SceneD3DConstantSnapshot;
+#else
+using SceneD3DDrawConstants = SceneD3DConstants;
+#endif
 // Sorted immutable draw-state snapshot: one contiguous allocation instead of a tree
 // allocation per state. The recording device's mutable map remains the authority.
 class SceneD3DStateSnapshot
@@ -42,6 +95,16 @@ public:
     const std::shared_ptr<const Values>& shared() const
     {
         return values_;
+    }
+    // GBTG_OPTIMIZE step 18: the first state at or after `key`, for a reader that walks a run of keys in order.
+    auto lower_bound(u32 key) const
+    {
+        const Values& values = stored();
+        return std::lower_bound(values.begin(), values.end(), key,
+            [](const auto& value, u32 wanted)
+            {
+                return value.first < wanted;
+            });
     }
 #else
     SceneD3DStateSnapshot(const std::map<u32, u32>& states) : values_(states.begin(), states.end())
@@ -109,15 +172,87 @@ struct SceneD3DVertexStream
     u32 resource;
     u32 stride;
 };
+#if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE step 16: the bound vertex streams as a fixed array sorted by stream number, with the part of
+// std::map's interface the device and its readers use. Every recorded draw carries a copy, which the map made
+// from one heap node per stream and freed again when the frame's commands were cleared. A declaration names its
+// stream in four bits (D3DVSD_STREAM), so sixteen entries hold every stream a draw can read.
+class SceneD3DStreamBindings
+{
+public:
+    using value_type = std::pair<u32, SceneD3DVertexStream>;
+    using const_iterator = const value_type*;
+    const_iterator begin() const
+    {
+        return items_.data();
+    }
+    const_iterator end() const
+    {
+        return items_.data() + count_;
+    }
+    size_t size() const
+    {
+        return count_;
+    }
+    const_iterator find(u32 stream) const
+    {
+        for (const_iterator item = begin(); item != end(); ++item)
+        {
+            if (item->first == stream)
+            {
+                return item;
+            }
+        }
+        return end();
+    }
+    const SceneD3DVertexStream& at(u32 stream) const
+    {
+        const const_iterator found = find(stream);
+        if (found == end())
+        {
+            throw std::out_of_range("vertex stream is not bound");
+        }
+        return found->second;
+    }
+    SceneD3DVertexStream& operator[](u32 stream)
+    {
+        u32 position = 0;
+        while (position < count_ && items_[position].first < stream)
+        {
+            ++position;
+        }
+        if (position == count_ || items_[position].first != stream)
+        {
+            if (count_ == items_.size())
+            {
+                throw std::out_of_range("more vertex streams bound than a declaration can name");
+            }
+            for (u32 moved = count_; moved > position; --moved)
+            {
+                items_[moved] = items_[moved - 1];
+            }
+            items_[position] = {stream, SceneD3DVertexStream{}};
+            ++count_;
+        }
+        return items_[position].second;
+    }
+
+private:
+    std::array<value_type, 16> items_{};
+    u32 count_ = 0;
+};
+#else
+using SceneD3DStreamBindings = std::map<u32, SceneD3DVertexStream>;
+#endif
 struct SceneD3DIndexedDraw
 {
     u32 primitive;
     u32 count;
     u32 indices;
-    SceneD3DConstants constants;
+    SceneD3DDrawConstants constants;
     std::array<const u8*, 4> textures;
     SceneD3DStateSnapshot states;
-    std::map<u32, SceneD3DVertexStream> streams;
+    SceneD3DStreamBindings streams;
     std::array<std::array<float, 4>, 16> pixel_constants;
     u32 pixel_constants_set; // Bit n: SetPixelShaderConstant wrote register n.
     std::array<u32, 4> address_u{1, 1, 1, 1}; // D3DTSS_ADDRESSU / ADDRESSV at the draw.
@@ -251,8 +386,12 @@ private:
     void put_state(u32 key, u32 value);
     void erase_state(u32 key);
     SceneD3DStateSnapshot snapshot();
+    void forget_constants(); // Every write to constants_ calls it; a no-op in retail builds.
 #if GBTG_OPTIMIZE
     std::shared_ptr<const SceneD3DStateSnapshot::Values> snapshot_; // Null once a state changes.
+    // GBTG_OPTIMIZE step 21: the constants the last draw recorded under; empty once a constant is written.
+    SceneD3DConstantSnapshot constants_snapshot_;
+    SceneD3DConstantSnapshot constant_snapshot();
     std::vector<float> push_vertices_; // decode_push scratch.
 #endif
     void decode_push(const u32* begin, const u32* end);
@@ -263,7 +402,7 @@ private:
     std::array<u32, 4> address_u_{1, 1, 1, 1}; // The deferred address modes at the last flush.
     std::array<u32, 4> address_v_{1, 1, 1, 1};
     std::map<u32, u32> render_states_;
-    std::map<u32, SceneD3DVertexStream> vertex_streams_;
+    SceneD3DStreamBindings vertex_streams_;
     std::array<std::array<float, 4>, 16> pixel_constants_{};
     u32 pixel_constants_set_ = 0;
     std::vector<u32> push_;

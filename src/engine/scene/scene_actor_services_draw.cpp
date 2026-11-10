@@ -1,4 +1,5 @@
 #include "scene_actor_services_state.h"
+#include "../graphics/scene_d3d_present.h"
 #include "../graphics/boot_shader_tables.h"
 #include "../camera/wide_aspect.h"
 
@@ -979,6 +980,7 @@ void SceneActorServices::State::close_render_target()
                 throw Error("render target depth texture is not a LIN_A8R8G8B8 or LIN_D24S8 texture of the target's size");
             }
             std::memcpy(resources.memory.tail(record.data).data(), words.data(), count * 4);
+            scene_d3d_memory_written();
         }
         movie_textures.insert(resources.memory.pointer(render_target_depth_texture));
         render_target_depth_texture = 0;
@@ -1001,6 +1003,18 @@ void SceneActorServices::State::close_render_target()
             ++image.serial;
             if (gfx_end_native_target_into(image))
             {
+#if !defined(GBTG_INSPECTOR_APP)
+                // GBTG_OPTIMIZE step 24: the light volume texture (DAT_00504844) is only drawn into and sampled. The
+                // executable references its handle and surface in four instructions: 0x000620C0 creates them,
+                // 0x000FE5A0 sets the surface as the render target, and 0x000FE960 passes the texture to 0x00064820,
+                // whose one use of it is D3DDevice_SetTexture(0, ...). No native code reads its texels, so they are
+                // not read back and written. The inspector shows a texture from those texels, so it keeps them.
+                if (render_target_texture == light_volume_texture)
+                {
+                    render_target_texture = 0;
+                    return;
+                }
+#endif
                 pending_target_texture = render_target_texture;
                 render_target_texture = 0;
                 return;
@@ -1081,6 +1095,7 @@ void SceneActorServices::State::write_target_texels(u32 texture, const RgbaImage
 {
     const auto& record = resources.d3d.resources.at(texture);
     const auto texels = resources.memory.tail(record.data).first(size_t(record.header[0]) * record.header[1] * 4);
+    scene_d3d_memory_written();
     if (rendered.width == i32(record.header[0]) && rendered.height == i32(record.header[1]))
     {
         if (record.header[4] == 6)
@@ -1255,6 +1270,7 @@ RuntimeMovieLockedSurface SceneActorServices::State::lock_movie_texture(u32 reco
         throw Error(detail);
     }
     movie_textures.insert(resources.memory.pointer(record));
+    scene_d3d_memory_written(); // The caller writes the surface.
     resources.keep_texture_original(registered->second.data, size_t(header[0]) * header[1] * 4);
     return RuntimeMovieLockedSurface{i32(header[0] * 4), resources.memory.pointer(registered->second.data)};
 }

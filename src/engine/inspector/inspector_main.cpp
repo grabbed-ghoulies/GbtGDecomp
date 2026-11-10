@@ -214,6 +214,8 @@ int main(int argc, char** argv)
         config.visible = !flag(argc, argv, "--headless") && screenshot.empty() && viewport_capture.empty()
             && preview_capture.empty();
         config.title = "GbtG Runtime Scene Inspector";
+        // The inspector calls the D3D11 backend directly (inspector_graphics.h) and resizes its swap chain.
+        config.render_thread = false;
         int remaining = std::stoi(argument(argc, argv, "--frames", config.visible ? "0" : "180"));
         if (remaining < 0)
         {

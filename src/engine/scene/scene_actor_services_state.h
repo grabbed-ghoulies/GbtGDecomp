@@ -1285,6 +1285,9 @@ struct SceneActorServices::State
     u32 render_target_depth_texture = 0; // A texture surface given as the open target's depth.
     bool render_target_scene = false; // The open target shares the back buffer's depth-stencil.
     void copy_back_buffer(u32 texture);
+    // GBTG_OPTIMIZE steps 25 and 26: the book page textures (DAT_005047D8, DAT_005047E4) and their frame records,
+    // whose texels no native code reads, so copies and targets into them stay on the GPU.
+    bool book_page_record(const u8* record) const;
     u32 render_target_texture = 0;
     // GBTG_OPTIMIZE step 12: a created texture target that ended on the GPU (gfx_end_native_target_into). Its
     // data is written once the presenter's commands are done (finish_render_target), before native code runs

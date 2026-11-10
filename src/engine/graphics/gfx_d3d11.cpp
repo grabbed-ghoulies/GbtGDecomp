@@ -2785,22 +2785,11 @@ void gfx_end_native_target(RgbaImage& output)
     native_target.rendering = false;
 }
 
-bool gfx_end_native_target_into(const RgbaImage& image)
-{
 #if GBTG_OPTIMIZE
-    if (!g.ok)
-    {
-        return false;
-    }
-    if (!native_target.rendering)
-    {
-        throw Error("native render target is not bound");
-    }
-    if (image.width != native_target.width || image.height != native_target.height)
-    {
-        return false;
-    }
-    // The texture native_texture binds for `image`: kept when it already has the target's shape.
+// GBTG_OPTIMIZE steps 12 and 25: the texture native_texture binds for `image`, made on the GPU by a copy; kept when
+// it already has the image's shape.
+ComPtr<ID3D11Texture2D> native_image_texture(const RgbaImage& image)
+{
     GfxD3D11::SpriteGpu& sprite = g.sprites[&image];
     ComPtr<ID3D11Texture2D> texture;
     if (sprite.srv)
@@ -2837,9 +2826,29 @@ bool gfx_end_native_target_into(const RgbaImage& image)
             throw Error("native render target texture creation failed");
         }
     }
+    return texture;
+}
+#endif
+
+bool gfx_end_native_target_into(const RgbaImage& image)
+{
+#if GBTG_OPTIMIZE
+    if (!g.ok)
+    {
+        return false;
+    }
+    if (!native_target.rendering)
+    {
+        throw Error("native render target is not bound");
+    }
+    if (image.width != native_target.width || image.height != native_target.height)
+    {
+        return false;
+    }
+    const ComPtr<ID3D11Texture2D> texture = native_image_texture(image);
     g.context->CopyResource(texture.Get(), native_target.color.Get());
     g.context->CopyResource(native_target.staging.Get(), native_target.color.Get());
-    sprite.serial = image.serial;
+    g.sprites[&image].serial = image.serial;
     native_target.ended = native_target.staging;
     // Submitted now, so the GPU has drawn and copied the target by the time gfx_read_ended_native_target maps it;
     // otherwise the driver holds the frame's commands until that Map and it waits for all of them.
@@ -3860,30 +3869,74 @@ bool gfx_readback_ui(RgbaImage& out)
     {
         return false;
     }
-    // The presented frame's area: the 640x480 back buffer's picture, 16:9 in widescreen (the Xbox's anamorphic
-    // buffer holds the whole 16:9 view, which the book's widescreen redraw 0x0005CE80 then corrects), else 4:3.
-    const int across = g.cfg.widescreen ? 16 : 4;
-    const int down = g.cfg.widescreen ? 9 : 3;
-    int width = std::min(frame.width, frame.height * across / down);
-    int height = std::min(frame.height, frame.width * down / across);
-    if (g.cfg.frame_aspect > 0.f)
+    // The presented frame's area (gfx_ui_frame).
+    const GfxUiFrame area = gfx_ui_frame(frame.width, frame.height, g.cfg.widescreen, g.cfg.frame_aspect);
+    out.width = area.width;
+    out.height = area.height;
+    out.bgra.resize(size_t(area.width) * area.height * 4);
+    for (int row = 0; row < area.height; ++row)
     {
-        // The wide_aspect plugin's frame.
-        width = std::min(frame.width, int(float(frame.height) * g.cfg.frame_aspect + 0.5f));
-        height = std::min(frame.height, int(float(frame.width) / g.cfg.frame_aspect + 0.5f));
-    }
-    const int left = (frame.width - width) / 2;
-    const int top = (frame.height - height) / 2;
-    out.width = width;
-    out.height = height;
-    out.bgra.resize(size_t(width) * height * 4);
-    for (int row = 0; row < height; ++row)
-    {
-        std::memcpy(out.bgra.data() + size_t(row) * width * 4,
-            frame.bgra.data() + (size_t(row + top) * frame.width + left) * 4,
-            size_t(width) * 4);
+        std::memcpy(out.bgra.data() + size_t(row) * area.width * 4,
+            frame.bgra.data() + (size_t(row + area.top) * frame.width + area.left) * 4,
+            size_t(area.width) * 4);
     }
     return true;
+}
+
+void gfx_ui_frame_size(int& width, int& height)
+{
+    width = 0;
+    height = 0;
+    if (!g.ok)
+    {
+        return;
+    }
+    const GfxUiFrame area = gfx_ui_frame(g.cfg.width, g.cfg.height, g.cfg.widescreen, g.cfg.frame_aspect);
+    width = area.width;
+    height = area.height;
+}
+
+// GBTG_OPTIMIZE step 25: gfx_readback_ui's picture copied on the GPU into the texture native draws bind for `image`,
+// with no readback. The copy is ordered after the frame's draws so far and before the texture's next use.
+bool gfx_copy_ui_into(const RgbaImage& image)
+{
+#if GBTG_OPTIMIZE
+    if (!g.ok || image.width <= 0 || image.height <= 0)
+    {
+        return false;
+    }
+    ComPtr<ID3D11Texture2D> source;
+    if (g.swap)
+    {
+        if (FAILED(g.swap->GetBuffer(0, IID_PPV_ARGS(source.GetAddressOf()))))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        source = g.color;
+    }
+    if (!source)
+    {
+        return false;
+    }
+    present_hud_sprites();
+    gfx_sprite_clear();
+    D3D11_TEXTURE2D_DESC desc{};
+    source->GetDesc(&desc);
+    const GfxUiFrame area = gfx_ui_frame(int(desc.Width), int(desc.Height), g.cfg.widescreen, g.cfg.frame_aspect);
+    const ComPtr<ID3D11Texture2D> texture = native_image_texture(image);
+    // The image was sized by gfx_ui_frame_size; a resize since then copies the part both hold.
+    const D3D11_BOX box{u32(area.left), u32(area.top), 0, u32(area.left + std::min(area.width, image.width)),
+        u32(area.top + std::min(area.height, image.height)), 1};
+    g.context->CopySubresourceRegion(texture.Get(), 0, 0, 0, 0, source.Get(), 0, &box);
+    g.sprites[&image].serial = image.serial;
+    return true;
+#else
+    (void)image;
+    return false;
+#endif
 }
 
 const GfxBackend& backend_table()

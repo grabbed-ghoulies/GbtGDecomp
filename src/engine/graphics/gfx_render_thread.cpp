@@ -76,6 +76,7 @@ enum class Kind : u8
     SpriteSubmit,
     UpdateImage,
     EndTargetInto,
+    CopyUiInto,
     ReleaseImage,
     EndFrame,
     PresentAgain
@@ -283,6 +284,17 @@ void execute(Command& command)
         if (!inner->gfx_end_native_target_into(image))
         {
             throw Error("gfx render thread: the backend declined a render target end queued for it");
+        }
+        break;
+    }
+    case Kind::CopyUiInto:
+    {
+        // Step 25: as EndTargetInto, the proxy takes the image's serial and the backend copies the picture into it.
+        RgbaImage& image = *command.images[0];
+        image.serial = command.flags;
+        if (!inner->gfx_copy_ui_into(image))
+        {
+            throw Error("gfx render thread: the backend declined a back-buffer copy queued for it");
         }
         break;
     }
@@ -1011,6 +1023,46 @@ bool gfx_readback_ui(RgbaImage& out)
         drain();
     }
     return inner->gfx_readback_ui(out);
+}
+
+// Read from the backend's configuration, which only the game thread changes.
+void gfx_ui_frame_size(int& width, int& height)
+{
+    inner->gfx_ui_frame_size(width, height);
+}
+
+// Step 25: queued like gfx_end_native_target_into. The quads queued before it are drawn first, in queue order, and the
+// proxy takes the image's serial without its pixels, so later draws sample the copy.
+bool gfx_copy_ui_into(const RgbaImage& image)
+{
+    if (!running)
+    {
+        return inner->gfx_copy_ui_into(image);
+    }
+    if (!ends_into || image.width <= 0 || image.height <= 0)
+    {
+        return false;
+    }
+    auto [it, inserted] = proxies.try_emplace(&image);
+    Proxy& proxy = it->second;
+    if (inserted)
+    {
+        proxy.image = std::make_shared<RgbaImage>();
+        copy_image(*proxy.image, image);
+    }
+    else if (proxy.width != image.width || proxy.height != image.height)
+    {
+        Command& update = push(Kind::UpdateImage);
+        update.images[0] = proxy.image;
+        copy_image(update.pixels, image);
+    }
+    proxy.serial = image.serial;
+    proxy.width = image.width;
+    proxy.height = image.height;
+    Command& command = push(Kind::CopyUiInto);
+    command.images[0] = proxy.image;
+    command.flags = image.serial;
+    return true;
 }
 
 const GfxBackend* backend_table(const GfxBackend& backend)

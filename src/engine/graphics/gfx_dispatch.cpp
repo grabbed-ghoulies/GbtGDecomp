@@ -256,4 +256,14 @@ bool gfx_readback_ui(RgbaImage& out)
     return backend().gfx_readback_ui(out);
 }
 
+void gfx_ui_frame_size(int& width, int& height)
+{
+    backend().gfx_ui_frame_size(width, height);
+}
+
+bool gfx_copy_ui_into(const RgbaImage& image)
+{
+    return backend().gfx_copy_ui_into(image);
+}
+
 } // namespace gbtg

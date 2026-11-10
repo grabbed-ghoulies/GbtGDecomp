@@ -361,6 +361,8 @@ optimized exe; otherwise the menu case starts from different save data.
 | 21 | `scene_d3d_device`, `scene_d3d_present`, `gfx_d3d11`, `gfx_render_thread` | Draws recorded while no vertex constant is written share one copy of the constants (`SceneD3DConstantSnapshot`), as states share a snapshot (step 1); every write to the device's constants forgets the copy. In the hall 82% of draws record the same constants as the draw before them, and a recorded draw shrinks from 3.5 KB to a pointer. Each copy carries a serial, never reused, that `GfxNativeDraw::vertex_constants_id` passes on: D3D11 skips comparing the constants when the id matches the uploaded ones, and the render thread copies a batch's constants once per id. |
 | 23 | `gfx_vulkan`, `gfx_render_thread` | The Vulkan backend takes the D3D11 shortcuts. A stage's view and sampler come from the previous draw of the batch when the image and serial (or address modes) match, and `gfx_release_sprite` forgets the images; a program's words are compared once per native batch; a draw whose constants id matches the previous slot's binds that ring slot while the ring keeps it (`ring_epoch`, bumped at each submission and ring replacement). Step 12 on Vulkan: `gfx_end_native_target_into` copies the target into the texture native draws bind for the image and records a readback copy, with no submission; `gfx_read_ended_native_target` submits and reads it. The render thread queues Vulkan target ends as it does D3D11's. |
 | 24 | `scene_actor_services_draw` | The light volume texture (`DAT_00504844`, 256x256) is not read back after a target ends on the GPU. The whole executable references its handle and surface in four instructions (a byte scan of the XBE for both addresses finds only these): `0x000620C0` creates them, `0x000FE5A0` sets the surface as the render target, and `0x000FE960` passes the texture to `0x00064820`, whose one use of it is `D3DDevice_SetTexture(0, ...)`. No native code reads its texels, so its memory keeps the texels it was created with. The inspector shows textures from those texels, so its build keeps the readback. This removes the presenter's last wait in the hall. |
+| 25 | `gfx_d3d11`, `gfx_vulkan`, `gfx_render_thread`, `scene_actor_services_draw` | `D3DDevice_CopyRects` from the back buffer into the book pages (`copy_back_buffer`: the book's page captures and the transitions' captures; other targets keep the readback) is a GPU copy of `gfx_readback_ui`'s picture into the texture's image (`gfx_copy_ui_into`, sized by `gfx_ui_frame_size`), queued on the render thread, with no readback; the texture's data keeps its texels. A byte scan of the XBE for the book page textures and their surfaces (`DAT_005047D8` to `DAT_005047E8`) finds sixteen functions, which hand them only to `SetTexture`, `SetRenderTarget`, `CopyRects` (`0x0013DF80`) and the shader parameters and records that bind them; none locks them. A step 12 readback still pending for the texture is finished first, so it cannot overwrite the copy. The inspector keeps the readback. |
+| 26 | `scene_actor_services_draw` | A texture target into a book page (scenes 3 and 6 draw into page 0, `DAT_005047DC`, eight times a frame) ends on the GPU into the page's image (`gfx_end_native_target_into`), with no readback, no write of its rows and no decode and upload of them; the page keeps its texels, on step 25's evidence. The linear 32-bit page formats decode by copying the rows, so the image is what that decode gave. The image returns to the texture's size after a step 25 copy. The inspector keeps the readback. |
 
 Step 12 (2026-11-08). Temporary per-stage probes in the presenter (removed) found that 10 `render_target` calls a
 frame took about 40% of the replayed heavy hall frame (`--render-replay-after 70`, 1080p): the hall draws into the
@@ -467,6 +469,27 @@ It also relied on every write to scene memory going through the CPU. Reverted.
 
 Not done, by the probes: offsetting into one constant buffer instead of a `WRITE_DISCARD` Map per draw (D3D11), and
 uploading only the declared input registers (every GPU-program vertex is a full 256-byte `GfxNativeInputs`).
+
+Step 25 (2026-11-10): book transitions in widescreen at 5120x1440 ran at 30–40 fps. While a page turns, the
+transition captures the page every frame (`0x0012B370` marks it), and in widescreen the book redraws the capture
+squeezed to 4:3 and captures it again (`0x00048550`). Each capture read the whole back buffer back (a GPU wait and
+29 MB) and uploaded the 2560x1440 picture again, about 10 ms each. Scene 6's transition (`--scene6` of
+`gbtg-transition-tests`, `GBTG_WIDESCREEN=1`, `GBTG_TEST_WINDOW=5120x1440`, D3D11, frame ms through the leaving
+page turn, phase 3):
+
+| Page turn | Before: mean | Before: capture frames | Step 25: mean | Step 25: capture frames |
+| --- | --- | --- | --- | --- |
+| Into scene 6 | 10.4 | 26–29 | 4.1 | 1.0–1.3 |
+| Scene 6 into scene 3 | 25.7 | 34–61 | 13.9 | 10–33 |
+
+The 47 captures of the run are byte-identical to those before the change.
+
+Step 26: frames of the page turn into scene 3 that capture nothing still took 11 ms (presenter 9.7 ms; frames
+where the test itself saves a screenshot, every 10th, excluded). Scene 3 renders into book page 0 as a 640x480
+target eight times a frame, and each end was a synchronous readback (0.55 ms), a write of the rows, and a decode
+and upload of the page. Same run: 11.05 ms a frame (presenter 9.69 ms, 7 uploads) before, 3.36 ms (presenter
+2.24 ms, no uploads) after. The page turn into scene 6 is unchanged at 1.3 ms. The 47 captures, which include scene
+3 and scene 6 play, are byte-identical. The same targets run every frame of scene 3 and scene 6 play.
 
 Tried and not kept: sharing equal retained-stream copies between entries so each region is compared once per
 command list. The check compares 30 MB a frame, of which 14 MB is unique, but the probe time did not fall: reading the

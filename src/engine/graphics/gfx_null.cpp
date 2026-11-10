@@ -292,6 +292,17 @@ bool gfx_readback_ui(RgbaImage&)
     return false;
 }
 
+void gfx_ui_frame_size(int& width, int& height)
+{
+    width = 0;
+    height = 0;
+}
+
+bool gfx_copy_ui_into(const RgbaImage&)
+{
+    return false;
+}
+
 const GfxBackend& backend_table()
 {
     static const GfxBackend table = GBTG_GFX_BACKEND_TABLE("null");

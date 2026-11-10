@@ -2520,6 +2520,41 @@ void gfx_end_native_target(RgbaImage& output)
 }
 
 #if GBTG_OPTIMIZE
+// GBTG_OPTIMIZE steps 23 and 25: a width x height region of `source` (in VK_IMAGE_LAYOUT_GENERAL) at (left, top)
+// recorded as a copy into the texture native draws bind for `image`, which then stands at image.serial. The texture is
+// kept when it already has the image's size. Recording must be open, outside a render pass.
+void copy_into_image_texture(const RgbaImage& image, VkImage source, int left, int top, int width, int height)
+{
+    auto it = g.textures.find(&image);
+    bool fresh = false;
+    if (it == g.textures.end() || it->second.image.width != image.width || it->second.image.height != image.height)
+    {
+        if (it != g.textures.end())
+        {
+            retire(it->second.image);
+        }
+        Texture texture;
+        texture.image = create_texture(image.width, image.height);
+        it = g.textures.insert_or_assign(&image, texture).first;
+        fresh = true;
+    }
+    vk::Image& texture = it->second.image;
+    vk::image_barrier(g.command, texture.image, VK_IMAGE_ASPECT_COLOR_BIT,
+                      fresh ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy region{};
+    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.srcOffset = {left, top, 0};
+    region.dstSubresource = region.srcSubresource;
+    region.extent = {u32(width), u32(height), 1};
+    vkCmdCopyImage(g.command, source, VK_IMAGE_LAYOUT_GENERAL, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                   &region);
+    vk::image_barrier(g.command, texture.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    it->second.serial = image.serial;
+    g.native_last.images = {}; // The image's texture may be new.
+}
+
 // GBTG_OPTIMIZE step 23: step 12 on Vulkan. The target is copied on the GPU into the texture native draws bind for
 // `image`, which then stands at image.serial, and into a readback buffer, with no submission; the copy is ordered
 // after the target's draws and before the texture's next use by the backend's full barriers.
@@ -2547,39 +2582,12 @@ bool gfx_end_native_target_into(const RgbaImage& image)
     }
     ensure_recording();
     end_rendering();
-    // The texture native_texture binds for `image`: kept when it already has the target's size.
-    auto it = g.textures.find(&image);
-    bool fresh = false;
-    if (it == g.textures.end() || it->second.image.width != image.width || it->second.image.height != image.height)
-    {
-        if (it != g.textures.end())
-        {
-            retire(it->second.image);
-        }
-        Texture texture;
-        texture.image = create_texture(image.width, image.height);
-        it = g.textures.insert_or_assign(&image, texture).first;
-        fresh = true;
-    }
-    vk::Image& texture = it->second.image;
-    vk::image_barrier(g.command, texture.image, VK_IMAGE_ASPECT_COLOR_BIT,
-                      fresh ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    VkImageCopy region{};
-    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.dstSubresource = region.srcSubresource;
-    region.extent = {u32(image.width), u32(image.height), 1};
-    vkCmdCopyImage(g.command, g.target_color.image, VK_IMAGE_LAYOUT_GENERAL, texture.image,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    vk::image_barrier(g.command, texture.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    copy_into_image_texture(image, g.target_color.image, 0, 0, image.width, image.height);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     copy.imageExtent = {u32(image.width), u32(image.height), 1};
     vkCmdCopyImageToBuffer(g.command, g.target_color.image, VK_IMAGE_LAYOUT_GENERAL, g.ended_readback.buffer, 1, &copy);
     vk::memory_barrier(g.command);
-    it->second.serial = image.serial;
-    g.native_last.images = {}; // The image's texture may be new.
     g.ended_pending = true;
     g.ended_width = image.width;
     g.ended_height = image.height;
@@ -2909,30 +2917,56 @@ bool gfx_readback_ui(RgbaImage& out)
     {
         return false;
     }
-    // The presented frame's area: the 640x480 back buffer's picture, 16:9 in widescreen (the Xbox's anamorphic
-    // buffer holds the whole 16:9 view, which the book's widescreen redraw 0x0005CE80 then corrects), else 4:3.
-    const int across = g.cfg.widescreen ? 16 : 4;
-    const int down = g.cfg.widescreen ? 9 : 3;
-    int width = std::min(frame.width, frame.height * across / down);
-    int height = std::min(frame.height, frame.width * down / across);
-    if (g.cfg.frame_aspect > 0.f)
+    // The presented frame's area (gfx_ui_frame).
+    const GfxUiFrame area = gfx_ui_frame(frame.width, frame.height, g.cfg.widescreen, g.cfg.frame_aspect);
+    out.width = area.width;
+    out.height = area.height;
+    out.bgra.resize(size_t(area.width) * area.height * 4);
+    for (int row = 0; row < area.height; ++row)
     {
-        // The wide_aspect plugin's frame.
-        width = std::min(frame.width, int(float(frame.height) * g.cfg.frame_aspect + 0.5f));
-        height = std::min(frame.height, int(float(frame.width) / g.cfg.frame_aspect + 0.5f));
-    }
-    const int left = (frame.width - width) / 2;
-    const int top = (frame.height - height) / 2;
-    out.width = width;
-    out.height = height;
-    out.bgra.resize(size_t(width) * height * 4);
-    for (int row = 0; row < height; ++row)
-    {
-        std::memcpy(out.bgra.data() + size_t(row) * width * 4,
-            frame.bgra.data() + (size_t(row + top) * frame.width + left) * 4,
-            size_t(width) * 4);
+        std::memcpy(out.bgra.data() + size_t(row) * area.width * 4,
+            frame.bgra.data() + (size_t(row + area.top) * frame.width + area.left) * 4,
+            size_t(area.width) * 4);
     }
     return true;
+}
+
+void gfx_ui_frame_size(int& width, int& height)
+{
+    width = 0;
+    height = 0;
+    if (!g.ok)
+    {
+        return;
+    }
+    const GfxUiFrame area = gfx_ui_frame(g.cfg.width, g.cfg.height, g.cfg.widescreen, g.cfg.frame_aspect);
+    width = area.width;
+    height = area.height;
+}
+
+// GBTG_OPTIMIZE step 25: gfx_readback_ui's picture copied on the GPU into the texture native draws bind for `image`,
+// with no submission or readback; the backend's full barriers order it after the frame's draws so far.
+bool gfx_copy_ui_into(const RgbaImage& image)
+{
+#if GBTG_OPTIMIZE
+    if (!g.ok || image.width <= 0 || image.height <= 0)
+    {
+        return false;
+    }
+    present_hud_sprites();
+    gfx_sprite_clear();
+    const GfxUiFrame area = gfx_ui_frame(g.frame_color.width, g.frame_color.height, g.cfg.widescreen,
+        g.cfg.frame_aspect);
+    ensure_recording();
+    end_rendering();
+    // The image was sized by gfx_ui_frame_size; a resize since then copies the part both hold.
+    copy_into_image_texture(image, g.frame_color.image, area.left, area.top, std::min(area.width, image.width),
+        std::min(area.height, image.height));
+    return true;
+#else
+    (void)image;
+    return false;
+#endif
 }
 
 // The D3D11 backend's boundary check on this backend: vertex/index mutation, texture serial and release,

@@ -2,6 +2,8 @@
 
 #include "gbtg/gfx.h"
 
+#include <algorithm>
+
 namespace gbtg
 {
 
@@ -40,7 +42,37 @@ namespace gbtg
     X(gfx_end_frame)                         \
     X(gfx_present_again)                     \
     X(gfx_readback)                          \
-    X(gfx_readback_ui)
+    X(gfx_readback_ui)                       \
+    X(gfx_ui_frame_size)                     \
+    X(gfx_copy_ui_into)
+
+// gfx_readback_ui's picture in a frame_width x frame_height back buffer: the 640x480 back buffer's picture, 16:9 in
+// widescreen (the Xbox's anamorphic buffer holds the whole 16:9 view, which the book's widescreen redraw 0x0005CE80
+// then corrects), else 4:3, or the wide_aspect plugin's frame when frame_aspect is set; centred.
+struct GfxUiFrame
+{
+    int left = 0;
+    int top = 0;
+    int width = 0;
+    int height = 0;
+};
+
+inline GfxUiFrame gfx_ui_frame(int frame_width, int frame_height, bool widescreen, float frame_aspect)
+{
+    const int across = widescreen ? 16 : 4;
+    const int down = widescreen ? 9 : 3;
+    GfxUiFrame frame;
+    frame.width = std::min(frame_width, frame_height * across / down);
+    frame.height = std::min(frame_height, frame_width * down / across);
+    if (frame_aspect > 0.f)
+    {
+        frame.width = std::min(frame_width, int(float(frame_height) * frame_aspect + 0.5f));
+        frame.height = std::min(frame_height, int(float(frame_width) / frame_aspect + 0.5f));
+    }
+    frame.left = (frame_width - frame.width) / 2;
+    frame.top = (frame_height - frame.height) / 2;
+    return frame;
+}
 
 struct GfxBackend
 {

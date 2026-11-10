@@ -1032,6 +1032,34 @@ void SceneActorServices::State::close_render_target()
         render_target_texture = 0;
         return;
     }
+#if GBTG_OPTIMIZE && !defined(GBTG_INSPECTOR_APP)
+    // GBTG_OPTIMIZE step 26: a texture target into a book page (scenes 3 and 6 draw into page 0 eight times a frame)
+    // ends on the GPU into the page's image, with no readback; the page's data keeps its texels, as for step 25's
+    // copies (copy_back_buffer has the evidence that no native code reads them). The linear 32-bit page formats decode
+    // by copying the rows, so the image takes the target's pixels as a decode of the written rows would. The image
+    // returns to the texture's own size, as that decode would make it after a step 25 copy.
+    if (render_target_texture != 0 && !render_target_scene)
+    {
+        const u8* record = resources.memory.pointer(render_target_texture);
+        if (book_page_record(record))
+        {
+            const auto& header = resources.d3d.resources.at(render_target_texture).header;
+            RgbaImage& image = const_cast<RgbaImage&>(texture_image(record));
+            image.width = i32(header[0]);
+            image.height = i32(header[1]);
+            image.bgra.resize(size_t(image.width) * size_t(image.height) * 4);
+            image.texel_width = 0;
+            image.texel_height = 0;
+            ++image.serial;
+            if (gfx_end_native_target_into(image))
+            {
+                render_target_texture = 0;
+                return;
+            }
+            --image.serial;
+        }
+    }
+#endif
     if (render_target_texture != 0)
     {
         RgbaImage rendered;
@@ -1215,28 +1243,81 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
     }
 }
 
+bool SceneActorServices::State::book_page_record(const u8* record) const
+{
+    return record != nullptr && (record == book_pages[0].data() || record == book_pages[1].data()
+        || record == glow_targets.page_texture || record == glow_targets.depth_texture);
+}
+
 // D3DDevice_CopyRects(back buffer, null, 0, the texture's level 0, null): the 640x480 game viewport drawn so
 // far (the host window's fitted 4:3 area) into the texture's linear 32-bit level.
 void SceneActorServices::State::copy_back_buffer(u32 texture)
 {
+    // The target is a texture object (the book page captures) or its D3D frame record (DAT_005047DC's surface).
+    const auto find_target = [this](u32 target, u32& header)
+    {
+        auto found = resources.d3d.resources.find(target);
+        header = target;
+        if (found == resources.d3d.resources.end())
+        {
+            const auto object = resources.memory.resolve(target, 0x30);
+            header = target + read_u32(object, 4) + u32(object[0x12]) * 0x14;
+            found = resources.d3d.resources.find(header);
+        }
+        if (found == resources.d3d.resources.end())
+        {
+            throw Error("back-buffer copy target is not a registered texture");
+        }
+        return found;
+    };
+#if GBTG_OPTIMIZE && !defined(GBTG_INSPECTOR_APP)
+    // GBTG_OPTIMIZE step 25: the picture is copied on the GPU into the texture's image, with no readback, and the
+    // texture's data keeps its texels. A byte scan of the XBE finds the book page textures and the surfaces over them
+    // (DAT_005047D8 to DAT_005047E8) in 0x00048110, 0x0005DA50, 0x000615E0, 0x00061D00, 0x00061EE0, 0x000620C0,
+    // 0x00062220, 0x00062B00, 0x00063320, 0x00071DF0, 0x000770F0, 0x00087FE0, 0x00119230, 0x0011BA50, 0x0012BA10 and
+    // 0x0012BE60. They pass the handles to D3DDevice_SetTexture, SetRenderTarget and CopyRects (0x0013DF80 through
+    // DAT_00504868), to the shader parameters and gallery and cloth records that bind them, or to DAT_00504850 and
+    // DAT_00504854, which 0x00062B00 and 0x00063320 bind; none is locked (0x000620C0's one lock is of the depth surface
+    // DAT_005047E4 is made over). No native code reads their texels. The inspector shows a texture from those texels,
+    // so it keeps the readback.
+    {
+        u32 header = 0;
+        const auto registered = find_target(texture, header);
+        // Only the book pages (DAT_005047D8 and DAT_005047E4, made per scene) and their frame records.
+        const u8* record = resources.memory.pointer(header);
+        const bool book_page = book_page_record(record);
+        int width = 0;
+        int height = 0;
+        gfx_ui_frame_size(width, height);
+        if (book_page && width > 0 && height > 0)
+        {
+            if (pending_target_texture == header)
+            {
+                // A target this texture ended on the GPU is still to be written back; this copy replaces it.
+                finish_render_target();
+            }
+            RgbaImage& image = const_cast<RgbaImage&>(texture_image(record));
+            image.width = width;
+            image.height = height;
+            image.bgra.resize(size_t(width) * size_t(height) * 4);
+            image.texel_width = i32(registered->second.header[0]);
+            image.texel_height = i32(registered->second.header[1]);
+            ++image.serial;
+            if (gfx_copy_ui_into(image))
+            {
+                return;
+            }
+            --image.serial;
+        }
+    }
+#endif
     RgbaImage frame;
     if (!gfx_readback_ui(frame) || frame.width <= 0 || frame.height <= 0)
     {
         throw Error("back-buffer copy readback failed");
     }
-    // The target is a texture object (the book page captures) or its D3D frame record (DAT_005047DC's surface).
-    auto registered = resources.d3d.resources.find(texture);
-    u32 header = texture;
-    if (registered == resources.d3d.resources.end())
-    {
-        const auto object = resources.memory.resolve(texture, 0x30);
-        header = texture + read_u32(object, 4) + u32(object[0x12]) * 0x14;
-        registered = resources.d3d.resources.find(header);
-    }
-    if (registered == resources.d3d.resources.end())
-    {
-        throw Error("back-buffer copy target is not a registered texture");
-    }
+    u32 header = 0;
+    const auto registered = find_target(texture, header);
     const i32 width = i32(registered->second.header[0]);
     const i32 height = i32(registered->second.header[1]);
     const RuntimeMovieLockedSurface surface = lock_movie_texture(header);

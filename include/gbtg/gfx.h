@@ -201,5 +201,11 @@ bool gfx_readback(RgbaImage& out);
 // CopyRects source for UI pages: flush queued quads and copy the fitted
 // 4:3 game viewport, excluding host letterboxing.
 bool gfx_readback_ui(RgbaImage& out);
+// GBTG_OPTIMIZE step 25: gfx_readback_ui's picture kept on the GPU. gfx_ui_frame_size is its size (0 x 0 without a
+// device). gfx_copy_ui_into flushes the queued quads as gfx_readback_ui does and copies the picture into the texture
+// native draws sample for `image`, which then stands at image.serial; nothing is read back. False when the backend
+// has no such path: gfx_readback_ui reads the picture instead.
+void gfx_ui_frame_size(int& width, int& height);
+bool gfx_copy_ui_into(const RgbaImage& image);
 
 } // namespace gbtg

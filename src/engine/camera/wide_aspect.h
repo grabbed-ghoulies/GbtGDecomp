@@ -28,10 +28,16 @@ float aspect_row_ratio(i32 row, const float* table);
 
 // The wide_aspect feature's boot hook: the requested aspect, 0 for the window's own when wider than 16:9.
 void request_wide_aspect(float ratio);
-// While held, the wide row reads as 16:9 (its fits, field of view and projection), so the scene is drawn with 16:9's
-// view across the wide frame. The pause's page (0x00048550) captures the frame without widening it, as retail
-// shows a 16:9 frame squeezed onto it; held, a wide frame squeezes the same instead of further.
+// The pause's page (0x00048550) captures the frame onto a 4:3 page without the widening redraw the transitions'
+// pages get, so with the wide row the paused scene came out squeezed. While held, every 2D draw fits the frame's 4:3
+// middle (hud_viewport); the book's draw then widens the capture by the row's ratio / (4:3) as a transition's, and
+// the page shows that middle: the scene in its own shape and the menu as at 4:3.
 void hold_wide_aspect_for_page(bool held);
+// The scene draw's hook: with the wide row, holds while the pause's book shows (`book_shown`) on a paused scene
+// (DAT_00510CE8) in a phase (DAT_00510CF4) whose page 0x00048550 captures without widening, any but 4 and 5. The
+// book's draw releases it before its widening redraw, and the scene draw after the frame.
+void hold_wide_aspect_for_paused_page(bool book_shown, i32 paused, i32 phase);
+bool wide_aspect_page_held();
 // The HUD's shape ([wide_aspect] Hud): the 640x480 overlays drawn over gameplay (HUD, captions, prompts) fit an
 // area of this aspect centred in the frame instead of stretching over it, as retail's do in widescreen. 0 stretches.
 void request_hud_aspect(float aspect);

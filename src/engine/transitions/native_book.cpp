@@ -322,6 +322,14 @@ void draw_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
     g_book_viewport_reset = 1; // DAT_005077FC
     s.draw.fog_disabled = 1; // DAT_00509B00
     s.fog(0); // 0x00156EA0
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // The wide_aspect plugin's paused page (wide_aspect.h): the frame's 2D was fitted to its 4:3 middle, and the page
+    // is widened like a transition's. The hold ends here, so the widening redraw and the book draw over the frame.
+    const bool wide_page = wide_aspect_page_held();
+    hold_wide_aspect_for_page(false);
+#else
+    constexpr bool wide_page = false;
+#endif
     for (auto& page : book.pages)
     {
         if (page.capture == 0)
@@ -335,7 +343,7 @@ void draw_transition_book(RuntimeTransitionBook& book, TransitionBookServices& s
             {
                 throw Error("0x00048550 reads the scene pause (DAT_00510CE8, DAT_00510CF4) through unbound views");
             }
-            if (*s.scene_paused == 0 || *s.pause_phase == 4 || *s.pause_phase == 5)
+            if (*s.scene_paused == 0 || *s.pause_phase == 4 || *s.pause_phase == 5 || wide_page)
             {
                 // The captured page redrawn over the 4:3 view and captured again.
                 entity_detail::g_display_view->aspect_mode = 3; // DAT_005077A8 +0x3C

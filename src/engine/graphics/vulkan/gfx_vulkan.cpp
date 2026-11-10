@@ -2691,6 +2691,52 @@ void gfx_end_native_scene_target(RgbaImage& output)
     g.viewport = g.scene_target_saved_viewport;
 }
 
+void gfx_scene_target_size(int& width, int& height)
+{
+    width = 0;
+    height = 0;
+    if (!g.ok || g.cfg.width <= 0 || g.cfg.height <= 0)
+    {
+        return;
+    }
+    const GfxUiFrame area = gfx_scene_target_area(g.cfg.width, g.cfg.height, g.frame_color.width,
+        g.frame_color.height, g.cfg.widescreen, g.cfg.frame_aspect);
+    width = area.width;
+    height = area.height;
+}
+
+// GBTG_OPTIMIZE step 27: the scene target's picture copied on the GPU into the texture native draws bind for `image`,
+// with no submission or readback.
+bool gfx_end_native_scene_target_into(const RgbaImage& image)
+{
+#if GBTG_OPTIMIZE
+    if (!g.ok || image.width <= 0 || image.height <= 0)
+    {
+        return false;
+    }
+    if (!g.scene_target_rendering)
+    {
+        throw Error("native scene target is not bound");
+    }
+    const vk::Image& color = *g.scene_target_open;
+    ensure_recording();
+    end_rendering();
+    const GfxUiFrame area = gfx_scene_target_area(g.cfg.width, g.cfg.height, color.width, color.height,
+        g.cfg.widescreen, g.cfg.frame_aspect);
+    // The image was sized by gfx_scene_target_size; a resize since then copies the part both hold.
+    copy_into_image_texture(image, color.image, area.left, area.top, std::min(area.width, image.width),
+        std::min(area.height, image.height));
+    vk::memory_barrier(g.command);
+    g.scene_target_rendering = false;
+    g.scene_target_open = nullptr;
+    g.viewport = g.scene_target_saved_viewport;
+    return true;
+#else
+    (void)image;
+    return false;
+#endif
+}
+
 // D3DDevice_Clear over the 640x480 back buffer: flags 1 depth, 2 stencil, 0xF0 colour.
 void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth)
 {

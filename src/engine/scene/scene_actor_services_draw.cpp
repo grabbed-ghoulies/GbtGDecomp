@@ -1059,6 +1059,34 @@ void SceneActorServices::State::close_render_target()
             --image.serial;
         }
     }
+    // GBTG_OPTIMIZE step 27: a book page drawn as a scene target (against the back buffer's depth-stencil, at the
+    // window's resolution) ends on the GPU the same way. The image takes the window-resolution picture, counted in the
+    // texture's texels, as show_full_resolution gives it, and the page keeps its texels.
+    if (render_target_texture != 0 && render_target_scene)
+    {
+        const u8* record = resources.memory.pointer(render_target_texture);
+        int width = 0;
+        int height = 0;
+        gfx_scene_target_size(width, height);
+        if (book_page_record(record) && width > 0 && height > 0)
+        {
+            const auto& header = resources.d3d.resources.at(render_target_texture).header;
+            RgbaImage& image = const_cast<RgbaImage&>(texture_image(record));
+            image.width = width;
+            image.height = height;
+            image.bgra.resize(size_t(width) * size_t(height) * 4);
+            image.texel_width = i32(header[0]);
+            image.texel_height = i32(header[1]);
+            ++image.serial;
+            if (gfx_end_native_scene_target_into(image))
+            {
+                render_target_scene = false;
+                render_target_texture = 0;
+                return;
+            }
+            --image.serial;
+        }
+    }
 #endif
     if (render_target_texture != 0)
     {

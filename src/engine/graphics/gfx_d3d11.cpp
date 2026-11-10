@@ -3009,6 +3009,63 @@ void gfx_end_native_scene_target(RgbaImage& output)
     scene_target.open = nullptr;
 }
 
+void gfx_scene_target_size(int& width, int& height)
+{
+    width = 0;
+    height = 0;
+    if (!g.ok || g.cfg.width <= 0 || g.cfg.height <= 0)
+    {
+        return;
+    }
+    const GfxUiFrame area = gfx_scene_target_area(g.cfg.width, g.cfg.height, g.cfg.width, g.cfg.height,
+        g.cfg.widescreen, g.cfg.frame_aspect);
+    width = area.width;
+    height = area.height;
+}
+
+// GBTG_OPTIMIZE step 27: the scene target's picture copied on the GPU into the texture native draws bind for `image`,
+// with no readback, and the back buffer bound again as gfx_end_native_scene_target leaves it.
+bool gfx_end_native_scene_target_into(const RgbaImage& image)
+{
+#if GBTG_OPTIMIZE
+    if (!g.ok || image.width <= 0 || image.height <= 0)
+    {
+        return false;
+    }
+    if (!scene_target.rendering || scene_target.open == nullptr)
+    {
+        throw Error("native scene target is not bound");
+    }
+    NativeSceneSurface& surface = *scene_target.open;
+    if (surface.desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM)
+    {
+        return false; // The readback reorders other formats' channels.
+    }
+    ID3D11Texture2D* source = surface.color.Get();
+    if (surface.resolved)
+    {
+        g.context->ResolveSubresource(surface.resolved.Get(), 0, surface.color.Get(), 0, surface.desc.Format);
+        source = surface.resolved.Get();
+    }
+    const GfxUiFrame area = gfx_scene_target_area(g.cfg.width, g.cfg.height, int(surface.desc.Width),
+        int(surface.desc.Height), g.cfg.widescreen, g.cfg.frame_aspect);
+    const ComPtr<ID3D11Texture2D> texture = native_image_texture(image);
+    // The image was sized by gfx_scene_target_size; a resize since then copies the part both hold.
+    const D3D11_BOX box{u32(area.left), u32(area.top), 0, u32(area.left + std::min(area.width, image.width)),
+        u32(area.top + std::min(area.height, image.height)), 1};
+    g.context->CopySubresourceRegion(texture.Get(), 0, 0, 0, 0, source, 0, &box);
+    g.sprites[&image].serial = image.serial;
+    g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
+    g.context->RSSetViewports(1, &scene_target.saved_viewport);
+    scene_target.rendering = false;
+    scene_target.open = nullptr;
+    return true;
+#else
+    (void)image;
+    return false;
+#endif
+}
+
 void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth)
 {
     if (!g.ok)

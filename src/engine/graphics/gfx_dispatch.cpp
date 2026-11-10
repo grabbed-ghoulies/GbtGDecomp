@@ -266,4 +266,14 @@ bool gfx_copy_ui_into(const RgbaImage& image)
     return backend().gfx_copy_ui_into(image);
 }
 
+void gfx_scene_target_size(int& width, int& height)
+{
+    backend().gfx_scene_target_size(width, height);
+}
+
+bool gfx_end_native_scene_target_into(const RgbaImage& image)
+{
+    return backend().gfx_end_native_scene_target_into(image);
+}
+
 } // namespace gbtg

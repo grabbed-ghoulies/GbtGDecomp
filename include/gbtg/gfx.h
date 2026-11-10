@@ -207,5 +207,11 @@ bool gfx_readback_ui(RgbaImage& out);
 // has no such path: gfx_readback_ui reads the picture instead.
 void gfx_ui_frame_size(int& width, int& height);
 bool gfx_copy_ui_into(const RgbaImage& image);
+// GBTG_OPTIMIZE step 27: gfx_end_native_scene_target's picture kept on the GPU. gfx_scene_target_size is its size (0 x
+// 0 without a device). gfx_end_native_scene_target_into ends the scene target by copying the picture into the texture
+// native draws sample for `image`, which then stands at image.serial; nothing is read back. False, with the target
+// still bound, when the backend has no such path: gfx_end_native_scene_target ends it instead.
+void gfx_scene_target_size(int& width, int& height);
+bool gfx_end_native_scene_target_into(const RgbaImage& image);
 
 } // namespace gbtg

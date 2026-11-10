@@ -77,6 +77,7 @@ enum class Kind : u8
     UpdateImage,
     EndTargetInto,
     CopyUiInto,
+    EndSceneTargetInto,
     ReleaseImage,
     EndFrame,
     PresentAgain
@@ -295,6 +296,17 @@ void execute(Command& command)
         if (!inner->gfx_copy_ui_into(image))
         {
             throw Error("gfx render thread: the backend declined a back-buffer copy queued for it");
+        }
+        break;
+    }
+    case Kind::EndSceneTargetInto:
+    {
+        // Step 27: as EndTargetInto, for the target that shares the back buffer's depth-stencil.
+        RgbaImage& image = *command.images[0];
+        image.serial = command.flags;
+        if (!inner->gfx_end_native_scene_target_into(image))
+        {
+            throw Error("gfx render thread: the backend declined a scene target end queued for it");
         }
         break;
     }
@@ -1031,14 +1043,10 @@ void gfx_ui_frame_size(int& width, int& height)
     inner->gfx_ui_frame_size(width, height);
 }
 
-// Step 25: queued like gfx_end_native_target_into. The quads queued before it are drawn first, in queue order, and the
-// proxy takes the image's serial without its pixels, so later draws sample the copy.
-bool gfx_copy_ui_into(const RgbaImage& image)
+// Steps 25 and 27: a GPU copy into `image`, queued like gfx_end_native_target_into. The commands queued before it run
+// first, and the proxy takes the image's serial without its pixels, so later draws sample the copy.
+bool queue_copy_into(const RgbaImage& image, Kind kind)
 {
-    if (!running)
-    {
-        return inner->gfx_copy_ui_into(image);
-    }
     if (!ends_into || image.width <= 0 || image.height <= 0)
     {
         return false;
@@ -1059,10 +1067,34 @@ bool gfx_copy_ui_into(const RgbaImage& image)
     proxy.serial = image.serial;
     proxy.width = image.width;
     proxy.height = image.height;
-    Command& command = push(Kind::CopyUiInto);
+    Command& command = push(kind);
     command.images[0] = proxy.image;
     command.flags = image.serial;
     return true;
+}
+
+bool gfx_copy_ui_into(const RgbaImage& image)
+{
+    if (!running)
+    {
+        return inner->gfx_copy_ui_into(image);
+    }
+    return queue_copy_into(image, Kind::CopyUiInto);
+}
+
+// Read from the backend's configuration, which only the game thread changes.
+void gfx_scene_target_size(int& width, int& height)
+{
+    inner->gfx_scene_target_size(width, height);
+}
+
+bool gfx_end_native_scene_target_into(const RgbaImage& image)
+{
+    if (!running)
+    {
+        return inner->gfx_end_native_scene_target_into(image);
+    }
+    return queue_copy_into(image, Kind::EndSceneTargetInto);
 }
 
 const GfxBackend* backend_table(const GfxBackend& backend)

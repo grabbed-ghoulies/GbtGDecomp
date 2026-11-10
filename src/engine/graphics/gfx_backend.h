@@ -44,7 +44,9 @@ namespace gbtg
     X(gfx_readback)                          \
     X(gfx_readback_ui)                       \
     X(gfx_ui_frame_size)                     \
-    X(gfx_copy_ui_into)
+    X(gfx_copy_ui_into)                      \
+    X(gfx_scene_target_size)                 \
+    X(gfx_end_native_scene_target_into)
 
 // gfx_readback_ui's picture in a frame_width x frame_height back buffer: the 640x480 back buffer's picture, 16:9 in
 // widescreen (the Xbox's anamorphic buffer holds the whole 16:9 view, which the book's widescreen redraw 0x0005CE80
@@ -72,6 +74,42 @@ inline GfxUiFrame gfx_ui_frame(int frame_width, int frame_height, bool widescree
     frame.left = (frame_width - frame.width) / 2;
     frame.top = (frame_height - frame.height) / 2;
     return frame;
+}
+
+// gfx_end_native_scene_target's picture: the fitted area present_hud_viewport draws the 640x480 frame into, for a
+// window_width x window_height window, in a surface_width x surface_height target, rounded and clamped as that
+// readback does.
+inline GfxUiFrame gfx_scene_target_area(int window_width, int window_height, int surface_width, int surface_height,
+    bool widescreen, float frame_aspect)
+{
+    float frame = widescreen ? 16.f / 9.f : 640.f / 480.f;
+    if (frame_aspect > 0.f)
+    {
+        frame = frame_aspect;
+    }
+    const float window = float(window_width) / float(window_height);
+    float x = 0.f;
+    float y = 0.f;
+    float width = 0.f;
+    float height = 0.f;
+    if (window > frame)
+    {
+        height = float(window_height);
+        width = height * frame;
+        x = (float(window_width) - width) * 0.5f;
+    }
+    else
+    {
+        width = float(window_width);
+        height = width / frame;
+        y = (float(window_height) - height) * 0.5f;
+    }
+    GfxUiFrame area;
+    area.left = std::clamp(int(x + 0.5f), 0, surface_width - 1);
+    area.top = std::clamp(int(y + 0.5f), 0, surface_height - 1);
+    area.width = std::clamp(int(width + 0.5f), 1, surface_width - area.left);
+    area.height = std::clamp(int(height + 0.5f), 1, surface_height - area.top);
+    return area;
 }
 
 struct GfxBackend

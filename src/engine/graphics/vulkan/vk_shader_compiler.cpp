@@ -6,6 +6,8 @@
 
 #include "vk_shader_compiler.h"
 
+#include "../../runtime/thirdparty_libraries.h"
+#include "../shader_cache.h"
 #include "gbtg/log.h"
 
 #include <dxc/dxcapi.h>
@@ -77,14 +79,11 @@ struct Dxc
 };
 
 #if defined(_WIN32)
-// The SPIR-V capable dxcompiler.dll: beside the executable, else the Vulkan SDK's. The Windows SDK ships a
-// dxcompiler.dll without SPIR-V code generation, so the loader's search path is not used.
+// The SPIR-V capable dxcompiler.dll: in thirdparty\ beside the executable, else the Vulkan SDK's. The Windows SDK
+// ships a dxcompiler.dll without SPIR-V code generation, so the loader's search path is not used.
 HMODULE load_dxcompiler()
 {
-    std::wstring path(32768, L'\0');
-    const DWORD length = GetModuleFileNameW(nullptr, path.data(), DWORD(path.size()));
-    path.resize(length);
-    path = path.substr(0, path.find_last_of(L"\\/") + 1) + L"dxcompiler.dll";
+    std::wstring path = (thirdparty_library_dir() / L"dxcompiler.dll").wstring();
     if (HMODULE module = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH))
     {
         return module;
@@ -97,7 +96,8 @@ HMODULE load_dxcompiler()
             return module;
         }
     }
-    throw Error("vulkan: dxcompiler.dll (Vulkan SDK) was not found beside the executable or in %VULKAN_SDK%\\Bin");
+    throw Error("vulkan: dxcompiler.dll (Vulkan SDK) was not found in thirdparty\\ beside the executable or in "
+                "%VULKAN_SDK%\\Bin");
 }
 
 DxcCreateInstanceProc dxc_create_instance()
@@ -105,17 +105,12 @@ DxcCreateInstanceProc dxc_create_instance()
     return reinterpret_cast<DxcCreateInstanceProc>(GetProcAddress(load_dxcompiler(), "DxcCreateInstance"));
 }
 #else
-// DXC's Linux libdxcompiler.so: beside the executable (packaged builds), else the Vulkan SDK's.
+// DXC's Linux libdxcompiler.so: in thirdparty/ beside the executable, else the Vulkan SDK's.
 void* load_dxcompiler()
 {
-    std::error_code error;
-    const std::filesystem::path executable = std::filesystem::read_symlink("/proc/self/exe", error);
-    if (!error)
+    if (void* module = dlopen((thirdparty_library_dir() / "libdxcompiler.so").c_str(), RTLD_NOW | RTLD_LOCAL))
     {
-        if (void* module = dlopen((executable.parent_path() / "libdxcompiler.so").c_str(), RTLD_NOW | RTLD_LOCAL))
-        {
-            return module;
-        }
+        return module;
     }
     if (const char* sdk = std::getenv("VULKAN_SDK"))
     {
@@ -124,7 +119,7 @@ void* load_dxcompiler()
             return module;
         }
     }
-    throw Error("vulkan: libdxcompiler.so was not found beside the executable or in $VULKAN_SDK/lib");
+    throw Error("vulkan: libdxcompiler.so was not found in thirdparty/ beside the executable or in $VULKAN_SDK/lib");
 }
 
 DxcCreateInstanceProc dxc_create_instance()
@@ -165,8 +160,8 @@ std::wstring widen(const char* text)
 // Bump when the DXC arguments change: cached SPIR-V is keyed by its inputs, not by them.
 constexpr u64 kSpirvCacheVersion = 1;
 
-// cache/spirv/<FNV-1a of the inputs>.spv, beside cache/shaders.gbtg. Compiling every permutation through DXC
-// takes several times as long as D3DCompile, so warm-up reads these instead.
+// spirv/<FNV-1a of the inputs>.spv in the shader cache (shader_cache.h), beside cache/shaders.gbtg. Compiling every
+// permutation through DXC takes several times as long as D3DCompile, so warm-up reads these instead.
 std::filesystem::path spirv_cache_path(std::string_view source, const char* entry, const char* profile, bool strict)
 {
     u64 hash = 0xcbf29ce484222325ull;
@@ -185,7 +180,7 @@ std::filesystem::path spirv_cache_path(std::string_view source, const char* entr
     mix(std::to_string(kSpirvCacheVersion));
     char name[32];
     std::snprintf(name, sizeof(name), "%016llx.spv", static_cast<unsigned long long>(hash));
-    return std::filesystem::path("cache") / "spirv" / name;
+    return std::filesystem::path("spirv") / name;
 }
 
 std::vector<u32> read_spirv(const std::filesystem::path& path)
@@ -245,9 +240,12 @@ std::string vulkan_hlsl(std::string source)
 std::vector<u32> compile_hlsl_spirv(std::string_view source, const char* entry, const char* profile, bool strict)
 {
     const std::filesystem::path cached = spirv_cache_path(source, entry, profile, strict);
-    if (std::vector<u32> words = read_spirv(cached); !words.empty())
+    for (const std::filesystem::path& path : shader_cache_reads(cached))
     {
-        return words;
+        if (std::vector<u32> words = read_spirv(path); !words.empty())
+        {
+            return words;
+        }
     }
     Dxc& compiler = dxc();
     const std::wstring entry_name = widen(entry);
@@ -293,7 +291,7 @@ std::vector<u32> compile_hlsl_spirv(std::string_view source, const char* entry, 
     }
     std::vector<u32> words(object->GetBufferSize() / 4);
     std::memcpy(words.data(), object->GetBufferPointer(), object->GetBufferSize());
-    write_spirv(cached, words);
+    write_spirv(shader_cache_write(cached), words);
     return words;
 }
 

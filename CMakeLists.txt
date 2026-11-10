@@ -30,6 +30,7 @@ if(MSVC AND CMAKE_GENERATOR MATCHES "Visual Studio")
 endif()
 
 include(FetchContent)
+include(cmake/GbtgThirdParty.cmake)
 
 # Build directories share one copy of each fetched source tree when it has been
 # seeded under cache/_deps; each directory still builds it out of its own _deps.
@@ -798,6 +799,7 @@ set(GBTG_GFX "${_gbtg_gfx_default}" CACHE STRING
 # gfx_dispatch.cpp owns the gfx.h names and forwards to the backend gfx_init picks (--gfx / gbtg.ini Backend).
 target_sources(gbtg PRIVATE src/engine/graphics/gfx_dispatch.cpp src/engine/graphics/gfx_null.cpp
     src/engine/graphics/gfx_present_logic.cpp
+    src/engine/graphics/shader_cache.cpp
     src/engine/graphics/gfx_shader_sources.cpp src/engine/graphics/gfx_render_thread.cpp)
 # GBTG_OPTIMIZE step 11 runs the backend on a std::thread (gfx_render_thread.cpp).
 find_package(Threads REQUIRED)
@@ -857,8 +859,7 @@ if(NOT _gbtg_gfx_vulkan EQUAL -1)
         set(GBTG_DXCOMPILER_DLL "${dxc_linux_SOURCE_DIR}/lib/libdxcompiler.so")
     endif()
     if(EXISTS "${GBTG_DXCOMPILER_DLL}")
-        add_custom_command(TARGET gbtg POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GBTG_DXCOMPILER_DLL}" "$<TARGET_FILE_DIR:gbtg>")
+        list(APPEND GBTG_THIRDPARTY_FILES "${GBTG_DXCOMPILER_DLL}")
     else()
         message(WARNING "Vulkan SDK DXC not found at ${GBTG_DXCOMPILER_DLL}; set VULKAN_SDK at run time")
     endif()
@@ -934,11 +935,6 @@ if(GBTG_WITH_SDL)
     endif()
 elseif(NOT WIN32)
     message(FATAL_ERROR "GBTG_WITH_SDL must be ON off Windows: SDL3 owns the window and input there")
-endif()
-if(UNIX)
-    # Shared libraries (DXC, FFmpeg, FAudio) ship beside the executable, as the DLLs do on Windows.
-    # Only $ORIGIN: the build copies every shared library beside gbtg, and packages carry no build paths.
-    set_target_properties(gbtg PROPERTIES INSTALL_RPATH "$ORIGIN" BUILD_WITH_INSTALL_RPATH ON)
 endif()
 
 # Off by default: builds carry plugin support. The vs-retail and ninja-retail presets build the game as shipped.
@@ -1028,8 +1024,8 @@ if(GBTG_OPTIMIZE)
     target_compile_definitions(gbtg_lib PRIVATE GBTG_OPTIMIZE=1)
 endif()
 
-# LGPL FFmpeg supplies the Bink decoder. The RAD SDK is not linked. DLLs are copied
-# next to gbtg.exe so running the exe does not need a separate install.
+# LGPL FFmpeg supplies the Bink decoder. The RAD SDK is not linked. Its DLLs are copied
+# into thirdparty/ beside gbtg.exe so running the exe does not need a separate install.
 if(WIN32)
     set(GBTG_FFMPEG_URL "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip")
     if(EXISTS "${CMAKE_SOURCE_DIR}/cache/ffmpeg-lgpl.zip")
@@ -1056,18 +1052,33 @@ if(WIN32)
     cmake_path(GET GBTG_FFMPEG_LIBDIR PARENT_PATH GBTG_FFMPEG_ROOT)
     target_include_directories(gbtg PRIVATE "${GBTG_FFMPEG_ROOT}/include")
     target_compile_definitions(gbtg PRIVATE GBTG_HAS_FFMPEG)
-    target_link_libraries(gbtg PRIVATE
-        "${GBTG_FFMPEG_LIBDIR}/avformat.lib"
-        "${GBTG_FFMPEG_LIBDIR}/avcodec.lib"
-        "${GBTG_FFMPEG_LIBDIR}/swscale.lib"
-        "${GBTG_FFMPEG_LIBDIR}/swresample.lib"
-        "${GBTG_FFMPEG_LIBDIR}/avutil.lib"
-    )
-    file(GLOB GBTG_FFMPEG_DLLS "${GBTG_FFMPEG_ROOT}/bin/*.dll")
-    foreach(dll ${GBTG_FFMPEG_DLLS})
-        add_custom_command(TARGET gbtg POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dll}" "$<TARGET_FILE_DIR:gbtg>"
-        )
+    # The release's .lib files are MinGW import libraries, which link.exe cannot delay-load. Build MSVC import
+    # libraries from its .def files instead. Only these five ship; the release's avdevice and avfilter are unused.
+    set(GBTG_FFMPEG_IMPORT_DIR "${CMAKE_CURRENT_BINARY_DIR}/ffmpeg_import")
+    file(MAKE_DIRECTORY "${GBTG_FFMPEG_IMPORT_DIR}")
+    foreach(lib avformat avcodec swscale swresample avutil)
+        file(GLOB def "${GBTG_FFMPEG_LIBDIR}/${lib}-*.def")
+        list(LENGTH def def_count)
+        if(NOT def_count EQUAL 1)
+            message(FATAL_ERROR "Expected one FFmpeg ${lib}-*.def in ${GBTG_FFMPEG_LIBDIR}, found '${def}'")
+        endif()
+        cmake_path(GET def STEM dll_stem)
+        set(dll "${GBTG_FFMPEG_ROOT}/bin/${dll_stem}.dll")
+        if(NOT EXISTS "${dll}")
+            message(FATAL_ERROR "FFmpeg ${dll} was not found")
+        endif()
+        set(import_lib "${GBTG_FFMPEG_IMPORT_DIR}/${lib}.lib")
+        if(NOT EXISTS "${import_lib}" OR "${def}" IS_NEWER_THAN "${import_lib}")
+            execute_process(
+                COMMAND "${CMAKE_AR}" /nologo /machine:x64 "/def:${def}" "/name:${dll_stem}.dll" "/out:${import_lib}"
+                RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE output)
+            if(NOT result EQUAL 0)
+                message(FATAL_ERROR "Building the ${lib} import library failed:\n${output}")
+            endif()
+        endif()
+        target_link_libraries(gbtg PRIVATE "${import_lib}")
+        list(APPEND GBTG_THIRDPARTY_FILES "${dll}")
+        list(APPEND GBTG_THIRDPARTY_DELAYLOAD "${dll_stem}.dll")
     endforeach()
 elseif(UNIX)
     # The same LGPL FFmpeg release, built from source with only what Bink playback needs: the Bink demuxer, its
@@ -1095,13 +1106,11 @@ elseif(UNIX)
     target_include_directories(gbtg PRIVATE "${GBTG_FFMPEG_PREFIX}/include")
     target_compile_definitions(gbtg PRIVATE GBTG_HAS_FFMPEG)
     target_link_libraries(gbtg PRIVATE ${GBTG_FFMPEG_SHARED_LIBS})
-    # The FFmpeg libraries load each other from beside gbtg too. DT_RPATH, unlike DT_RUNPATH, also applies to
-    # their dependencies.
-    target_link_options(gbtg PRIVATE "LINKER:--disable-new-dtags")
-    add_custom_command(TARGET gbtg POST_BUILD
-        COMMAND sh -c "cp -P '${GBTG_FFMPEG_PREFIX}'/lib/lib*.so* '$<TARGET_FILE_DIR:gbtg>'/"
-    )
+    list(APPEND GBTG_THIRDPARTY_SHARED_LIBRARY_DIRS "${GBTG_FFMPEG_PREFIX}/lib")
 endif()
+# FFmpeg and DXC go into thirdparty/ beside gbtg (cmake/GbtgThirdParty.cmake). Before the test targets copy gbtg's
+# sources, so they inherit the delay-load hook.
+gbtg_use_thirdparty(gbtg)
 
 if(MSVC)
     # The scene services translation unit passes the default COFF section limit in Debug.
@@ -1148,11 +1157,8 @@ if(BUILD_TESTING)
         target_include_directories(gbtg-transition-tests PRIVATE ${GBTG_TRANSITION_INCLUDES})
         target_include_directories(gbtg-movie-startup-tests PRIVATE ${GBTG_TRANSITION_INCLUDES})
     endif()
-    foreach(dll ${GBTG_FFMPEG_DLLS})
-        add_custom_command(TARGET gbtg-transition-tests POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dll}" "$<TARGET_FILE_DIR:gbtg-transition-tests>"
-        )
-    endforeach()
+    gbtg_use_thirdparty(gbtg-transition-tests)
+    gbtg_use_thirdparty(gbtg-movie-startup-tests)
     if(MSVC)
         target_compile_options(gbtg-transition-tests PRIVATE /W3 /EHsc /utf-8)
         target_compile_options(gbtg-movie-startup-tests PRIVATE /W3 /EHsc /utf-8)
@@ -1234,7 +1240,7 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
     set(GBTG_GAME_SHELL_SOURCES ${GBTG_ALL_GAME_SOURCES})
     foreach(source IN LISTS GBTG_ALL_GAME_SOURCES)
         if(source MATCHES "^src/engine/.*\\.cpp$" AND
-            NOT source MATCHES "(main|platform|gfx_d3d11|gfx_null|gfx_dispatch|gfx_vulkan)\\.cpp$" AND
+            NOT source MATCHES "(main|platform|gfx_d3d11|gfx_null|gfx_dispatch|gfx_vulkan|thirdparty_libraries)\\.cpp$" AND
             NOT source MATCHES "^src/engine/graphics/vulkan/")
             list(APPEND GBTG_SHARED_RUNTIME_SOURCES "${source}")
             list(REMOVE_ITEM GBTG_GAME_SHELL_SOURCES "${source}")
@@ -1321,10 +1327,7 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
         target_include_directories(gbtg-inspector PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
         target_compile_definitions(gbtg-inspector PRIVATE GBTG_GFX_D3D11
             GBTG_INSPECTOR_APP IMGUI_IMPL_WIN32_DISABLE_GAMEPAD _CRT_SECURE_NO_WARNINGS)
-        foreach(dll ${GBTG_FFMPEG_DLLS})
-            add_custom_command(TARGET gbtg-inspector POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dll}" "$<TARGET_FILE_DIR:gbtg-inspector>")
-        endforeach()
+        gbtg_use_thirdparty(gbtg-inspector)
         if(MSVC)
             target_compile_options(gbtg-inspector PRIVATE /W3 /EHsc /utf-8)
         endif()
@@ -1337,6 +1340,7 @@ if(WIN32 AND NOT _gbtg_gfx_d3d11 EQUAL -1)
             add_executable(gbtg-inspector-tests tests/inspector_tests.cpp
                 ${GBTG_INSPECTOR_SOURCES} ${GBTG_INSPECTOR_IMGUI_SOURCES})
             target_link_libraries(gbtg-inspector-tests PRIVATE gbtg-inspector-runtime imm32 dbghelp)
+            gbtg_use_thirdparty(gbtg-inspector-tests)
             target_include_directories(gbtg-inspector-tests PRIVATE "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
             target_compile_definitions(gbtg-inspector-tests PRIVATE GBTG_GFX_D3D11
                 GBTG_INSPECTOR_APP IMGUI_IMPL_WIN32_DISABLE_GAMEPAD _CRT_SECURE_NO_WARNINGS)

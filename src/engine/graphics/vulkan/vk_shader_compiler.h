@@ -18,7 +18,7 @@ constexpr u32 kSamplerBinding = 20; // s0..s3
 // stage_tex[4] array with g_tex / g_light the way D3D11 registers do.
 std::string vulkan_hlsl(std::string source);
 
-// SPIR-V for `entry` from DXC (dxcompiler.dll beside the executable). `profile` is "vs_6_0" or "ps_6_0";
+// SPIR-V for `entry` from DXC (dxcompiler.dll in thirdparty/ beside the executable). `profile` is "vs_6_0" or "ps_6_0";
 // `strict` is IEEE strictness, D3D11's D3DCOMPILE_IEEE_STRICTNESS. An empty result is a logged compile failure.
 std::vector<u32> compile_hlsl_spirv(std::string_view source, const char* entry, const char* profile, bool strict = false);
 

@@ -197,11 +197,18 @@ first draw, as the Xbox did.
 
 - At `graphics_ready`, in a run with a window, it shows its "Compiling Shaders" screen with its own loctext
   (`aid_loctext_plugin_shaderwarmup`, key `shaderwarmup__CompilingShaders`) in the game's language, then compiles
-  the vertex programs and pixel definitions in `cache/shaders.gbtg` with the progress bar, and logs
+  the vertex programs and pixel definitions in `cache/shaders.gbtg` (merged with a shipped `cache/shaders.gbtg`
+  beside the executable, if there is one) with the progress bar, and logs
   `shader warm-up: N vertex, M pixel permutations in T ms`.
 - At `graphics_shutdown` it adds this run's compiled permutations to `cache/shaders.gbtg`.
 - `[ShaderWarmup] Manifest` in its `plugin.ini` moves the file. The file format (`shader_manifest.cpp`) belongs to the
-  plugin; bump its translator version when shader generation or pixel-key normalization changes.
+  plugin; bump its translator version when shader generation or pixel-key normalization changes. A shipped manifest
+  of another translator version is skipped with a warning.
+- **Shipping the cache.** `tools\build\stage_shader_cache.ps1 -Exe <gbtg.exe> -Out <exe dir>\cache` compiles the
+  manifest with that build from an empty cache and stages `shaders.gbtg` with exactly its `spirv\` and `dxbc\`
+  entries. The bytecode is GPU-independent. gbtg reads `<exe dir>\cache` before the working directory's `cache/`
+  (`src/engine/graphics/shader_cache.h`) and writes new entries only to the latter, so a read-only install works.
+  On Linux pass the staged folder to `tools/linux/package.sh` as its third argument.
 - `--render-reference` and `--cpu-vertex` runs skip the warm-up, as before.
 - A damaged manifest is logged and skipped; at exit it is replaced.
 

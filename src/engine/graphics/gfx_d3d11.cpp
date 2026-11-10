@@ -11,6 +11,7 @@
 #include "win32_window.h"
 #include "gfx_present_logic.h"
 #include "gfx_shader_sources.h"
+#include "shader_cache.h"
 #include "gbtg/gfx.h"
 #include "gbtg/log.h"
 #include "gbtg/movie.h"
@@ -404,8 +405,8 @@ LRESULT CALLBACK gfx_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 }
 
 #if GBTG_OPTIMIZE
-// GBTG_OPTIMIZE step 15: compiled bytecode is kept in cache/dxbc/<FNV-1a of the inputs>.dxbc, beside the Vulkan
-// backend's cache/spirv, so a shader is compiled by D3DCompile once per machine instead of once per run. Bump the
+// GBTG_OPTIMIZE step 15: compiled bytecode is kept in dxbc/<FNV-1a of the inputs>.dxbc in the shader cache
+// (shader_cache.h), beside the Vulkan backend's spirv/, so a shader is compiled by D3DCompile once per machine instead of once per run. Bump the
 // version when the D3DCompile flags change: an entry is keyed by its inputs, not by them.
 constexpr u64 kDxbcCacheVersion = 1;
 
@@ -427,7 +428,7 @@ std::filesystem::path dxbc_cache_path(const char* src, const char* entry, const 
     mix(std::to_string(kDxbcCacheVersion));
     char name[32];
     std::snprintf(name, sizeof(name), "%016llx.dxbc", static_cast<unsigned long long>(hash));
-    return std::filesystem::path("cache") / "dxbc" / name;
+    return std::filesystem::path("dxbc") / name;
 }
 
 bool read_dxbc(const std::filesystem::path& path, ComPtr<ID3DBlob>& blob)
@@ -474,9 +475,12 @@ bool compile_shader(const char* src, const char* entry, const char* profile, Com
 {
 #if GBTG_OPTIMIZE
     const std::filesystem::path cached = dxbc_cache_path(src, entry, profile, strict);
-    if (read_dxbc(cached, blob))
+    for (const std::filesystem::path& path : shader_cache_reads(cached))
     {
-        return true;
+        if (read_dxbc(path, blob))
+        {
+            return true;
+        }
     }
 #endif
     ComPtr<ID3DBlob> err;
@@ -491,7 +495,7 @@ bool compile_shader(const char* src, const char* entry, const char* profile, Com
         return false;
     }
 #if GBTG_OPTIMIZE
-    write_dxbc(cached, blob.Get());
+    write_dxbc(shader_cache_write(cached), blob.Get());
 #endif
     return true;
 }

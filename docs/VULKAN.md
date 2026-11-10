@@ -10,10 +10,10 @@ retail translation differs between them.
 - Configure with `-DGBTG_GFX="d3d11;vulkan"` (null is always built). D3D11 is the default whenever it is
   compiled in, whatever the list order; `--gfx` or `Backend=` picks another.
 - Run with `--gfx vulkan` (or `Backend=vulkan` under `[Video]` in `gbtg.ini`).
-- `dxcompiler.dll` from the SDK is copied beside `gbtg.exe`. At run time it is loaded from there, else from
+- `dxcompiler.dll` from the SDK is copied into `thirdparty/` beside `gbtg.exe`. At run time it is loaded from there, else from
   `%VULKAN_SDK%\Bin`. The Windows SDK's `dxcompiler.dll` has no SPIR-V code generation and is never used.
 - Linux needs no SDK: the system supplies the Vulkan loader and headers, and CMake fetches VMA and DXC's Linux
-  release, whose `libdxcompiler.so` is copied beside `gbtg`. The window and surface come from SDL3 (`SDL_Vulkan_*`);
+  release, whose `libdxcompiler.so` is copied into `thirdparty/` beside `gbtg`. The window and surface come from SDL3 (`SDL_Vulkan_*`);
   on Wayland the swapchain takes its size from the window. See `docs/LINUX.md`.
 - The transition tests take `GBTG_GFX=vulkan` (and `GBTG_WIDESCREEN=1` for the 16:9 setting).
 - `GBTG_VULKAN_VALIDATION=1` enables `VK_LAYER_KHRONOS_validation`; errors go to `gbtg.log` and the count is
@@ -49,7 +49,8 @@ retail translation differs between them.
   staging data share a ring that is reset after each wait. This is simple and correct, with no frames in flight.
 - **State.** Blend, depth-stencil, cull and topology are baked into a pipeline cached by its state;
   viewport, scissor and stencil reference are dynamic. Clears use `vkCmdClearAttachments`.
-- **SPIR-V cache.** Every compiled module is written to `cache/spirv/<hash>.spv`. A warm warm-up (the
+- **SPIR-V cache.** Every compiled module is written to `cache/spirv/<hash>.spv`. A shipped `cache/spirv` beside the
+  executable is read first (see "Shipping the cache" in `docs/PLUGINS.md`). A warm warm-up (the
   `shader_warmup` plugin, `docs/PLUGINS.md`) takes
   about 0.65 s for 159 permutations, against 17 s cold (D3D11: about 6.7 s).
 

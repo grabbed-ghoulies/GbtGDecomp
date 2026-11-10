@@ -44,7 +44,8 @@ the 33 ms frame. Their output matches the retail path pixel for pixel.
 
 CMake fetches SDL3, FAudio, VulkanMemoryAllocator, DXC's Linux release and the FFmpeg source. FFmpeg is configured
 with only the Bink demuxer, the Bink video and audio decoders, file input, swscale and swresample, as shared LGPL
-libraries. Every shared library is copied beside `gbtg`, whose only library search path is `$ORIGIN`.
+libraries. Every shared library is copied into `thirdparty/` beside `gbtg`, whose only library search path is
+`$ORIGIN/thirdparty`.
 
 ## The package
 

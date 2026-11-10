@@ -1,13 +1,17 @@
 #!/bin/bash
-# Stages a Linux (Steam Deck) release build into a tarball: gbtg, the shared libraries beside it, a launcher,
+# Stages a Linux (Steam Deck) release build into a tarball: gbtg, the shared libraries in thirdparty/ beside it, a launcher,
 # third-party licences and a README. Runs inside the Steam Runtime sniper SDK container (see docs/LINUX.md).
 # The disc dump is never packaged.
 #
-#   tools/linux/package.sh <build-dir> <output.tar.gz>
+#   tools/linux/package.sh <build-dir> <output.tar.gz> [shader-cache-dir]
+#
+# shader-cache-dir is a folder staged by tools/build/stage_shader_cache.ps1; its shaders.gbtg and spirv/ ship in
+# cache/ beside gbtg, which reads them before its own cache (dxbc/ is Windows-only and is left out).
 set -euo pipefail
 
 build="${1:?build directory}"
 output="${2:?output tarball}"
+shader_cache="${3:-}"
 here="$(cd "$(dirname "$0")" && pwd)"
 name="gbtg-linux-x86_64"
 stage="$(mktemp -d)"
@@ -17,11 +21,18 @@ mkdir -p "$root/licenses"
 
 cp "$build/gbtg" "$root/"
 strip --strip-unneeded "$root/gbtg"
+# Third-party shared libraries live in thirdparty/ beside gbtg (its DT_RPATH is $ORIGIN/thirdparty).
 # -P keeps the versioned symlinks (libavcodec.so.62 -> libavcodec.so.62.x.y).
-cp -P "$build"/lib*.so* "$root/"
+mkdir -p "$root/thirdparty"
+cp -P "$build"/thirdparty/lib*.so* "$root/thirdparty/"
 cp "$here/gbtg.sh" "$root/gbtg.sh"
 chmod +x "$root/gbtg" "$root/gbtg.sh"
 cp "$here/README.txt" "$root/README.txt"
+if [ -n "$shader_cache" ]; then
+    mkdir -p "$root/cache"
+    cp "$shader_cache/shaders.gbtg" "$root/cache/"
+    cp -r "$shader_cache/spirv" "$root/cache/"
+fi
 
 copy_license()
 {

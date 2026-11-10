@@ -265,15 +265,15 @@ bool write_default(const std::filesystem::path& path)
     out << "; GbtGDecomp PC settings. Edit, then restart.\n"
            "\n"
            "[Video]\n"
-           "Width=960\n"
-           "Height=540\n"
+           "Width=640\n"
+           "Height=480\n"
            "; 1 covers the monitor in a borderless window; Width and Height stay the render size.\n"
            "Fullscreen=0\n"
            "VSync=1\n"
            "; 1 plays in 16:9, as the Xbox's widescreen video setting does.\n"
            "Widescreen=0\n"
            "; d3d11 or vulkan. Empty uses the build's default.\n"
-           "Backend=\n"
+           "Backend=d3d11\n"
            "\n"
            "[Audio]\n"
            "; 0 to 100\n"
@@ -327,6 +327,15 @@ std::filesystem::path executable_path(const std::filesystem::path& argv0)
     if (n > 0 && n < buf.size())
     {
         return std::filesystem::path(buf.substr(0, n));
+    }
+#else
+    {
+        std::error_code ec;
+        const auto self = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (!ec)
+        {
+            return self;
+        }
     }
 #endif
     if (!argv0.empty())

@@ -190,7 +190,8 @@ offline. Seed them once from `build/_deps/*-src`.
 
 CMake fetches zlib and, for the D3D11 or Vulkan backend, Dear ImGui (used by the
 inspector and the debug UI plugin). Windows builds also
-fetch an LGPL FFmpeg build and copy its DLLs beside the executable. Initial
+fetch an LGPL FFmpeg build and copy its DLLs into `thirdparty/` beside the
+executable, which delay-loads them from there. Initial
 configuration requires network access unless dependencies are already cached.
 
 Useful build options:

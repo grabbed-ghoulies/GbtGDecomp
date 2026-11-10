@@ -37,10 +37,54 @@ std::string compiling_text(GbtgGame* game)
     return kCompilingFallback;
 }
 
+std::filesystem::path normalized(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    const std::filesystem::path canonical = std::filesystem::weakly_canonical(path, ec);
+    return ec ? path.lexically_normal() : canonical;
+}
+
+// The manifest shipped with the game (cache/shaders.gbtg beside the executable, staged by
+// tools/build/stage_shader_cache.ps1), or empty when it is this run's own manifest.
+std::filesystem::path shipped_manifest()
+{
+    const char* executable_dir = g_host->executable_dir(g_host->plugin);
+    if (executable_dir == nullptr || executable_dir[0] == '\0')
+    {
+        return {};
+    }
+    const std::string_view text(executable_dir);
+    const std::filesystem::path shipped =
+        normalized(std::filesystem::path(std::u8string(text.begin(), text.end())) / "cache" / "shaders.gbtg");
+    std::error_code ec;
+    return shipped == normalized(std::filesystem::absolute(g_manifest, ec)) ? std::filesystem::path{} : shipped;
+}
+
+bool manifest_exists(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    return !path.empty() && std::filesystem::exists(path, ec);
+}
+
 void warm_up(GbtgGame* game, const std::string& text)
 {
     shader_warmup::ShaderPermutationManifest manifest;
-    shader_warmup::read_shader_permutation_manifest(g_manifest, manifest);
+    // A shipped manifest from another translator version is skipped; this run's own still warms up.
+    if (const std::filesystem::path shipped = shipped_manifest(); manifest_exists(shipped))
+    {
+        try
+        {
+            shader_warmup::read_shader_permutation_manifest(shipped, manifest);
+        }
+        catch (const std::exception& error)
+        {
+            say(GBTG_LOG_WARN, std::string("shader warm-up: skipping shipped manifest: ") + error.what());
+        }
+    }
+    if (manifest_exists(g_manifest))
+    {
+        shader_warmup::read_shader_permutation_manifest(g_manifest, manifest);
+    }
     const size_t total = manifest.vertex_programs.size() + manifest.pixel_definitions.size();
     size_t completed = 0;
     size_t unsupported = 0;
@@ -101,8 +145,7 @@ void graphics_ready(void*, GbtgGame* game)
     {
         const std::string text = compiling_text(game);
         g_host->show_loading_screen(game, text.c_str(), 0.f);
-        std::error_code ec;
-        if (std::filesystem::exists(g_manifest, ec))
+        if (manifest_exists(g_manifest) || manifest_exists(shipped_manifest()))
         {
             warm_up(game, text);
         }

@@ -962,6 +962,8 @@ ActorDrawState SceneActorServices::State::actor_draw_state(FactoryObject& object
         reinterpret_cast<void*>(std::uintptr_t(read_u32(bytes, 0x1A8))), actor_draw_matrices(object, actor)};
 }
 
+static RgbaImage scale_to_texture(const RgbaImage& frame, int width, int height);
+
 // The open texture target's texels (and its depth texture's words) written back, then the back buffer again.
 void SceneActorServices::State::close_render_target()
 {
@@ -970,19 +972,41 @@ void SceneActorServices::State::close_render_target()
         // The target's depth surface aliases a LIN_A8R8G8B8 texture (boot 0x000620C0's DAT_005047E8): its texels
         // take the target's D24S8 words.
         std::vector<u32> words;
-        gfx_read_native_target_depth(words);
+        int width = 0;
+        int height = 0;
+        gfx_read_native_target_depth(words, width, height);
         const auto& record = resources.d3d.resources.at(render_target_depth_texture);
         const size_t count = size_t(record.header[0]) * record.header[1];
+        RgbaImage full;
         if (!words.empty())
         {
-            if (words.size() != count || (record.header[4] != 0x12 && record.header[4] != 0x2E))
+            if (record.header[4] != 0x12 && record.header[4] != 0x2E)
             {
-                throw Error("render target depth texture is not a LIN_A8R8G8B8 or LIN_D24S8 texture of the target's size");
+                throw Error("render target depth texture is not a LIN_A8R8G8B8 or LIN_D24S8 texture");
             }
-            std::memcpy(resources.memory.tail(record.data).data(), words.data(), count * 4);
+            if (render_target_scene)
+            {
+                // The window-resolution depth: the texture's memory takes the word at each texel's centre, its image
+                // the whole picture (the words as BGRA bytes, as the linear format decodes them).
+                full.width = width;
+                full.height = height;
+                full.bgra.resize(words.size() * 4);
+                std::memcpy(full.bgra.data(), words.data(), full.bgra.size());
+                const RgbaImage scaled = scale_to_texture(full, i32(record.header[0]), i32(record.header[1]));
+                std::memcpy(resources.memory.tail(record.data).data(), scaled.bgra.data(), count * 4);
+            }
+            else
+            {
+                if (words.size() != count)
+                {
+                    throw Error("render target depth texture is not the target's size");
+                }
+                std::memcpy(resources.memory.tail(record.data).data(), words.data(), count * 4);
+            }
             scene_d3d_memory_written();
         }
         movie_textures.insert(resources.memory.pointer(render_target_depth_texture));
+        show_full_resolution(render_target_depth_texture, full);
         render_target_depth_texture = 0;
     }
     if (render_target_texture != 0 && created_textures.contains(render_target_texture))
@@ -1249,22 +1273,35 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
         render_target_scene = true;
         return;
     }
-    // The point lights' mode 1 pass (0x00062B00) draws the light page against a LIN_D24S8 texture of the back
-    // buffer's size (0x00177840, the only such texture the translated code makes). Nothing reads that texture's
-    // words: the pass's reset (0x00123640) releases it unread. So the page draws at the window's resolution
-    // like the others, with a depth-stencil of its own, and the depth texture's memory is left as it is.
+    // The page drawn against a depth texture of its own also draws at the window's resolution, with a depth-stencil
+    // of its own:
+    // - The point lights' mode 1 pass (0x00062B00) pairs it with a LIN_D24S8 texture of the back buffer's size
+    //   (0x00177840, the only such texture the translated code makes). Nothing reads that texture's words: the pass's
+    //   reset (0x00123640) releases it unread, so its memory is left as it is.
+    // - The glow capture (0x00062220: burning, goop, curses) pairs it with DAT_005047FC, the surface over the
+    //   LIN_A8R8G8B8 texture DAT_005047E8, which 0x00061D00 then samples as the depth to stamp. close_render_target
+    //   writes that texture's memory at its own size and gives its image the window-resolution words.
     if (record == glow_targets.page_texture)
     {
         const auto depth_surface = d3d_device.surface_textures.find(depth);
         if (depth_surface != d3d_device.surface_textures.end())
         {
-            const auto depth_record = resources.d3d.resources.find(u32(depth_surface->second));
-            if (depth_record != resources.d3d.resources.end() && depth_record->second.kind == 3
-                && depth_record->second.header[4] == 0x2E)
+            const u32 depth_texture = u32(depth_surface->second);
+            const auto depth_record = resources.d3d.resources.find(depth_texture);
+            const bool light_depth = depth_record != resources.d3d.resources.end()
+                && depth_record->second.kind == 3 && depth_record->second.header[4] == 0x2E;
+            const bool glow_depth = depth_record != resources.d3d.resources.end()
+                && depth_record->second.kind == 3 && depth_record->second.header[4] == 0x12
+                && resources.memory.pointer(depth_texture) == glow_targets.depth_texture;
+            if (light_depth || glow_depth)
             {
                 gfx_begin_native_scene_target(texture, i32(registered->second.header[0]),
                     i32(registered->second.header[1]), true);
                 render_target_scene = true;
+                if (glow_depth)
+                {
+                    render_target_depth_texture = depth_texture;
+                }
                 return;
             }
         }

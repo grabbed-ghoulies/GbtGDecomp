@@ -2459,34 +2459,37 @@ void gfx_begin_native_target(int width, int height, bool depth)
 }
 
 // The open texture target's depth-stencil as the Xbox D24S8 words its memory holds (depth << 8 | stencil).
-void gfx_read_native_target_depth(std::vector<u32>& output)
+void gfx_read_native_target_depth(std::vector<u32>& output, int& width, int& height)
 {
     output.clear();
+    width = 0;
+    height = 0;
     if (!g.ok)
     {
         return;
     }
-    if (!g.target_rendering)
+    const bool scene = g.scene_target_rendering && g.scene_target_depth != nullptr;
+    if (!g.target_rendering && !scene)
     {
         throw Error("native render target is not bound");
     }
-    const size_t count = size_t(g.target_depth.width) * size_t(g.target_depth.height);
+    const vk::Image& image = scene ? *g.scene_target_depth : g.target_depth;
+    const size_t count = size_t(image.width) * size_t(image.height);
     const VkDeviceSize stencil_offset = (VkDeviceSize(count) * 4 + 15) / 16 * 16;
     vk::Buffer& buffer = readback_buffer(stencil_offset + count);
     ensure_recording();
     end_rendering();
     VkBufferImageCopy copies[2]{};
     copies[0].imageSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
-    copies[0].imageExtent = {u32(g.target_depth.width), u32(g.target_depth.height), 1};
+    copies[0].imageExtent = {u32(image.width), u32(image.height), 1};
     copies[1] = copies[0];
     copies[1].bufferOffset = stencil_offset;
     copies[1].imageSubresource.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-    vkCmdCopyImageToBuffer(g.command, g.target_depth.image, VK_IMAGE_LAYOUT_GENERAL, buffer.buffer, 2, copies);
+    vkCmdCopyImageToBuffer(g.command, image.image, VK_IMAGE_LAYOUT_GENERAL, buffer.buffer, 2, copies);
     vk::memory_barrier(g.command);
     submit();
-    output.resize(count);
     const bool d24 = g.context.depth_format == VK_FORMAT_D24_UNORM_S8_UINT;
-    for (size_t n = 0; n < count; ++n)
+    const auto word = [&](size_t n)
     {
         u32 value;
         std::memcpy(&value, buffer.mapped + n * 4, 4);
@@ -2497,7 +2500,33 @@ void gfx_read_native_target_depth(std::vector<u32>& output)
             std::memcpy(&f, &value, 4);
             depth = u32(std::lround(double(std::clamp(f, 0.f, 1.f)) * 16777215.0));
         }
-        output[n] = (depth << 8) | buffer.mapped[stencil_offset + n];
+        return (depth << 8) | buffer.mapped[stencil_offset + n];
+    };
+    if (!scene)
+    {
+        width = image.width;
+        height = image.height;
+        output.resize(count);
+        for (size_t n = 0; n < count; ++n)
+        {
+            output[n] = word(n);
+        }
+        return;
+    }
+    // The scene target's own depth-stencil, over the fitted 640x480 area as gfx_end_native_scene_target reads the
+    // colour.
+    const Viewport area = hud_viewport();
+    const int left = std::clamp(int(area.x + 0.5f), 0, image.width - 1);
+    const int top = std::clamp(int(area.y + 0.5f), 0, image.height - 1);
+    width = std::clamp(int(area.width + 0.5f), 1, image.width - left);
+    height = std::clamp(int(area.height + 0.5f), 1, image.height - top);
+    output.resize(size_t(width) * size_t(height));
+    for (int y = 0; y < height; ++y)
+    {
+        for (int x = 0; x < width; ++x)
+        {
+            output[size_t(y) * size_t(width) + size_t(x)] = word(size_t(top + y) * size_t(image.width) + size_t(left + x));
+        }
     }
 }
 

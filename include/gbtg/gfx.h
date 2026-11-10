@@ -186,8 +186,9 @@ void gfx_read_ended_native_target(RgbaImage& output);
 void gfx_begin_native_scene_target(u32 key, int width, int height, bool own_depth = false);
 void gfx_end_native_scene_target(RgbaImage& output);
 // The open texture target's depth-stencil as the Xbox D24S8 words its memory holds (depth << 8 | stencil),
-// width x height in rows. Empty without a device.
-void gfx_read_native_target_depth(std::vector<u32>& output);
+// width x height in rows. For a scene target opened with own_depth, its depth over the fitted 640x480 area at the
+// window's resolution, as gfx_end_native_scene_target reads the colour. Empty (0 x 0) without a device.
+void gfx_read_native_target_depth(std::vector<u32>& output, int& width, int& height);
 
 void gfx_size(int& width, int& height);
 // D3DDevice_SetGammaRamp: the ramp the presented frames go through, 256 bytes per channel. The presenters draw

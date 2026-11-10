@@ -352,6 +352,7 @@ struct NativeSceneSurface
     // A depth-stencil of the surface's own, made the first time the surface opens with own_depth.
     ComPtr<ID3D11Texture2D> depth;
     ComPtr<ID3D11DepthStencilView> dsv;
+    ComPtr<ID3D11Texture2D> depth_staging; // For gfx_read_native_target_depth.
 };
 struct NativeSceneTarget
 {
@@ -2719,11 +2720,58 @@ void gfx_begin_native_target(int width, int height, bool depth)
     native_target.rendering = true;
 }
 
-void gfx_read_native_target_depth(std::vector<u32>& output)
+void gfx_read_native_target_depth(std::vector<u32>& output, int& width, int& height)
 {
     output.clear();
+    width = 0;
+    height = 0;
     if (!g.ok)
     {
+        return;
+    }
+    if (scene_target.rendering && scene_target.own_depth)
+    {
+        // The scene target's own depth-stencil, over the fitted 640x480 area as gfx_end_native_scene_target reads
+        // the colour.
+        NativeSceneSurface& surface = *scene_target.open;
+        if (!surface.depth_staging)
+        {
+            D3D11_TEXTURE2D_DESC desc{};
+            surface.depth->GetDesc(&desc);
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            if (FAILED(g.device->CreateTexture2D(&desc, nullptr, surface.depth_staging.GetAddressOf())))
+            {
+                throw Error("native scene target depth staging creation failed");
+            }
+        }
+        g.context->CopyResource(surface.depth_staging.Get(), surface.depth.Get());
+        D3D11_VIEWPORT area{};
+        UINT viewports = 1;
+        present_hud_viewport();
+        g.context->RSGetViewports(&viewports, &area);
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(g.context->Map(surface.depth_staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+        {
+            throw Error("native scene target depth readback failed");
+        }
+        const int left = std::clamp(int(area.TopLeftX + 0.5f), 0, int(surface.desc.Width) - 1);
+        const int top = std::clamp(int(area.TopLeftY + 0.5f), 0, int(surface.desc.Height) - 1);
+        width = std::clamp(int(area.Width + 0.5f), 1, int(surface.desc.Width) - left);
+        height = std::clamp(int(area.Height + 0.5f), 1, int(surface.desc.Height) - top);
+        output.resize(size_t(width) * size_t(height));
+        for (int y = 0; y < height; ++y)
+        {
+            const u8* row = static_cast<const u8*>(mapped.pData) + size_t(top + y) * mapped.RowPitch;
+            for (int x = 0; x < width; ++x)
+            {
+                u32 value;
+                std::memcpy(&value, row + size_t(left + x) * 4, 4);
+                output[size_t(y) * size_t(width) + size_t(x)] = ((value & 0xFFFFFFu) << 8) | (value >> 24);
+            }
+        }
+        g.context->Unmap(surface.depth_staging.Get(), 0);
         return;
     }
     if (!native_target.rendering)
@@ -2748,6 +2796,8 @@ void gfx_read_native_target_depth(std::vector<u32>& output)
     {
         throw Error("native render target depth readback failed");
     }
+    width = native_target.width;
+    height = native_target.height;
     output.resize(size_t(native_target.width) * size_t(native_target.height));
     for (int y = 0; y < native_target.height; ++y)
     {

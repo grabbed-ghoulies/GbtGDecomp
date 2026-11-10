@@ -222,4 +222,21 @@ candle's light was drawn at 640x480 and stretched: hard edges in a larger window
 - The light page with a LIN_D24S8 depth texture opens it so. Nothing reads that texture's words (`0x00123640`
   releases it unread), so its memory is no longer written.
 - Checked: `--scene5_7` takes the route and passes; the reporter sees the candle's edges fixed.
-- Still 640x480: the glow capture (`0x00062220`), whose depth over `DAT_005047E8` is sampled as a texture.
+- The glow capture follows below.
+
+### The glow capture (issue #61)
+
+The glow capture (`0x00062220`: burning ghoulies, the green goop of a death, curses, scare figures, the homing
+projectile) draws an actor into the light page against `DAT_005047FC`, the depth surface over the LIN_A8R8G8B8
+texture `DAT_005047E8`. `0x00061D00` then samples that texture as the depth to stamp into the stencil, and the
+composite samples the page. Both were 640x480 and stretched.
+
+- The page with that depth surface opens the window-sized scene target with its own depth, like the light page above.
+- `gfx_read_native_target_depth` reads an own-depth scene target over the fitted 640x480 area at the window's
+  resolution and returns its size. `close_render_target` writes the texture's memory with the word at each texel's
+  centre and gives its image the window-resolution words, counted in the texture's texels (the stamp samples it
+  with point filtering, so each pixel takes an exact word).
+- Checked at 2560x1920 on both backends (`--scene5_7` passes): the goop's splash edges are sharp where they were
+  blocky (frame 3900), and Vulkan matches D3D11. The fire round burning ghoulies and the curse's halo look as
+  before: their softness comes from the effect textures composited over the capture.
+- Cost: each capture reads its depth back at the window's size (about 20 MB at 2560x1920). Not benchmarked.

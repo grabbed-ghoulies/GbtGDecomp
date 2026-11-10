@@ -976,13 +976,13 @@ void gfx_end_native_scene_target(RgbaImage& output)
     inner->gfx_end_native_scene_target(output);
 }
 
-void gfx_read_native_target_depth(std::vector<u32>& output)
+void gfx_read_native_target_depth(std::vector<u32>& output, int& width, int& height)
 {
     if (running)
     {
         drain();
     }
-    inner->gfx_read_native_target_depth(output);
+    inner->gfx_read_native_target_depth(output, width, height);
 }
 
 void gfx_size(int& width, int& height)

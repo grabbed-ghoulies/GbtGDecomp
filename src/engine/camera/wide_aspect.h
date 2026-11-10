@@ -28,6 +28,10 @@ float aspect_row_ratio(i32 row, const float* table);
 
 // The wide_aspect feature's boot hook: the requested aspect, 0 for the window's own when wider than 16:9.
 void request_wide_aspect(float ratio);
+// While held, the wide row reads as 16:9 (its fits, field of view and projection), so the scene is drawn with 16:9's
+// view across the wide frame. The pause's page (0x00048550) captures the frame without widening it, as retail
+// shows a 16:9 frame squeezed onto it; held, a wide frame squeezes the same instead of further.
+void hold_wide_aspect_for_page(bool held);
 // The HUD's shape ([wide_aspect] Hud): the 640x480 overlays drawn over gameplay (HUD, captions, prompts) fit an
 // area of this aspect centred in the frame instead of stretching over it, as retail's do in widescreen. 0 stretches.
 void request_hud_aspect(float aspect);

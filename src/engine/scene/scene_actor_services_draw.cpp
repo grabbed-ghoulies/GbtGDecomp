@@ -748,10 +748,21 @@ void SceneActorServices::State::present_view(i32 view)
 #endif
             draw_runtime_dialogue_text_pools(*text_registry, g_flags_ea9c, *dialogue_draw); // 0x0005F330
         }};
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // The pause's page captures this frame unwidened (0x00048550 widens only outside the pause and on its phases 4
+    // and 5): the wide_aspect plugin's row draws with 16:9's view while it does (wide_aspect.h).
+    const bool page_hold = g_scene_pause.book != nullptr && book_services->scene_paused != nullptr
+        && *book_services->scene_paused != 0 && book_services->pause_phase != nullptr
+        && *book_services->pause_phase != 4 && *book_services->pause_phase != 5;
+    hold_wide_aspect_for_page(page_hold);
+#endif
 #if defined(GBTG_INSPECTOR_APP)
     draw(present);
 #else
     present_runtime_scene_view(present);
+#endif
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    hold_wide_aspect_for_page(false);
 #endif
 }
 

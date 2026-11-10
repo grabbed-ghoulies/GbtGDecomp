@@ -17,8 +17,15 @@ float g_ratio = 0.f; // The applied wide row's aspect, 0 when none.
 float g_frame = 4.f / 3.f; // The presented frame's aspect: 4:3, 16:9 or the wide row's.
 float g_hud = 0.f; // The HUD's aspect, 0 to stretch.
 i32 g_hud_scopes = 0;
+bool g_page_hold = false; // hold_wide_aspect_for_page: the wide row reads as 16:9.
 
 constexpr float kSixteenNine = 16.f / 9.f;
+
+// The wide row's ratio as the views see it: 16:9 while a paused page is captured.
+float row_ratio()
+{
+    return g_page_hold && g_ratio > 0.f ? kSixteenNine : g_ratio;
+}
 constexpr float kWidest = 4.f; // Wider than 32:9 (3.56) is refused.
 }
 
@@ -31,7 +38,7 @@ i32 widescreen_aspect_row()
 
 float wide_aspect_ratio()
 {
-    return g_ratio;
+    return row_ratio();
 }
 
 i32 aspect_sensor_row(i32 row)
@@ -41,9 +48,14 @@ i32 aspect_sensor_row(i32 row)
 
 float aspect_row_ratio(i32 row, const float* table)
 {
-    return row == kWideAspectRow ? g_ratio : table[row];
+    return row == kWideAspectRow ? row_ratio() : table[row];
 }
 } // namespace entity_detail
+
+void hold_wide_aspect_for_page(bool held)
+{
+    g_page_hold = held;
+}
 
 void request_wide_aspect(float ratio)
 {

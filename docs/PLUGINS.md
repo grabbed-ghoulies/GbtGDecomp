@@ -321,6 +321,11 @@ transitions are outside the scopes, so they still cover the frame. This also app
 While a book shows (a transition's `g_capture_book` or the pause's `g_scene_pause.book`) the scopes stay closed:
 the frame is captured onto the page (0x00048550) and the book's redraw widens it, so a fitted HUD would be squeezed
 twice. The pause menu, its title panels and the HUD on the paused page draw as retail's and come out in shape.
+The pause's page is captured every paused frame without the book's widening redraw (0x00048550 widens only
+outside the pause and on its phases 4 and 5), so retail shows a 16:9 frame squeezed by 3/4 on it. A wider frame
+squeezed further (by 4:3 / the ratio, issue #63), so while the paused page is captured the wide row reads as 16:9
+(`hold_wide_aspect_for_page`, around the scene's draw only): the scene draws with 16:9's view across the frame and
+the page shows as it does at 16:9. Gameplay outside the pause keeps the wide view.
 
 - It needs `[Video] Widescreen=1`, as retail's widescreen paths (the book's redraw 0x0005CE80, the dialogue capture)
   do. Without it the frame stays 4:3. A ratio not wider than 16:9 keeps 16:9; ratios above 4.0 are clamped to it.

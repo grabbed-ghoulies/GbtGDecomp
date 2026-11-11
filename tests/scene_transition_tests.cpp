@@ -7911,6 +7911,21 @@ void capture_readback(const std::string& path)
     }
 }
 
+// GBTG_TEST_VISIBLE shows the window; its messages are pumped each frame so it stays responsive.
+bool g_test_window_visible = false;
+// GBTG_TEST_SHOT_EVERY=<frames>: the generic scene driver saves a frame to cache/test_shots every that many frames.
+int g_test_shot_every = 0;
+
+void begin_test_frame()
+{
+    if (g_test_window_visible)
+    {
+        bool quit = false;
+        gbtg::gfx_pump(quit);
+    }
+    gbtg::gfx_begin_frame();
+}
+
 // The book transition (row 3, clip 2) turns its page and holds on the chapter title until A. A moves it to phase 2
 // (the scene load), phase 3 turns the leaving page and the transition ends (phase 0) in the requested scene. A row
 // without a title runs through its phases on its own; `title` says whether the title is required.
@@ -7924,7 +7939,7 @@ void pass_chapter_title(gbtg::Game& game, const std::string& label, const std::s
     {
         gbtg::InputState input;
         input.accept = titled && gbtg::g_scene_transition.phase == 1 && frame % 30 < 5;
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         const int phase = gbtg::g_scene_transition.phase;
         if (phase != last_phase)
@@ -8488,7 +8503,7 @@ void play_scene3_run(gbtg::Game& game, bool drive, int book)
             }
             exit_last = *cooper;
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         if (drive && trophy_picked >= 0 && frame > trophy_picked + 90 && frame <= trophy_picked + 240)
         {
@@ -8835,7 +8850,7 @@ void play_scene4_run(gbtg::Game& game, const std::string& label, bool drive)
         {
             log_scene4_breakables(game, label, frame);
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         const bool page_now = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
         if (page_now && !page_up)
@@ -8895,6 +8910,28 @@ void play_scene4_run(gbtg::Game& game, const std::string& label, bool drive)
 // weapon is picked up (ObjectPickedUp on the cue or the trophy); driven, Cooper walks to the nearest cue (type 0xAA)
 // and presses A beside it, then attacks the nearest live skeleton (class 52) while any is up, and once the exit
 // volume (mask 1) is open walks into it. Pages close on A; titles, scripts and every 300th frame are logged.
+// Scene 5's skeleton event: every step's kill count (the statistic its tag names) has reached the number it needs.
+bool scene5_event_won(const std::string& label)
+{
+    const auto* steps = gbtg::g_event_sequence.steps;
+    if (steps == nullptr || steps->begin == steps->end)
+    {
+        return false;
+    }
+    for (const gbtg::u8* step = steps->begin; step < steps->end; step += steps->stride)
+    {
+        const std::span<const gbtg::u8> row{step, 0x88};
+        const gbtg::u32 need = gbtg::read_u32(row, 0x18);
+        const auto kills = gbtg::script_statistic_at_address(0x00512B78u + gbtg::read_u16(row, 0x1C) * 4u);
+        if (kills < need)
+        {
+            return false;
+        }
+    }
+    std::cout << label << ": the event's kills reached what it needs; it was won\n";
+    return true;
+}
+
 void play_scene5_run(gbtg::Game& game, const std::string& label)
 {
     float closest_to_broken_table = 1e9f;
@@ -8907,10 +8944,16 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
     int moved_on = -1;
     int picked = -1;
     bool fainted = false;
+    // Latched while the event's steps are live: they are gone by the time the title goes back to Free Play.
+    bool event_won = false;
     std::set<std::string> titles;
     StickSteering steering;
     for (int frame = 0; frame < 18000 && moved_on < 0; ++frame)
     {
+        if (!event_won && scene5_event_won(label))
+        {
+            event_won = true;
+        }
         gbtg::InputState input;
         const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
         input.accept = page && frame % 30 < 5;
@@ -8989,6 +9032,7 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
             // it, then swings it at the skeletons; its state word (+0xC0C) leaves 0x10 (idle) once it is in use.
             std::optional<gbtg::Vec3> table;
             std::optional<gbtg::Vec3> table_grip;
+            float table_grip_radius = 0.f;
             gbtg::u8 table_mask = 0;
             gbtg::u32 table_holders = 0;
             gbtg::u32 table_blocked = 0;
@@ -9011,6 +9055,7 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                         if (gbtg::select_actor_spawn_point(*actor, *cooper, point, radius, index))
                         {
                             table_grip = point;
+                            table_grip_radius = radius;
                         }
                     }
                 }
@@ -9019,7 +9064,8 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
             {
                 std::cout << label << " frame " << frame << ": table state 0x" << std::hex << table_state << std::dec
                           << " at " << table->x << ", " << table->z << " mask " << int(table_mask) << " holders "
-                          << table_holders << " blocked " << table_blocked << "\n";
+                          << table_holders << " blocked " << table_blocked << " grip radius " << table_grip_radius
+                          << "\n";
                 if (frame == 0)
                 {
                     for (const auto& object : game.factory_scene->objects)
@@ -9056,7 +9102,17 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                     const float gx = table_grip->x - cooper->x;
                     const float gz = table_grip->z - cooper->z;
                     goal = table_grip;
-                    grab = gx * gx + gz * gz < 12.f * 12.f;
+                    const float reach = std::max(12.f, table_grip_radius + 6.f);
+                    grab = gx * gx + gz * gz < reach * reach;
+                    // Out of reach, around the table over the navigation grid: the grips sit at its ends, and a
+                    // straight line from its side stops against the table.
+                    if (!grab)
+                    {
+                        if (const auto step = nav_waypoint(*cooper, *table_grip, 3, nullptr, true); step)
+                        {
+                            goal = *step;
+                        }
+                    }
                 }
                 else if (skeleton)
                 {
@@ -9066,9 +9122,17 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
             }
             else if (exit && title == "Free Play" && picked >= 0)
             {
-                const gbtg::Vec3 front{exit->x, exit->y, exit->z - 60.f};
-                const bool before = cooper->z < front.z - 10.f && std::abs(cooper->x - front.x) > 20.f;
-                goal = before ? front : *exit;
+                // Over the navigation grid: a straight line toward the exit catches on the wall beside its door.
+                if (const auto step = nav_waypoint(*cooper, *exit, 3, nullptr, true); step)
+                {
+                    goal = *step;
+                }
+                else
+                {
+                    const gbtg::Vec3 front{exit->x, exit->y, exit->z - 60.f};
+                    const bool before = cooper->z < front.z - 10.f && std::abs(cooper->x - front.x) > 20.f;
+                    goal = before ? front : *exit;
+                }
                 swing = skeleton && nearest < 10.f * 10.f;
             }
             else if (skeleton)
@@ -9129,7 +9193,7 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
                 }
             }
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         const bool page_now = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
         if (page_now && !page_up)
@@ -9149,10 +9213,10 @@ void play_scene5_run(gbtg::Game& game, const std::string& label)
             {
                 picked = frame;
             }
-            else if (title == "Free Play" && (fainted || previous == "stage 2"))
+            else if (title == "Free Play" && (fainted || previous == "stage 2") && !event_won)
             {
                 // The event was lost (Cooper fainted, or its time ran out in stage 2): take the cue again to
-                // restart it.
+                // restart it. A won event also goes back to Free Play, with its kills at the count it needs.
                 std::cout << label << " frame " << frame << ": the event was lost, the cue is taken again\n";
                 picked = -1;
                 fainted = false;
@@ -9444,7 +9508,7 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
                           << " heads for the scare figure at " << scare->x << ", " << scare->z << "\n";
             }
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         const bool page_now = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
         if (page_now && !page_up)
@@ -9481,6 +9545,11 @@ void play_scene6_1_run(gbtg::Game& game, const std::string& label)
                 }
             }
             std::cout << label << " frame " << frame << ": section end gate " << gbtg::g_gate_2518 << "\n";
+        }
+        if (g_test_shot_every > 0 && frame % g_test_shot_every == 0)
+        {
+            std::filesystem::create_directories("cache/test_shots");
+            capture_readback("cache/test_shots/" + label + "_" + std::to_string(frame) + ".bmp");
         }
         if (game.scene_script.name != scene_script)
         {
@@ -9568,6 +9637,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     // 2b9's Mr Ribs stands by the exit with an egg and takes no hits. The time is kept per ghouly, so switching
     // between him and another does not reset it.
     std::map<const gbtg::Actor*, std::pair<int, gbtg::u16>> fought_frames;
+    // Ghoulies whose energy Cooper's hits have lowered are never left: scene 5_2's Hunchback goes 20 seconds between
+    // hits that land.
+    std::set<const gbtg::Actor*> hurt;
     // Pinned in one spot for 4 s (an actor or a crate's edge in the way, which the grid's held cells do not
     // cover), Cooper side-steps for 40 frames, alternating sides, then walks on.
     gbtg::Vec3 pinned_at{};
@@ -9765,6 +9837,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         gbtg::u16 ghouly_class = 0;
         const gbtg::Actor* ghouly_actor = nullptr;
         gbtg::u16 ghouly_energy = 0;
+        std::span<const gbtg::u8> ghouly_strategy;
         if (cooper && !page)
         {
             // With `spare_watched`, nothing is fought while a live PlayerHitGhouly (condition 14) watches for a hit:
@@ -9865,6 +9938,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     ghouly_class = mark.actor->class_key;
                     ghouly_actor = mark.actor;
                     ghouly_energy = gbtg::body_record(mark.body).energy;
+                    ghouly_strategy = mark.strategy;
                 }
             }
         }
@@ -10238,7 +10312,42 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 }
             }
         }
-        if (ghouly && !close && ghouly_actor != nullptr && !furnace_spot && !furnace_wait)
+        // The Hunchback (strategy type 0x45) knocked down (dizzy, 0x409, step 2 at +0xD0) gets up only once his target
+        // is past his attack reach (0x000B3220), and takes no hits while down: Cooper backs off until he is up.
+        std::optional<gbtg::Vec3> back_off;
+        if (ghouly && cooper && ghouly_strategy.size() >= 0xD4
+            && gbtg::strategy_base(ghouly_strategy).type == 0x45 && gbtg::strategy_base(ghouly_strategy).state == 0x409
+            && gbtg::read_u32(ghouly_strategy, 0xD0) == 2)
+        {
+            float dx = cooper->x - ghouly->x;
+            float dz = cooper->z - ghouly->z;
+            const float length = std::sqrt(dx * dx + dz * dz);
+            if (length < 40.f)
+            {
+                if (length > 0.01f)
+                {
+                    dx /= length;
+                    dz /= length;
+                }
+                else
+                {
+                    dx = 1.f;
+                    dz = 0.f;
+                }
+                back_off = gbtg::Vec3{ghouly->x + dx * 45.f, cooper->y, ghouly->z + dz * 45.f};
+            }
+            else
+            {
+                back_off = *cooper; // Far enough: he waits where he is.
+            }
+            close = false;
+            if (frame % 120 == 0)
+            {
+                std::cout << label << " frame " << frame << ": the Hunchback is down; Cooper backs off ("
+                          << length << " from him)\n";
+            }
+        }
+        if (ghouly && !close && ghouly_actor != nullptr && !furnace_spot && !furnace_wait && !back_off)
         {
             if (ghouly_actor != chased)
             {
@@ -10262,10 +10371,14 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             auto& [frames, energy] = fought_frames[ghouly_actor];
             if (frames == 0 || ghouly_energy != energy)
             {
+                if (frames != 0)
+                {
+                    hurt.insert(ghouly_actor);
+                }
                 frames = 1;
                 energy = ghouly_energy;
             }
-            else if (++frames > 1200)
+            else if (++frames > 1200 && !hurt.contains(ghouly_actor))
             {
                 std::cout << label << " frame " << frame << ": Cooper leaves the ghouly (class 0x" << std::hex
                           << ghouly_class << std::dec << ") at " << ghouly->x << ", " << ghouly->z
@@ -10276,7 +10389,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         }
         if (ghouly && !close && !furnace_wait)
         {
-            goal = furnace_spot ? furnace_spot : ghouly;
+            goal = back_off ? back_off : furnace_spot ? furnace_spot : ghouly;
             std::ostringstream name;
             name << (furnace_spot ? "the furnace, for a ghouly (class 0x" : "a ghouly (class 0x") << std::hex
                  << ghouly_class << ")";
@@ -10405,8 +10518,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
             {
                 std::cout << label << " frame " << frame << ": Cooper at " << cooper->x << ", " << cooper->z
                           << " fights a ghouly (class 0x" << std::hex << ghouly_class << std::dec << ") at "
-                          << ghouly->x << ", " << ghouly->z << "\n";
-            }
+                          << ghouly->x << ", " << ghouly->z << "\n";            }
         }
         else if (goal)
         {
@@ -10448,6 +10560,14 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 step = nav_waypoint(*cooper, *goal, 3, &avoided, true);
             }
             const gbtg::Vec3 toward = step ? *step : *goal;
+            if (frame > stuck_since + 45 && (frame / 8) % 2 == 0)
+            {
+                // Held, he attacks the way he walks (the right stick tapped, so his punches and kicks): scene 5_2's
+                // glass wall between the kitchen and the bathroom breaks only to an attack.
+                const float stick = steering.angle(*cooper, toward);
+                input.pads[0].rx = gbtg::i16(std::sin(stick) * 32767.f);
+                input.pads[0].ry = gbtg::i16(-std::cos(stick) * 32767.f);
+            }
             const float dx = toward.x - cooper->x;
             const float dz = toward.z - cooper->z;
             const float px = cooper->x - pinned_at.x;
@@ -10504,7 +10624,7 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 input.pads[0].ly = 0;
             }
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         {
             const auto* challenge = gbtg::find_runtime_scene_control(0x98);
@@ -10581,6 +10701,11 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                           << cooper->z << " energy " << energy << "\n";
             }
             std::cout << label << " frame " << frame << ": section end gate " << gbtg::g_gate_2518 << "\n";
+        }
+        if (g_test_shot_every > 0 && frame % g_test_shot_every == 0)
+        {
+            std::filesystem::create_directories("cache/test_shots");
+            capture_readback("cache/test_shots/" + label + "_" + std::to_string(frame) + ".bmp");
         }
         if (game.scene_script.name != scene_script)
         {
@@ -10759,7 +10884,7 @@ void play_pause_run(gbtg::Game& game)
         {
             input.back = true;
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         const gbtg::u32 state = scene_state();
         const gbtg::i32 phase = gbtg::g_scene_pause.phase;
@@ -10912,7 +11037,7 @@ void play_pause_rules_run(gbtg::Game& game)
         {
             input.back = true;
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         if (event_frame < 0 && gbtg::g_event_sequence_state == 3)
         {
@@ -11015,7 +11140,7 @@ void play_pause_map_run(gbtg::Game& game)
         {
             input.back = true;
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         const gbtg::i32 phase = gbtg::g_scene_pause.phase;
         static gbtg::i32 last_phase = -1;
@@ -11116,7 +11241,7 @@ void play_pause_quit_run(gbtg::Game& game)
         {
             input.accept = true;
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         if (open_frame < 0 && gbtg::g_scene_pause.phase == 3)
         {
@@ -11240,7 +11365,7 @@ void play_controller_prompt_run(gbtg::Game& game)
         {
             input.start = true;
         }
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 60.f, input);
         if (prompt.phase != last_phase)
         {
@@ -11454,7 +11579,7 @@ void start_saved_game(gbtg::Game& game, const std::string& label)
         const int at = ready < 0 ? -1 : frame - ready;
         input.accept = at == 180 || at == 900;
         hold_gameselect_press(game, input, ready);
-        gbtg::gfx_begin_frame();
+        begin_test_frame();
         game.tick(1.f / 59.f, input); // Game select's tests step the wall-clock path.
         gbtg::gfx_end_frame();
         started = gbtg::g_scene_transition.phase != 0 && at > 900;
@@ -11922,7 +12047,17 @@ int main(int argc, char** argv)
             return 0;
         }
         gbtg::GfxConfig config;
-        config.visible = false;
+        // GBTG_TEST_VISIBLE=1: show the window, to watch a run as it plays.
+        if (const char* visible = std::getenv("GBTG_TEST_VISIBLE"); visible != nullptr && visible[0] == '1')
+        {
+            g_test_window_visible = true;
+            std::cout << "window visible\n";
+        }
+        config.visible = g_test_window_visible;
+        if (const char* every = std::getenv("GBTG_TEST_SHOT_EVERY"); every != nullptr)
+        {
+            g_test_shot_every = std::atoi(every);
+        }
         config.width = argc == 4 && !player_test ? std::stoi(argv[2]) : 640;
         config.height = argc == 4 && !player_test ? std::stoi(argv[3]) : 480;
         // GBTG_TEST_WINDOW=<width>x<height>: a larger window, for looking at what the 640x480 frame hides (the
@@ -12991,7 +13126,7 @@ int main(int argc, char** argv)
             pass_chapter_title(game, "scene11_to_12", "aid_script_ghoulies_chapter1_scene12_1playcam", false);
             for (int frame = 0; frame < 300; ++frame)
             {
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 60.f, {});
                 if (frame % 60 == 0)
                 {
@@ -13111,7 +13246,7 @@ int main(int argc, char** argv)
             int written = -1;
             for (int frame = 0; frame < 3000 && written < 0; ++frame)
             {
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 60.f, {});
                 const std::vector<char> bytes = saved_progress_file();
                 gbtg::u32 finale = 0;
@@ -13147,7 +13282,7 @@ int main(int argc, char** argv)
             int written = -1;
             for (int frame = 0; frame < 3000 && written < 0; ++frame)
             {
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 60.f, {});
                 const std::vector<char> bytes = saved_progress_file();
                 if (bytes.size() >= 0x268 && gbtg::u8(bytes[0x25D]) >= 2 && gbtg::g_save_scan->pending == 0)
@@ -13268,7 +13403,7 @@ int main(int argc, char** argv)
                 }
                 const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
                 input.accept = input.accept || (page && frame % 30 < 5);
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 60.f, input);
                 challenge = gbtg::find_runtime_scene_control(0x98);
                 const gbtg::u32 now =
@@ -13375,7 +13510,7 @@ int main(int argc, char** argv)
                 int written = -1;
                 for (int frame = 0; frame < 1200 && written < 0; ++frame)
                 {
-                    gbtg::gfx_begin_frame();
+                    begin_test_frame();
                     game.tick(1.f / 60.f, {});
                     gbtg::gfx_end_frame();
                     if (frame % 30 == 29 && saved_challenge_byte() != 0xFF && (saved_challenge_byte() & 6) == 6)
@@ -13455,7 +13590,7 @@ int main(int argc, char** argv)
             // idle period and hop.
             for (int frame = 0; frame < 720; ++frame)
             {
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(player_step, {});
                 gbtg::gfx_end_frame();
                 saw_dialogue |= gbtg::g_flag_2474 != 0 && gbtg::g_draw_e1ec != 0;
@@ -13575,7 +13710,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState input;
                 input.accept = frame % 120 < 5;
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(player_step, input);
                 gbtg::gfx_end_frame();
                 if (frame == 0 && dialogue.state.completion == 0 && dialogue.state.mode == 2)
@@ -13614,7 +13749,7 @@ int main(int argc, char** argv)
             int intro_end = -1;
             for (int frame = 0; frame < 300 || (intro_start >= 0 && intro_end < 0 && frame < 900); ++frame)
             {
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(player_step, {});
                 const bool showing = (gbtg::g_flags_ea9c & 4u) != 0;
                 if (showing && intro_start < 0)
@@ -13690,7 +13825,7 @@ int main(int argc, char** argv)
             {
                 gbtg::InputState stick;
                 stick.pads[0].ly = 32767;
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(player_step, stick);
                 if (frame == player_ticks(120) - 1)
                 {
@@ -13726,7 +13861,7 @@ int main(int argc, char** argv)
                         gbtg::InputState stick;
                         stick.pads[0].lx = lx;
                         stick.pads[0].ly = ly;
-                        gbtg::gfx_begin_frame();
+                        begin_test_frame();
                         game.tick(1.f / hz, stick);
                         gbtg::gfx_end_frame();
                         const auto now = cooper_position();
@@ -13745,7 +13880,7 @@ int main(int argc, char** argv)
                 {
                     for (int frame = 0; frame < 30; ++frame)
                     {
-                        gbtg::gfx_begin_frame();
+                        begin_test_frame();
                         game.tick(player_step, {});
                         gbtg::gfx_end_frame();
                     }
@@ -13802,7 +13937,7 @@ int main(int argc, char** argv)
                         input.pads[0].rx = gbtg::i16(ax * 32767.f);
                         input.pads[0].ry = gbtg::i16(-az * 32767.f);
                     }
-                    gbtg::gfx_begin_frame();
+                    begin_test_frame();
                     game.tick(player_step, input);
                     if (frame == 12)
                     {
@@ -13838,7 +13973,7 @@ int main(int argc, char** argv)
                         gbtg::InputState input;
                         input.pads[0].trigger_l = left;
                         input.pads[0].trigger_r = right;
-                        gbtg::gfx_begin_frame();
+                        begin_test_frame();
                         game.tick(player_step, input);
                         gbtg::gfx_end_frame();
                     }
@@ -14061,7 +14196,7 @@ int main(int argc, char** argv)
                             input.pads[0].ry = gbtg::i16(-uz * 32767.f);
                         }
                     }
-                    gbtg::gfx_begin_frame();
+                    begin_test_frame();
                     game.tick(player_step, input);
                     page_frames = page ? page_frames + 1 : 0;
                     if (frame % 120 == 119 || page_frames == 30)
@@ -14246,7 +14381,7 @@ int main(int argc, char** argv)
                                 && game.script_dialogue->dialogue.state.mode != 0;
                             input.accept = (prompt < 0 && page && frame % 30 < 5)
                                 || (prompt >= 0 && frame - prompt == player_ticks(90));
-                            gbtg::gfx_begin_frame();
+                            begin_test_frame();
                             game.tick(player_step, input);
                             if (prompt >= 0 && (frame - prompt == player_ticks(45) || frame - prompt == player_ticks(85)
                                 || frame - prompt == player_ticks(100) || frame - prompt == player_ticks(130)))
@@ -14290,7 +14425,7 @@ int main(int argc, char** argv)
                     for (int frame = 0; frame < player_ticks(600) && !resumed; ++frame)
                     {
                         gbtg::InputState input;
-                        gbtg::gfx_begin_frame();
+                        begin_test_frame();
                         game.tick(player_step, input);
                         resumed = !gbtg::g_script_fired.empty() && gbtg::g_script_fired.back() != restart_node;
                         if (resumed)
@@ -14443,7 +14578,7 @@ int main(int argc, char** argv)
                             input.pads[0].ly = gbtg::i16(-tz * 16000.f);
                         }
                     }
-                    gbtg::gfx_begin_frame();
+                    begin_test_frame();
                     game.tick(player_step, input);
                     if (held == player_ticks(40))
                     {
@@ -14537,7 +14672,7 @@ int main(int argc, char** argv)
                 {
                     gbtg::InputState input;
                     input.accept = titled && frame % player_ticks(30) < player_ticks(5);
-                    gbtg::gfx_begin_frame();
+                    begin_test_frame();
                     game.tick(player_step, input);
                     if (!titled && gbtg::g_scene_transition.phase == 1 && gbtg::g_scene_transition.title_widget != nullptr)
                     {
@@ -14582,7 +14717,7 @@ int main(int argc, char** argv)
             gbtg::script_handle_event_actions(game, *fight);
             for (int frame = 0; frame < 30; ++frame)
             {
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(player_step, {});
                 gbtg::gfx_end_frame();
             }
@@ -14647,7 +14782,7 @@ int main(int argc, char** argv)
             backdrop.bgra = {0, 0, 0, 255};
             auto capture = [&]()
             {
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 gbtg::gfx_sprite_submit(backdrop, 0.f, 0.f, 640.f, 480.f);
                 gbtg::gfx_sprite_submit(icon, 288.f, 208.f, 64.f, 64.f);
                 gbtg::gfx_end_frame();
@@ -14798,7 +14933,7 @@ int main(int argc, char** argv)
                     }
                 }
                 hold_gameselect_press(game, input, ready);
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
                 if (page_at >= 0 && (frame - page_at == 60 || frame - page_at == 250))
@@ -14825,7 +14960,7 @@ int main(int argc, char** argv)
                     const char* play = std::getenv("GBTG_FEATURE_PLAY");
                     for (int more = play != nullptr ? std::atoi(play) : 0; more > 0; --more)
                     {
-                        gbtg::gfx_begin_frame();
+                        begin_test_frame();
                         game.tick(1.f / 59.f, gbtg::InputState{});
                         gbtg::gfx_end_frame();
                     }
@@ -14966,7 +15101,7 @@ int main(int argc, char** argv)
                         return 0;
                     }
                     hold_gameselect_press(game, input, ready);
-                    gbtg::gfx_begin_frame();
+                    begin_test_frame();
                     game.tick(1.f / 59.f, input);
                     gbtg::gfx_end_frame();
                     continue;
@@ -15087,7 +15222,7 @@ int main(int argc, char** argv)
                     }
                 }
                 hold_gameselect_press(game, input, ready);
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
                 if (menu_shown_at >= 0 && frame - menu_shown_at == 100)
@@ -15242,7 +15377,7 @@ int main(int argc, char** argv)
                     slots_at = frame;
                     std::cout << "slot select at frame " << frame << "\n";
                 }
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
                 if (wait_at >= 0 && closed_at < 0 && (frame - wait_at == 20 || frame - wait_at == 80 || frame - wait_at == 140 || frame - wait_at == 200))
@@ -15383,7 +15518,7 @@ int main(int argc, char** argv)
                     }
                 }
                 hold_gameselect_press(game, input, ready);
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
                 if (unlocked_at >= 0 && frame - unlocked_at == 30)
@@ -15541,7 +15676,7 @@ int main(int argc, char** argv)
                     done_at = frame;
                 }
                 hold_gameselect_press(game, input, ready);
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
                 if (done_at >= 0 && (frame - done_at == 60 || frame - done_at == 120 || frame - done_at == 240))
@@ -15612,7 +15747,7 @@ int main(int argc, char** argv)
                     std::cout << "app error closed at frame " << frame << ", choice " << error.choice << ", flags "
                               << std::hex << gbtg::g_flags_ea9c << std::dec << "\n";
                 }
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
                 const bool capture = (shown_at >= 0 && closed_at < 0
@@ -15733,7 +15868,7 @@ int main(int argc, char** argv)
                     }
                 }
                 hold_gameselect_press(game, input, ready);
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
                 const bool capture = at == 300 || at == 650 || at == 1100 || (replay_at >= 0
@@ -15844,7 +15979,7 @@ int main(int argc, char** argv)
                     input.back = at == 360;
                 }
                 hold_gameselect_press(game, input, ready);
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, input);
                 gbtg::gfx_end_frame();
                 if (replay_scene_test && at == 1990 && gbtg::g_frontend.scene_replay_widget != nullptr
@@ -16011,7 +16146,7 @@ int main(int argc, char** argv)
                 {
                     gbtg::InputState input;
                     input.accept = frame % 30 == 0;
-                    gbtg::gfx_begin_frame();
+                    begin_test_frame();
                     game.tick(1.f / 59.f, input);
                     gbtg::gfx_end_frame();
                     if (game.scene_script.name != visited.back())
@@ -16037,7 +16172,7 @@ int main(int argc, char** argv)
                 }
                 for (int frame = 0; frame < 300 && returned; ++frame)
                 {
-                    gbtg::gfx_begin_frame();
+                    begin_test_frame();
                     game.tick(1.f / 59.f, {});
                     gbtg::gfx_end_frame();
                 }
@@ -16147,7 +16282,7 @@ int main(int argc, char** argv)
             const void* previous_clip = nullptr;
             for (int frame = 0; frame < 8000; ++frame)
             {
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, gbtg::InputState{});
                 gbtg::gfx_end_frame();
                 if (scenes.empty() || scenes.back() != game.scene_script.name)
@@ -16187,7 +16322,7 @@ int main(int argc, char** argv)
                 gbtg::InputState input;
                 input.start = !title_a_test && frame == 120;
                 input.accept = title_a_test && frame == 120;
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 // Exercise the ordinary wall-clock path, including the first
                 // frame after loading, rather than a headless crash check.
                 game.tick(1.f / 59.f, input);
@@ -16216,7 +16351,7 @@ int main(int argc, char** argv)
                     {
                         for (int step = 0; step < frames; ++step)
                         {
-                            gbtg::gfx_begin_frame();
+                            begin_test_frame();
                             game.tick(1.f / 59.f, state);
                             gbtg::gfx_end_frame();
                         }
@@ -16271,7 +16406,7 @@ int main(int argc, char** argv)
             gbtg::InputState input;
             // Advance the retail dialogue pages with distinct A presses.
             input.accept = frame % 30 == 0;
-            gbtg::gfx_begin_frame();
+            begin_test_frame();
             game.tick(1.f / 60.f, input);
             gbtg::gfx_end_frame();
             saw_intro = saw_intro || game.scene_script.name.find("scene0_1book") != std::string::npos;
@@ -16361,7 +16496,7 @@ int main(int argc, char** argv)
             int exiting = 0;
             for (int frame = 0; frame < 600; ++frame)
             {
-                gbtg::gfx_begin_frame();
+                begin_test_frame();
                 game.tick(1.f / 59.f, {});
                 gbtg::gfx_end_frame();
                 if (gbtg::g_transition_row == 15 && gbtg::g_transition_phase == 1)

@@ -4,6 +4,28 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-11: scene 5's driver, and watching a test run
+
+- `--scene5` passes again. Its event (8 skeletons) was won, but the title goes back to Free Play after a win as after
+  a loss, and the driver took every return from stage 2 as a loss: it went back for the cue and ran into the wall
+  beside the exit door. The driver now latches the win while the event's steps are live (each step's kill
+  statistic at its need; the steps are gone once the title changes), routes the exit walk and the walk round the
+  snooker table to its grip over the navigation grid (`nav_waypoint`), and grabs the table within its grip sphere's
+  reach. Watched in a window: Cooper takes the table, wins the event and leaves (frame 6651, scene 6 next).
+- `GBTG_TEST_VISIBLE=1` shows the transition tests' window; each frame start (`begin_test_frame`) pumps its
+  messages so it stays responsive. `GBTG_TEST_SHOT_EVERY=<frames>` makes the generic scene driver save a frame to
+  `cache/test_shots` every that many frames.
+- `--scene5_2` passes again (frame 7146, chapter5_scene3_1playcam next). It had failed since 2026-10-31 with the
+  exit's green glow lit: the glass wall between the kitchen and the bathroom breaks only to an attack, and the driver
+  walked into it. Held in place, the driver now taps the right stick the way it walks. It also no longer leaves a
+  ghouly its hits have hurt (the Hunchback goes 20 seconds between hits that land), and backs off the Hunchback
+  while he is down (strategy type 0x45, dizzy 0x409, +0xD0 step 2): 0x000B3220 gets him up only once his target is
+  past his attack reach, and he takes no hits while down.
+- `--scene3c9` reached the collision reply of factory type 0x8D (the walk state): getter 0x000A4CF0 stores
+  0x000A5270 at +0xC, which now gets the reply's {id, accepted, handled}. The id is 0x62, which it ignores. The mode
+  now fails only in its driver. `--scene3c3` crashed once (rc 139) as its scene restarted after Cooper fainted, four
+  modes running at once; alone it did not crash, and holds in its driver.
+
 ### 2026-11-11: frontier rows rechecked (script cases, the snapshot, the effect sprite)
 
 - Script actions (`0x00126E10`, `0x00127BC0`) and condition nodes (`0x00125450`, including 0x65, 0x75, 0x8B, 0x8C

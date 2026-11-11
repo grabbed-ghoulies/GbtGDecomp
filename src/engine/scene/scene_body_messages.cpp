@@ -3297,6 +3297,16 @@ u32 SceneBodyMessages::supported(FactoryObject& body)
                     words, transform_context());
                 return;
             }
+            if (type == 0x8D)
+            {
+                // Getter 0x000A4CF0 stores 0x000A5270 at +0xC. It reads +4 only for 0x7C and +8 only for 0x87; the
+                // reply's words are {id, accepted, handled}.
+                auto& second = player_.body_selection.second;
+                const std::array<u32, 3> words{reply.id, reply.accepted, reply.handled};
+                message_runtime_walk_state(body_state_view<WalkState>({second.bytes.get(), second.size}),
+                    words, walk_context());
+                return;
+            }
             if (type == 0x6A)
             {
                 // 0x0008FBF0 acts only on 0x7C, reading its +4 actor.

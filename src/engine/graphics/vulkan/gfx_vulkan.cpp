@@ -12,7 +12,6 @@
 
 #include "../gfx_backend.h"
 #include "../win32_window.h"
-#include "../gfx_present_logic.h"
 #include "../gfx_shader_sources.h"
 #include "../render_profile.h"
 #include "../vertex_program_constants.h"
@@ -1126,7 +1125,7 @@ VkPipeline pipeline(const PipelineState& state)
 
 // --- Viewports -----------------------------------------------------------------------------------------------
 
-// Xbox 0x000F6F70. DAT_005096E8 / DAT_005096EA are the HUD width and height, 640x480; a texture target takes Xbox
+// Host: the window area the 640x480 HUD (DAT_005096E8 / DAT_005096EA) maps onto; a texture target takes Xbox
 // pixels 1:1 and the back buffer the fitted 4:3 area.
 Viewport hud_viewport()
 {
@@ -1553,50 +1552,14 @@ void present_frame_image()
     }
 }
 
-// Xbox 0x00033A90
-// DAT_0033A5B8 is the full backbuffer: origin 0, retail 640x480, z 0..1.
-void present_set_viewport()
-{
-    if (!g.ok)
-    {
-        return;
-    }
-    g.viewport = full_viewport();
-}
-
-// Xbox 0x00033A90
-// 0x00154A20: D3DDevice_Clear(0, nullptr, flags, DAT_00434264, 1.0f, 0).
-// Z (1) and stencil (2) clear here. The target mask 0xF0 stays off this call so the
-// scene drawn earlier in the frame is still in the color target for the swap.
-void present_clear(u32 flags)
-{
-    if (!g.ok)
-    {
-        return;
-    }
-    VkImageAspectFlags aspects = 0;
-    if ((flags & 0x1u) != 0)
-    {
-        aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
-    }
-    if ((flags & 0x2u) != 0)
-    {
-        aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
-    }
-    clear_attachments(whole_target(), false, {}, aspects, 1.f);
-}
-
-// Xbox 0x00033A90
-// 0x00154A40. Notify 0, D3DDevice_Swap(0), notify 1.
+// D3DDevice_Swap.
 void present_swap()
 {
-    gfx_present_swap_notify(0);
     if (g.ok)
     {
         present_frame_image();
         g.frame_finished = true;
     }
-    gfx_present_swap_notify(1);
 }
 
 // Quad 0x0005E380 / 0x0005E770 push. x,y is the top-left in the 640x480 HUD.
@@ -1617,21 +1580,6 @@ struct HudQuad
 // 0x000662A0 grows by the u16 at pool+2 when the cursor meets the limit.
 u16 hud_extra = 16;
 std::vector<HudQuad> hud_quads;
-
-// DAT_00504960. 0x00066080 walks begin (+4) up to the cursor (+8), stride 0x18.
-// 0x00065F90 writes the flag at +0x14. No submitter fills this list yet.
-struct DepthProbe
-{
-    float x = 0.f;
-    float y = 0.f;
-    float z = 0.f;
-    float depth = 0.f;
-    float reach = 0.f;
-    float flag = 0.f;
-};
-static_assert(sizeof(DepthProbe) == 0x18, "DAT_00504960 stride");
-
-std::vector<DepthProbe> depth_probes;
 
 // Quads submitted through 0x0005CA60, drawn in the HUD viewport.
 void present_hud_sprites()
@@ -1657,36 +1605,11 @@ void present_hud_sprites()
     }
 }
 
-// Xbox 0x00066080
-// An empty cursor matches begin, which is the boot state, so the pass returns.
-void present_sprite_span()
-{
-    if (depth_probes.empty())
-    {
-        return;
-    }
-    for (DepthProbe& probe : depth_probes)
-    {
-        // 0x00065F90 clears the flag, then samples the depth surface when one is locked.
-        probe.flag = 0.f;
-    }
-}
-
-// Xbox 0x00033A90
+// Host presentation at D3DDevice_Swap (0x00154A40 in the native present 0x00033A90): the host sprites, then
+// the swap.
 void present_draw_frame()
 {
-    const u32 flags = gfx_present_clear_flags();
-    present_set_viewport();
-    present_clear(flags);
-    // 0x0005E110 installs the frame render states. Each Vulkan draw carries its whole state in its pipeline.
-    // 0x000F9780 retires the deferred span at DAT_005079E0.
-    // 0x00036180 submits the draw span at DAT_004DF240 and resets it.
-    gfx_present_overlays();
-    gfx_present_cameras();
-    // 0x000F6F70 restores the HUD viewport from DAT_005096E8 / DAT_005096EA.
     present_hud_sprites();
-    // 0x00066080 walks the 0x18 depth list at DAT_00504960.
-    present_sprite_span();
     present_swap();
 }
 
@@ -2972,7 +2895,7 @@ void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float 
 
 void gfx_end_frame()
 {
-    // Present 0x00033480, then 0x00033A90 (clear and swap). frame_tick runs 0x00032AB0, the app error screen.
+    // D3DDevice_Swap: frame_tick's present (0x00033A90) recorded the frame.
     present_draw_frame();
 }
 

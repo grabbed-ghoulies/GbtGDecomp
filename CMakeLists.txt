@@ -800,7 +800,7 @@ set(GBTG_GFX "${_gbtg_gfx_default}" CACHE STRING
     "Graphics backends compiled into gbtg, first is the default: any of d3d11;vulkan (null is always built)")
 # gfx_dispatch.cpp owns the gfx.h names and forwards to the backend gfx_init picks (--gfx / gbtg.ini Backend).
 target_sources(gbtg PRIVATE src/engine/graphics/gfx_dispatch.cpp src/engine/graphics/gfx_null.cpp
-    src/engine/graphics/gfx_present_logic.cpp
+    src/engine/graphics/frame_present.cpp
     src/engine/graphics/shader_cache.cpp
     src/engine/graphics/gfx_shader_sources.cpp src/engine/graphics/gfx_render_thread.cpp)
 # GBTG_OPTIMIZE step 11 runs the backend on a std::thread (gfx_render_thread.cpp).

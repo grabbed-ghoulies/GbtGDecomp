@@ -9,7 +9,6 @@
 
 #include "gfx_backend.h"
 #include "win32_window.h"
-#include "gfx_present_logic.h"
 #include "gfx_shader_sources.h"
 #include "shader_cache.h"
 #include "gbtg/gfx.h"
@@ -273,49 +272,14 @@ struct GfxD3D11
         u32 serial = 0;
     };
     std::unordered_map<const RgbaImage*, SpriteGpu> sprites;
-    // Device shadow at 0x00181B70 (index * 4). BSS until a render-state setter writes it.
-    u32 rs_dirty = 0;        // DAT_00181968
-    int rs_zfunc = 0;        // DAT_00181c54, D3DRS_ZFUNC (index 0x39)
-    int rs_alpha_func = 0;  // DAT_00181c58, D3DRS_ALPHAFUNC (index 0x3A)
-    int rs_alpha_blend = 0; // DAT_00181c5c, D3DRS_ALPHABLENDENABLE (index 0x3B)
-    int rs_alpha_test = 0;  // DAT_00181c60, D3DRS_ALPHATESTENABLE (index 0x3C)
-    int rs_alpha_ref = 0;   // DAT_00181c64, D3DRS_ALPHAREF (index 0x3D)
-    int rs_src_blend = 0;   // DAT_00181c68, D3DRS_SRCBLEND (index 0x3E)
-    int rs_dest_blend = 0;  // DAT_00181c6c, D3DRS_DESTBLEND (index 0x3F)
-    int rs_zwrite = 0;      // DAT_00181c70, D3DRS_ZWRITEENABLE (index 0x40)
-    int rs_dither = 0;      // DAT_00181c74, D3DRS_DITHERENABLE (index 0x41)
-    int rs_color_write = 0; // DAT_00181c7c, D3DRS_COLORWRITEENABLE (index 0x43)
-    int rs_blend_op = 0;    // DAT_00181c98, D3DRS_BLENDOP (index 0x4A)
-    int rs_cull = 0;        // DAT_00181dbc, CullMode argument
-    int rs_zenable = 0;     // DAT_00181dac, ZEnable argument (0 off, 1 Z, 2 W)
-    int rs_dxt1_noise = 0;  // DAT_00181dec
-    int rs_state_60 = 0;    // DAT_00181cf0, index 0x60, dirty bit 0x2000
-    int rs_state_66 = 0;    // DAT_00181d08, index 0x66, dirty bit 0x1200
-    int vertex_shader = 0;  // D3DDevice_SetVertexShader argument. 2 = D3DFVF_XYZ.
-    // Stage 0 lives at DAT_00181970, stride 0x80. The 0x0005E110 loop anchors on ALPHAOP.
-    // Ghidra names the stage base D3D_g_DeferredTextureState; it is ADDRESSU.
-    struct StageRs
-    {
-        int address_u = 0;      // +0x00 D3DTSS_ADDRESSU
-        int address_v = 0;      // +0x04 D3DTSS_ADDRESSV
-        int address_w = 0;      // +0x08 D3DTSS_ADDRESSW
-        int mag_filter = 0;     // +0x0C D3DTSS_MAGFILTER
-        int min_filter = 0;     // +0x10 D3DTSS_MINFILTER
-        int mip_filter = 0;     // +0x14 D3DTSS_MIPFILTER
-        int max_mip_level = 0;  // +0x1C D3DTSS_MAXMIPLEVEL
-        u32 color_sign = 0;     // +0x28 D3DTSS_COLORSIGN
-        int color_op = 0;       // +0x30 D3DTSS_COLOROP
-        int color_arg1 = 0;     // +0x38 D3DTSS_COLORARG1
-        int color_arg2 = 0;     // +0x3C D3DTSS_COLORARG2
-        int alpha_op = 0;       // +0x40 D3DTSS_ALPHAOP
-        int alpha_arg1 = 0;     // +0x48 D3DTSS_ALPHAARG1
-        int alpha_arg2 = 0;     // +0x4C D3DTSS_ALPHAARG2
-        int tex_transform = 0;  // +0x54 D3DTSS_TEXTURETRANSFORMFLAGS
-        int texcoord_index = 0; // +0x70 D3DTSS_TEXCOORDINDEX
-        // +0x58. D3DTSS_BUMPENVMAT00, MAT01, MAT10, MAT11, BUMPENVLSCALE, BUMPENVLOFFSET.
-        u32 bump[6]{};
-    };
-    StageRs stages[4]{};
+    // Host draw state over the D3D shadow at 0x00181B70: the values 0x0005E110 stores at every present,
+    // which the recording device now receives on the native path.
+    int rs_zfunc = 0x203;      // DAT_00181c54, D3DRS_ZFUNC D3DCMP_LESSEQUAL
+    int rs_alpha_func = 0x204; // DAT_00181c58, D3DRS_ALPHAFUNC D3DCMP_GREATER
+    int rs_alpha_test = 0;     // DAT_00181c60, D3DRS_ALPHATESTENABLE
+    int rs_alpha_ref = 0;      // DAT_00181c64, D3DRS_ALPHAREF
+    int rs_zwrite = 1;         // DAT_00181c70, D3DRS_ZWRITEENABLE
+    int rs_zenable = 1;        // DAT_00181dac, ZEnable argument (0 off, 1 Z, 2 W)
 };
 
 GfxD3D11 g;
@@ -582,7 +546,6 @@ void store_alpha_rs(GpuCB& cb)
     cb.alpha_func = float(g.rs_alpha_func);
 }
 
-// ZFUNC stays at the LESS default until 0x0005E110 stores D3DCMP_LESSEQUAL (0x203).
 void bind_depth_shadow()
 {
     if (!g.ok)
@@ -606,73 +569,6 @@ void bind_depth_shadow()
         }
     }
     g.context->OMSetDepthStencilState(state, 0);
-}
-
-// Xbox 0x0005E110
-// Installs the frame device state. Simple pushes are (method, value) then the shadow dword.
-//   Dxt1NoiseEnable(0)                    DAT_00181dec = 0, dirty |= 0x2000
-//   index 0x60                            DAT_00181cf0 = 1
-//   0x40310 = 0     D3DRS_DITHERENABLE    DAT_00181c74 = 0
-//   CullMode(0)                           DAT_00181dbc = 0
-//   0x40350 = 0x8006 D3DBLENDOP_ADD       DAT_00181c98
-//   0x40344 = 0x302  D3DBLEND_SRCALPHA    DAT_00181c68
-//   0x40348 = 0x303  D3DBLEND_INVSRCALPHA DAT_00181c6c
-//   0x40304 = 1      ALPHABLENDENABLE     DAT_00181c5c
-//   0x4033c = 0x204  D3DCMP_GREATER       DAT_00181c58
-//   index 0x66                            DAT_00181d08 = 0, dirty |= 0x1200
-//   0x40358 = 0x01010101 COLORWRITEENABLE DAT_00181c7c
-//   0x40354 = 0x203  D3DCMP_LESSEQUAL     DAT_00181c54 ZFUNC
-//   0x4035c = 1      ZWRITEENABLE         DAT_00181c70
-//   ZEnable(1)                            DAT_00181dac = 1
-// Four stages at DAT_001819B0 stride 0x80: unbound texture, linear mag/min,
-// colour and alpha op D3DTOP_DISABLE, dirty |= (1 << stage) | 0x800.
-// Then vertex-shader input, sixteen stream sources, pixel shader, and vertex shader are cleared.
-// Xbox 0x0005E110
-void d3d_reset_render_state()
-{
-    g.rs_dxt1_noise = 0;
-    g.rs_dirty |= 0x2000u;
-    g.rs_state_60 = 1;
-    g.rs_dither = 0;
-    g.rs_cull = 0;
-    g.rs_blend_op = 0x8006;
-    g.rs_src_blend = 0x302;
-    g.rs_dest_blend = 0x303;
-    g.rs_alpha_blend = 1;
-    g.rs_alpha_func = 0x204;
-    g.rs_dirty |= 0x1200u;
-    g.rs_state_66 = 0;
-    g.rs_color_write = 0x01010101;
-    g.rs_zfunc = 0x203;
-    g.rs_zwrite = 1;
-    g.rs_zenable = 1;
-    for (int stage = 0; stage < 4; ++stage)
-    {
-        GfxD3D11::StageRs& slot = g.stages[stage];
-        slot.mag_filter = 2;
-        slot.min_filter = 2;
-        slot.color_op = 1;
-        slot.alpha_op = 1;
-        g.rs_dirty |= (1u << stage) | 0x800u;
-    }
-    if (!g.ok)
-    {
-        return;
-    }
-    g.context->RSSetState(g.rast.Get());
-    g.context->OMSetBlendState(g.blend_alpha.Get(), nullptr, 0xFFFFFFFFu);
-    bind_depth_shadow();
-    ID3D11ShaderResourceView* srvs[2] = {};
-    g.context->PSSetShaderResources(0, 2, srvs);
-    ID3D11Buffer* streams[16] = {};
-    UINT strides[16] = {};
-    UINT offsets[16] = {};
-    g.context->IASetVertexBuffers(0, 16, streams, strides, offsets);
-    g.context->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
-    g.context->IASetInputLayout(nullptr);
-    g.vertex_shader = 0;
-    g.context->VSSetShader(nullptr, nullptr, 0);
-    g.context->PSSetShader(nullptr, nullptr, 0);
 }
 
 } // namespace
@@ -3271,7 +3167,7 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
 
     const UINT stride = sizeof(GpuVert);
     const UINT offset = 0;
-    // 0x0005E110 clears the shaders before this draw. Put the UI pipeline back.
+    // The native presenter leaves its own pipeline bound. Put the UI pipeline back.
     g.context->IASetInputLayout(g.layout.Get());
     g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     g.context->VSSetShader(g.vs.Get(), nullptr, 0);
@@ -3295,49 +3191,6 @@ void gfx_draw_sprite(const RgbaImage& image, const GfxRect& rect)
 namespace
 {
 
-// Xbox 0x00033A90
-// DAT_0033A5B8 is the full backbuffer: origin 0, retail 640x480, z 0..1.
-void present_set_viewport()
-{
-    if (!g.ok)
-    {
-        return;
-    }
-    D3D11_VIEWPORT vp{};
-    vp.Width = float(g.cfg.width);
-    vp.Height = float(g.cfg.height);
-    vp.MinDepth = 0.f;
-    vp.MaxDepth = 1.f;
-    g.context->RSSetViewports(1, &vp);
-}
-
-// Xbox 0x00033A90
-// 0x00154A20: D3DDevice_Clear(0, nullptr, flags, DAT_00434264, 1.0f, 0).
-// Z (1) and stencil (2) clear here. The target mask 0xF0 stays off this call so the
-// scene drawn earlier in the frame is still in the color target for the swap.
-void present_clear(u32 flags)
-{
-    if (!g.ok)
-    {
-        return;
-    }
-    UINT bits = 0;
-    if ((flags & 0x1u) != 0)
-    {
-        bits |= D3D11_CLEAR_DEPTH;
-    }
-    if ((flags & 0x2u) != 0)
-    {
-        bits |= D3D11_CLEAR_STENCIL;
-    }
-    if (bits != 0)
-    {
-        g.context->ClearDepthStencilView(g.dsv.Get(), bits, 1.f, 0);
-    }
-}
-
-// Xbox 0x00033A90
-// 0x00154A40. Notify 0, D3DDevice_Swap(0), notify 1.
 // Copies the finished back buffer aside so gfx_present_again can show it again until the next logic tick.
 void retain_last_frame()
 {
@@ -3389,7 +3242,6 @@ void draw_overlays()
 
 void present_swap()
 {
-    gfx_present_swap_notify(0);
     if (g.ok && g.swap)
     {
         retain_last_frame();
@@ -3397,7 +3249,6 @@ void present_swap()
         render_profile::Scope measurement(render_profile::Present);
         g.swap->Present(g.cfg.vsync, 0);
     }
-    gfx_present_swap_notify(1);
 }
 
 // Quad 0x0005E380 / 0x0005E770 push. x,y is the top-left in the 640x480 HUD.
@@ -3419,23 +3270,8 @@ struct HudQuad
 u16 hud_extra = 16;
 std::vector<HudQuad> hud_quads;
 
-// DAT_00504960. 0x00066080 walks begin (+4) up to the cursor (+8), stride 0x18.
-// 0x00065F90 writes the flag at +0x14. No submitter fills this list yet.
-struct DepthProbe
-{
-    float x = 0.f;
-    float y = 0.f;
-    float z = 0.f;
-    float depth = 0.f;
-    float reach = 0.f;
-    float flag = 0.f;
-};
-static_assert(sizeof(DepthProbe) == 0x18, "DAT_00504960 stride");
-
-std::vector<DepthProbe> depth_probes;
-
-// Xbox 0x000F6F70
-// DAT_005096E8 / DAT_005096EA are the HUD width and height, 640x480.
+// Host: the window area the 640x480 HUD (DAT_005096E8 / DAT_005096EA) maps onto, for the viewports and clears
+// the native present (0x000F6F70) records.
 void present_hud_viewport()
 {
     if (!g.ok || g.cfg.width <= 0 || g.cfg.height <= 0)
@@ -3515,37 +3351,11 @@ void present_hud_sprites()
     }
 }
 
-// Xbox 0x00066080
-// An empty cursor matches begin, which is the boot state, so the pass returns.
-void present_sprite_span()
-{
-    if (depth_probes.empty())
-    {
-        return;
-    }
-    for (DepthProbe& probe : depth_probes)
-    {
-        // 0x00065F90 clears the flag, then samples the depth surface when one is locked.
-        probe.flag = 0.f;
-    }
-}
-
-// Xbox 0x00033A90
-// Xbox 0x00033A90
+// Host presentation at D3DDevice_Swap (0x00154A40 in the native present 0x00033A90): the host sprites, then
+// the swap.
 void present_draw_frame()
 {
-    const u32 flags = gfx_present_clear_flags();
-    present_set_viewport();
-    present_clear(flags);
-    d3d_reset_render_state();
-    // 0x000F9780 retires the deferred span at DAT_005079E0.
-    // 0x00036180 submits the draw span at DAT_004DF240 and resets it.
-    gfx_present_overlays();
-    gfx_present_cameras();
-    // 0x000F6F70 restores the HUD viewport from DAT_005096E8 / DAT_005096EA.
     present_hud_sprites();
-    // 0x00066080 walks the 0x18 depth list at DAT_00504960.
-    present_sprite_span();
     present_swap();
 }
 
@@ -3660,7 +3470,7 @@ void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float 
 
 void gfx_end_frame()
 {
-    // Present 0x00033A90 (clear and swap). frame_tick runs 0x00033480 (the controller prompt) and 0x00032AB0.
+    // D3DDevice_Swap: frame_tick's present (0x00033A90) recorded the frame.
     present_draw_frame();
     profile_gpu_end();
 }

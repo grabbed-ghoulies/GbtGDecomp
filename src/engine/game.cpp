@@ -27,6 +27,7 @@
 #include "camera/actor_camera_effects.h"
 #include "camera/entity_camera.h"
 #include "graphics/actor_effect_nodes.h"
+#include "graphics/frame_present.h"
 #include "graphics/gamma_ramp.h"
 #include "gbtg/gfx.h"
 #include "gbtg/language.h"
@@ -70,6 +71,7 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     entity_detail::g_aspect_preset = entity_detail::g_video_widescreen != 0 ? 1 : 0; // DAT_005077F8 = DAT_00509703 != 0
 #endif
     native_input = boot_native_input_stack(); // Boot 0x00033030 -> 0x00033248, 0x00033274; 0x0011C3F0's push.
+    boot_depth_probe_pool(); // Boot 0x00033030 after the boot shaders: DAT_00504960.
     reset_camera_slots(); // Boot 0x00033030 -> 0x00048980
     reset_runtime_frontend(g_frontend, g_pause_ditty); // Boot 0x00033030 -> 0x000E5A80.
     initialize_scene_flags(); // Boot 0x00033030 -> 0x000F2B60
@@ -246,18 +248,10 @@ void frame_tick(Game& g, float dt, const InputState& in)
     }
     // The Bink decoder's clock (BinkWait's timer).
     movie_advance_time(g.clock.dt);
-    // 0x00033A90 collects the deferred model releases (0x000F9780) and flushes the deferred resource unloads
-    // (0x00036180) before it presents.
-    g.factory_scene->actor_services->collect_model_releases();
-    flush_animation_resource_unloads(g.native_resources->registry);
-    // Present 0x00033A90: the movie list, the movie frames into their hooked textures (0x00106CD0), each active
-    // camera slot's view (0x00033A20), then the movie list again. The views run every frame, with or without a
-    // started scene, as the transition camera can hold slot 0 between scenes.
-    tick_native_movie_list(movies);
-    copy_movie_event_frames(movies.session->slots, g.factory_scene->resources.special_textures,
-        movies.session->startup());
-    g.factory_scene->actor_services->present_views();
-    tick_native_movie_list(movies);
+    // The present. The views run every frame, with or without a started scene, as the transition camera can hold
+    // slot 0 between scenes.
+    FramePresentServices present = g.factory_scene->actor_services->frame_present_services(movies);
+    present_frame(present); // 0x00033A90
 }
 
 void Game::tick(float dt, const InputState& in)

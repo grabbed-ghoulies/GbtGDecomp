@@ -1,4 +1,10 @@
 #include "scene_actor_services_state.h"
+#include "../frontend/dialogue_draw_context.h"
+#include "../graphics/frame_present.h"
+#include "../transitions/scene_transitions.h"
+#include "../video/movie_session.h"
+#include "../video/native_movies.h"
+#include "gbtg/anim.h"
 #include "../entities/weapon_fields.h"
 #include <cstddef>
 #include "../entities/body_fields.h"
@@ -132,6 +138,66 @@ void SceneActorServices::save_scene_start()
 std::span<const u8> SceneActorServices::held_scene_order() const
 {
     return state_->scene_order_held;
+}
+
+void SceneActorServices::present_recorded_commands()
+{
+    auto& state = *state_;
+    const SceneD3DPresentContext present{state.resources.memory, state.resources.d3d, state.d3d_device.vertex_shaders,
+        [&state](const u8* record) -> const RgbaImage&
+        {
+            return state.texture_image(record);
+        },
+        [&state](std::uintptr_t color, std::uintptr_t depth)
+        {
+            state.present_render_target(color, depth);
+        },
+        [&state](u32 texture)
+        {
+            state.copy_back_buffer(texture);
+        },
+        [&state]()
+        {
+            state.finish_render_target();
+        }};
+    auto commands = state.d3d_device.take_commands();
+    present_scene_d3d_commands(commands, present);
+    // Recycle the recording boundary's command capacity after synchronous presentation.
+    commands.clear();
+    state.d3d_device.commands = std::move(commands);
+}
+
+FramePresentServices SceneActorServices::frame_present_services(NativeMovieRuntime& movies)
+{
+    auto& state = *state_;
+    DialogueOuterD3DBoundaries& outer = state.d3d_device.outer();
+    return FramePresentServices{state.post_models[0].model != nullptr, state.disable_framebuffer_clear,
+        g_transition_phase, state.hud_size, movies, state.d3d_device.dialogue().viewport, outer.clear,
+        [&state]()
+        {
+            reset_dialogue_sprite_state(*state.dialogue_draw); // 0x0005E110
+        },
+        [this]()
+        {
+            collect_model_releases(); // 0x000F9780
+        },
+        [&state]()
+        {
+            flush_animation_resource_unloads(state.resources.registry); // 0x00036180
+        },
+        [&state, &movies]()
+        {
+            copy_movie_event_frames(movies.session->slots, state.resources.special_textures,
+                movies.session->startup()); // 0x00106CD0
+        },
+        [this]()
+        {
+            present_views(); // 0x00033A20
+        },
+        [this]()
+        {
+            present_recorded_commands();
+        }};
 }
 
 void SceneActorServices::present_views()

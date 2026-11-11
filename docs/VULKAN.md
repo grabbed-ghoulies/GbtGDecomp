@@ -27,7 +27,6 @@ retail translation differs between them.
 | `src/engine/graphics/gfx_render_thread.*` | `GBTG_OPTIMIZE` step 11: the Vulkan backend (and, since step 20, D3D11) on a render thread, fed by a queue of copied `gfx_*` calls |
 | `src/engine/graphics/gfx_shader_sources.*` | The HLSL both backends compile, and native pixel-shader specialization |
 | `src/plugins/shader_warmup/shader_manifest.*` | `cache/shaders.gbtg` format, owned by the shader warm-up plugin |
-| `src/engine/graphics/gfx_present_logic.*` | Retail present logic (0x00033480, 0x00032AB0, 0x00033A90) shared by every backend |
 | `src/engine/graphics/vulkan/vk_context.*` | Instance, device, VMA, buffers, images, barriers |
 | `src/engine/graphics/vulkan/vk_swapchain.*` | Window swapchain |
 | `src/engine/graphics/vulkan/vk_shader_compiler.*` | DXC → SPIR-V, register mapping, `cache/spirv/` |

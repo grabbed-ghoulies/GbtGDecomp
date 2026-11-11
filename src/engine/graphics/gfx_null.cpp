@@ -1,5 +1,4 @@
 #include "gfx_backend.h"
-#include "gfx_present_logic.h"
 #include "gbtg/gfx.h"
 #include "gbtg/movie.h"
 
@@ -128,25 +127,9 @@ void gfx_size(int& width, int& height)
 namespace
 {
 
-// Xbox 0x00033A90
-// DAT_0033A5B8 is the full backbuffer: origin 0, retail 640x480, z 0..1.
-void present_set_viewport()
-{
-}
-
-// Xbox 0x00033A90
-// 0x00154A20: D3DDevice_Clear(0, nullptr, flags, DAT_00434264, 1.0f, 0).
-void present_clear(u32 flags)
-{
-    (void)flags;
-}
-
-// Xbox 0x00033A90
-// 0x00154A40. Notify 0, D3DDevice_Swap(0), notify 1.
+// D3DDevice_Swap: nothing to show.
 void present_swap()
 {
-    gfx_present_swap_notify(0);
-    gfx_present_swap_notify(1);
 }
 
 // Quad 0x0005E380 / 0x0005E770 push. x,y is the top-left in the 640x480 HUD.
@@ -166,21 +149,7 @@ struct HudQuad
 u16 hud_extra = 16;
 std::vector<HudQuad> hud_quads;
 
-// DAT_00504960. Stride 0x18. 0x00065F90 writes the flag at +0x14.
-struct DepthProbe
-{
-    float x = 0.f;
-    float y = 0.f;
-    float z = 0.f;
-    float depth = 0.f;
-    float reach = 0.f;
-    float flag = 0.f;
-};
-static_assert(sizeof(DepthProbe) == 0x18, "DAT_00504960 stride");
-
-std::vector<DepthProbe> depth_probes;
-
-// Xbox 0x000F6F70
+// Host: the HUD area the sprites draw in.
 void present_hud_viewport()
 {
 }
@@ -208,35 +177,11 @@ void present_hud_sprites()
     }
 }
 
-// Xbox 0x00066080
-void present_sprite_span()
-{
-    if (depth_probes.empty())
-    {
-        return;
-    }
-    for (DepthProbe& probe : depth_probes)
-    {
-        probe.flag = 0.f;
-    }
-}
-
-// Xbox 0x00033A90
-// Xbox 0x00033A90
+// Host presentation at D3DDevice_Swap (0x00154A40 in the native present 0x00033A90): the host sprites, then
+// the swap.
 void present_draw_frame()
 {
-    const u32 flags = gfx_present_clear_flags();
-    present_set_viewport();
-    present_clear(flags);
-    // 0x0005E110 installs the frame render states.
-    // 0x000F9780 retires the deferred span at DAT_005079E0.
-    // 0x00036180 submits the draw span at DAT_004DF240 and resets it.
-    gfx_present_overlays();
-    gfx_present_cameras();
-    // 0x000F6F70 restores the HUD viewport from DAT_005096E8 / DAT_005096EA.
     present_hud_sprites();
-    // 0x00066080 walks the 0x18 depth list at DAT_00504960.
-    present_sprite_span();
     present_swap();
 }
 
@@ -273,7 +218,7 @@ void gfx_sprite_submit(const RgbaImage& image, float x, float y, float w, float 
 
 void gfx_end_frame()
 {
-    // Present 0x00033480, then 0x00033A90 (clear and swap). frame_tick runs 0x00032AB0, the app error screen.
+    // D3DDevice_Swap: frame_tick's present (0x00033A90) recorded the frame.
     present_draw_frame();
 }
 

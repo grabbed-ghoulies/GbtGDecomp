@@ -10,6 +10,7 @@ namespace gbtg
 struct AudioListenerSettings;
 struct ScenePauseServices;
 struct ControllerDisconnectServices;
+struct FramePresentServices;
 struct RuntimeHudLayout;
 class SceneFactoryRuntime;
 struct RuntimeDirectorActor;
@@ -117,6 +118,8 @@ public:
     ScenePauseServices& pause_services(); // The pause screen's views (0x0011CE10 ..).
     // The controller prompt's views (0x00033480), with the input stack's top entry and DAT_0050E0F8 read now.
     ControllerDisconnectServices controller_disconnect_services();
+    // The present 0x00033A90 over the scene's recording device, post models, background flag and HUD size.
+    FramePresentServices frame_present_services(NativeMovieRuntime& movies);
     const RuntimeHudLayout& hud_layout() const; // DAT_00509708..
     void refresh_master_pad(); // 0x00109470 on the boot "Scene Master Pad" (the scene record's +0x230)
     void collect_model_releases(); // 0x000F9780 in the present: models released two fences ago go.
@@ -192,6 +195,8 @@ public:
     // (0x0011C240's 0x00121730..0x00121D40) and the scene dialogue (0x00058150 and its sprite flush), and the
     // presenter draws what the recording boundary captured. A frame with no active slot draws no scene.
     void present_views();
+    // Host presentation: hands the recording device's commands since the last hand-over to the presenter.
+    void present_recorded_commands();
     // Boot 0x0011C3F0 -> 0x0011C480: 0x001234B0 over *DAT_00430CF8 holds the game's scene order (DAT_00511B64).
     void hold_boot_scene_order();
     // 0x00117000's save as the scene starts (0x000F2C40, 0x000F2D10 or 0x000F2E80).

@@ -73,7 +73,7 @@ copy of it.
   reference. The unload path is translated (`anim_resources.inl`):
   `0x00035C60` (deferred through `0x000360D0`), `0x00036180` (with
   `0x00036070`, `0x0013A980`, `0x00035650`), `0x00035D30` and `0x00036210`.
-  `frame_tick` flushes at the start of the present as `0x00033A90` does, and
+  The present (`0x00033A90`, `present_frame`) flushes them after its clear, and
   the scene load runs `0x0011C5A0`'s purge loop after the old scene goes.
   `0x00034880` (freeing bundle pools) has no counterpart: the host `AidStore`
   keeps its files. Each scene's `State` removes the callout hook it registers,

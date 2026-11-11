@@ -30,7 +30,7 @@ main()                        src/engine/main.cpp      command line, gbtg.ini, p
          ├─ script_pump                    0x0011E4C0: scene load / script / dialogue
          ├─ run_scene_pass, HUD, effects   0x0011E640, 0x00132210, 0x00060D50
          ├─ audio, movies, file copies, saves
-         └─ present_views                  0x00033A90 → each camera slot's view
+         └─ present_frame                  0x00033A90: clear, each camera slot's view (0x00033A20), HUD viewport
 ```
 
 `src/engine/game.cpp` is deliberately thin: it is the retail `frame_tick`

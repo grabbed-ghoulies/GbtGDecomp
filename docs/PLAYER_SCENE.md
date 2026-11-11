@@ -23,7 +23,8 @@ Read `AGENTS.md` first; every rule there applies.
 2. `0x0011E640` (`run_scene_pass`): activation of new actors (`0x00123070`,
    `0x001231A0`, the one-shot first update `0x00123270`), effects, sounds and
    disposal, including the retired-actor removal `0x001232D0`.
-3. Present `0x00033A90` → per camera slot `0x00033A20` (`present_views`) →
+3. Present `0x00033A90` (`present_frame`: the clear and render-state reset, then) → per camera slot
+   `0x00033A20` (`present_views`) →
    `0x0011C240` per view: the actor bins `0x00121730` / `0x00121880` /
    `0x00121900` (passes 0/1) / `0x00121D40` (pass 2), effects, dialogue
    `0x00058150` and the text pools (`docs/NATIVE_SCENE_PRESENT.md`).

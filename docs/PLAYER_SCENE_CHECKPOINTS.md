@@ -4,6 +4,30 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-11: the present on the native path
+
+- `0x00033A90` (`present_frame`, `src/engine/graphics/frame_present.cpp`) runs at the end of `frame_tick` and
+  replaces the backends' copies and `gfx_present_logic.cpp`, which is gone. The clear mask is 0xF3 unless the first
+  post model (DAT_00512AF0, a sky) is loaded or a background holds DAT_004DEA50
+  ("disableframebufferclear"), which keep the colour target (3); a running transition (DAT_0054632C) always
+  clears it. The viewport (DAT_0033A5B8, 640x480), the clear (`0x00154A20`; DAT_00434264 is BSS, so colour 0)
+  and the render-state reset (`0x0005E110`, `reset_dialogue_sprite_state`) go to the recording device and the
+  presenter ahead of the views. Then `0x000F9780`, `0x00036180`, the movie list, `0x00106CD0`, the views
+  (`0x00033A20`), the HUD viewport and its letterbox clears (`0x000F6F70`, which the host had only approximated),
+  `0x00066080`, `0x00154A40` and the movie list again.
+- `0x00066080`'s pool (DAT_00504960) is made at boot (stride 0x18, four records, grown by four). Nothing in the XBE
+  adds a record, so its pass returns; a record would raise at the untranslated depth sampling (`0x00065F90`).
+- `0x00154A40` calls DAT_0043427C around the swap; it is BSS and never written. `D3DDevice_Swap` is the host's
+  `gfx_end_frame`, which the platform calls once `frame_tick` returns, after the host overlays are built. The
+  backends now only draw the host sprites and swap there. The D3D11 copy of `0x0005E110` is gone; the host draw
+  state keeps the four values its draws read (Z func, alpha func, Z write, Z enable) as fixed defaults.
+- Checked: the Windows and Linux builds; `--title`, `--gameselect`, `--scene7`, `--pause`, `--controller-prompt`
+  and `--player-opening` pass.
+  `--player-opening`'s two captures match this morning's build pixel for pixel. Looked at: the title, scene 6's
+  chapter page at 5120x1440 and 1920x1080, scene 3's dialogue and game select at 1920x1080. Not checked: a scene
+  with a post model or a "disableframebufferclear" background, where the colour target is not cleared (the host's
+  `gfx_begin_frame` still clears it to black first).
+
 ### 2026-11-11: the controller prompt, and a restarted scene's 0x51 node
 
 - `--scene2b8` raised "script type 0x51 without the native scene's actors": Cooper fainted, the scene restarted, and
@@ -39,7 +63,7 @@ checkpoints at the top, below this paragraph.
   continue." in the dialogue box over the held scene; `cache/controller_prompt_resumed.bmp` shows Free Play again.
   Not heard: the silence while the prompt is up.
 - `gfx_present_logic.cpp` still stands in for parts of `0x00033A90` (the clear flags, overlays, camera slots and
-  swap notify).
+  swap notify); the entry above retires it.
 
 ### 2026-11-10: the Super Scary button count follows the script (issue #62)
 

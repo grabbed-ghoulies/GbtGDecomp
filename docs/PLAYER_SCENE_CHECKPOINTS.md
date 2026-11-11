@@ -4,6 +4,21 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-11: the EventComplete soup, and ghoulies that outrun Cooper
+
+- `--scene5_3` had failed since issue #50's fix (2026-11-08): its event is "limited attacks", five for twenty kills,
+  and once the counter counts down the driver's free punching runs it out, the Grim Reaper comes and his touch takes
+  Cooper's 50 energy. The scene's EventComplete soup (powerup kind 5) lies on the floor; 0x00123E70's kind 5
+  completes the event sequence (0x000D0870). The driver now goes for one while an event's steps run (DAT_005064E0
+  holds some): onto a soup on the floor, or to an `aid_ghoulybox_powerups_supersoups_eventcomplete` box first,
+  punched open as the powerup box is. One not reached within 1800 frames is left. Ten of the failing scenes have one
+  (2b4 and 5_3 on the floor; 2c6, 2c7, 3a12, 3b3, 3c3, 3c12, 5_5, 5_8 and 5_10 in a box).
+- After 5_3's event its spiders (class 0x36) scatter. The nearest one changed too often for the minute-per-ghouly
+  chase limit to run out, so Cooper chased them for 20000 frames. A minute of chasing without reaching any ghouly
+  now leaves the chased class while a region or exit is the goal (not during a one-type or kill-count chase).
+- `--scene5_3` passes with no faints (frame 17148, chapter5_scene4_1playcam next); `--scene5_10` passes (its box
+  is up on furniture and is left). Both watched in a window.
+
 ### 2026-11-11: scene 5's driver, and watching a test run
 
 - `--scene5` passes again. Its event (8 skeletons) was won, but the title goes back to Free Play after a win as after

@@ -9608,6 +9608,9 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     constexpr gbtg::u32 kEveryBox = 0xFFFFFFFFu;
     bool powerup_seen = false; // The box's powerup has come out.
     bool key_found = false; // An armed bg-break key has come out.
+    // The frame Cooper set out for an EventComplete soup, and whether he left it as out of reach.
+    int event_soup_since = -1;
+    bool event_soup_left = false;
     std::string title = game.scene_name;
     const std::string scene_script = game.scene_script.name;
     auto& actors = game.factory_scene->start_actors(game);
@@ -9631,6 +9634,11 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
     const gbtg::Actor* chased = nullptr;
     int chased_since = 0;
     std::set<const gbtg::Actor*> unreachable;
+    // A minute of chasing ghoulies without getting within reach of any leaves their class to them while a region or
+    // exit waits: after scene 5_3's event its spiders (class 0x36) scatter, and the nearest one changed too often for
+    // the minute per ghouly to run out.
+    int last_contact = 0;
+    std::set<gbtg::u16> outrun;
     std::set<const gbtg::Actor*> exploding_actors; // Bodies seen in the explode state (type 0x68).
     int explode_capture_until = -1;
     // A ghouly fought up close for 20 s in all without its energy (body +0x94) falling is left too: scenes 2b8 and
@@ -9720,6 +9728,11 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
         if (cooper && energy != last_energy)
         {
             std::cout << label << " frame " << frame << ": Cooper's energy " << last_energy << " -> " << energy << "\n";
+            if (last_energy == 0 && energy != 0 && frame != 0)
+            {
+                // The restarted scene's eventcomplete box is whole again.
+                event_soup_since = -1;
+            }
             if (last_energy == 0 && energy != 0 && frame != 0 && !powerup_box.empty())
             {
                 // A faint restarts the scene and its boxes: scene 3b4's energy soup is fetched again.
@@ -9924,7 +9937,8 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     || gbtg::body_record(mark.body).energy == 0
                     || (mark.actor->class_key >= 0x26 && mark.actor->class_key <= 0x30) || mark.actor->class_key == 0x37
                     || mark.actor->class_key == 8 || mark.actor->class_key == 6 || mark.actor->class_key == 0xB
-                    || (mark.actor->class_key == 0x33 && goal))
+                    || (mark.actor->class_key == 0x33 && goal)
+                    || (outrun.contains(mark.actor->class_key) && goal && one_type == 0))
                 {
                     continue;
                 }
@@ -10254,6 +10268,92 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                     || (dx * dx + dz * dz < 24.f * 24.f && ax * ax + az * az < 6.f * 6.f);
             }
         }
+        // While an event's steps run (DAT_005064E0 holds some), an EventComplete soup wins it: 0x00123E70's kind 5
+        // completes the sequence (0x000D0870). One on the floor (type 0xD, +0x940 5, +0x93C 0 in flight or 1 landed)
+        // is walked onto; an eventcomplete box is first broken for its soup, as for the powerup box. Scene 5_3's
+        // "limited attacks" event gives Cooper five attacks for twenty kills, and its soup lies on the floor. One not
+        // reached within 1800 frames is left as out of reach.
+        if (cooper && !page && !event_soup_left)
+        {
+            const auto* steps = gbtg::g_event_sequence.steps;
+            const bool event_running = steps != nullptr && steps->end != steps->begin;
+            std::optional<gbtg::Vec3> soup_at;
+            std::optional<gbtg::Vec3> soup_box;
+            const auto reach = [&](const gbtg::Vec3& point)
+            {
+                const float dx = point.x - cooper->x;
+                const float dz = point.z - cooper->z;
+                return dx * dx + dz * dz;
+            };
+            for (const auto& object : game.factory_scene->objects)
+            {
+                if (!event_running || object.bytes == nullptr)
+                {
+                    continue;
+                }
+                const std::span<const gbtg::u8> bytes{object.bytes.get(), object.size};
+                const gbtg::Actor* actor = actor_of_object(game, object);
+                if (actor == nullptr)
+                {
+                    continue;
+                }
+                const gbtg::Vec3 at = gbtg::actor_world_position(*actor);
+                if (object.type == 0xD && object.size >= 0x950 && gbtg::read_u32(bytes, 0x940) == 5
+                    && gbtg::read_u32(bytes, 0x93C) <= 1 && (!soup_at || reach(at) < reach(*soup_at)))
+                {
+                    soup_at = at;
+                }
+                if (object.type == 0x24 && object.size >= 0xA7C
+                    && std::string_view(reinterpret_cast<const char*>(bytes.data() + 0x934))
+                        == "aid_ghoulybox_powerups_supersoups_eventcomplete"
+                    && gbtg::read_u32(bytes, 0xA50) == 0 && (!soup_box || reach(at) < reach(*soup_box)))
+                {
+                    soup_box = at;
+                }
+            }
+            if (soup_at || soup_box)
+            {
+                if (event_soup_since < 0)
+                {
+                    event_soup_since = frame;
+                    std::cout << label << " frame " << frame << ": Cooper goes for the EventComplete soup"
+                              << (soup_at ? "" : "'s box") << "\n";
+                }
+                else if (frame > event_soup_since + 1800)
+                {
+                    std::cout << label << " frame " << frame << ": the EventComplete soup is out of reach\n";
+                    event_soup_left = true;
+                }
+            }
+            if (!event_soup_left && soup_at)
+            {
+                ghouly.reset();
+                goal = soup_at;
+                goal_name = "the EventComplete soup";
+                punch_box = false;
+                box_at.reset();
+            }
+            else if (!event_soup_left && soup_box)
+            {
+                ghouly.reset();
+                gbtg::Vec3 approach = *soup_box;
+                using namespace gbtg::entity_detail;
+                const gbtg::i32 floor = navigation_floor_index(*soup_box, -1, 0);
+                const gbtg::i32 cell = floor < 0 ? -1 : navigation_cell_index(floor, *soup_box);
+                if (cell >= 0)
+                {
+                    navigation_nearest_open_cell(gbtg::u32(cell), floor, &approach);
+                }
+                goal = approach;
+                goal_name = "the eventcomplete box";
+                box_at = soup_box;
+                const float d = reach(*soup_box);
+                const float ax = approach.x - cooper->x;
+                const float az = approach.z - cooper->z;
+                // As for the key's part: from its open cell he punches from within 24.
+                punch_box = d < 16.f * 16.f || (d < 24.f * 24.f && ax * ax + az * az < 6.f * 6.f);
+            }
+        }
         // A ghouly within 16 is attacked with the right stick; a farther one is walked to like a goal, so the walk's
         // held-cell avoidance applies to it too. Holding a weapon, `weapon_reach` replaces the 16: scene 3c11's popcan
         // gun, with Cooper on one energy among the hallway's skeletons.
@@ -10364,6 +10464,17 @@ void play_scene7_run(gbtg::Game& game, const std::string& label, float fight_ran
                 unreachable.insert(ghouly_actor);
                 chased = nullptr;
             }
+            if (frame > last_contact + 3600 && !one_type_chase && !outrun.contains(ghouly_class))
+            {
+                std::cout << label << " frame " << frame << ": a minute of chasing without reaching a ghouly; class 0x"
+                          << std::hex << ghouly_class << std::dec << " is left while a region or exit waits\n";
+                outrun.insert(ghouly_class);
+                last_contact = frame;
+            }
+        }
+        else
+        {
+            last_contact = frame;
         }
         if (close)
         {

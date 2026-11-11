@@ -4,6 +4,23 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-11: frontier rows rechecked (script cases, the snapshot, the effect sprite)
+
+- Script actions (`0x00126E10`, `0x00127BC0`) and condition nodes (`0x00125450`, including 0x65, 0x75, 0x8B, 0x8C
+  and 0xA3) were already translated; the frontier table still called them legacy and partial.
+- The actor snapshot (`0x00116530`) is not empty. In `--player-fight` each capture records 39 model draws and its
+  64x64 texture comes back with about 600 of 4096 texels lit (one dumped: an imp from above). `0x00116460` projects
+  each snapshot (colour 0x5000FF00) onto the background grid (DAT_005462EC is set); most of the run's snapshots sit
+  outside the view and are culled, a few draw a cell. No capture has caught a decal in view.
+- `0x000EFEA0`'s draw mode 2 branch (`0x0005CA10`) is unreachable: `0x000ED390` is its only caller, through the
+  mode 0 entry of its jump table (0x000ED438: 0x000ED3DA, 0x000ED3F1, 0x000ED3E3, 0x000ED3F1, 0x000ED3EA), and mode 2
+  goes to `0x000F0010`. `0x0005CA10`'s transform (`0x0005C6C0`) also multiplies by a matrix at ESP+0x80 that it never
+  writes, and calls D3DXMatrixRotationX for all three angles. The branch stays a raise, now saying why.
+- Issue #58 (`--scene2a12`): the hunchback blocks 9 times in 10 (attack chance 0.1), only his torso shape
+  (flag 2) takes damage, his head, hump and limbs deflect (0x20000), and while dizzy the punches meet those. The
+  strategy, message handler, damage entry, deflect check, lock-on record, aim, lunge and turn all match their dumps;
+  left open.
+
 ### 2026-11-11: the present on the native path
 
 - `0x00033A90` (`present_frame`, `src/engine/graphics/frame_present.cpp`) runs at the end of `frame_tick` and

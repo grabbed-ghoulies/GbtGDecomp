@@ -55,7 +55,10 @@ void draw_actor_effect_particle(ActorEffectNode& effect, size_t index, Billboard
         queue_billboard(queue, effect.texture.data(), color, frame, position, size.data(), spin.z);
         return;
     case 2:
-        throw Error("untranslated Xbox 0x0005CA10 (an effect's mode 2 sprite, 0x000EFEA0)");
+        // Unreachable in retail: 0x000ED390's only call to this function is its draw mode 0 entry (the table at
+        // 0x000ED438 sends mode 2 to 0x000F0010). 0x0005CA10's transform (0x0005C6C0) also multiplies by a matrix
+        // it never writes (ESP+0x80), so its result is whatever an earlier call left on the stack.
+        throw Error("0x000EFEA0 reached with draw mode 2, which 0x000ED390 sends to 0x000F0010 (0x0005CA10)");
     }
 }
 

@@ -430,10 +430,11 @@ the script moves on to `aid_script_ghoulies_chapter2a_scene1_2book`, which nothi
 | Path | Stop | What it needs |
 |---|---|---|
 | The brew offer after a death | not reached | The death state's state 4 (`0x0008F290` with the unlock bit 3, enough brews and a chapter below 8): "intros_brewoffer" and its answer; the opening scene's runs have no brews |
-| Script actions | legacy | `0x00126E10`'s other cases (0x4D, 0x4E, 0x62, 0x67, 0x6E, 0x73, 0x8E, 0x9D) and `0x00127BC0`'s cases still compute values and skip their callees; this scene does not reach them |
-| Present (the snapshot) | renders nothing | `0x00116530` records its draws but the texture stays empty |
+| Script actions | native | Rechecked 2026-11-11: every case of `0x00126E10` (0x4D, 0x4E, 0x60, 0x62, 0x67, 0x6E, 0x73, 0x74, 0x8E, 0x9D, 0x9E) and of `0x00127BC0` calls its callees |
+| The actor snapshot | native | Rechecked 2026-11-11: `0x00116530` renders the actor into its 64x64 texture (about 600 of 4096 texels lit in `--player-fight`) and `0x00116460` projects it onto the background grid; no capture has caught a decal in view yet |
+| Effect sprite mode 2 in `0x000EFEA0` | unreachable | `0x000ED390` calls `0x000EFEA0` for draw mode 0 only (table 0x000ED438); `0x0005CA10` is never called, and its transform `0x0005C6C0` multiplies by an unwritten stack matrix |
 | Scene 3's Free Play branches (`--scene3`) | native | Free Play's node 0x51 on the skeletons sends message 1 over the native DAT_00511B38 walk (2026-10-24) |
-| Script condition nodes | partial | `0x00125450` registers types 0x3D..0x3F, 0x40..0x44, 0x47, 0x48, 0x5A, 0x5B, 0x66, 0x68, 0x6A, 0x6C, 0x72, 0x92, 0x93, 0x94, 0x95 and 0x99; retail also takes 0x65, 0x75, 0x8B, 0x8C and 0xA3, which raise |
+| Script condition nodes | native | Rechecked 2026-11-11: `0x00125450` registers every type retail takes, including 0x65, 0x75, 0x8B, 0x8C and 0xA3 |
 | Script event steps | native | Rechecked 2026-11-08: the builders (script types 0x19..0x27, 0x50, 0x5F, 0x87 and 0x88) and the step runners of the `0x003039CC` table (`0x000D0B40`) are translated, up to type 0x12 |
 | The Grim Reaper's dizziness | native | `0x000AD600` turns him dizzy (0x3EA) while DAT_00512170 is set: the DizzyReaper powerup row (kind 2), which `0x00123E70` sets |
 | Blob shadows | off | DAT_0050EF18 is never set, so 0x00119A60 hands out no shadow (the reaper's included) and the draw 0x00119AD0 is not reached |

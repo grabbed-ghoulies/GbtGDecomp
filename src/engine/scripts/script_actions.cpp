@@ -1729,10 +1729,12 @@ int script_handle_actor_actions(Game& g, const ScriptNode& node)
         // Message 1 to each DAT_00511B38 actor (node - 0x934) of the tag whose +0x1FC word is node+0x48, or any.
         const u16 tag = static_cast<u16>(script_find_actor_tag(node_cstr(g.scene_script, node, 8).c_str()));
         const u32 mark = node_u32(g.scene_script, node, 0x48);
-        SceneActorServices* actors = script_scene_actors(g);
+        // DAT_00511B38 is a global list: retail walks it whether or not the scene has started (a restarted scene's
+        // condition tick reaches this node before 0x0011CB60). Without a native scene the list is empty.
+        SceneActorServices* actors = g.factory_scene != nullptr ? g.factory_scene->actor_services.get() : nullptr;
         if (actors == nullptr)
         {
-            throw Error("script type 0x51 without the native scene's actors (DAT_00511B38)");
+            return 2;
         }
         for (const auto& marked : actors->marked_actors())
         {

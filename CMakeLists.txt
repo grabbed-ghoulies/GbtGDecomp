@@ -718,6 +718,7 @@ add_executable(gbtg
     src/engine/runtime/clock.cpp
     src/engine/audio/pcm_out.cpp
     src/engine/audio/mix_recorder.cpp
+    src/engine/frontend/controller_disconnect.cpp
     src/engine/audio/core_memory.cpp
     src/engine/audio/core_source.cpp
     src/engine/audio/core_cue.cpp

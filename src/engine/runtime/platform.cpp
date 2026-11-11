@@ -287,10 +287,17 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         }
         // 0x001555B0 polls XInput into the four ports: thumbsticks, trigger bytes and the button word. XInput's
         // shoulders stand in for Black (RB) and White (LB); 0x00154E50 sets 0x4000/0x8000 from trigger bytes >= 30.
+        in.connected_ports = 0; // Only a pad sets its port's bit; the keyboard is not a pad.
         for (DWORD port = 0; port < 4; ++port)
         {
             XINPUT_STATE state{};
-            if (!focused || XInputGetState(port, &state) != 0)
+            if (XInputGetState(port, &state) != 0)
+            {
+                continue;
+            }
+            // Connected whether or not the window has the focus; only its buttons need the focus.
+            in.connected_ports |= 1u << port;
+            if (!focused)
             {
                 continue;
             }

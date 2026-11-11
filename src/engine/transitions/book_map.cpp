@@ -604,7 +604,7 @@ u32 tick_book_map(RuntimeTransitionBook& book, TransitionBookServices& services)
             throw Error("0x000475B0 updates the map menu through address zero");
         }
         s.widget_update->input.devices = s.input->entries;
-        s.widget_update->input.selected = s.input->selected;
+        s.widget_update->input.selected = &s.input->selected;
         s.widget_update->input.device_views = s.input_views;
         const RuntimeDialogueInputDevice device{book.map_input, {nullptr, nullptr, nullptr, nullptr}};
         done = update_dialogue_widget(*book.map_widget, &device, *s.widget_update); // 0x00142460, EAX +0x15C

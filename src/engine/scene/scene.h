@@ -33,4 +33,8 @@ void request_scene_aid(const char* src, i32 mode);
 // The player's exit, notice and camera-tune volumes, at the head of 0x00117100.
 void scene_update_actor_marker(Game& g); // Xbox 0x00140E30
 
+// The movie event slots that play wait (state 3), mode DAT_0050DD8C 3; and back (state 2), mode 2.
+void scene_enable_overlays(); // Xbox 0x00106E90
+void scene_disable_overlays(); // Xbox 0x00106EC0
+
 } // namespace gbtg

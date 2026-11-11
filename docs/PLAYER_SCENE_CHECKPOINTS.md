@@ -4,6 +4,43 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-11: the controller prompt, and a restarted scene's 0x51 node
+
+- `--scene2b8` raised "script type 0x51 without the native scene's actors": Cooper fainted, the scene restarted, and
+  the restarted script's condition tick (`0x00117100`) reached a type 0x51 node before `0x0011CB60` started the
+  actors. DAT_00511B38 is a global list that retail walks whatever the scene's state; the node now walks the port's
+  list (`g_world.mark`) through the scene's actor services without the start check. `--scene2b8` passes.
+- The controller prompt (`0x00033480`, `src/engine/frontend/controller_disconnect.cpp`) replaces the
+  `gfx_present_logic.cpp` stand-in, which started in phase 4 with no pad mask and never left it. Retail's machine:
+  phase 4 waits for a connected pad (`0x001554C0`); phase 1 opens the prompt (`0x000337B0`) when `0x000335A0` asks
+  (DAT_004DEA38) or the input stack's top device is unplugged (`0x001082B0`); phase 2 holds the game until Start on
+  the prompt's own device; phase 3 lets the line fade, then phase 1. Opening it silences the audio (`0x00033720`:
+  the "XACT_SILENCE" bank, `0x00038A70` pausing the id 0x12 banks, DAT_0050EA9C bit 0x80), pauses the game (bit
+  0x2000 unless already set), makes a text pool (wrap 375) and an input device for the top entry's kind
+  (`0x00108180`; kinds 4 and 5 raise at the untranslated `0x00107900` / `0x00107AE0`), pushes "PLEASE_INSERT_PAD",
+  writes the port's line (`0x00033610`: Port1 .. Port4 or PortAny of "noControllerText" in
+  aid_loctext_ghoulies_pause_nocontroller) 50 below the HUD centre, and holds the movie events (`0x00106E90`).
+- Bit 0x80 is the prompt's: earlier notes said nothing sets it. `frame_tick` now runs `0x00033B50`'s tail as
+  retail does: with bit 0x80 clear the scene block, `0x00033480` and the app error screen (`0x00032AB0`); with it
+  set `0x0011D410` (the pause book's page capture, `mark_scene_pause_book_page`) and `0x00033480`, with no error
+  screen.
+- Host boundary: `InputState::connected_ports` (bit n for port n) feeds DAT_0032E3B4, which `pad_poll`
+  (`0x001555B0`, XGetDeviceChanges) stores. Only a pad sets its bit: XInput and SDL set a port's whenever it
+  answers, focused or not. The keyboard drives port 0's buttons but is not a pad, so unplugging port 0's pad opens
+  the prompt as on retail; with no pad at all the machine stays in phase 4 and never prompts.
+- The scene's dialogue input state read copies: no device table, a zero DAT_0050E0F8, DAT_004DEA34 / DAT_004DEA38
+  as private zeros and DAT_0050E0EC copied before some calls. It now holds the device table and pointers to the
+  prompt's phase and request and to DAT_0050E0EC, and resolves devices through the scene's views (the boot's
+  master pad is registered there too). `--attract` counted 8 clip starts in one run and 9 in the next with the same
+  input, so its count varies run to run.
+- `--controller-prompt` (new) boots scene 3, unplugs every pad in Free Play and checks the prompt holds the scene
+  (bits 0x2080), then reconnects port 0, presses Start and checks the scene runs on with both bits clear. Looked
+  at: `cache/controller_prompt_open.bmp` shows "Please reconnect the controller to Port 1 and press START to
+  continue." in the dialogue box over the held scene; `cache/controller_prompt_resumed.bmp` shows Free Play again.
+  Not heard: the silence while the prompt is up.
+- `gfx_present_logic.cpp` still stands in for parts of `0x00033A90` (the clear flags, overlays, camera slots and
+  swap notify).
+
 ### 2026-11-10: the Super Scary button count follows the script (issue #62)
 
 - Issue #62: every Super Scary challenge asked for 4 buttons; retail asks for more as the game goes on (15 in
@@ -24,7 +61,7 @@ checkpoints at the top, below this paragraph.
   then the scene. The port had pumped the script and run the scene before the audio, files and saves, and pumped
   the script (`0x0011E4C0`) even while the app error screen holds `DAT_0050EA9C` bit 0x40000, which retail skips.
   Bit 0x80 sends retail through `0x0011D410` (the pause book's page flags) and skips the scene and the app error
-  screen; nothing in the executable or the scripts sets that bit, so the port raises there. `0x000F7290` walks the
+  screen; the port raised there (the controller prompt's `0x00033720` sets it; see 2026-11-11). `0x000F7290` walks the
   heap table and writes nothing. `--attract` now counts 9 clip starts where it counted 8.
 - The census's unnamed frontier, checked caller by caller: `0x0005A8C0` / `0x0005A8F0` (the run's score in a
   dialogue page) and `0x001432A0` (the keyboard's input test) were inline and are now named. `0x00038FE0`,

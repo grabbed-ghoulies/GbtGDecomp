@@ -13,6 +13,7 @@ struct RuntimeDialogueTextPool;
 struct RuntimeDialogueWidget;
 struct RuntimeHudLayout;
 struct RuntimeTransitionBook;
+class SceneExecutableResources;
 struct TransitionBookServices;
 // The scene's pause screen (DAT_00510CF0 .. DAT_00510E50). Start in a running scene asks for scene state 6
 // (0x0011E7F0); entering it (0x0011CE10) opens the book on the scene's clip with "Paused", the chapter and scene
@@ -87,6 +88,9 @@ i32 scene_bonus_book_index(ScenePauseServices& services); // Xbox 0x0011ECF0, EA
 void enter_scene_pause(ScenePauseServices& services); // Xbox 0x0011CE10
 void leave_scene_pause(ScenePauseServices& services); // Xbox 0x0011CE40
 void tick_scene_pause(ScenePauseServices& services); // Xbox 0x0011CFB0
+// While the controller prompt holds the frame (DAT_0050EA9C bit 0x80): the open pause book's page to capture by
+// how far it has turned, as 0x0011CFB0's tail marks it, without ticking the book.
+void mark_scene_pause_book_page(const SceneExecutableResources& image); // Xbox 0x0011D410
 void draw_scene_pause(ScenePauseServices& services); // Xbox 0x0011DB50
 void reset_scene_pause(ScenePauseServices& services); // Xbox 0x0011CD90
 void name_scene(const char16_t* name); // Xbox 0x0011DCF0, EAX the name or null

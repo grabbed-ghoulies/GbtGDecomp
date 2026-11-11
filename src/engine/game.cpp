@@ -13,6 +13,7 @@
 #include "scene/scene_pause.h"
 #include "scripts/script_chapter.h"
 #include "frontend/app_error_screen.h"
+#include "frontend/controller_disconnect.h"
 #include "frontend/frontend_sounds.h"
 #include "frontend/frontend_state.h"
 #include "transitions/scene_transitions.h"
@@ -94,6 +95,9 @@ void Game::init(const std::filesystem::path& game_dir, std::string_view scene_se
     {
         factory_scene->actor_services->reset_scene_score_words();
     }); // 0x0011EA50, after its 0x0011C3F0
+    // fs_init 0x00033980's stores after its 0x00033030: the controller prompt waits for a pad (phase 4) at the
+    // HUD centre.
+    boot_controller_disconnect(factory_scene->actor_services->hud_layout());
     movie_set_root(game_dir);
     movie_boot_probe();
     log::verbose("fs_init: %s common.bnl entries %zu", aids.game_dir.string().c_str(), aids.common.entries.size());
@@ -213,24 +217,33 @@ void frame_tick(Game& g, float dt, const InputState& in)
     // The save timer and the queued saves (0x0010F440).
     SaveGameContext saves{movies.session->files(), g_runtime_profile, {}};
     tick_save_games(g_sim_dt, saves);
-    if ((g_flags_ea9c & 0x80u) != 0)
+    // Bit 0x80 is the controller prompt's hold (0x00033720): the scene stops and only its pause book is marked.
+    if ((g_flags_ea9c & 0x80u) == 0)
     {
-        throw Error("0x00033B50 with DAT_0050EA9C bit 0x80 calls 0x0011D410, which is not translated");
-    }
-    if ((g_flags_ea9c & 0x40000u) == 0)
-    {
-        // 0x0011E4C0. A queued aid_script loads when the stream enters state 4; run state 1 (or 2) ticks the scene
-        // through 0x0011E7F0: the dialogue (0x00057E60), the fired script and its condition timers (0x00117100).
-        script_pump(g);
-        if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+        if ((g_flags_ea9c & 0x40000u) == 0)
         {
-            g.factory_scene->start_actors(g).run_scene_pass(); // 0x0011E640
-            g.factory_scene->start_actors(g).update_scoreboard_hud(); // 0x00132210
-            g.factory_scene->start_actors(g).tick_screen_effects(); // 0x00060D50
-            tick_actor_camera_effects(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f); // 0x00048F90
+            // 0x0011E4C0. A queued aid_script loads when the stream enters state 4; run state 1 (or 2) ticks the
+            // scene through 0x0011E7F0: the dialogue (0x00057E60), the fired script and its condition timers
+            // (0x00117100).
+            script_pump(g);
+            if (g.factory_scene != nullptr && g.factory_scene->actor_start == 1)
+            {
+                g.factory_scene->start_actors(g).run_scene_pass(); // 0x0011E640
+                g.factory_scene->start_actors(g).update_scoreboard_hud(); // 0x00132210
+                g.factory_scene->start_actors(g).tick_screen_effects(); // 0x00060D50
+                tick_actor_camera_effects(g_sim_freeze <= 0.f ? g_sim_dt * g_sim_scale : 0.f); // 0x00048F90
+            }
         }
+        ControllerDisconnectServices prompt = g.factory_scene->actor_services->controller_disconnect_services();
+        tick_controller_disconnect(prompt); // 0x00033480
+        tick_app_error_screen(); // 0x00032AB0
     }
-    tick_app_error_screen(); // 0x00032AB0, after 0x00033480 (the backend's end of frame)
+    else
+    {
+        mark_scene_pause_book_page(*g.executable_resources); // 0x0011D410
+        ControllerDisconnectServices prompt = g.factory_scene->actor_services->controller_disconnect_services();
+        tick_controller_disconnect(prompt); // 0x00033480
+    }
     // The Bink decoder's clock (BinkWait's timer).
     movie_advance_time(g.clock.dt);
     // 0x00033A90 collects the deferred model releases (0x000F9780) and flushes the deferred resource unloads

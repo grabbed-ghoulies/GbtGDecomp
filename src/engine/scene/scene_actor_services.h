@@ -9,6 +9,8 @@ namespace gbtg
 {
 struct AudioListenerSettings;
 struct ScenePauseServices;
+struct ControllerDisconnectServices;
+struct RuntimeHudLayout;
 class SceneFactoryRuntime;
 struct RuntimeDirectorActor;
 struct RuntimeEffectPassScratch;
@@ -113,6 +115,9 @@ public:
     // nonzero, 0x001083F0 (EAX the device, 0x10): Start newly pressed.
     bool start_pressed();
     ScenePauseServices& pause_services(); // The pause screen's views (0x0011CE10 ..).
+    // The controller prompt's views (0x00033480), with the input stack's top entry and DAT_0050E0F8 read now.
+    ControllerDisconnectServices controller_disconnect_services();
+    const RuntimeHudLayout& hud_layout() const; // DAT_00509708..
     void refresh_master_pad(); // 0x00109470 on the boot "Scene Master Pad" (the scene record's +0x230)
     void collect_model_releases(); // 0x000F9780 in the present: models released two fences ago go.
     void flush_model_releases(); // 0x000F97F0, the scene teardown's: every deferred model goes.

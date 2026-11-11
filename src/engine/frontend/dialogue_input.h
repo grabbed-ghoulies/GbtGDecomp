@@ -17,10 +17,10 @@ struct RuntimeDialogueInputState
     std::span<const u8> keyboard; // DAT_00507C98
     std::span<const u8> device_masks; // DAT_0032E3B4, stride 8
     u32 selected_mask; // DAT_0050E0F8
-    i32 activation_mode; // DAT_004DEA34
-    i32 activated; // DAT_004DEA38
+    i32* activation_mode; // DAT_004DEA34, the controller-disconnect phase (controller_disconnect.h)
+    i32* activated; // DAT_004DEA38, its request to show the prompt
     const GhoulySpawnPool* devices; // DAT_0050E0E8, native pointer entries
-    i32 selected; // DAT_0050E0EC, one based
+    const i32* selected; // DAT_0050E0EC, one based
     const std::unordered_map<u32, RuntimeDialogueInputDevice>* device_views = nullptr; // Native u32 address mapping.
 };
 u32 runtime_input_device_mask(const RuntimeDialogueInputState& state, i32 kind); // Xbox 0x001554C0

@@ -112,6 +112,7 @@
 #include <bit>
 #include "../frontend/dialogue_text_metrics.h"
 #include "../frontend/gameselect_progress.h"
+#include "../frontend/controller_disconnect.h"
 #include "../frontend/hud_layout.h"
 #include "../frontend/dialogue_text_system.h"
 #include "../frontend/dialogue_activation.h"
@@ -674,7 +675,9 @@ struct SceneActorServices::State
     // arrive while the factory walks and releases other objects by reference.
     std::deque<FactoryObject> released_weapons;
     std::unordered_map<const Actor*, Vec3> released_positions; // An actor's position as its view is released.
-    RuntimeDialogueInputState input_state{keyboard, {}, 0, 0, 0, input_pool, 0, nullptr};
+    // The device table (DAT_0032E3B4) and the controller prompt's phase and request (DAT_004DEA34, DAT_004DEA38).
+    RuntimeDialogueInputState input_state{keyboard, runtime_input_device_table(), 0, &g_controller_disconnect.phase,
+        &g_controller_disconnect.requested, input_pool, &input_selected, &input_views};
     u32& brews_taken = reinterpret_cast<u32&>(g_runtime_profile.times[4]); // DAT_00506C88, the profile's total.
     u32 brew_accepted = 0; // DAT_00430D98.
     i32 prompt_lock = -1; // DAT_004E1C34, 0x0011C480: the scene cutscene stack's top, which its runtime binds.

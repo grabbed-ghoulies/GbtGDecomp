@@ -142,7 +142,7 @@ u32 update_prompts(RuntimeDialogueWidget& prompts, const RuntimeDialogueInputDev
 {
     auto& update = *s.books.widget_update;
     update.input.devices = s.books.input->entries;
-    update.input.selected = s.books.input->selected;
+    update.input.selected = &s.books.input->selected;
     update.input.device_views = s.books.input_views;
     return update_dialogue_widget(prompts, device, update); // 0x00142460, EAX the device, EDI the widget
 }
@@ -596,6 +596,35 @@ void leave_scene_pause(ScenePauseServices& s)
         bank.id = 0;
     }
     s.audio_level(1.f); // 0x00038110, DAT_0032B0F8.
+}
+
+// Xbox 0x0011D410
+void mark_scene_pause_book_page(const SceneExecutableResources& image)
+{
+    const auto& p = g_scene_pause;
+    if (p.phase < 2 || (7 < p.phase && p.phase != 9) || p.book == nullptr) // DAT_00510CF4, DAT_00510E24
+    {
+        return;
+    }
+    RuntimeTransitionBook& shown = *p.book;
+    const float position = book_position(shown);
+    i32 page;
+    if (position <= transition_book_threshold(shown, 0x104, image)) // 0x0042217C
+    {
+        page = transition_book_row_word(shown, 0x10C, image); // 0x00422184
+    }
+    else if (position <= transition_book_threshold(shown, 0x108, image)) // 0x00422180
+    {
+        return;
+    }
+    else
+    {
+        page = transition_book_row_word(shown, 0x110, image); // 0x00422188
+    }
+    if (page != -1)
+    {
+        shown.pages.at(size_t(page)).capture = 1; // +0x94 + page * 0x10
+    }
 }
 
 // Xbox 0x0011CFB0

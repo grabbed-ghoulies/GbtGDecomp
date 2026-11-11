@@ -870,7 +870,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
                 }
             }
             input_state.devices = input_activation.entries;
-            input_state.selected = input_selected;
+            input_state.selected = &input_selected;
             return;
         }
         if (message[0] == 0xB)
@@ -887,7 +887,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
                 }
             }
             input_state.devices = input_activation.entries;
-            input_state.selected = input_selected;
+            input_state.selected = &input_selected;
             return;
         }
         if (message[0] == 0xE || message[0] == 0xF)
@@ -911,7 +911,7 @@ void SceneActorServices::State::route_object_message(FactoryObject& object, std:
                 }
             }
             input_state.devices = input_activation.entries;
-            input_state.selected = input_selected;
+            input_state.selected = &input_selected;
             return;
         }
         player.self.message(message);
@@ -1706,7 +1706,7 @@ void SceneActorServices::State::attach_player_messages(FactoryObject& object, Na
         messages->context.animation = player.actor_instance.animation.controller.get();
         dispatch_runtime_player_message(const_cast<u32*>(words.data()), messages->context, messages->children);
         input_state.devices = input_activation.entries;
-        input_state.selected = input_selected;
+        input_state.selected = &input_selected;
     };
 }
 

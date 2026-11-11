@@ -300,7 +300,7 @@ u32 update_title_prompts(RuntimeSceneTransition& t, bool with_device)
 {
     auto& s = services();
     s.widget_update.input.devices = s.input.entries;
-    s.widget_update.input.selected = s.input.selected;
+    s.widget_update.input.selected = &s.input.selected;
     s.widget_update.input.device_views = &s.input_views;
     if (!with_device || t.title_input.data() == nullptr)
     {

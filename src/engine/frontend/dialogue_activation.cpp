@@ -379,7 +379,7 @@ void update_runtime_dialogue(RuntimeDialogueActivationContext& context)
         }
         refresh_runtime_input_device(state.input_address, context.frame, context.input, context.input_release);
         context.widget_update.input.devices = context.input.entries;
-        context.widget_update.input.selected = context.input.selected;
+        context.widget_update.input.selected = &context.input.selected;
         context.widget_update.input.device_views = &context.input_views;
         const RuntimeDialogueInputDevice device{state.input, {nullptr, nullptr, nullptr, nullptr}};
         update_dialogue_widget(*state.widget, &device, context.widget_update);

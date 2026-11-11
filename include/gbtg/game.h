@@ -51,6 +51,10 @@ struct InputState
         u16 buttons = 0;
     };
     std::array<PadPacket, 4> pads{};
+    // The gamepad ports XInput reports connected (XGetDevices / XGetDeviceChanges, bit n for port n), which
+    // 0x001555B0 keeps at DAT_0032E3B4. Only a pad sets its bit: the keyboard drives port 0's buttons but is not
+    // a pad. The host pollers start from 0; tests leave port 0's pad connected unless they unplug it.
+    u32 connected_ports = 1;
 };
 
 // Xbox WinMain 0x00032390: gfx_init, fs_init, game_init, then forever frame_tick 0x00033B50.

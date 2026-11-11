@@ -2370,6 +2370,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     input_addresses[game.native_input->master_address] = game.native_input->master_pad;
     input_views[game.native_input->master_address] = RuntimeDialogueInputDevice{game.native_input->master_pad,
         {nullptr, nullptr, nullptr, nullptr}};
+    input_views[game.native_input->master_address] = RuntimeDialogueInputDevice{game.native_input->master_pad,
+        {nullptr, nullptr, nullptr, nullptr}};
     {
         const auto defaults = data(0x00424900, 0x70);
         auto& draw = dialogue_draw_state;

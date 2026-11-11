@@ -1338,6 +1338,21 @@ ScenePauseServices& SceneActorServices::pause_services()
     return *state_->pause_services;
 }
 
+ControllerDisconnectServices SceneActorServices::controller_disconnect_services()
+{
+    auto& state = *state_;
+    state.input_state.devices = state.input_activation.entries; // DAT_0050E0E8
+    state.input_state.selected = &state.input_selected; // DAT_0050E0EC
+    state.input_state.selected_mask = state.port_masks[1]; // DAT_0050E0F8
+    TransitionBookServices& books = state.pause_services->books;
+    return ControllerDisconnectServices{books, native_audio_runtime().streams, state.input_state, books.flags};
+}
+
+const RuntimeHudLayout& SceneActorServices::hud_layout() const
+{
+    return state_->hud;
+}
+
 bool SceneActorServices::start_pressed()
 {
     auto& state = *state_;
@@ -1353,7 +1368,7 @@ bool SceneActorServices::start_pressed()
         return false;
     }
     state.input_state.devices = devices;
-    state.input_state.selected = state.input_selected;
+    state.input_state.selected = &state.input_selected;
     if (const auto view = state.input_views.find(device); view != state.input_views.end())
     {
         return runtime_input_button_edge(view->second, 0x10, state.input_state) != 0; // 0x001083F0

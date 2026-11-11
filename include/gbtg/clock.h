@@ -64,6 +64,9 @@ struct RuntimePadStateViews
 };
 // Native byte views of the samples already produced by pad_tick.
 RuntimePadStateViews runtime_pad_state_views();
+// The device table 0x001554C0 reads (DAT_0032E3B4, stride 8 by device type): type 0, the gamepads, holds the
+// connected ports, bit n for port n. 0x00155540 stores XGetDevices; 0x001555B0 applies XGetDeviceChanges.
+std::span<const u8> runtime_input_device_table();
 
 // DAT_00507D40, stride 0x10, one per port: the rumble 0x000FAD80 submits while +0x0C is set. The camera shakes
 // (0x000FAF70) write the motors while +0x08 lets them.

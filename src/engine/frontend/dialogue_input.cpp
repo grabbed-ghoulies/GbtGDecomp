@@ -806,17 +806,17 @@ void dialogue_input_direction(const RuntimeDialogueInputDevice& device,
 // Xbox 0x000335A0
 u32 activate_dialogue_input(RuntimeDialogueInputState& state)
 {
-    if (state.activation_mode == 1)
+    if (*state.activation_mode == 1)
     {
-        if (state.activated != 0)
+        if (*state.activated != 0)
         {
-            state.activated = 1;
+            *state.activated = 1;
             return 1;
         }
         if ((state.devices->cursor - state.devices->begin) / state.devices->stride != 0)
         {
             const RuntimeDialogueInputDevice* device;
-            const auto* row = state.devices->begin + (state.selected - 1) * state.devices->stride;
+            const auto* row = state.devices->begin + (*state.selected - 1) * state.devices->stride;
             if (state.device_views != nullptr)
             {
                 // Resolve the retail address without widening the 0x50-byte records.
@@ -830,7 +830,7 @@ u32 activate_dialogue_input(RuntimeDialogueInputState& state)
             if (device != nullptr && read_u32(device->record, 4) != 0 &&
                 runtime_input_device_presence(*device, state) == 0)
             {
-                state.activated = 1;
+                *state.activated = 1;
                 return 1;
             }
         }

@@ -10,6 +10,7 @@
 #include "../src/engine/scene/scene_controls.h"
 #include "../src/engine/frontend/gameselect_slots.h"
 #include "../src/engine/frontend/app_error_screen.h"
+#include "../src/engine/frontend/controller_disconnect.h"
 #include "../src/engine/frontend/gameselect_delete.h"
 #include "../src/engine/frontend/gameselect_naming.h"
 #include "../src/engine/frontend/gameselect_options.h"
@@ -4982,7 +4983,10 @@ void check_actor_loading()
         std::memcpy(pad.data(), &kind, 4);
         std::memcpy(pad.data() + 4, &active, 4);
         RuntimeDialogueInputDevice device{pad, {}};
-        RuntimeDialogueInputState input{keyboard, masks, 0x10, 1, 0, nullptr, 1};
+        i32 activation_mode = 1; // DAT_004DEA34
+        i32 activated = 0; // DAT_004DEA38
+        i32 selected_entry = 1; // DAT_0050E0EC
+        RuntimeDialogueInputState input{keyboard, masks, 0x10, &activation_mode, &activated, nullptr, &selected_entry};
         pad[0x48] = 3;
         if (runtime_input_button_held(device, 1, input) != 1 ||
             runtime_input_button_edge(device, 1, input) != 1)
@@ -5022,17 +5026,17 @@ void check_actor_loading()
         devices.cursor = devices.begin + sizeof(selected);
         devices.limit = devices.cursor;
         input.devices = &devices;
-        if (activate_dialogue_input(input) != 0 || input.activated != 0)
+        if (activate_dialogue_input(input) != 0 || activated != 0)
         {
             throw Error("dialogue activation ignored a present selected device");
         }
         masks[0] = 0;
-        if (activate_dialogue_input(input) != 1 || input.activated != 1)
+        if (activate_dialogue_input(input) != 1 || activated != 1)
         {
             throw Error("dialogue activation lost the absent-device latch");
         }
-        input.activated = 7;
-        if (activate_dialogue_input(input) != 1 || input.activated != 1)
+        activated = 7;
+        if (activate_dialogue_input(input) != 1 || activated != 1)
         {
             throw Error("dialogue activation did not normalize an existing latch");
         }
@@ -7801,7 +7805,7 @@ void check_player_dialogue_resources(gbtg::AidStore& aids)
         const gbtg::RuntimeDialogueInputDevice device{record, {nullptr, nullptr, nullptr, nullptr}};
         gbtg::pad_tick(input_game, {});
         const auto samples = gbtg::runtime_pad_state_views();
-        gbtg::RuntimeDialogueInputState input{samples.merged, {}, 0, 0, 0, nullptr, 0};
+        gbtg::RuntimeDialogueInputState input{samples.merged, {}, 0, nullptr, nullptr, nullptr, nullptr};
         gbtg::InputState pressed;
         pressed.accept = true;
         gbtg::pad_tick(input_game, pressed);
@@ -11196,6 +11200,109 @@ void play_pause(gbtg::Game& game)
     }
 }
 
+// The controller prompt (0x00033480): with Free Play running, every pad is unplugged, the prompt holds the scene
+// (DAT_0050EA9C 0x80 and 0x2000) on "please reconnect", and once a pad is back Start lets the line fade and the
+// scene runs on.
+void play_controller_prompt_run(gbtg::Game& game)
+{
+    auto& prompt = gbtg::g_controller_disconnect;
+    int free_frame = -1;
+    int unplugged = -1;
+    int opened = -1;
+    int closing = -1;
+    int resumed = -1;
+    gbtg::i32 last_phase = prompt.phase;
+    for (int frame = 0; frame < 6000 && (resumed < 0 || frame < resumed + 60); ++frame)
+    {
+        gbtg::InputState input;
+        const bool page = game.script_dialogue != nullptr && game.script_dialogue->dialogue.state.mode != 0;
+        input.accept = page && frame % 30 < 5 && unplugged < 0;
+        if (free_frame < 0 && gbtg::g_pause_count == 0 && game.factory_scene->actor_start == 1 && frame > 600)
+        {
+            free_frame = frame;
+            std::cout << "controller-prompt frame " << frame << ": nothing holds the scene\n";
+        }
+        if (free_frame >= 0 && unplugged < 0 && frame >= free_frame + 60)
+        {
+            unplugged = frame;
+            std::cout << "controller-prompt frame " << frame << ": every pad unplugged\n";
+        }
+        // Unplugged for four seconds, then port 0 is back and Start is pressed.
+        if (unplugged >= 0 && opened >= 0 && frame < opened + 240)
+        {
+            input.connected_ports = 0;
+        }
+        else if (unplugged >= 0 && opened < 0)
+        {
+            input.connected_ports = 0;
+        }
+        if (opened >= 0 && closing < 0 && frame >= opened + 260 && frame % 20 < 4)
+        {
+            input.start = true;
+        }
+        gbtg::gfx_begin_frame();
+        game.tick(1.f / 60.f, input);
+        if (prompt.phase != last_phase)
+        {
+            std::cout << "controller-prompt frame " << frame << ": phase " << last_phase << " -> " << prompt.phase
+                      << ", flags 0x" << std::hex << gbtg::g_flags_ea9c << std::dec << "\n";
+            if (prompt.phase == 2)
+            {
+                opened = frame;
+                if ((gbtg::g_flags_ea9c & 0x2080u) != 0x2080u)
+                {
+                    throw gbtg::Error("the controller prompt opened without holding the scene (DAT_0050EA9C 0x2080)");
+                }
+            }
+            if (prompt.phase == 3)
+            {
+                closing = frame;
+            }
+            if (prompt.phase == 1 && closing >= 0)
+            {
+                resumed = frame;
+                if ((gbtg::g_flags_ea9c & 0x2080u) != 0)
+                {
+                    throw gbtg::Error("the scene still holds after the controller prompt closed");
+                }
+            }
+            last_phase = prompt.phase;
+        }
+        if (opened >= 0 && frame == opened + 60)
+        {
+            capture_readback("cache/controller_prompt_open.bmp");
+        }
+        if (resumed >= 0 && frame == resumed + 30)
+        {
+            capture_readback("cache/controller_prompt_resumed.bmp");
+        }
+        if (unplugged >= 0 && opened < 0 && frame > unplugged + 10)
+        {
+            throw gbtg::Error("the controller prompt did not open with every pad unplugged");
+        }
+    }
+    if (resumed < 0)
+    {
+        throw gbtg::Error("the controller prompt did not close after Start (opened " + std::to_string(opened)
+            + ", closing " + std::to_string(closing) + ")");
+    }
+    std::cout << "PASS: unplugging every pad opens the controller prompt and holds the scene (frames " << opened
+              << " .. " << closing << "), and Start with a pad back lets the scene run on (frame " << resumed << ")\n";
+}
+
+void play_controller_prompt(gbtg::Game& game)
+{
+    try
+    {
+        play_controller_prompt_run(game);
+    }
+    catch (const std::exception& error)
+    {
+        std::cout << "FAIL: " << error.what() << std::endl;
+        std::_Exit(1);
+    }
+}
+
 void play_scene3(gbtg::Game& game, bool drive, int book = -1)
 {
     try
@@ -11495,6 +11602,7 @@ int main(int argc, char** argv)
     const bool scene3_test = argc == 3 && std::string_view(argv[2]) == "--scene3";
     // --pause boots scene 3 like --scene3, then pauses and resumes it with Start.
     const bool pause_test = argc == 3 && std::string_view(argv[2]) == "--pause";
+    const bool controller_prompt_test = argc == 3 && std::string_view(argv[2]) == "--controller-prompt";
     // --pause-quit-save loads a scene 3 save (a child --gameselect-new-game run, its script set to scene 3), then
     // quits the scene from the pause (Start, X, A) and checks the save holds the scene's script and time.
     const bool pause_quit_test = argc == 3 && std::string_view(argv[2]) == "--pause-quit-save";
@@ -11750,7 +11858,7 @@ int main(int argc, char** argv)
         std::cout << std::unitbuf;
     }
     if (argc != 2 && argc != 4 && !title_test && !goop_test && !ui_test && !player_test && !actor_test && !decoder_test && !audio_test && !dialogue_resources_test
-        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene5_13b_test && !scene5_13c_test && !scene5_13d_test && !scenefinal_test && !scenecredits_test && !scene3_test && !pause_test && !pause_quit_test && !pause_rules_test && !pause_map_test && !chapter5_save_test && !chapter5_finale_test)
+        && !model_resources_test && !spawn_test && !scene6_test && !scene6_reload_test && !scene4_test && !scene5_test && !scene6_1_test && !scene7_test && !scene8_test && !scene9_test && !scene10_test && !scene11_test && !scene12_test && !scene2a1_test && !scene2a1b_test && !scene2a2_test && !scene2a2_reaper_test && !scene2a3_test && !scene2a4_test && !scene2a5_test && !scene2a6_test && !scene2a7_test && !scene2a8_test && !scene2a9_test && !scene2a10_test && !scene2a11_test && !scene2a12_test && !scene2a13_test && !scene2a14_test && !scene2a15_test && !scene2a16_test && !scene2a17_test && !scene2b1_test && !scene2b2_test && !scene2b3_test && !scene2b4_test && !scene2b4b_test && !scene2b5_test && !scene2b6_test && !scene2b6b_test && !scene2b7_test && !scene2b8_test && !scene2b9_test && !scene2b10_test && !scene2b10b_test && !scene2c1_test && !scene2c2_test && !scene2c3_test && !scene2c4_test && !scene2c4b_test && !scene2c5_test && !scene2c6_test && !scene2c7_test && !scene2c8_test && !scene2c9_test && !scene2c10_test && !scene2c11_test && !scene2c11b_test && !scene2c12_test && !scene2c13_test && !scene2c13b_test && !scene2c13c_test && !scene3a1_test && !scene3a1b_test && !scene3a2_test && !scene3a3_test && !scene3a3b_test && !scene3a3c_test && !scene3a4_test && !scene3a5_test && !scene3a6_test && !scene3a7_test && !scene3a8_test && !scene3a9_test && !scene3a10_test && !scene3a11_test && !scene3a12_test && !scene3b1_test && !scene3b2_test && !scene3b3_test && !scene3b4_test && !scene3b5_test && !scene3b6_test && !scene3b7_test && !scene3c1_test && !scene3c2_test && !scene3c3_test && !scene3c4_test && !scene3c5_test && !scene3c6_test && !scene3c7_test && !scene3c8_test && !scene3c9_test && !scene3c10_test && !scene3c11_test && !scene3c12_test && !scene3c13_test && !scene3c13b_test && !scene3c14_test && !scene3c15_test && !scene3c15b_test && !scene3c15c_test && !scene4_1_test && !scene4_1b_test && !scene4_1c_test && !scene5_1_test && !scene5_2_test && !scene5_3_test && !scene5_4_test && !scene5_5_test && !scene5_6_test && !scene5_7_test && !scene5_8_test && !scene5_9_test && !scene5_10_test && !scene5_11_test && !scene5_12_test && !scene5_13_test && !scene5_13b_test && !scene5_13c_test && !scene5_13d_test && !scenefinal_test && !scenecredits_test && !scene3_test && !pause_test && !controller_prompt_test && !pause_quit_test && !pause_rules_test && !pause_map_test && !chapter5_save_test && !chapter5_finale_test)
     {
         std::cerr << "Usage: gbtg-transition-tests GAME_DIRECTORY [WIDTH HEIGHT | --title | --title-a | --attract | --gameselect | --gameselect-native | --gameselect-new-game | --gameselect-delete | --gameselect-stats | --gameselect-features | --goop | --ui | --player-opening | --player-fight | --player-controls | --player-death [--retail-step] | --dialogue-resources | --actor-loading | --ghoulybox-decoder | --audio-preparation | --scene-models | --scene-spawn | --scene-start | --scene6 | --scene6-save | --scene6-save-reload | --scene3 | --pause | --scene4 | --scene5 | --scene6-1 | --scene7]\n";
         return 2;
@@ -11953,7 +12061,7 @@ int main(int argc, char** argv)
             }
         }
         gbtg::set_save_root(test_save_folder());
-        game.init(argv[1], scene6_save_test || scene6_reload_test || pause_quit_test || chapter5_save_test || chapter5_finale_test ? "" : scene6_test ? "6" : scene3_test || pause_test || pause_map_test ? "7"
+        game.init(argv[1], scene6_save_test || scene6_reload_test || pause_quit_test || chapter5_save_test || chapter5_finale_test ? "" : scene6_test ? "6" : scene3_test || pause_test || controller_prompt_test || pause_map_test ? "7"
             : scene4_test ? "chapter1_scene4_1book" : scene5_test ? "chapter1_scene5_1playcam"
             : scene6_1_test ? "chapter1_scene6_1playcam"
             : scene7_test ? "chapter1_scene7_1playcam"
@@ -13082,6 +13190,13 @@ int main(int argc, char** argv)
                 std::cout << "FAIL: " << error.what() << std::endl;
                 std::_Exit(1);
             }
+            gbtg::gfx_shutdown();
+            return 0;
+        }
+        if (controller_prompt_test)
+        {
+            pass_chapter_title(game, "controller-prompt", "aid_script_ghoulies_chapter1_scene3_1playcam", false);
+            play_controller_prompt(game);
             gbtg::gfx_shutdown();
             return 0;
         }

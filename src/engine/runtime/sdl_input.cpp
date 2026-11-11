@@ -103,6 +103,7 @@ void poll_sdl_input(InputState& in)
         in.pads[0].ry = axis(SDL_SCANCODE_K, SDL_SCANCODE_I);
     }
 
+    in.connected_ports = 0; // Only an opened gamepad sets its port's bit; the keyboard is not a pad.
     if (SDL_WasInit(SDL_INIT_GAMEPAD) == 0)
     {
         return;
@@ -118,6 +119,7 @@ void poll_sdl_input(InputState& in)
         {
             continue;
         }
+        in.connected_ports |= 1u << port;
         auto& packet = in.pads[port];
         packet.lx = i16(SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX));
         packet.ly = flip_axis(SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY));

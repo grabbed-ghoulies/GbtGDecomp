@@ -179,6 +179,8 @@ struct RawPort
 
 RawPort g_raw[kPadPorts];
 PadSlot g_pads[kPadPorts + 1];
+// DAT_0032E3B4: the gamepad type's connected ports, the first word of the device table.
+std::array<u32, 1> g_input_device_table{};
 
 // Commands at 0x00507D40, stride 0x10, one per port. Magnitudes are floats.
 // 0x000FAD80 reads +0x00 and +0x04, and submits when the dword at +0x0C is set.
@@ -318,6 +320,8 @@ void pad_poll(float dt, const InputState& in)
     // Xbox 0x001555B0(dt) polls XInput into the four packets. Repeat timers
     // advance with dt there; the sample below reads the held button word.
     (void)dt;
+    // XGetDeviceChanges' insertions and removals applied to DAT_0032E3B4 leave the ports connected now.
+    g_input_device_table[0] = in.connected_ports;
     for (int index = 0; index < kPadPorts; ++index)
     {
         const InputState::PadPacket& packet = in.pads[size_t(index)];
@@ -462,6 +466,11 @@ void reset_pad_samples()
 std::span<RuntimePadRumbleCommand, 4> runtime_pad_rumble_commands()
 {
     return std::span<RuntimePadRumbleCommand, 4>(g_rumble);
+}
+
+std::span<const u8> runtime_input_device_table()
+{
+    return {reinterpret_cast<const u8*>(g_input_device_table.data()), sizeof(g_input_device_table)};
 }
 
 RuntimePadStateViews runtime_pad_state_views()

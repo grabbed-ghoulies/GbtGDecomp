@@ -81,6 +81,8 @@ using X3DAUDIO_VECTOR = F3DAUDIO_VECTOR;
 using X3DAUDIO_LISTENER = F3DAUDIO_LISTENER;
 using X3DAUDIO_EMITTER = F3DAUDIO_EMITTER;
 using X3DAUDIO_DSP_SETTINGS = F3DAUDIO_DSP_SETTINGS;
+using X3DAUDIO_DISTANCE_CURVE_POINT = F3DAUDIO_DISTANCE_CURVE_POINT;
+using X3DAUDIO_DISTANCE_CURVE = F3DAUDIO_DISTANCE_CURVE;
 
 #define XAUDIO2_DEFAULT_PROCESSOR FAUDIO_DEFAULT_PROCESSOR
 #define XAUDIO2_END_OF_STREAM FAUDIO_END_OF_STREAM
@@ -88,8 +90,9 @@ using X3DAUDIO_DSP_SETTINGS = F3DAUDIO_DSP_SETTINGS;
 #define XAUDIO2_MAX_LOOP_COUNT FAUDIO_MAX_LOOP_COUNT
 #define XAUDIO2_PLAY_TAILS FAUDIO_PLAY_TAILS
 #define XAUDIO2_SEND_USEFILTER FAUDIO_SEND_USEFILTER
-using XAUDIO2_FILTER_PARAMETERS = FAudioFilterParameters;
-inline constexpr FAudioFilterType LowPassOnePoleFilter = FAudioLowPassOnePoleFilter;
+// FAudio has XAudio2's state-variable filter but not its one-pole types; its EXT parameters add a wet/dry mix, so
+// a send can bypass the filter (0) exactly. pcm_out.cpp builds these itself on FAudio.
+using XAUDIO2_FILTER_PARAMETERS = FAudioFilterParametersEXT;
 #define X3DAUDIO_SPEED_OF_SOUND 343.5f // x3daudio.h's value; F3DAudio takes it as an argument only.
 #define WAVE_FORMAT_PCM FAUDIO_FORMAT_PCM
 #define X3DAUDIO_CALCULATE_MATRIX F3DAUDIO_CALCULATE_MATRIX
@@ -230,7 +233,7 @@ class IXAudio2Voice
     HRESULT SetOutputFilterParameters(IXAudio2Voice* destination, const XAUDIO2_FILTER_PARAMETERS* parameters,
         UINT32 operation = 0)
     {
-        return HRESULT(FAudioVoice_SetOutputFilterParameters(voice_,
+        return HRESULT(FAudioVoice_SetOutputFilterParametersEXT(voice_,
             destination != nullptr ? destination->faudio() : nullptr, parameters, operation));
     }
     void DestroyVoice()

@@ -1154,8 +1154,23 @@ SourceI3DL2Levels directsound_source_i3dl2_levels(const SourceI3DL2& source, flo
 XAUDIO2_FILTER_PARAMETERS one_pole_low_pass(u32 coefficient)
 {
     const double pole = double(coefficient) / 65536.0;
+#if defined(_WIN32)
     const double at_rate = std::pow(pole, 48000.0 / double(g_mix_sample_rate));
     return XAUDIO2_FILTER_PARAMETERS{LowPassOnePoleFilter, float(1.0 - at_rate), 1.f};
+#else
+    // FAudio has no one-pole filter. No pole bypasses the send's filter; otherwise its state-variable low-pass
+    // (two poles, Q 0.707) is cut off where it gives the pole's level at the listener's HF reference, the
+    // frequency retail specifies the level at. The slope above it is steeper than retail's.
+    const double angle = 2.0 * 3.14159265358979323846 * double(g_listener_hf_reference) / 48000.0;
+    const double power = (1.0 - pole) * (1.0 - pole) / (1.0 - 2.0 * pole * std::cos(angle) + pole * pole);
+    if (coefficient == 0 || !(power < 1.0) || !(power > 0.0))
+    {
+        return XAUDIO2_FILTER_PARAMETERS{FAudioLowPassFilter, 1.f, 1.f, 0.f};
+    }
+    const double cutoff = double(g_listener_hf_reference) / std::pow(1.0 / power - 1.0, 0.25);
+    const double frequency = 2.0 * std::sin(3.14159265358979323846 * cutoff / double(g_mix_sample_rate));
+    return XAUDIO2_FILTER_PARAMETERS{FAudioLowPassFilter, float(std::min(frequency, 1.0)), 1.41421356f, 1.f};
+#endif
 }
 
 // Each 3D cue routed into this source sends at its record's distance level; the source itself only pans.

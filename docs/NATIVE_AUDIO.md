@@ -266,9 +266,13 @@ pair other than 0: index 8, -1200 mB HF and an LF ratio of 0.15, for every 3D so
   48000 / the mix rate) on its dry and reverb sends, and scales the reverb send by the room level. A room rolloff
   other than 0 raises: it multiplies a distance term (the 3D block's +0x68) whose writer was not traced, and the
   game always passes 0.
+- FAudio (Linux) has XAudio2's state-variable filter but not the one-pole types. There, a send with no pole
+  bypasses its filter (the EXT parameters' WetDryMix 0; FAudio otherwise filters every USEFILTER send), and a
+  pole becomes the state-variable low-pass (Q 0.707) cut off where it gives the pole's level at the HF reference:
+  the same level there, a steeper slope above it.
 - Checked in `--scene2a4` with a temporary log: 5,723 voices took the ballroom's pair and computed the values
-  above; every other voice computed no change. Not heard: the muffling has not been listened to, and the FAudio
-  (Linux) path builds untested.
+  above; every other voice computed no change. The Linux build (sniper SDK) compiles and runs the ballroom
+  headless through the intro under SDL's disk audio driver without errors. Not heard on Linux.
 - Checked in `--scene2a4` and `--scene6-1` with a temporary log: the disco at 657 units -1118 mB (0.28; the old
   curve gave about 0.06); the muffled disco silent past 320 and 0.89 at 70 units; footsteps full level at 5 units.
 

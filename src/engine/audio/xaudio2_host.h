@@ -87,6 +87,9 @@ using X3DAUDIO_DSP_SETTINGS = F3DAUDIO_DSP_SETTINGS;
 #define XAUDIO2_LOOP_INFINITE FAUDIO_LOOP_INFINITE
 #define XAUDIO2_MAX_LOOP_COUNT FAUDIO_MAX_LOOP_COUNT
 #define XAUDIO2_PLAY_TAILS FAUDIO_PLAY_TAILS
+#define XAUDIO2_SEND_USEFILTER FAUDIO_SEND_USEFILTER
+using XAUDIO2_FILTER_PARAMETERS = FAudioFilterParameters;
+inline constexpr FAudioFilterType LowPassOnePoleFilter = FAudioLowPassOnePoleFilter;
 #define X3DAUDIO_SPEED_OF_SOUND 343.5f // x3daudio.h's value; F3DAudio takes it as an argument only.
 #define WAVE_FORMAT_PCM FAUDIO_FORMAT_PCM
 #define X3DAUDIO_CALCULATE_MATRIX F3DAUDIO_CALCULATE_MATRIX
@@ -217,6 +220,18 @@ class IXAudio2Voice
     {
         return HRESULT(FAudioVoice_SetOutputMatrix(voice_, destination != nullptr ? destination->faudio() : nullptr,
             source_channels, destination_channels, levels, operation));
+    }
+    void GetOutputMatrix(IXAudio2Voice* destination, UINT32 source_channels, UINT32 destination_channels,
+        float* levels)
+    {
+        FAudioVoice_GetOutputMatrix(voice_, destination != nullptr ? destination->faudio() : nullptr,
+            source_channels, destination_channels, levels);
+    }
+    HRESULT SetOutputFilterParameters(IXAudio2Voice* destination, const XAUDIO2_FILTER_PARAMETERS* parameters,
+        UINT32 operation = 0)
+    {
+        return HRESULT(FAudioVoice_SetOutputFilterParameters(voice_,
+            destination != nullptr ? destination->faudio() : nullptr, parameters, operation));
     }
     void DestroyVoice()
     {

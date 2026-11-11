@@ -717,6 +717,7 @@ add_executable(gbtg
     src/engine/scene/actor_loading.cpp
     src/engine/runtime/clock.cpp
     src/engine/audio/pcm_out.cpp
+    src/engine/audio/mix_recorder.cpp
     src/engine/audio/core_memory.cpp
     src/engine/audio/core_source.cpp
     src/engine/audio/core_cue.cpp

@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "xaudio2_host.h"
+#include "mix_recorder.h"
 
 namespace gbtg
 {
@@ -327,10 +328,31 @@ X3DAUDIO_HANDLE g_x3d{};
 bool g_x3d_ready = false;
 X3DAUDIO_LISTENER g_x3d_listener{};
 UINT32 g_master_channels = 0;
+// A sound source's I3DL2 settings as IXACTSoundSource_SetI3DL2Source stores them (0x001C4A63, source +0xC4..+0xE4)
+// over the reset values of 0x001C414B: all zero but the occlusion LF ratio, 0.25.
+struct SourceI3DL2
+{
+    i32 direct = 0; // +0xC4
+    i32 direct_hf = 0; // +0xC8
+    i32 room = 0; // +0xCC
+    i32 room_hf = 0; // +0xD0
+    float room_rolloff = 0.f; // +0xD4
+    i32 obstruction_hf = 0; // +0xD8
+    float obstruction_lf_ratio = 0.f; // +0xDC
+    i32 occlusion_hf = 0; // +0xE0
+    float occlusion_lf_ratio = 0.25f; // +0xE4
+};
 struct SpatialSource
 {
     X3DAUDIO_VECTOR position{};
+    SourceI3DL2 i3dl2;
+    std::array<float, 8> reverb_send{}; // The send's matrix into the reverb as routed, before the room level.
 };
+// The listener's I3DL2 HF reference (IXACTEngine_SetI3dl2Listener word 11), which the source calculation reads
+// (0x001C67F7 -> 0x001CE923). DirectSound's default until the game sets a listener.
+float g_listener_hf_reference = 5000.f;
+// The mix's sample rate, for the one-pole filters retail computes at 48000 Hz.
+UINT32 g_mix_sample_rate = 48000;
 std::unordered_map<IXAudio2Voice*, SpatialSource> g_spatial_sources;
 // Owned cue voices routed into a sound-source submix by IXACTSoundBank_PlayEx.
 std::map<IXAudio2SourceVoice*, IXAudio2Voice*> g_source_routes;
@@ -910,6 +932,27 @@ bool ensure_device()
     XAUDIO2_VOICE_DETAILS details;
     g_master->GetVoiceDetails(&details);
     g_master_channels = details.InputChannels;
+    g_mix_sample_rate = details.InputSampleRate;
+#if defined(_WIN32)
+    // GBTG_RECORD_AUDIO=<file.wav>: record the mix for listening (mix_recorder.h).
+    if (const char* record = std::getenv("GBTG_RECORD_AUDIO"); record != nullptr && record[0] != 0)
+    {
+        if (IUnknown* recorder = create_mix_recorder(record))
+        {
+            XAUDIO2_EFFECT_DESCRIPTOR descriptor{recorder, TRUE, details.InputChannels};
+            const XAUDIO2_EFFECT_CHAIN chain{1, &descriptor};
+            if (FAILED(g_master->SetEffectChain(&chain)))
+            {
+                log::error("audio: the mix recorder could not be attached");
+            }
+            recorder->Release();
+        }
+        else
+        {
+            log::error("audio: GBTG_RECORD_AUDIO %s could not be opened", record);
+        }
+    }
+#endif
     DWORD channel_mask = 0;
     if (SUCCEEDED(g_master->GetChannelMask(&channel_mask))
         && SUCCEEDED(X3DAudioInitialize(channel_mask, X3DAUDIO_SPEED_OF_SOUND, g_x3d)))
@@ -937,23 +980,54 @@ bool ensure_device()
     return true;
 }
 
-// A voice's sends: the dry mix to the master voice and, once the listener reverb exists, the wet send.
-HRESULT route_dry_and_reverb(IXAudio2Voice* voice)
+// DirectSound's mix bins for a voice given none (0x001C7493, the table at 0x001D09F4 by channel count / 2): a mono
+// or a stereo voice goes to bins 0 and 1, front left and right, at 0 mB, so a mono voice plays at full level on both
+// (XAudio2's own default puts it on the centre speaker alone). XACT gives a 2D voice no list (0x001C38BB), and a
+// voice in a 2D source keeps it (0x001C437F); in a 2D source the bins are the source's left and right.
+void apply_default_mix_bins(IXAudio2Voice* voice, IXAudio2Voice* destination)
 {
-    if (g_reverb == nullptr || !g_listener_effect)
+    XAUDIO2_VOICE_DETAILS source{};
+    XAUDIO2_VOICE_DETAILS target{};
+    voice->GetVoiceDetails(&source);
+    destination->GetVoiceDetails(&target);
+    const UINT32 inputs = source.InputChannels;
+    const UINT32 outputs = target.InputChannels;
+    if (inputs > 2 || outputs < 2 || outputs > 8)
     {
-        return voice->SetOutputVoices(nullptr);
+        // The four- and six-channel lists name the speakers XAudio2's default already uses; no retail wave has them.
+        return;
     }
-    XAUDIO2_SEND_DESCRIPTOR sends[2]{{0, g_master}, {0, g_reverb}};
-    const XAUDIO2_VOICE_SENDS list{2, sends};
-    return voice->SetOutputVoices(&list);
+    std::array<float, 16> matrix{};
+    for (UINT32 input = 0; input < inputs; ++input)
+    {
+        for (UINT32 output = 0; output < 2; ++output)
+        {
+            matrix[size_t(output) * inputs + input] = inputs == 1 || input == output ? 1.f : 0.f;
+        }
+    }
+    voice->SetOutputMatrix(destination, inputs, outputs, matrix.data());
+}
+
+// A 2D voice's send: the master voice at the default mix bins. None of DirectSound's default lists has bin 10, the
+// I3DL2 reverb's input, which only the 3D lists (0x001D0B24, 0x001D0B2C, 0x001D0B34) name, so only 3D sources
+// reach the listener reverb (apply_spatial_source).
+HRESULT route_to_master(IXAudio2Voice* voice)
+{
+    const HRESULT status = voice->SetOutputVoices(nullptr);
+    if (SUCCEEDED(status))
+    {
+        apply_default_mix_bins(voice, g_master);
+    }
+    return status;
 }
 
 // The retail distance attenuation of a 3D voice in millibels (DirectSound 0x001C90CF, through 0x001C5941): none
 // within the minimum distance; past it the distance is clamped to the maximum and either the record's curve (equal
 // steps from the minimum to the maximum, starting from full level, 0x001C58CB) or the rolloff law
 // -2000 * log10(1 + (d / min - 1) * rolloff) (0x001C8D85) applies. Mode 2 turns 3D off. The listener's rolloff is
-// DirectSound's default, 1, as the game never sets it.
+// DirectSound's default, 1, as the game never sets it. 0x001C67F7 also passes the source's mute-at-maximum flag
+// (+0x9C bit 2), but nothing sets that bit: 0x001C414B and 0x001C38BB write bits 0 and 1, 0x001C4240 bit 0, so a
+// sound past its maximum keeps the maximum's level.
 i32 sound_3d_attenuation(const Sound3D& sound, float distance)
 {
     if (sound.mode == 2 || distance <= sound.min_distance)
@@ -1001,6 +1075,87 @@ i32 sound_3d_attenuation(const Sound3D& sound, float distance)
         return 0;
     }
     return i32(float(0.3010299956639812L * std::log2(static_cast<long double>(level))) * 2000.f);
+}
+
+// DirectSound's millibels to a gain (0x001CE3FF), called with twice the level, so a power: 2^(log2(10) * x / 2000)
+// in floats as the x87 code rounds them.
+float directsound_millibel_power(i32 doubled)
+{
+    const float scaled = float(static_cast<long double>(doubled) * std::bit_cast<float>(0x3A03126Fu)); // 1 / 2000
+    const float log2_10 = std::bit_cast<float>(0x40549A78u);
+    return float(std::exp2(static_cast<long double>(log2_10) * scaled));
+}
+
+// The one-pole low-pass coefficient (DirectSound 0x001CE78B) that gives an HF level, in millibels, at the reference
+// frequency: the pole a = (1 - cG - sqrt(2(1 - c)G - (1 - c^2)G^2)) / (1 - G), with c the cosine of the reference
+// over the rate and G the level's power, as a 16.16 fraction. No level, or the first argument at -10000 or below,
+// gives 0 (no filter); a pole of 1 or more gives 0xFFFF.
+u32 directsound_hf_filter_coefficient(i32 level, i32 hf_level, float reference, float rate)
+{
+    if (!(-10000 < level) || hf_level == 0)
+    {
+        return 0;
+    }
+    const double cosine = double(std::cos(static_cast<long double>(reference) / rate
+        * static_cast<long double>(std::bit_cast<float>(0x40C90FDBu)))); // DAT_0032B298, 2 pi
+    const long double power = directsound_millibel_power(hf_level * 2);
+    const long double numerator = (1.0L - cosine * power)
+        - std::sqrt((1.0L - cosine) * power * 2.0L - (1.0L - static_cast<long double>(cosine) * cosine) * power * power);
+    const long double pole = numerator / (1.0L - power);
+    if (pole < 1.0L)
+    {
+        return u32(i32(float(pole * 65536.0L))); // DAT_001E338C; 0x001CE3F6 truncates.
+    }
+    return 0xFFFFu;
+}
+
+// What DirectSound's 3D calculation makes of a source's I3DL2 settings (0x001C67F7 -> 0x001CE923): the direct
+// path's level and HF filter, and the room (reverb) path's.
+struct SourceI3DL2Levels
+{
+    i32 direct = 0;
+    i32 room = 0;
+    u32 direct_filter = 0;
+    u32 room_filter = 0;
+};
+
+// DirectSound 0x001CE923. Obstruction and occlusion both lower the direct path: their LF parts (HF x LF ratio) the
+// level, their HF parts (HF x (1 - LF ratio)) the HF level, clamped to -10000..0. Only occlusion lowers the room
+// path; its HF level adds the room level (+0xC) where lRoomHF (+0x10) would be expected, as retail reads it. Each
+// HF level becomes a one-pole filter at the listener's HF reference and 48000 Hz (DAT_0020A16C).
+SourceI3DL2Levels directsound_source_i3dl2_levels(const SourceI3DL2& source, float hf_reference)
+{
+    if (source.room_rolloff != 0.f)
+    {
+        // The room rolloff times the listener's scales a value at the 3D block's +0x68 (source +0xAC) whose writer
+        // was not traced; above 1 it adds 2000 log10 of the product to the room level. No retail call sets a
+        // rolloff: 0x00039620 passes 0, so the product is 0 and the room level is the occlusion's alone.
+        throw Error("IXACTSoundSource_SetI3DL2Source with a room rolloff: 0x001CE923's distance term is not traced");
+    }
+    const long double obstruction_lf = static_cast<long double>(source.obstruction_hf) * source.obstruction_lf_ratio;
+    const long double occlusion_lf_wide = static_cast<long double>(source.occlusion_hf) * source.occlusion_lf_ratio;
+    const float occlusion_lf = float(occlusion_lf_wide);
+    SourceI3DL2Levels levels;
+    levels.direct = i32(float(occlusion_lf_wide + obstruction_lf)) + source.direct;
+    const long double obstruction_hf = (1.0L - source.obstruction_lf_ratio) * source.obstruction_hf;
+    const long double occlusion_hf_wide = (1.0L - source.occlusion_lf_ratio) * source.occlusion_hf;
+    const float occlusion_hf = float(occlusion_hf_wide);
+    i32 direct_hf = i32(float(occlusion_hf_wide + obstruction_hf)) + source.direct_hf;
+    direct_hf = std::clamp(direct_hf, -10000, 0);
+    levels.room = i32(occlusion_lf) + source.room;
+    const i32 room_hf = std::clamp(i32(occlusion_hf) + source.room, -10000, 0);
+    levels.direct_filter = directsound_hf_filter_coefficient(0, direct_hf, hf_reference, 48000.f);
+    levels.room_filter = directsound_hf_filter_coefficient(0, room_hf, hf_reference, 48000.f);
+    return levels;
+}
+
+// A DirectSound 16.16 pole as XAudio2's one-pole coefficient (1 - pole) at the mix's rate. The pole is retail's at
+// 48000 Hz; raising it to 48000 / rate keeps its time constant, so its response is the same at another rate.
+XAUDIO2_FILTER_PARAMETERS one_pole_low_pass(u32 coefficient)
+{
+    const double pole = double(coefficient) / 65536.0;
+    const double at_rate = std::pow(pole, 48000.0 / double(g_mix_sample_rate));
+    return XAUDIO2_FILTER_PARAMETERS{LowPassOnePoleFilter, float(1.0 - at_rate), 1.f};
 }
 
 // Each 3D cue routed into this source sends at its record's distance level; the source itself only pans.
@@ -1058,7 +1213,28 @@ void apply_spatial_source(IXAudio2Voice* voice, const SpatialSource& source)
     settings.DstChannelCount = g_master_channels;
     settings.pMatrixCoefficients = matrix.data();
     X3DAudioCalculate(g_x3d, &g_x3d_listener, &emitter, X3DAUDIO_CALCULATE_MATRIX, &settings);
+    // The source's I3DL2 obstruction and occlusion: the direct level and HF filter on the dry send, the room level
+    // and filter on the reverb send. A 3D source's +0x9C bit 1 (0x001C38BB) gives its room path the direct filter.
+    const SourceI3DL2Levels levels = directsound_source_i3dl2_levels(source.i3dl2, g_listener_hf_reference);
+    const float direct = std::pow(10.f, float(levels.direct) / 2000.f);
+    for (float& level : matrix)
+    {
+        level *= direct;
+    }
     voice->SetOutputMatrix(g_master, 1, g_master_channels, matrix.data());
+    const XAUDIO2_FILTER_PARAMETERS direct_filter = one_pole_low_pass(levels.direct_filter);
+    voice->SetOutputFilterParameters(g_master, &direct_filter);
+    if (g_reverb != nullptr && g_listener_effect)
+    {
+        const float room = std::pow(10.f, float(levels.room) / 2000.f);
+        std::array<float, 8> reverb = source.reverb_send;
+        for (float& level : reverb)
+        {
+            level *= room;
+        }
+        voice->SetOutputMatrix(g_reverb, 1, g_master_channels, reverb.data());
+        voice->SetOutputFilterParameters(g_reverb, &direct_filter);
+    }
     apply_routed_cue_levels(voice, source.position);
 }
 
@@ -1251,7 +1427,7 @@ u64 play_choice(const std::string& cue, const WaveChoice& choice, bool loop = fa
         log::warn("audio voice failed %s", cue.c_str());
         return fail(status);
     }
-    route_dry_and_reverb(slot.voice);
+    route_to_master(slot.voice);
     slot.category = choice.category;
     status = slot.voice->SetVolume(g_category_volumes[slot.category]);
     if (FAILED(status))
@@ -1486,7 +1662,7 @@ void pcm_play_pcm(const char* cue, const std::vector<u8>& pcm, int rate, int cha
     {
         return;
     }
-    route_dry_and_reverb(slot.voice);
+    route_to_master(slot.voice);
     slot.voice->SetVolume(volume);
     XAUDIO2_BUFFER buf{};
     buf.AudioBytes = UINT32(slot.pcm.size());
@@ -1594,6 +1770,9 @@ AudioListenerSettings native_audio_listener_settings()
     settings.listener = [](const std::array<u32, 12>& words, u32 apply) -> i32
     {
 #if GBTG_HAS_XAUDIO2
+        // DirectSound keeps the listener's HF reference for each source's I3DL2 filters (0x001C8705 stores it).
+        g_listener_hf_reference = std::bit_cast<float>(words[11]);
+        apply_all_spatial_sources();
         if (!ensure_device())
         {
             return static_cast<i32>(g_device_result);
@@ -1739,6 +1918,10 @@ AudioCoreCueBoundaries native_audio_core_cue_boundaries(const Game& game,
                 spatial != g_spatial_sources.end())
             {
                 apply_routed_cue_levels(spatial->first, spatial->second.position);
+            }
+            else
+            {
+                apply_default_mix_bins(voice, static_cast<IXAudio2Voice*>(source));
             }
         }
         g_cue_notes[voice].started = true;
@@ -2240,12 +2423,34 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
         const HRESULT status = g_xa->CreateSubmixVoice(&voice, flags == 2 ? 1 : 2, details.InputSampleRate);
         if (SUCCEEDED(status))
         {
-            route_dry_and_reverb(voice);
             handle = voice;
-            if (flags == 2)
+            if (flags != 2)
             {
-                g_spatial_sources[voice] = SpatialSource{};
-                apply_spatial_source(voice, g_spatial_sources[voice]);
+                route_to_master(voice);
+            }
+            else
+            {
+                // A 3D source's sends carry its I3DL2 filters (apply_spatial_source).
+                SpatialSource& source = g_spatial_sources[voice];
+                source = SpatialSource{};
+                if (g_reverb == nullptr || !g_listener_effect)
+                {
+                    XAUDIO2_SEND_DESCRIPTOR send{XAUDIO2_SEND_USEFILTER, g_master};
+                    const XAUDIO2_VOICE_SENDS list{1, &send};
+                    voice->SetOutputVoices(&list);
+                }
+                else
+                {
+                    XAUDIO2_SEND_DESCRIPTOR sends[2]{{XAUDIO2_SEND_USEFILTER, g_master},
+                        {XAUDIO2_SEND_USEFILTER, g_reverb}};
+                    const XAUDIO2_VOICE_SENDS list{2, sends};
+                    voice->SetOutputVoices(&list);
+                    if (g_master_channels <= source.reverb_send.size())
+                    {
+                        voice->GetOutputMatrix(g_reverb, 1, g_master_channels, source.reverb_send.data());
+                    }
+                }
+                apply_spatial_source(voice, source);
             }
         }
         return static_cast<i32>(status);
@@ -2282,8 +2487,32 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
     boundaries.cone = [](void*, const Vec3&, u32)
     {
     };
-    boundaries.reverb = [](void*, std::span<const u32, 9>, u32)
+    // IXACTSoundSource_SetI3DL2Source -> 0x001C4A63 stores the nine words at the source's +0xC4 and marks them dirty;
+    // DirectSound's 3D calculation turns them into the sends' levels and filters (apply_spatial_source).
+    boundaries.reverb = [](void* handle, std::span<const u32, 9> values, u32)
     {
+#if GBTG_HAS_XAUDIO2
+        IXAudio2Voice* voice = static_cast<IXAudio2Voice*>(handle);
+        const auto found = g_spatial_sources.find(voice);
+        if (found == g_spatial_sources.end())
+        {
+            return;
+        }
+        SourceI3DL2& i3dl2 = found->second.i3dl2;
+        i3dl2.direct = std::bit_cast<i32>(values[0]);
+        i3dl2.direct_hf = std::bit_cast<i32>(values[1]);
+        i3dl2.room = std::bit_cast<i32>(values[2]);
+        i3dl2.room_hf = std::bit_cast<i32>(values[3]);
+        i3dl2.room_rolloff = std::bit_cast<float>(values[4]);
+        i3dl2.obstruction_hf = std::bit_cast<i32>(values[5]);
+        i3dl2.obstruction_lf_ratio = std::bit_cast<float>(values[6]);
+        i3dl2.occlusion_hf = std::bit_cast<i32>(values[7]);
+        i3dl2.occlusion_lf_ratio = std::bit_cast<float>(values[8]);
+        apply_spatial_source(voice, found->second);
+#else
+        (void)handle;
+        (void)values;
+#endif
     };
     boundaries.bad_pointer = [](const void* pointer)
     {
@@ -2326,7 +2555,7 @@ AudioCoreSourceBoundaries native_audio_core_source_boundaries()
             });
             if (live)
             {
-                route_dry_and_reverb(route->first);
+                route_to_master(route->first);
             }
             route = g_source_routes.erase(route);
         }

@@ -59,9 +59,29 @@ reverb is a separate wet path added on top of each voice's dry signal. The
 boundary now copies that:
 
 - `pcm_out.cpp` keeps a reverb submix (`g_reverb`).
-- Each source voice and each 3D source submix sends dry to the master voice and
-  wet to `g_reverb`.
+- Each 3D source submix sends dry to the master voice and wet to `g_reverb`
+  (2D voices do not; see "Default mix bins" below).
 - The submix stays muted until the game sets listener parameters.
+
+#### Default mix bins (2026-11-11)
+
+On an 8-channel device a recording of the ballroom had most of its level on the centre speaker alone.
+
+- DirectSound gives a voice created without a mix bin list (XACT's 2D voices, `0x001C38BB`) the list from the
+  table at `0x001D09F4` by its channel count / 2 (`0x001C7493`): mono and stereo voices go to bins 0 and 1, front
+  left and right, at 0 mB; a mono voice plays at full level on both. A voice played into a 2D source keeps that
+  list (`0x001C437F`), as the source's left and right. The game's own 2D sources (modes 5..8) take bins {0, 1} and
+  no reverb; only its 3D sources call `0x0015C170`.
+- No default list has bin 10, the I3DL2 reverb's input. Only the 3D lists name it (`0x001D0B34`: 3D front and
+  back left and right and 10; `0x001D0B24` / `0x001D0B2C`, the 5-channel 3D lists XACT gives its 3D sources, add
+  front centre).
+- Host: `route_to_master` sends 2D cue voices, host PCM voices and 2D source submixes to the master only, at the
+  default bins (XAudio2's own default puts a mono voice on the centre speaker alone). Only 3D sources send to the
+  reverb. Cue voices in a 2D source take the default bins into it.
+- The ballroom's centre level did not change: it is the disco's 3D source, straight ahead of the listener, which
+  X3DAudio pans to the centre (0.80 centre, 0.01 front left in a logged sample). Retail's 5-channel 3D list
+  includes front centre, so a 3D source ahead reaching the centre speaker matches it. The back channels' reverb
+  from 2D voices is gone.
 
 ### Scene pass `0x0011E640` (2026-10-14)
 
@@ -211,8 +231,44 @@ curve at full level within 40 units, so both faded out a little way from their s
   is the plain source-to-listener length (`0x001C8E42`).
 - Host: `pcm_out.cpp` keeps each owned cue's record (`Sound3D`) and, whenever its source or the listener moves,
   sets the cue's send into the source to that level. A cue without the 3D flag routed into a 3D source is not
-  attenuated. Not translated: the buffer's mute-past-maximum flag (+0x58 bit 2), whose source was not found, and
-  the cone (+0 to +4) and doppler factors.
+  attenuated. The cone (+0 to +4) and doppler factors are not applied; every retail record has 360/360 cones and a
+  doppler factor of 1, and source velocities are always zero (below).
+
+#### Mute past maximum, cones and doppler (2026-11-11)
+
+- The mute-at-maximum flag that `0x001C67F7` passes to the level (`+0x58` of the 3D block, the source's +0x9C
+  bit 2) is never set. A scan of every write to +0x9C in the executable finds `0x001C414B` (reset: bit 0 from
+  DAT_001C5528, bit 1 for a 3D source), `0x001C38BB` (the same at buffer creation), `0x001C4240` (bit 0) and the
+  listener's own +0x9C in `0x001C8705`. A sound past its maximum keeps the maximum's level, as the host does.
+- The 3D records of all 75 sound banks (1,177 3D sound entries) have inside and outside cones of 360, outside
+  volume 0, a doppler factor of 1 and mode 0. The game sets every source's velocity to DAT_0050DD80 (zero) and the
+  listener's to DAT_00421C70 (0, 1, 0). The cone and velocity boundaries stay empty.
+
+#### Source obstruction (2026-11-11)
+
+`0x00039620` gives each 3D event voice's source an I3DL2 obstruction from the nine pairs at DAT_00421A38, picked
+by DAT_004E13A8, and the defaults' pair (0, 0) as its occlusion. Only chapter 2 scene 4 (the ballroom) picks a
+pair other than 0: index 8, -1200 mB HF and an LF ratio of 0.15, for every 3D sound started while it is set.
+
+- `IXACTSoundSource_SetI3DL2Source` (`0x001C4A63`) stores the nine words at the source's +0xC4..+0xE4.
+  DirectSound's 3D calculation (`0x001C67F7` -> `0x001CE923`) makes from them:
+  - the direct level: obstruction HF x LF ratio plus occlusion HF x LF ratio, plus lDirect;
+  - the direct HF level: obstruction HF x (1 - LF ratio) plus occlusion's, plus lDirectHF, clamped to -10000..0;
+  - the room level: the occlusion's LF part plus lRoom; and the room HF level, which retail sums with lRoom
+    (+0xC) again where lRoomHF would be expected;
+  - each HF level as a one-pole low-pass pole (`0x001CE78B`) at the listener's HF reference (word 11 of the
+    listener's I3DL2, 5000 Hz in the game's presets) and 48000 Hz. A 3D source's +0x9C bit 1 gives the room path
+    the direct path's filter.
+- The ballroom's pair gives a direct level of -180 mB and a pole of 53201/65536: -1020 mB at 5 kHz. The room path
+  is unchanged in level and takes the same filter.
+- Host: `pcm_out.cpp` keeps each 3D source's words (`SourceI3DL2`). `apply_spatial_source` scales the source's
+  dry send by the direct level and sets the one-pole filter (`LowPassOnePoleFilter`, the pole raised to
+  48000 / the mix rate) on its dry and reverb sends, and scales the reverb send by the room level. A room rolloff
+  other than 0 raises: it multiplies a distance term (the 3D block's +0x68) whose writer was not traced, and the
+  game always passes 0.
+- Checked in `--scene2a4` with a temporary log: 5,723 voices took the ballroom's pair and computed the values
+  above; every other voice computed no change. Not heard: the muffling has not been listened to, and the FAudio
+  (Linux) path builds untested.
 - Checked in `--scene2a4` and `--scene6-1` with a temporary log: the disco at 657 units -1118 mB (0.28; the old
   curve gave about 0.06); the muffled disco silent past 320 and 0.89 at 70 units; footsteps full level at 5 units.
 

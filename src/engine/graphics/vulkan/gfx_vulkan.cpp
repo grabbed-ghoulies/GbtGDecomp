@@ -1254,6 +1254,29 @@ VkRect2D whole_target()
     return VkRect2D{{0, 0}, target_extent()};
 }
 
+// Host presentation: black over the back buffer's pixels outside the fitted 640x480 frame (the pixels whose
+// centres the frame's viewport leaves out).
+void clear_outside_frame()
+{
+    const Viewport vp = hud_viewport();
+    const auto edge = [](float position)
+    {
+        return i32(std::ceil(position - 0.5f));
+    };
+    const i32 left = edge(vp.x);
+    const i32 top = edge(vp.y);
+    const i32 right = edge(vp.x + vp.width);
+    const i32 bottom = edge(vp.y + vp.height);
+    const VkExtent2D extent = target_extent();
+    const i32 width = i32(extent.width);
+    const i32 height = i32(extent.height);
+    for (const VkRect2D& bar : {clamp_rect(0, 0, left, height), clamp_rect(right, 0, width, height),
+             clamp_rect(left, 0, right, top), clamp_rect(left, bottom, right, height)})
+    {
+        clear_attachments(bar, true, {0.f, 0.f, 0.f, 1.f}, 0, 1.f);
+    }
+}
+
 std::array<float, 4> argb_color(u32 color)
 {
     return {float((color >> 16) & 0xFF) / 255.f, float((color >> 8) & 0xFF) / 255.f, float(color & 0xFF) / 255.f,
@@ -1973,7 +1996,11 @@ void gfx_begin_frame()
     age_retained_uploads();
 #endif
     begin_rendering();
-    clear_attachments(whole_target(), true, {0.f, 0.f, 0.f, 1.f}, VK_IMAGE_ASPECT_DEPTH_BIT, 1.f);
+    // The colour inside the 640x480 frame is the present's to clear (0x00033A90): retail keeps it under a sky or
+    // a "disableframebufferclear" background, over a back buffer whose contents D3DSWAPEFFECT_DISCARD leaves
+    // undefined. The Xbox screen has no bars around the frame, so they go black.
+    clear_attachments(whole_target(), false, {}, VK_IMAGE_ASPECT_DEPTH_BIT, 1.f);
+    clear_outside_frame();
     g.viewport = full_viewport();
 }
 

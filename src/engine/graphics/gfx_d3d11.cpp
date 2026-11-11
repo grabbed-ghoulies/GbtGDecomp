@@ -61,6 +61,8 @@ void gfx_release_sprite(const RgbaImage& image);
 
 namespace
 {
+D3D11_VIEWPORT fitted_frame();
+void clear_outside_frame();
 void present_hud_viewport();
 void present_camera_viewport();
 void present_hud_sprites();
@@ -1137,9 +1139,11 @@ void gfx_begin_frame()
     {
         return;
     }
-    const float clear[4] = {0.f, 0.f, 0.f, 1.f};
     g.context->OMSetRenderTargets(1, g.rtv.GetAddressOf(), g.dsv.Get());
-    g.context->ClearRenderTargetView(g.rtv.Get(), clear);
+    // The colour inside the 640x480 frame is the present's to clear (0x00033A90): retail keeps it under a sky or
+    // a "disableframebufferclear" background, over a back buffer whose contents D3DSWAPEFFECT_DISCARD leaves
+    // undefined, as FLIP_DISCARD does here. The Xbox screen has no bars around the frame, so they go black.
+    clear_outside_frame();
     g.context->ClearDepthStencilView(g.dsv.Get(), D3D11_CLEAR_DEPTH, 1.f, 0);
     D3D11_VIEWPORT vp{};
     vp.Width = float(g.cfg.width);
@@ -3272,12 +3276,9 @@ std::vector<HudQuad> hud_quads;
 
 // Host: the window area the 640x480 HUD (DAT_005096E8 / DAT_005096EA) maps onto, for the viewports and clears
 // the native present (0x000F6F70) records.
-void present_hud_viewport()
+// The back buffer's fitted 640x480 frame.
+D3D11_VIEWPORT fitted_frame()
 {
-    if (!g.ok || g.cfg.width <= 0 || g.cfg.height <= 0)
-    {
-        return;
-    }
     // The 640x480 frame fills a 16:9 area in widescreen (the Xbox's anamorphic output), else 4:3.
     float frame = g.cfg.widescreen ? 16.f / 9.f : 640.f / 480.f;
     if (g.cfg.frame_aspect > 0.f)
@@ -3287,14 +3288,6 @@ void present_hud_viewport()
     const float window = float(g.cfg.width) / float(g.cfg.height);
     D3D11_VIEWPORT vp{};
     vp.MaxDepth = 1.f;
-    if (native_target.rendering)
-    {
-        // Xbox pixel coordinates map 1:1 onto the texture surface.
-        vp.Width = 640.f;
-        vp.Height = 480.f;
-        g.context->RSSetViewports(1, &vp);
-        return;
-    }
     if (window > frame)
     {
         vp.Height = float(g.cfg.height);
@@ -3307,6 +3300,67 @@ void present_hud_viewport()
         vp.Height = vp.Width / frame;
         vp.TopLeftY = (float(g.cfg.height) - vp.Height) * 0.5f;
     }
+    return vp;
+}
+
+// Host presentation: black over the back buffer's pixels outside the fitted frame (the pixels whose centres the
+// frame's viewport leaves out).
+void clear_outside_frame()
+{
+    if (g.cfg.width <= 0 || g.cfg.height <= 0)
+    {
+        return;
+    }
+    const D3D11_VIEWPORT vp = fitted_frame();
+    const auto edge = [](float position)
+    {
+        return LONG(std::ceil(position - 0.5f));
+    };
+    const LONG left = edge(vp.TopLeftX);
+    const LONG top = edge(vp.TopLeftY);
+    const LONG right = edge(vp.TopLeftX + vp.Width);
+    const LONG bottom = edge(vp.TopLeftY + vp.Height);
+    const LONG width = g.cfg.width;
+    const LONG height = g.cfg.height;
+    std::vector<D3D11_RECT> bars;
+    for (const D3D11_RECT& bar : {D3D11_RECT{0, 0, left, height}, D3D11_RECT{right, 0, width, height},
+             D3D11_RECT{left, 0, right, top}, D3D11_RECT{left, bottom, right, height}})
+    {
+        if (bar.right > bar.left && bar.bottom > bar.top)
+        {
+            bars.push_back(bar);
+        }
+    }
+    if (bars.empty())
+    {
+        return;
+    }
+    ComPtr<ID3D11DeviceContext1> context1;
+    if (FAILED(g.context.As(&context1)))
+    {
+        throw Error("the bars around the frame need ID3D11DeviceContext1::ClearView");
+    }
+    const float black[4] = {0.f, 0.f, 0.f, 1.f};
+    context1->ClearView(g.rtv.Get(), black, bars.data(), UINT(bars.size()));
+}
+
+void present_hud_viewport()
+{
+    if (!g.ok || g.cfg.width <= 0 || g.cfg.height <= 0)
+    {
+        return;
+    }
+    D3D11_VIEWPORT vp{};
+    vp.MaxDepth = 1.f;
+    if (native_target.rendering)
+    {
+        // Xbox pixel coordinates map 1:1 onto the texture surface.
+        vp.Width = 640.f;
+        vp.Height = 480.f;
+        g.context->RSSetViewports(1, &vp);
+        return;
+    }
+    vp = fitted_frame();
     g.context->RSSetViewports(1, &vp);
 }
 

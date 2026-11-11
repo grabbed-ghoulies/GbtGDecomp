@@ -24,9 +24,17 @@ checkpoints at the top, below this paragraph.
 - Checked: the Windows and Linux builds; `--title`, `--gameselect`, `--scene7`, `--pause`, `--controller-prompt`
   and `--player-opening` pass.
   `--player-opening`'s two captures match this morning's build pixel for pixel. Looked at: the title, scene 6's
-  chapter page at 5120x1440 and 1920x1080, scene 3's dialogue and game select at 1920x1080. Not checked: a scene
-  with a post model or a "disableframebufferclear" background, where the colour target is not cleared (the host's
-  `gfx_begin_frame` still clears it to black first).
+  chapter page at 5120x1440 and 1920x1080, scene 3's dialogue and game select at 1920x1080.
+- The colour target now stays as retail leaves it. Retail's device has one back buffer and D3DSWAPEFFECT_DISCARD
+  (`0x001548B0` from DAT_005096E8: +0x8 is 1, not 2; +0x14 is 1), so a frame the present does not colour-clear
+  starts on undefined contents, which the sky or the room is drawn over. The host's `gfx_begin_frame` cleared the
+  whole back buffer to black; D3D11 and Vulkan now clear only the bars around the fitted 640x480 frame, which the
+  Xbox screen does not have, and leave the frame to the present. D3D11's swap chain is FLIP_DISCARD over two
+  buffers, the same contract. "disableframebufferclear" lists 51 backgrounds (the attic, basement, hallways, east
+  wing and more): a temporary count in `--player-opening` kept the colour on 1019 of 1200 frames, and its two
+  captures still match pixel for pixel, as do scene 3 at 5120x1440, scene 6 at 1920x1080 and the title.
+  `--title`, `--gameselect`, `--scene7`, `--pause`, `--controller-prompt` and `--scene6` pass. Not checked: a
+  scene whose post model (a sky) is the reason the colour is kept.
 
 ### 2026-11-11: the controller prompt, and a restarted scene's 0x51 node
 

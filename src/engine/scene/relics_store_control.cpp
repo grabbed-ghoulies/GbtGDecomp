@@ -1,4 +1,5 @@
 #include "relics_store_control.h"
+#include "scene_gameplay_time.h"
 #include "../entities/actor_fields.h"
 #include "scene_controls.h"
 #include "trophy_heads_control.h"
@@ -87,10 +88,12 @@ void destroy_runtime_relics_store_control(RelicsStoreControlState& control,
 void tick_runtime_relics_store_control(SceneControlBase& base, RelicsStoreControlState& control,
     RelicsStoreControlServices& services)
 {
-    if ((services.runtime_flags & 0x400) == 0 && services.gameplay_tick != services.gameplay_mark)
+    if ((services.runtime_flags & 0x400) == 0
+        && scene_gameplay_time_due(services.gameplay_tick, services.gameplay_mark)) // DAT_004312D8 != DAT_004312D4
     {
         services.gameplay_time += frame_step(services);
         services.gameplay_mark = services.gameplay_tick;
+        note_scene_gameplay_time_added();
     }
     switch (control.phase)
     {

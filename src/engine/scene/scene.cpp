@@ -1,4 +1,5 @@
 #include "../cutscenes/door_registration.h"
+#include "scene_gameplay_time.h"
 #include "../entities/body_fields.h"
 #include "../scripts/script_event_sequence.h"
 #include "../scripts/script_actions.h"
@@ -815,6 +816,7 @@ void scene_teardown(Game& g, u8* scene)
     g_scene_gameplay_time = 0.f;
     g_scene_gameplay_tick = 0;
     g_scene_gameplay_mark = 0;
+    note_scene_gameplay_time_added(); // The counts are equal, so the next control tick adds no step.
     g_sim_scale = 1.f;
     release_actor_camera_effects(); // 0x00048F10
     g.factory_scene->actor_services->release_scene_dialogue(); // 0x00057DC0

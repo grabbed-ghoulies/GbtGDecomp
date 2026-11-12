@@ -285,6 +285,7 @@ checked at 60 Hz:
 | `scene/lighting.cpp` via `animate_light_records` (0x000FDDA0) | Light flicker and pulses on frame-counter masks, a random roll each | Animate on retail ticks, with the retail frame count |
 | `runtime/clock.cpp`, `update_holds` (0x000F9F60) | The frames each pad button is held | Counts retail ticks |
 | `scene/scene_gameplay_time.cpp` (0x0012B1F0), timers +0x10 and +0xC | The frame count beside the gameplay time (its seconds scale by the step) | Counts retail ticks |
+| `scene/trophy_heads_control.cpp` (0x00081890) and `scene/relics_store_control.cpp` (0x00081080) | While the scene's clock is held (`DAT_0050EA9C` 0x400000), the control adds the step to the gameplay time when the tick count +0x10 is past the count at the last add (+0xC) | Adds when the clock's last advance added nothing (`scene_gameplay_time_due`): the counts move once a retail tick, so it added one frame's step a retail tick and Challenge 21's clock ran slow in the trophy heads' scene |
 | `graphics/point_graph_solver.cpp`, graph +0x1C8 | 10 frames of cloth warm-up | Counts retail ticks |
 | `transitions/scene_transitions.cpp`, `count_down` | A transition's time counts down by the step; the fade (0x0012BC80) and slime handlers wait for it to be below zero and not exactly zero | A step that lands exactly on zero goes just below it: at 1/60 s the attract's first fade landed on 0.0 and never ended |
 

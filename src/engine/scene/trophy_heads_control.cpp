@@ -1,4 +1,5 @@
 #include "trophy_heads_control.h"
+#include "scene_gameplay_time.h"
 #include <cstddef>
 #include "../entities/body_fields.h"
 #include "scene_controls.h"
@@ -284,10 +285,12 @@ void message_runtime_trophy_heads_control(std::span<const u32> message,
 void tick_runtime_trophy_heads_control(SceneControlBase& base, TrophyHeadsControlState& control,
     TrophyHeadsControlServices& services)
 {
-    if ((services.runtime_flags & 0x400) == 0 && services.gameplay_tick != services.gameplay_mark)
+    if ((services.runtime_flags & 0x400) == 0
+        && scene_gameplay_time_due(services.gameplay_tick, services.gameplay_mark)) // DAT_004312D8 != DAT_004312D4
     {
         services.gameplay_time += frame_step(services);
         services.gameplay_mark = services.gameplay_tick;
+        note_scene_gameplay_time_added();
     }
     const u16 current = control.phase;
     if (current == 1)

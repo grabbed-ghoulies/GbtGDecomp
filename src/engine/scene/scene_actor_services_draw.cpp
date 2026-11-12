@@ -971,6 +971,43 @@ static RgbaImage scale_to_texture(const RgbaImage& frame, int width, int height)
 void SceneActorServices::State::close_render_target()
 {
 #if GBTG_OPTIMIZE && !defined(GBTG_INSPECTOR_APP)
+    // GBTG_OPTIMIZE step 27: a book page drawn as a scene target (against the back buffer's depth-stencil, at the
+    // window's resolution) ends on the GPU, as step 26 ends a texture target into one. The image takes the
+    // window-resolution picture, counted in the texture's texels, as show_full_resolution gives it, and the page keeps
+    // its texels (copy_back_buffer has the evidence that no native code reads them).
+    const auto end_scene_page_on_gpu = [this]()
+    {
+        if (render_target_texture == 0 || !render_target_scene)
+        {
+            return false;
+        }
+        const u8* record = resources.memory.pointer(render_target_texture);
+        int width = 0;
+        int height = 0;
+        gfx_scene_target_size(width, height);
+        if (!book_page_record(record) || width <= 0 || height <= 0)
+        {
+            return false;
+        }
+        const auto& header = resources.d3d.resources.at(render_target_texture).header;
+        RgbaImage& image = const_cast<RgbaImage&>(texture_image(record));
+        image.width = width;
+        image.height = height;
+        image.bgra.resize(size_t(width) * size_t(height) * 4);
+        image.texel_width = i32(header[0]);
+        image.texel_height = i32(header[1]);
+        ++image.serial;
+        if (!gfx_end_native_scene_target_into(image))
+        {
+            --image.serial;
+            return false;
+        }
+        render_target_scene = false;
+        render_target_texture = 0;
+        return true;
+    };
+#endif
+#if GBTG_OPTIMIZE && !defined(GBTG_INSPECTOR_APP)
     // GBTG_OPTIMIZE step 28: the glow capture's depth (an own-depth scene target over DAT_005047E8) is written on the
     // GPU into the texture's image, as step 27 ends a book page, with no readback; the texture's data keeps its texels.
     // No native code reads them: the executable names DAT_005047E8 in six instructions, 0x000620C0 creating it,
@@ -1048,6 +1085,14 @@ void SceneActorServices::State::close_render_target()
     }
     if (render_target_texture != 0 && created_textures.contains(render_target_texture))
     {
+#if GBTG_OPTIMIZE && !defined(GBTG_INSPECTOR_APP)
+        // Step 27 below, for a created page too: the blob shadows (0x001196DD) draw into DAT_005047E8, which boot's
+        // 0x000620C0 creates, at the window's resolution against the back buffer's depth-stencil.
+        if (end_scene_page_on_gpu())
+        {
+            return;
+        }
+#endif
 #if GBTG_OPTIMIZE
         // GBTG_OPTIMIZE step 12: the target is copied on the GPU into the texture its image samples as, so draws
         // after this one sample it without a readback. Its data is written by finish_render_target, after the
@@ -1120,33 +1165,9 @@ void SceneActorServices::State::close_render_target()
             --image.serial;
         }
     }
-    // GBTG_OPTIMIZE step 27: a book page drawn as a scene target (against the back buffer's depth-stencil, at the
-    // window's resolution) ends on the GPU the same way. The image takes the window-resolution picture, counted in the
-    // texture's texels, as show_full_resolution gives it, and the page keeps its texels.
-    if (render_target_texture != 0 && render_target_scene)
+    if (end_scene_page_on_gpu())
     {
-        const u8* record = resources.memory.pointer(render_target_texture);
-        int width = 0;
-        int height = 0;
-        gfx_scene_target_size(width, height);
-        if (book_page_record(record) && width > 0 && height > 0)
-        {
-            const auto& header = resources.d3d.resources.at(render_target_texture).header;
-            RgbaImage& image = const_cast<RgbaImage&>(texture_image(record));
-            image.width = width;
-            image.height = height;
-            image.bgra.resize(size_t(width) * size_t(height) * 4);
-            image.texel_width = i32(header[0]);
-            image.texel_height = i32(header[1]);
-            ++image.serial;
-            if (gfx_end_native_scene_target_into(image))
-            {
-                render_target_scene = false;
-                render_target_texture = 0;
-                return;
-            }
-            --image.serial;
-        }
+        return;
     }
 #endif
     if (render_target_texture != 0)

@@ -240,4 +240,17 @@ composite samples the page. Both were 640x480 and stretched.
 - Checked at 2560x1920 on both backends (`--scene5_7` passes): the goop's splash edges are sharp where they were
   blocky (frame 3900), and Vulkan matches D3D11. The fire round burning ghoulies and the curse's halo look as
   before: their softness comes from the effect textures composited over the capture.
-- Cost: each capture reads its depth back at the window's size (about 20 MB at 2560x1920). Not benchmarked.
+- Cost of the readback: each capture drains the render thread, waits for the GPU and reads its depth back at the
+  window's size (about 20 MB at 2560x1920, 29 MB at 5120x1440), then uploads it again. Every build did this until
+  step 28; at 5120x1440 with Rare Replay ticking once a frame it made every burning ghouly or goop splash lag. Builds
+  without `GBTG_OPTIMIZE`, Vulkan and the inspector still do.
+- **GBTG_OPTIMIZE step 28** keeps it on the GPU on D3D11 (`gfx_read_native_target_depth_into`). The scene target's
+  own depth is typeless (`R24G8_TYPELESS`, with a D24S8 depth view and depth and stencil shader views), and a
+  full-screen pass (`gfx_hlsl_depth_words`) writes each texel's word, `depth << 8 | stencil`, as the BGRA bytes the
+  readback produced, into the texture the stamp samples. The texture's data keeps its texels: the executable names
+  `DAT_005047E8` in six instructions (0x000620C0 creates it, 0x00061D00 twice and 0x00119800 set it as a texture,
+  0x001196DD takes its surface, 0x0006350D hands it to the back-buffer copy 0x0013DF80), and none reads them. Vulkan
+  and the inspector still read the depth back.
+- Checked with `--scene5_7` and `GBTG_TEST_WINDOW`: at 2560x1920 the optimized run (about 1,700 passes) and the
+  readback build's run give the same 34 captures byte for byte; at 5120x1440 the scene takes 29.0 s with the pass and
+  50.7 s with the readback forced in the same build, about 13 ms a capture.

@@ -276,4 +276,9 @@ bool gfx_end_native_scene_target_into(const RgbaImage& image)
     return backend().gfx_end_native_scene_target_into(image);
 }
 
+bool gfx_read_native_target_depth_into(const RgbaImage& image)
+{
+    return backend().gfx_read_native_target_depth_into(image);
+}
+
 } // namespace gbtg

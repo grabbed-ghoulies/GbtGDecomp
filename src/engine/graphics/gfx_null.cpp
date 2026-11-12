@@ -258,6 +258,11 @@ bool gfx_end_native_scene_target_into(const RgbaImage&)
     return false;
 }
 
+bool gfx_read_native_target_depth_into(const RgbaImage&)
+{
+    return false;
+}
+
 const GfxBackend& backend_table()
 {
     static const GfxBackend table = GBTG_GFX_BACKEND_TABLE("null");

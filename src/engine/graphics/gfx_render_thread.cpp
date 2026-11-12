@@ -78,6 +78,7 @@ enum class Kind : u8
     EndTargetInto,
     CopyUiInto,
     EndSceneTargetInto,
+    DepthWordsInto,
     ReleaseImage,
     EndFrame,
     PresentAgain
@@ -218,6 +219,9 @@ std::unordered_map<u64, std::shared_ptr<RetainedCopy>> retained;
 // Step 20: the backend ends a texture target into an image (gfx_end_native_target_into) whenever their sizes match,
 // so the wrapper answers for it and queues the end instead of draining. Set for D3D11 and (step 23) Vulkan.
 bool ends_into = false;
+// Step 28: the backend writes an own-depth scene target's words into an image (gfx_read_native_target_depth_into), so
+// the wrapper queues it instead of draining. Set for D3D11; Vulkan reads the words back.
+bool depth_words_into = false;
 int target_width = 0; // The texture target gfx_begin_native_target last opened.
 int target_height = 0;
 
@@ -308,6 +312,17 @@ void execute(Command& command)
         if (!inner->gfx_end_native_scene_target_into(image))
         {
             throw Error("gfx render thread: the backend declined a scene target end queued for it");
+        }
+        break;
+    }
+    case Kind::DepthWordsInto:
+    {
+        // Step 28: as EndSceneTargetInto, for the open scene target's own depth; the target stays bound.
+        RgbaImage& image = *command.images[0];
+        image.serial = command.flags;
+        if (!inner->gfx_read_native_target_depth_into(image))
+        {
+            throw Error("gfx render thread: the backend declined a depth words copy queued for it");
         }
         break;
     }
@@ -1098,6 +1113,15 @@ bool gfx_end_native_scene_target_into(const RgbaImage& image)
     return queue_copy_into(image, Kind::EndSceneTargetInto);
 }
 
+bool gfx_read_native_target_depth_into(const RgbaImage& image)
+{
+    if (!running)
+    {
+        return inner->gfx_read_native_target_depth_into(image);
+    }
+    return depth_words_into && queue_copy_into(image, Kind::DepthWordsInto);
+}
+
 const GfxBackend* backend_table(const GfxBackend& backend)
 {
     static GfxBackend table = GBTG_GFX_BACKEND_TABLE("vulkan");
@@ -1108,6 +1132,7 @@ const GfxBackend* backend_table(const GfxBackend& backend)
     inner = &backend;
     table.name = backend.name;
     ends_into = std::strcmp(backend.name, "d3d11") == 0 || std::strcmp(backend.name, "vulkan") == 0;
+    depth_words_into = GBTG_OPTIMIZE && std::strcmp(backend.name, "d3d11") == 0;
     return &table;
 }
 

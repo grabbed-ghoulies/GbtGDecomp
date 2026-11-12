@@ -2741,6 +2741,12 @@ bool gfx_end_native_scene_target_into(const RgbaImage& image)
 #endif
 }
 
+// GBTG_OPTIMIZE step 28 has no Vulkan pass yet: the glow capture reads its depth back (gfx_read_native_target_depth).
+bool gfx_read_native_target_depth_into(const RgbaImage&)
+{
+    return false;
+}
+
 // D3DDevice_Clear over the 640x480 back buffer: flags 1 depth, 2 stencil, 0xF0 colour.
 void gfx_clear_native(std::span<const std::array<i32, 4>> rectangles, u32 flags, u32 color, float depth)
 {

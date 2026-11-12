@@ -46,7 +46,8 @@ namespace gbtg
     X(gfx_ui_frame_size)                     \
     X(gfx_copy_ui_into)                      \
     X(gfx_scene_target_size)                 \
-    X(gfx_end_native_scene_target_into)
+    X(gfx_end_native_scene_target_into)      \
+    X(gfx_read_native_target_depth_into)
 
 // gfx_readback_ui's picture in a frame_width x frame_height back buffer: the 640x480 back buffer's picture, 16:9 in
 // widescreen (the Xbox's anamorphic buffer holds the whole 16:9 view, which the book's widescreen redraw 0x0005CE80

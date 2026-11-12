@@ -517,6 +517,33 @@ bool native_alpha_pass(float alpha)
 )";
 }
 
+// The texture a scene target's depth surface aliases (a LIN_A8R8G8B8 texture, boot 0x000620C0's DAT_005047E8) holds
+// the D24S8 words: depth in the top 24 bits, stencil in the low 8. As BGRA bytes, blue is the stencil, green the
+// depth's low byte, red its middle byte and alpha its high byte.
+const char* gfx_hlsl_depth_words()
+{
+    return R"(
+Texture2D<float> depth_texture : register(t0);
+Texture2D<uint2> stencil_texture : register(t1);
+cbuffer DepthWordsOrigin : register(b0)
+{
+    int4 origin; // The fitted area's top left in the depth-stencil.
+};
+float4 depth_words_vertex(uint id : SV_VertexID) : SV_Position
+{
+    const float2 corner = float2((id << 1) & 2, id & 2);
+    return float4(corner * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+float4 depth_words_pixel(float4 position : SV_Position) : SV_Target
+{
+    const int3 texel = int3(int2(position.xy) + origin.xy, 0);
+    const uint depth = (uint)min(round(saturate(depth_texture.Load(texel)) * 16777215.0), 16777215.0);
+    const uint stencil = stencil_texture.Load(texel).g;
+    return float4((depth >> 8) & 255, depth & 255, stencil, depth >> 16) / 255.0;
+}
+)";
+}
+
 // clear_vertex: one rectangle in clip space, for depth/stencil rectangle clears.
 const char* gfx_hlsl_clear()
 {

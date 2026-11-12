@@ -15,6 +15,9 @@ const char* gfx_hlsl_alpha_test();
 const char* gfx_hlsl_combiners();
 const char* gfx_hlsl_native();
 const char* gfx_hlsl_clear();
+// depth_words_vertex / depth_words_pixel: a scene target's own depth-stencil as the Xbox's D24S8 words (depth << 8 |
+// stencil), each word's bytes as one BGRA pixel, for GBTG_OPTIMIZE step 28.
+const char* gfx_hlsl_depth_words();
 
 // The native pixel stage of a 60-word D3DPIXELSHADERDEF. Throws for a definition the combiner shader cannot run.
 void gfx_check_native_pixel_definition(const u32* definition);

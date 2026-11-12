@@ -216,5 +216,10 @@ bool gfx_copy_ui_into(const RgbaImage& image);
 // still bound, when the backend has no such path: gfx_end_native_scene_target ends it instead.
 void gfx_scene_target_size(int& width, int& height);
 bool gfx_end_native_scene_target_into(const RgbaImage& image);
+// GBTG_OPTIMIZE step 28: gfx_read_native_target_depth's words kept on the GPU, for a scene target opened with
+// own_depth. Writes its depth over the fitted area, gfx_scene_target_size big, as the D24S8 words' BGRA bytes into the
+// texture native draws sample for `image`, which then stands at image.serial; nothing is read back and the target stays
+// bound. False when the backend has no such path: gfx_read_native_target_depth reads the words instead.
+bool gfx_read_native_target_depth_into(const RgbaImage& image);
 
 } // namespace gbtg

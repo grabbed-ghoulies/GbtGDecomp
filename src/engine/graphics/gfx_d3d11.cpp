@@ -139,6 +139,12 @@ struct GfxD3D11
     ComPtr<ID3D11VertexShader> clear_vs;
     ComPtr<ID3D11Buffer> clear_cb;
     ComPtr<ID3D11DepthStencilState> clear_depth;
+    // GBTG_OPTIMIZE step 28: a scene target's own depth as the Xbox's D24S8 words (gfx_read_native_target_depth_into).
+    ComPtr<ID3D11VertexShader> depth_words_vs;
+    ComPtr<ID3D11PixelShader> depth_words_ps;
+    ComPtr<ID3D11Buffer> depth_words_cb;
+    ComPtr<ID3D11RasterizerState> depth_words_rasterizer;
+    ComPtr<ID3D11DepthStencilState> depth_words_depth;
     ComPtr<ID3D11PixelShader> ps;
     ComPtr<ID3D11PixelShader> model_ps;
     std::string model_source;
@@ -319,6 +325,9 @@ struct NativeSceneSurface
     ComPtr<ID3D11Texture2D> depth;
     ComPtr<ID3D11DepthStencilView> dsv;
     ComPtr<ID3D11Texture2D> depth_staging; // For gfx_read_native_target_depth.
+    // The own depth's depth and stencil as shader inputs, for gfx_read_native_target_depth_into.
+    ComPtr<ID3D11ShaderResourceView> depth_srv;
+    ComPtr<ID3D11ShaderResourceView> stencil_srv;
 };
 struct NativeSceneTarget
 {
@@ -765,6 +774,43 @@ bool gfx_init(const GfxConfig& cfg)
     clear_depth.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
     clear_depth.BackFace = clear_depth.FrontFace;
     g.device->CreateDepthStencilState(&clear_depth, g.clear_depth.GetAddressOf());
+#if GBTG_OPTIMIZE
+    {
+        // GBTG_OPTIMIZE step 28. Without it, gfx_read_native_target_depth_into declines and the depth is read back.
+        const char* words_hlsl = gfx_hlsl_depth_words();
+        ComPtr<ID3DBlob> words_vs;
+        ComPtr<ID3DBlob> words_ps;
+        if (compile_shader(words_hlsl, "depth_words_vertex", "vs_4_0", words_vs)
+            && compile_shader(words_hlsl, "depth_words_pixel", "ps_4_0", words_ps))
+        {
+            g.device->CreateVertexShader(words_vs->GetBufferPointer(), words_vs->GetBufferSize(), nullptr,
+                g.depth_words_vs.GetAddressOf());
+            g.device->CreatePixelShader(words_ps->GetBufferPointer(), words_ps->GetBufferSize(), nullptr,
+                g.depth_words_ps.GetAddressOf());
+            D3D11_BUFFER_DESC origin{};
+            origin.ByteWidth = 16;
+            origin.Usage = D3D11_USAGE_DYNAMIC;
+            origin.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            origin.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            g.device->CreateBuffer(&origin, nullptr, g.depth_words_cb.GetAddressOf());
+            D3D11_RASTERIZER_DESC rasterizer{};
+            rasterizer.FillMode = D3D11_FILL_SOLID;
+            rasterizer.CullMode = D3D11_CULL_NONE;
+            rasterizer.DepthClipEnable = TRUE;
+            g.device->CreateRasterizerState(&rasterizer, g.depth_words_rasterizer.GetAddressOf());
+            D3D11_DEPTH_STENCIL_DESC off{};
+            off.DepthEnable = FALSE;
+            off.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+            off.DepthFunc = D3D11_COMPARISON_ALWAYS;
+            off.StencilEnable = FALSE;
+            g.device->CreateDepthStencilState(&off, g.depth_words_depth.GetAddressOf());
+        }
+        else
+        {
+            log::warn("d3d11: the depth-words shader did not compile; glow captures read their depth back");
+        }
+    }
+#endif
     const D3D11_INPUT_ELEMENT_DESC layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
@@ -919,6 +965,11 @@ void gfx_shutdown()
     g.clear_vs.Reset();
     g.clear_cb.Reset();
     g.clear_depth.Reset();
+    g.depth_words_vs.Reset();
+    g.depth_words_ps.Reset();
+    g.depth_words_cb.Reset();
+    g.depth_words_rasterizer.Reset();
+    g.depth_words_depth.Reset();
     g.dsv.Reset();
     g.depth.Reset();
     g.rtv.Reset();
@@ -2912,6 +2963,10 @@ void gfx_begin_native_scene_target(u32 key, int width, int height, bool own_dept
         back_depth_texture->GetDesc(&depth_desc);
         D3D11_DEPTH_STENCIL_VIEW_DESC view{};
         g.dsv->GetDesc(&view);
+        // Typeless, so gfx_read_native_target_depth_into can also read its depth and stencil in a shader.
+        depth_desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+        depth_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+        view.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
         if (FAILED(g.device->CreateTexture2D(&depth_desc, nullptr, surface.depth.GetAddressOf())) ||
             FAILED(g.device->CreateDepthStencilView(surface.depth.Get(), &view, surface.dsv.GetAddressOf())))
         {
@@ -3033,6 +3088,136 @@ bool gfx_end_native_scene_target_into(const RgbaImage& image)
     g.context->RSSetViewports(1, &scene_target.saved_viewport);
     scene_target.rendering = false;
     scene_target.open = nullptr;
+    return true;
+#else
+    (void)image;
+    return false;
+#endif
+}
+
+bool gfx_read_native_target_depth_into(const RgbaImage& image)
+{
+#if GBTG_OPTIMIZE
+    if (!g.ok || image.width <= 0 || image.height <= 0 || !g.depth_words_ps || !scene_target.rendering
+        || !scene_target.own_depth || scene_target.open == nullptr)
+    {
+        return false;
+    }
+    NativeSceneSurface& surface = *scene_target.open;
+    if (!surface.depth_srv)
+    {
+        D3D11_SHADER_RESOURCE_VIEW_DESC view{};
+        view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        view.Texture2D.MipLevels = 1;
+        view.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+        if (FAILED(g.device->CreateShaderResourceView(surface.depth.Get(), &view, surface.depth_srv.GetAddressOf())))
+        {
+            return false;
+        }
+        view.Format = DXGI_FORMAT_X24_TYPELESS_G8_UINT;
+        if (FAILED(g.device->CreateShaderResourceView(surface.depth.Get(), &view, surface.stencil_srv.GetAddressOf())))
+        {
+            surface.depth_srv.Reset();
+            return false;
+        }
+    }
+    // The image's texture, drawable: native_image_texture's, remade with a render-target binding when it lacks one.
+    GfxD3D11::SpriteGpu& sprite = g.sprites[&image];
+    ComPtr<ID3D11Texture2D> texture = native_image_texture(image);
+    D3D11_TEXTURE2D_DESC desc{};
+    texture->GetDesc(&desc);
+    if ((desc.BindFlags & D3D11_BIND_RENDER_TARGET) == 0)
+    {
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        texture.Reset();
+        sprite.srv.Reset();
+        if (FAILED(g.device->CreateTexture2D(&desc, nullptr, texture.GetAddressOf()))
+            || FAILED(g.device->CreateShaderResourceView(texture.Get(), nullptr, sprite.srv.GetAddressOf())))
+        {
+            throw Error("native depth words texture creation failed");
+        }
+    }
+    ComPtr<ID3D11RenderTargetView> target;
+    if (FAILED(g.device->CreateRenderTargetView(texture.Get(), nullptr, target.GetAddressOf())))
+    {
+        throw Error("native depth words target creation failed");
+    }
+    const GfxUiFrame area = gfx_scene_target_area(g.cfg.width, g.cfg.height, int(surface.desc.Width),
+        int(surface.desc.Height), g.cfg.widescreen, g.cfg.frame_aspect);
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(g.context->Map(g.depth_words_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        throw Error("native depth words origin upload failed");
+    }
+    const std::array<i32, 4> origin{area.left, area.top, 0, 0};
+    std::memcpy(mapped.pData, origin.data(), sizeof(origin));
+    g.context->Unmap(g.depth_words_cb.Get(), 0);
+
+    // The pass's own state, then the open target's back: the depth is unbound while the shader reads it.
+    ComPtr<ID3D11VertexShader> saved_vs;
+    ComPtr<ID3D11PixelShader> saved_ps;
+    ComPtr<ID3D11InputLayout> saved_layout;
+    ComPtr<ID3D11Buffer> saved_ps_cb;
+    ComPtr<ID3D11RasterizerState> saved_rasterizer;
+    ComPtr<ID3D11DepthStencilState> saved_depth;
+    ComPtr<ID3D11BlendState> saved_blend;
+    ID3D11ShaderResourceView* saved_srvs[2] = {nullptr, nullptr}; // Referenced by the get, released after the set.
+    D3D11_PRIMITIVE_TOPOLOGY saved_topology;
+    UINT saved_stencil = 0;
+    std::array<float, 4> saved_factor{};
+    UINT saved_mask = 0;
+    D3D11_VIEWPORT saved_viewport{};
+    UINT viewport_count = 1;
+    g.context->VSGetShader(saved_vs.GetAddressOf(), nullptr, nullptr);
+    g.context->PSGetShader(saved_ps.GetAddressOf(), nullptr, nullptr);
+    g.context->IAGetInputLayout(saved_layout.GetAddressOf());
+    g.context->IAGetPrimitiveTopology(&saved_topology);
+    g.context->PSGetConstantBuffers(0, 1, saved_ps_cb.GetAddressOf());
+    g.context->RSGetState(saved_rasterizer.GetAddressOf());
+    g.context->OMGetDepthStencilState(saved_depth.GetAddressOf(), &saved_stencil);
+    g.context->OMGetBlendState(saved_blend.GetAddressOf(), saved_factor.data(), &saved_mask);
+    g.context->PSGetShaderResources(0, 2, saved_srvs);
+    g.context->RSGetViewports(&viewport_count, &saved_viewport);
+
+    ID3D11RenderTargetView* words_target = target.Get();
+    g.context->OMSetRenderTargets(1, &words_target, nullptr);
+    const D3D11_VIEWPORT words_viewport{0.f, 0.f, float(image.width), float(image.height), 0.f, 1.f};
+    g.context->RSSetViewports(1, &words_viewport);
+    g.context->RSSetState(g.depth_words_rasterizer.Get());
+    g.context->OMSetDepthStencilState(g.depth_words_depth.Get(), 0);
+    g.context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFFu);
+    g.context->IASetInputLayout(nullptr);
+    g.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g.context->VSSetShader(g.depth_words_vs.Get(), nullptr, 0);
+    g.context->PSSetShader(g.depth_words_ps.Get(), nullptr, 0);
+    ID3D11Buffer* origin_buffer = g.depth_words_cb.Get();
+    g.context->PSSetConstantBuffers(0, 1, &origin_buffer);
+    ID3D11ShaderResourceView* inputs[2] = {surface.depth_srv.Get(), surface.stencil_srv.Get()};
+    g.context->PSSetShaderResources(0, 2, inputs);
+    g.context->Draw(3, 0);
+
+    ID3D11ShaderResourceView* none[2] = {nullptr, nullptr};
+    g.context->PSSetShaderResources(0, 2, none);
+    g.context->OMSetRenderTargets(1, surface.rtv.GetAddressOf(), surface.dsv.Get());
+    g.context->RSSetViewports(viewport_count, &saved_viewport);
+    g.context->RSSetState(saved_rasterizer.Get());
+    g.context->OMSetDepthStencilState(saved_depth.Get(), saved_stencil);
+    g.context->OMSetBlendState(saved_blend.Get(), saved_factor.data(), saved_mask);
+    g.context->IASetInputLayout(saved_layout.Get());
+    g.context->IASetPrimitiveTopology(saved_topology);
+    g.context->VSSetShader(saved_vs.Get(), nullptr, 0);
+    g.context->PSSetShader(saved_ps.Get(), nullptr, 0);
+    ID3D11Buffer* restored_cb = saved_ps_cb.Get();
+    g.context->PSSetConstantBuffers(0, 1, &restored_cb);
+    g.context->PSSetShaderResources(0, 2, saved_srvs);
+    for (ID3D11ShaderResourceView* view : saved_srvs)
+    {
+        if (view != nullptr)
+        {
+            view->Release();
+        }
+    }
+    sprite.serial = image.serial;
     return true;
 #else
     (void)image;

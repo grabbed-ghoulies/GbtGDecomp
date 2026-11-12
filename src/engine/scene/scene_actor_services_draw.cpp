@@ -970,6 +970,40 @@ static RgbaImage scale_to_texture(const RgbaImage& frame, int width, int height)
 // The open texture target's texels (and its depth texture's words) written back, then the back buffer again.
 void SceneActorServices::State::close_render_target()
 {
+#if GBTG_OPTIMIZE && !defined(GBTG_INSPECTOR_APP)
+    // GBTG_OPTIMIZE step 28: the glow capture's depth (an own-depth scene target over DAT_005047E8) is written on the
+    // GPU into the texture's image, as step 27 ends a book page, with no readback; the texture's data keeps its texels.
+    // No native code reads them: the executable names DAT_005047E8 in six instructions, 0x000620C0 creating it,
+    // 0x00061D00 (twice) and 0x00119800 setting it as a texture (0x001749E0), 0x001196DD taking its surface (0x00177900)
+    // and 0x0006350D passing it to the back-buffer copy 0x0013DF80. The image takes the window-resolution words,
+    // counted in the texture's texels, as show_full_resolution gives the readback's.
+    if (render_target_depth_texture != 0 && render_target_scene)
+    {
+        const auto& header = resources.d3d.resources.at(render_target_depth_texture).header;
+        int width = 0;
+        int height = 0;
+        gfx_scene_target_size(width, height);
+        if (width > 0 && height > 0 && (header[4] == 0x12 || header[4] == 0x2E))
+        {
+            RgbaImage& image = const_cast<RgbaImage&>(
+                texture_image(resources.memory.pointer(render_target_depth_texture)));
+            image.width = width;
+            image.height = height;
+            image.bgra.resize(size_t(width) * size_t(height) * 4);
+            image.texel_width = i32(header[0]);
+            image.texel_height = i32(header[1]);
+            ++image.serial;
+            if (gfx_read_native_target_depth_into(image))
+            {
+                render_target_depth_texture = 0;
+            }
+            else
+            {
+                --image.serial;
+            }
+        }
+    }
+#endif
     if (render_target_depth_texture != 0)
     {
         // The target's depth surface aliases a LIN_A8R8G8B8 texture (boot 0x000620C0's DAT_005047E8): its texels

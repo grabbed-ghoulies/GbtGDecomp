@@ -23,10 +23,7 @@ void SceneActorServices::State::begin_scene()
     }
     scene_name.fill(0);
     std::memcpy(scene_name.data(), name.c_str(), name.size());
-    // Markers (0x0011CB80 loads them into DAT_0051108C).
-    scene.load_markers(scene_name.data());
-    markers = scene.markers().data();
-    script_records = markers;
+    // The startup (0x0011CBD0) loads the markers through 0x0011CB80 from this record.
     scene.released = released_binding;
     in_scene = true;
 }

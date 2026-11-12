@@ -232,49 +232,9 @@ void SceneActorServices::present_views()
     }, *state.display_setup);
 }
 
-void SceneActorServices::start_background()
-{
-    state_->start_background();
-}
-
 void SceneActorServices::start_scene(const std::function<void()>& script_event)
 {
-    auto& state = *state_;
-    start_background();
-    // 0x0011CBD0 applies the script's door states before it creates the scene objects.
-    ScriptDoorStartContext door_start{*state.doors, [&state](u32 id)
-    {
-        state.notify_body_list(id);
-    }};
-    script_apply_scene_door_states(door_start); // 0x00125B80
-    script_apply_queued_shape_events([this](u8 category, bool set)
-    {
-        change_script_shape_events(category, set);
-    }); // 0x00127250
-    script_apply_queued_model_node_states([this](u8 slot, u8 value)
-    {
-        set_body_list_model_nodes(slot, value);
-    }); // 0x00125070
-    state.create_scene_objects(); // 0x0011C980
-    load_runtime_ghoul_intro_rows(*state.ghoul_intro_context); // 0x000F4440
-    start_markers();
-    // 0x00115FF0: the pending scene controls join the active and update lists.
-    auto controls = state.control_updates();
-    activate_runtime_scene_controls(controls);
-    activate_actors();
-    script_event();
-    send_scene_start_notice();
-    notify_runtime_scene_controls(controls); // 0x00116090
-    send_scene_start();
-    clear_runtime_scene_control_updates(controls); // 0x001160C0
-    auto activation = state.activation_context();
-    clear_runtime_scene_start_list(activation); // 0x00123240
-    start_runtime_scene_named_sounds(state.sounds, state.voices); // 0x0012A1E0
-    set_up_runtime_scoreboard(*state.scoreboard_hud); // 0x00132040
-    start_runtime_scene_challenge(*state.challenge_services); // 0x00049BA0, challenge 21's run
-    // The player start latch DAT_005462FC, set by 0x0011CAC0,
-    // ends here: a later kind 2 marker (0x00127FF0 after a walk-in) spawns its player.
-    g_player_start_enabled = 0;
+    state_->start_scene(*this, script_event); // 0x0011CBD0
 }
 
 void SceneActorServices::State::notify_body_list(u32 id)

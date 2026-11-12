@@ -4,6 +4,22 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-12: scene startup runs whole
+
+- `0x0011CBD0` (`SceneActorServices::State::start_scene`, `scene/scene_actor_services_actors.cpp`) is one function
+  in dump order. Before, it was split into a background part and a start part, and some of its steps were missing.
+  It now also:
+  - loads the scene's markers (`0x0011CB80`) at its retail place. Before, the lazy scene begin loaded them earlier.
+  - sets the strategy queues' resort timer (`DAT_0050E280`) to `DAT_0032B0F8` (1.0). Before, nothing set it, so it
+    started each scene at zero.
+  - clears the door pause word `DAT_004EE320` and the words `DAT_004EE324` and `DAT_004EE328`. A byte scan finds
+    no other code that touches the last two.
+  - clears the light cones' count (`DAT_00510560`) and each record's first two words.
+- `0x00119990` (`graphics/blob_shadows.cpp`, `reset_runtime_blob_shadows`) is its own function now, not inline
+  steps.
+- Testing: the 196 captures of `--scene3a2`, `--scene6` and `--scene2a2-reaper` are byte-identical. `--scene3a2`,
+  `--scene6` and `--player-fight` pass, and the Reaper mode still ends where it always does.
+
 ### 2026-11-12: the boot's model library setup and render targets
 
 - `0x000F8740` (`graphics/model_library_boot.cpp`) runs whole when the boot builds the scene services. In dump

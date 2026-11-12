@@ -804,6 +804,8 @@ struct SceneActorServices::State
     std::vector<RuntimeDoorClips> door_rows;
     u32 door_camera_registered = 0; // DAT_004EE31C.
     u32 door_paused = 0; // DAT_004EE320.
+    u32 door_unk_324 = 0; // DAT_004EE324: only 0x0011CBD0 touches it (it clears it).
+    u32 door_unk_328 = 0; // DAT_004EE328: only 0x0011CBD0 touches it (it clears it).
     u32& door_camera_hold = reinterpret_cast<u32&>(g_transition_pause_count); // DAT_004DEA24.
     EntityCamNode door_camera{}; // DAT_004EE2BC, the door clips' camera view.
     std::array<DoorRoomAlias, 2> door_aliases{}; // PTR_DAT_00434034.
@@ -1223,7 +1225,8 @@ struct SceneActorServices::State
     // A read of an actor by address that may name one 0x001232D0 released (see `retired_actors`).
     Actor* actor_or_retired(u32 address);
     FactoryObject& object_of_actor(Actor& actor);
-    void start_background();
+    void start_scene(SceneActorServices& services,
+        const std::function<void()>& script_event); // Xbox 0x0011CBD0
     void notify_body_list(u32 id); // Message {id} to each DAT_00511B20 (+0x934 list) node's actor.
     void message_body_list(std::span<const u32> words); // Xbox 0x00122F70 over DAT_00511B20.
     void actor_draw(Actor& actor, i32 view, i32 pass); // Actor vtable +0x14 by class.

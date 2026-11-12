@@ -35,8 +35,8 @@ them.
 | Measure | Count |
 |---|---|
 | Game functions known | 5,086 (Ghidra's 4,078, plus 1,008 more found while translating) |
-| Translated | 4,706 (92.5%) |
-| Untranslated, known | 380, about 58 KB of code |
+| Translated | 4,708 (92.6%) |
+| Untranslated, known | 378, about 57 KB of code |
 
 Ghidra's analysis missed about a fifth of the functions translated so far, so the untranslated count is a lower
 bound. The known untranslated functions, grouped by the source area of their nearest translated neighbour:
@@ -45,22 +45,22 @@ bound. The known untranslated functions, grouped by the source area of their nea
 |---|---:|---:|---:|
 | entities | 2,440 | 142 | 14,157 |
 | frontend | 613 | 102 | 28,855 |
-| scene | 444 | 24 | 2,545 |
+| scene | 445 | 23 | 2,111 |
 | include (shared headers) | 246 | 24 | 2,456 |
-| graphics | 234 | 12 | 1,253 |
+| graphics | 235 | 11 | 1,164 |
 | scripts | 169 | 21 | 1,209 |
 | video | 47 | 18 | 2,558 |
 | saves | 91 | 1 | 63 |
 | camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 422 | 36 | 4,877 |
-| **Total** | **4,706** | **380** | **57,973** |
+| **Total** | **4,708** | **378** | **57,450** |
 
-**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 380 by the call graph
+**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 378 by the call graph
 Ghidra resolves (counted 2026-11-12):
 
 | Class | Functions | Bytes | Meaning |
 |---|---:|---:|---|
-| Frontier | 165 | 24,912 | A translated function calls or references it. 141 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 15 on a line that raises, 9 nowhere |
-| Reachable | 44 | 5,686 | WinMain reaches it, but only through other untranslated functions |
+| Frontier | 164 | 24,478 | A translated function calls or references it. 141 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 14 on a line that raises, 9 nowhere |
+| Reachable | 43 | 5,597 | WinMain reaches it, but only through other untranslated functions |
 | Table | 66 | 15,314 | Reached only from a vtable or handler table, or from the C runtime's initializer list |
 | Unreached | 97 | 10,245 | Nothing resolved reaches it: dead code, or a computed call Ghidra did not resolve |
 | Fragment | 8 | 1,816 | Not a function: Ghidra split a translated function's body |
@@ -72,7 +72,7 @@ store and its own registry (the boot's provider registrations `0x00035A90`, `0x0
 The boot's resets (`0x000FAD20`, `0x000FA210`, `0x000FF040`, `0x00038600`, `0x00048980`, `0x000F2B60`,
 `0x0011EA50`, `0x00133B10`, `0x00133B70`) and the language choice `0x000FF1C0` run in `Game::init` in retail
 order. The model library setup `0x000F8740` and the render targets `0x000620C0` run in that order, each whole, when
-the boot builds the scene services.
+the boot builds the scene services. Each scene starts through the whole of its startup `0x0011CBD0`.
 
 **Object factory types.** 163 of the 168 types with a getter (`0x0030D41C`) are installed. Not installed: 0x0E,
 0x11, 0x2F, 0x6C and 0x9C (by the table's name rows, an effect emitter, the explode effect, the dust-up effect,

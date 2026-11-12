@@ -1,5 +1,7 @@
 #include "blob_shadows.h"
 #include "scene_point_light_pass.h"
+#include "../scene/scene_light_grid.h"
+#include "gbtg/entity.h"
 
 namespace gbtg
 {
@@ -30,6 +32,26 @@ void draw_runtime_blob_shadows(const RuntimeBlobShadows& shadows, u32 suppress, 
         }
     }
     finish_runtime_scene_point_lights(pass); // 0x00063320
+}
+
+// Xbox 0x00119990
+void reset_runtime_blob_shadows(std::array<RuntimeBlobShadow, 0x20>& entries, i32& count, i32& next_free, u32& enabled,
+    u32& suppress, const Actor* first)
+{
+    for (RuntimeBlobShadow& entry : entries) // DAT_0050EC24, stride 0x18
+    {
+        entry.active = 0;
+    }
+    count = 0; // DAT_0050EF10
+    next_free = 0; // DAT_0050EF14
+    if (first != nullptr && first->model != nullptr && !first->model->cpu.empty())
+    {
+        enabled = runtime_light_grid_offset(first->model->cpu); // DAT_0050EF18
+        suppress = 0; // DAT_0050EF1C
+        return;
+    }
+    enabled = 0;
+    suppress = 0;
 }
 
 // Xbox 0x00119A60

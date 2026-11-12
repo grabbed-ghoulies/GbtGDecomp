@@ -7,6 +7,7 @@
 namespace gbtg
 {
 struct RuntimeScenePointLightTargets;
+struct Actor;
 // One of the scene's 0x20 blob shadows (DAT_0050EC10, 0x18 bytes each): a soft shadow the draw 0x00119AD0 puts under
 // a point.
 struct RuntimeBlobShadow
@@ -28,6 +29,10 @@ struct RuntimeBlobShadows
 i32 register_runtime_blob_shadow(const Vec3& position, float radius, float strength,
     RuntimeBlobShadows& shadows); // Xbox 0x00119A60
 void advance_runtime_blob_shadow_free(RuntimeBlobShadows& shadows); // Xbox 0x00119950
+// The scene start's reset: no shadow active, none counted or free, and DAT_0050EF18 the light grid of the first +0x934
+// node (`first`, DAT_00511B20), 0 when the node, its model or the model's data is missing.
+void reset_runtime_blob_shadows(std::array<RuntimeBlobShadow, 0x20>& entries, i32& count, i32& next_free, u32& enabled,
+    u32& suppress, const Actor* first); // Xbox 0x00119990
 struct RuntimeScenePointLightPass;
 // With shadows on (DAT_0050EF18, the grid), some registered and DAT_0050EF1C clear: the light texture cleared to
 // black with the frame modulated by the copy (DAT_0050486C 1, DAT_00504870 0), each active shadow drawn into it in

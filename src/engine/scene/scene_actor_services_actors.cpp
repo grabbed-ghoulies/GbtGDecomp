@@ -1,5 +1,6 @@
 #include "scene_actor_services_state.h"
 #include "../entities/mind_fields.h"
+#include "../entities/strategy_target_queue.h"
 #include <cstddef>
 #include "../entities/body_fields.h"
 #include "../entities/player_fields.h"
@@ -931,22 +932,30 @@ void SceneActorServices::State::update_actor(u32 address)
     found->second(view.bat.actor);
 }
 
-// Scene startup ahead of the markers (0x0011CBD0): the door registration pool, the requested background
-// (0x0011C8B0) and its activation (0x00123070), the navigation build (0x00111820) and the mirrors (0x0011F450).
-void SceneActorServices::State::start_background()
+// Scene startup: every pool, background, light, mirror and grid the scene draws with, the markers' objects, then the
+// start messages.
+// Xbox 0x0011CBD0
+void SceneActorServices::State::start_scene(SceneActorServices& services, const std::function<void()>& script_event)
 {
     reset_runtime_screen_effects(screen_tint, pulse, screen_lines); // 0x00060C80
-    // 0x0011CBD0's 0x000EC2D0 and 0x000EBB80: the debris and trail pools, which 0x000ED450 releases at each scene's
-    // end (0x0011C5A0).
+    // 0x0011CB80, ECX the scene record (DAT_00510E58): the scene's markers into DAT_0051108C.
+    scene.load_markers(scene_name.data());
+    markers = scene.markers().data();
+    script_records = markers;
+    float resort;
+    std::memcpy(&resort, data(0x0032B0F8, 4).data(), 4);
+    g_strategy_queue_resort_timer = resort; // DAT_0050E280
+    // The actor sound group capacities (DAT_00512520, DAT_00512534).
+    sounds.groups[0].capacity = 0x14;
+    sounds.groups[1].capacity = 6;
+    // 0x000EC2D0 and 0x000EBB80: the debris and trail pools, which 0x000ED450 releases at each scene's end
+    // (0x0011C5A0).
     const std::function<u32(const u8*)> effect_address = [this](const u8* pointer)
     {
         return resources.memory.address_of(pointer);
     };
     initialize_effect_debris(*debris_pool, resources.registry, resources.error, effect_address);
     initialize_effect_trails(*trail_pool, resources.registry, resources.error, effect_address);
-    // 0x0011CBD0 after its marker load: the actor sound group capacities (DAT_00512520, DAT_00512534).
-    sounds.groups[0].capacity = 0x14;
-    sounds.groups[1].capacity = 6;
     // DAT_004EE2B8: 0x560 bytes, stride 0x154 and growth 4, so four rows after the header.
     door_pool = static_cast<entity_detail::NavigationCellRegistration*>(
         engine_heap_allocate(i32(sizeof(entity_detail::NavigationCellRegistration) + 4 * 0x154)));
@@ -956,12 +965,16 @@ void SceneActorServices::State::start_background()
     door_pool->capacity = rows + 4 * 0x154;
     door_pool->stride = 0x154;
     door_pool->growth = 4;
+    door_paused = 0; // DAT_004EE320
+    door_unk_324 = 0; // DAT_004EE324
+    door_unk_328 = 0; // DAT_004EE328
     create_runtime_background_cloth_pools(background_cloth_scene()); // 0x00114180
     auto& requests = g_scene_object_requests;
     u32 head;
     std::memcpy(&head, requests.background.data(), 4);
     if (head == 0x5F646961)
     {
+        // 0x0011C8B0, ESI the request (DAT_00510660).
         const std::string name(requests.background.data());
         try
         {
@@ -978,7 +991,7 @@ void SceneActorServices::State::start_background()
         }
     }
     requests.background[0] = 0;
-    activate_actors();
+    activate_actors(); // 0x00123070
     // 0x00111820 reads the actor of the first +0x934 node (DAT_00511B20).
     const Actor* background = nullptr;
     if (auto* first = backgrounds->first_background(); first != nullptr)
@@ -990,37 +1003,31 @@ void SceneActorServices::State::start_background()
         throw Error("the navigation build's first +0x934 node is not a background");
     }
     build_scene_navigation(background, {reinterpret_cast<const float*>(data(0x002FCFB8, 0x400).data()), 0x100},
-        navigation, navigation_nodes);
-    // 0x0011CBD0 runs 0x001153A0, 0x00123560, 0x00119990, then 0x0011F450.
+        navigation, navigation_nodes); // 0x00111820
+    const std::span<const u8> background_model = background != nullptr && background->model != nullptr
+        ? background->model->cpu : std::span<const u8>{};
     build_runtime_background_cloths(background_cloth_scene()); // 0x001153A0
-    reset_runtime_scene_point_lights(background != nullptr && background->model != nullptr ? background->model->cpu
-        : std::span<const u8>{}, point_lights); // 0x00123560
-    // The first +0x934 node's light grid: **(its +0x204 +0x10), 0 when the node or its model is missing. 0x00119990
-    // and 0x0011CBD0 (DAT_005462EC, the decals' grid) both read it.
-    const auto first_model_word = [background]() -> u32
+    reset_runtime_scene_point_lights(background_model, point_lights); // 0x00123560
+    reset_runtime_blob_shadows(blob_shadow_entries, blob_shadow_count, blob_shadow_free, blob_shadow_enable,
+        blob_shadow_suppress, background); // 0x00119990
+    setup_runtime_scene_mirrors(background_model, mirrors); // 0x0011F450
+    // DAT_005462EC, the decals' gate: the first +0x934 node's light grid, **(its model +0x10), 0 when the node, its
+    // model or the model's data is missing.
+    if (background == nullptr)
     {
-        return background == nullptr || background->model == nullptr ? 0u
-            : runtime_light_grid_offset(background->model->cpu);
-    };
-    // 0x00119990: no blob shadow is active (DAT_0050EC24, stride 0x18), the count and the next free are 0,
-    // DAT_0050EF18 is the model word and DAT_0050EF1C 0.
-    for (auto& entry : blob_shadow_entries)
-    {
-        entry.active = 0;
+        decal_enable = 0;
     }
-    blob_shadow_count = 0; // DAT_0050EF10
-    blob_shadow_free = 0; // DAT_0050EF14
-    blob_shadow_enable = first_model_word(); // DAT_0050EF18
-    blob_shadow_suppress = 0; // DAT_0050EF1C
-    setup_runtime_scene_mirrors(background != nullptr && background->model != nullptr ? background->model->cpu
-        : std::span<const u8>{}, mirrors); // 0x0011F450
-    // 0x0011CBD0 after 0x0011F450: the actor snapshots' decal gate is the same model word, and none is counted.
-    decal_enable = first_model_word(); // DAT_005462EC
+    else if (background->model == nullptr || background->model->cpu.empty())
+    {
+        decal_enable = 0;
+    }
+    else
+    {
+        decal_enable = runtime_light_grid_offset(background->model->cpu);
+    }
     actor_snapshot_count = 0; // DAT_005462F0
-    // 0x0011CBD0 then: the background's refraction mesh (0x0011B7A0) with its noise (0x0011B8F0) and quad
-    // (0x0011B7F0) from no drift, and DAT_00510650 cleared.
-    g_scene_refraction.model = background != nullptr && background->model != nullptr ? background->model->cpu
-        : std::span<const u8>{};
+    // The background's refraction mesh (0x0011B7A0) with its noise (0x0011B8F0) and quad (0x0011B7F0) from no drift.
+    g_scene_refraction.model = background_model;
     g_scene_refraction.mesh = find_runtime_refraction_mesh(g_scene_refraction.model); // DAT_00510580
     if (g_scene_refraction.mesh != nullptr)
     {
@@ -1039,7 +1046,7 @@ void SceneActorServices::State::start_background()
         build_runtime_refraction_quad(g_scene_refraction, hud_size[0], hud_size[1]); // DAT_005096E8, DAT_005096EA
     }
     g_flag_0650 = 0; // DAT_00510650
-    // 0x00112D70 (after 0x0011F450 and the queue builds): the first background's light grid and parts.
+    // 0x00112D70: the first background's light grid and parts.
     light_grid = {};
     light_grid_background = nullptr;
     if (auto* first = backgrounds->first_background(); first != nullptr && first->state.actor.model != nullptr)
@@ -1061,5 +1068,47 @@ void SceneActorServices::State::start_background()
         }
     }
     build_runtime_scene_light_grid(light_grid, light_grid_d3d); // 0x00112D70
+    // No light cone is in use (DAT_00510560), and each of the 16 records (DAT_0050EF20, stride 0x160) has its +0 and
+    // +4 words cleared.
+    light_cones.count = 0;
+    for (RuntimeLightCone& cone : light_cones.records)
+    {
+        cone.used = 0;
+        cone.visible = 0;
+    }
+    // The script's door states before the scene objects exist.
+    ScriptDoorStartContext door_start{*doors, [this](u32 id)
+    {
+        notify_body_list(id);
+    }};
+    script_apply_scene_door_states(door_start); // 0x00125B80
+    script_apply_queued_shape_events([&services](u8 category, bool set)
+    {
+        services.change_script_shape_events(category, set);
+    }); // 0x00127250
+    script_apply_queued_model_node_states([&services](u8 slot, u8 value)
+    {
+        services.set_body_list_model_nodes(slot, value);
+    }); // 0x00125070
+    create_scene_objects(); // 0x0011C980
+    load_runtime_ghoul_intro_rows(*ghoul_intro_context); // 0x000F4440
+    services.start_markers(); // 0x00140020
+    // 0x00115FF0: the pending scene controls join the active and update lists.
+    auto controls = control_updates();
+    activate_runtime_scene_controls(controls);
+    activate_actors(); // 0x00123070
+    script_event(); // 0x00116810, EDI the event {0x7D}
+    services.send_scene_start_notice(); // 0x001231F0
+    notify_runtime_scene_controls(controls); // 0x00116090
+    services.send_scene_start(); // 0x001231A0
+    clear_runtime_scene_control_updates(controls); // 0x001160C0
+    auto activation = activation_context();
+    clear_runtime_scene_start_list(activation); // 0x00123240
+    start_runtime_scene_named_sounds(sounds, voices); // 0x0012A1E0
+    set_up_runtime_scoreboard(*scoreboard_hud); // 0x00132040
+    start_runtime_scene_challenge(*challenge_services); // 0x00049BA0, challenge 21's run
+    // The player start latch DAT_005462FC, set by 0x0011CAC0, ends here: a later kind 2 marker (0x00127FF0 after a
+    // walk-in) spawns its player.
+    g_player_start_enabled = 0;
 }
 } // namespace gbtg

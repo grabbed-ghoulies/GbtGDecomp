@@ -8,7 +8,8 @@ Status (2026-11-08): the whole per-view present is translated, in retail order, 
 actor bins, the background, model sprites and the billboard flush, the screen effects (`0x000615E0`), debris
 (`0x0005CF90`), dialogue, the text pools, the HUD (`0x00132290`) and the transition book and view. Still raising
 when reached: an effect's mode 2 sprite (`0x0005CA10`), and any model node draw slot or background cloth hook
-without a translation. Blob shadows stay off: nothing translated sets DAT_0050EF18. The project-wide count is the
+without a translation. Blob shadows are native: the Grim Reaper's grey (see issue #41 below) is their only use. The
+project-wide count is the
 completion tracker in the [README](../README.md#completion).
 
 Read `AGENTS.md` first. The actor bins and `0x00121900` are covered in [Player scene](PLAYER_SCENE.md).

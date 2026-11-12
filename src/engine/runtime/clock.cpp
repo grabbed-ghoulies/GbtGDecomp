@@ -45,6 +45,8 @@ void clock_pad(Clock& c, float incoming_seconds)
     c.acc300 -= float(c.ticks300);
 }
 
+// The frame's time and counters, then each delayed call (DAT_004DEA64, 0x14 of 3 words) whose count reaches 0.
+// Xbox 0x00033C80
 void clock_frame_time(Clock& c)
 {
     c.time += c.dt_raw;

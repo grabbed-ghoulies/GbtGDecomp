@@ -50,12 +50,7 @@ void mark_light(LightRecord& light)
     light.flags |= 1;
 }
 
-// 0x00145FD0, EAX actor: the holder whose link actor +0x918 names, while that link is set.
-Actor* holder_of(const RuntimeWeaponActor& weapon)
-{
-    const ActorLink* link = weapon.actor.link;
-    return link != nullptr && link->head != nullptr ? link->owner : nullptr;
-}
+using weapon_detail::holder_of; // Xbox 0x00145FD0
 
 // The model's selected pose (+0x204's +0x168, else +0x164) for the binding's joint.
 const ModelPoseBuffer& binding_pose(const Actor& actor)

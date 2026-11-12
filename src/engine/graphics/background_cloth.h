@@ -135,7 +135,7 @@ struct RuntimeBackgroundClothContext
 // The block for `rows` x `columns` points and `edges` edges (AX columns).
 RuntimeBackgroundCloth* create_runtime_background_cloth(u16 rows, u16 columns, u16 edges,
     RuntimeBackgroundClothContext& context); // Xbox 0x0004B5F0
-void release_runtime_background_cloth(RuntimeBackgroundCloth* cloth); // The block's 0x0014D360 release.
+void release_runtime_background_cloth(RuntimeBackgroundCloth* cloth); // Xbox 0x0004B770
 void measure_runtime_background_cloth(RuntimeBackgroundCloth& cloth); // Xbox 0x0004C0E0, EAX cloth
 // One step: the solver's step and two relaxations, then the shading, with the hooks; asleep, only +0x98.
 void step_runtime_background_cloth(RuntimeBackgroundCloth& cloth, float step,

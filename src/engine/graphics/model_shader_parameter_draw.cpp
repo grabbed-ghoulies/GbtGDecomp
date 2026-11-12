@@ -194,7 +194,7 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
                         {
                             handle = image.word(context.globals.texture_table, texture * 4);
                         }
-                        context.stage_texture(handle, index);
+                        context.hooks.stage_texture(handle, index);
                     }
                 }
             }
@@ -265,9 +265,9 @@ void bind_runtime_model_material(u32 material, const RuntimeShaderInstance* inst
         context.simple(0x40340, reference);
         context.alpha_reference = reference;
     }
-    if (context.material)
+    if (context.hooks.material)
     {
-        context.material(material);
+        context.hooks.material(material);
     }
 }
 

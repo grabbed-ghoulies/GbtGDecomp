@@ -4,6 +4,65 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-12: the boot's model library setup and render targets
+
+- `0x000F8740` (`graphics/model_library_boot.cpp`) runs whole when the boot builds the scene services. In dump
+  order it:
+  - makes the matrix scratch (`0x00155D40`, `0x000F7330`, `0x00155D20`);
+  - sizes the deferred model releases (`DAT_005079E0`: ten 8-byte records, growth 10, where the host pool started
+    at zero);
+  - binds the model library's hooks through their setters (`0x0015B660`, `0x0015B2D0`, `0x0015B2E0`, `0x0015B2F0`,
+    `0x001565F0`);
+  - resets the shader-animation buffer (`0x00165AB0`) and sets its heap (`0x001652E0`).
+
+  The hooks are globals now (`RuntimeModelLibraryHooks`). The shader draw (`0x00157CE0`) and the material bind
+  (`0x0015AD20`) call them, where before each draw object carried its own copy. A byte scan of the XBE finds no
+  reader of `DAT_004D9758` or `DAT_00437098`, so they hold the addresses retail stores (`0x000F9C00`,
+  `0x000F9BE0`).
+- `0x000620C0` (`graphics/boot_render_targets.cpp`) runs right after it, before the book services take the page
+  addresses. In dump order it:
+  - makes the light volume texture and its surface (before, these were made on the first light volume);
+  - makes book page 0 at the back buffer's size and format, with its surface;
+  - makes the depth-sized surface `DAT_005047FC` (`0x00175C90`) and the LIN_A8R8G8B8 header `DAT_005047E8` over
+    that surface's memory;
+  - makes book page 1 over the same locked memory.
+
+  The stand-in had made page 1 with memory of its own and used page 1's frame as the glow's depth texture. Now the
+  depth surface, its texture and page 1 share one block, as in retail.
+- Presentation: `DAT_005047E8` is a bare header, so the presenter decodes it from its header words as it does a
+  created texture. Page 1's frame record still draws at the window's resolution with the device's depth.
+- Two host fields still hold `DAT_005047FC`: the glow's `depth_surface`, and the dialogue target's
+  `unused_surface`, which `0x000629D0` writes when it has no colour texture. Retail keeps one global, so after that
+  path the glow would capture onto the dialogue's depth surface.
+- The 196 captures of `--scene3a2`, `--scene6` and `--scene2a2-reaper` (the haunted television's glow, the book's
+  page turns, and the Reaper's fade to grey) are byte-identical to the runs before the change. `--player-fight`
+  and `--scene7` pass, and a 900-frame headless boot exits 0.
+- Translated: 4,706 of 5,086 (92.5%). The census counts only the two boot functions. The setters are model library
+  code, past the census's game range, which ends at `0x0014A840`.
+
+### 2026-11-11: the untagged functions, mind requests by name, and stale status notes
+
+- The census's 72 "untagged" functions were mostly call sites: `reachability.py` read any `); // 0x...` as a
+  declaration. It now counts only lines shaped like one (a type and a name opening the parameter list, or a last
+  parameter closing it). The rest were helpers that translate the function but carried a bare `// 0x` or named
+  several retail functions in one tag, which the census counts as one. They now have a tag per address, after a
+  check against each dump: the save getters `save_game_word` (0x0010DC20..0x0010DDA0, 0x0010E050, 0x0010E090,
+  0x0010E120), the frame step `runtime_frame_step` (0x0012B270, called once in retail, inlined elsewhere), the
+  menu list walks (0x0002CC10, 0x0002CCB0), `door_exists` (0x0005B510), the Baron's cane fetches, the haunted TV's
+  screen texture (0x000B1CE0), the Hunchback's roll, evade and attachment hold, the resume gate (0x0002B840), the
+  clock's frame time (0x00033C80), the keyboard's arrows and bats, the options' settings, the scene replay rows,
+  the gallery's stick tests, the scene services' class rows, body-list message and dialogue release, the players'
+  message (0x00122D10), the marker lookup (0x0011EF20) and the background cloth release (0x0004B770).
+- `holder_of` (0x00145FD0) and `raise_model_mode` (0x0003C750) had three copies each in the weapon modules; one
+  of each now lives in `weapon_actor_detail.h`, and `raise_model_mode` returns the bits that were set, as retail's.
+- Translated: 4,704 of 5,086 (92.5%); 382 untranslated, about 58 KB.
+- The haunted coat, the Grim Reaper and the generic strategy wrote their mind requests (kinds 0x11, 0x27, 0x2F)
+  by literal offset; they now use `vertical_target_request`, `facing_request` and `target_position_request`, and
+  the Reaper reads body +0x270 as `attacker`. `--scene2a2-reaper` and `--scene2a16` logs match the runs before
+  the change line for line.
+- Status notes that said otherwise: blob shadows are native (the Reaper's grey is their one use), and 3D sound is
+  complete (no mute-past-maximum flag, full cones and doppler 1 in every record).
+
 ### 2026-11-11: the EventComplete soup, and ghoulies that outrun Cooper
 
 - `--scene5_3` had failed since issue #50's fix (2026-11-08): its event is "limited attacks", five for twenty kills,

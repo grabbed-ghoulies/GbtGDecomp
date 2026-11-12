@@ -50,12 +50,7 @@ void send_callout(RuntimeWeaponActor& weapon, i32 id)
     dispatch_actor_resource_callout(weapon.view.startup.resource, id, nullptr, weapon.base().callouts);
 }
 
-// 0x0003C750: actor +0x118 gains the bits and the shape probe is registered again.
-void raise_model_mode(RuntimeWeaponActor& weapon, i32 bits)
-{
-    weapon.actor.model_mode |= bits;
-    register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770
-}
+using weapon_detail::raise_model_mode; // Xbox 0x0003C750
 
 // Actor +0x118 loses bit 4, after the navigation cells (+0xCFC) are released.
 void lower_model_mode(RuntimeWeaponActor& weapon)

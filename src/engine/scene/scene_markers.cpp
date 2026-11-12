@@ -49,6 +49,8 @@ void exchange_marker_rows(u8* first, u8* second)
     put_half(second, 8, next);
 }
 
+// SI id: the marker row (DAT_0051108C, from +8) with that id at +6, or none.
+// Xbox 0x0011EF20
 u8* find_marker_row(u8* records, i16 id)
 {
     const u32 count = word_at(records, 0);

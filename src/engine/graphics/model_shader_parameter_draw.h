@@ -1,4 +1,5 @@
 #pragma once
+#include "model_library_hooks.h"
 #include "model_tree_dispatch.h"
 
 namespace gbtg
@@ -31,8 +32,7 @@ struct RuntimeModelMaterialBind
     u32& alpha_reference; // DAT_00181C64.
     const std::array<u32, 16>& environment_primary; // DAT_004D9710.
     const std::array<u32, 16>& environment_secondary; // DAT_004D9680.
-    std::function<void(u32, u32)> stage_texture; // DAT_004D9754 (texture, stage).
-    std::function<void(u32)> material; // DAT_004D9750 (material).
+    RuntimeModelLibraryHooks& hooks; // DAT_004D9754 (texture, stage) and DAT_004D9750 (material).
     std::function<void(u32, u32)> set_texture; // D3D 0x001749E0 (stage, texture).
     std::function<void(u32, u32, u32)> bump_environment; // D3D 0x001719D0 (stage, type, value).
     std::function<void(u32, const float*, u32)> vertex_constants; // D3D 0x001733E0 / 0x00173440, vector count.

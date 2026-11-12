@@ -14,7 +14,9 @@ struct RuntimeActorClock
     const u32& decay_index; // DAT_0051248C.
 };
 
-// Inline retail step: a freeze above zero (ordered) yields zero.
+// The frame step: a freeze above zero (ordered) yields zero. Retail calls it once (Super Scary's wrong-press timer)
+// and inlines the same expression everywhere else.
+// Xbox 0x0012B270
 inline float runtime_frame_step(const RuntimeActorClock& clock)
 {
     if (clock.freeze > 0.f)

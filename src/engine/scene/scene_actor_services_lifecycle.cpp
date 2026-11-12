@@ -495,14 +495,117 @@ void SceneActorServices::State::bind_pause_services()
     }
 }
 
+void SceneActorServices::State::bind_snapshot_texture_create()
+{
+    snapshot_d3d.create_texture = [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool)
+    {
+        // D3DDevice_CreateTexture2: one level of 32-bit texels behind a resource header (LIN_D24S8, 0x2E, keeps
+        // depth-stencil words).
+        if (levels != 1 || (format != 6 && format != 0x12 && format != 0x2E))
+        {
+            unbound("D3DDevice_CreateTexture2 of a format or level count other than one 32-bit level");
+        }
+        const u32 header = resources.memory.allocate(0x14, 4).address;
+        const u32 texels = resources.memory.allocate(width * height * 4, 0x80).address;
+        auto& record = resources.d3d.resources[header];
+        record.kind = 3;
+        record.data = texels;
+        record.header = {width, height, levels, usage, format, pool};
+        created_textures.insert(header);
+        return header;
+    };
+}
+
+// Boot 0x00033030 -> 0x000620C0 over the scene's D3D boundaries.
+void SceneActorServices::State::create_boot_render_targets()
+{
+    RuntimeBootRenderTargetD3D d3d;
+    d3d.create_texture = [this](u32 width, u32 height, u32 depth, u32 levels, u32 usage, u32 format, u32 type)
+    {
+        if (depth != 1 || type != 3)
+        {
+            unbound("D3DDevice_CreateTexture2 of a volume or cube texture");
+        }
+        return snapshot_d3d.create_texture(width, height, levels, usage, format, type);
+    };
+    d3d.surface_level = [this](u32 texture, u32 level)
+    {
+        return d3d_device.outer().surface(DialogueSurfaceHandle(texture), level);
+    };
+    d3d.back_buffer = [this](i32 index)
+    {
+        return d3d_device.outer().back_buffer(u32(index));
+    };
+    d3d.depth_stencil = [this]()
+    {
+        return d3d_device.outer().depth_buffer();
+    };
+    d3d.describe = [](DialogueSurfaceHandle surface)
+    {
+        // The device's 640 x 480 buffers: LIN_X8R8G8B8 colour and LIN_D24S8 depth-stencil.
+        RuntimeSurfaceDescription description;
+        if (surface == SceneD3DDevice::kBackBuffer)
+        {
+            description.format = 0x1E;
+            description.usage = 1; // D3DUSAGE_RENDERTARGET.
+        }
+        else if (surface == SceneD3DDevice::kDepthBuffer)
+        {
+            description.format = 0x2E;
+            description.usage = 2; // D3DUSAGE_DEPTHSTENCIL.
+        }
+        else
+        {
+            unbound("D3DSurface_GetDesc of a surface other than the device's buffers");
+        }
+        description.type = 1; // D3DRTYPE_SURFACE.
+        description.width = 640;
+        description.height = 480;
+        description.size = 640 * 480 * 4;
+        return description;
+    };
+    d3d.release = [this](DialogueSurfaceHandle surface)
+    {
+        d3d_device.outer().release(surface);
+    };
+    d3d.create_surface = [this](u32 width, u32 height, u32, u32)
+    {
+        // 0x00175C90's two XMemAllocs: the header (0x81050001, a surface, with its memory at +4) and the memory.
+        const RuntimeModelAllocation header = resources.memory.allocate(0x18, 4);
+        const u32 memory = resources.memory.allocate(width * height * 4, 0x1000).address;
+        const u32 common = 0x81050001u;
+        std::memcpy(header.bytes.data(), &common, 4);
+        std::memcpy(header.bytes.data() + 4, &memory, 4);
+        return DialogueSurfaceHandle(header.address);
+    };
+    d3d.surface_data = [this](DialogueSurfaceHandle surface)
+    {
+        return read_u32(resources.memory.tail(u32(surface)), 4);
+    };
+    d3d.texture_header = [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool, u32 texture,
+                             u32 data, u32 pitch)
+    {
+        resources.d3d_boundaries.set_texture_header(width, height, levels, usage, format, pool, texture, data, pitch);
+        resources.d3d_boundaries.register_resource(texture, data);
+    };
+    d3d.lock_surface = [this](DialogueSurfaceHandle surface, u32)
+    {
+        return read_u32(resources.memory.tail(u32(surface)), 4);
+    };
+    d3d.textures = screen_texture_boundaries();
+    glow_targets.depth_texture = resources.memory.allocate(0x14, 4).bytes.data(); // DAT_005047E8's storage.
+    RuntimeBootRenderTargets targets{light_volume_texture, light_volume_surface, render_targets, book_pages,
+        glow_targets, g_transition_guard};
+    create_runtime_boot_render_targets(targets, d3d);
+    // Presentation: the depth surface is drawn into through the texture over its memory, and that texture, a bare
+    // XGSetTextureHeader header with no texture object round it, is decoded from its header words as a created one is.
+    const u32 depth_texture = resources.memory.address_of(glow_targets.depth_texture);
+    d3d_device.surface_textures[glow_targets.depth_surface] = depth_texture;
+    created_textures.insert(depth_texture);
+}
+
 void SceneActorServices::State::bind_book_services()
 {
-    // Boot 0x000620C0's two book page textures: DAT_005047D8, a back-buffer texture (LIN_X8R8G8B8), and
-    // DAT_005047E4, retail's alias of the depth buffer's memory as LIN_A8R8G8B8. The host has no native boot
-    // arena or shared depth memory, so each native scene makes both in its resource memory.
-    const RuntimeScreenTextureBoundaries textures = screen_texture_boundaries();
-    book_pages[0] = create_runtime_screen_texture(640, 480, 1, 0x1E, 0, textures); // 0x000533A0
-    book_pages[1] = create_runtime_screen_texture(640, 480, 1, 0x12, 0, textures);
     book_services = std::make_unique<TransitionBookServices>(TransitionBookServices{*cutscenes, resources.registry,
         resources.error, image, *display_setup, model_renderer, node_cache, g_sim_freeze, g_sim_dt, g_sim_scale,
         g_flags_ea9c, {resources.memory.address_of(book_pages[0].data()), resources.memory.address_of(book_pages[1].data())},

@@ -1571,7 +1571,9 @@ void draw_key_panel(VirtualKeyboard& k, float x, float y, const VirtualKeyboardK
     draw_runtime_dialogue_panel(x - inset, y - inset, width, height, 0.25f, color, s.outer); // 0x00061360
 }
 
-// Xbox 0x00015A60 / 0x00015B50, ECX the keyboard: an arrow key's texture over its label.
+// ECX the keyboard: an arrow key's texture over its label (one retail function per arrow).
+// Xbox 0x00015A60
+// Xbox 0x00015B50
 void draw_arrow(VirtualKeyboard& k, const VirtualKeyboardKey& key, std::span<const u8> arrow, float x, float y,
     GameSelectControlServices& s)
 {
@@ -1598,7 +1600,9 @@ void draw_name_highlight(VirtualKeyboard& k, GameSelectControlServices& s)
     draw_runtime_dialogue_panel(126.f, 50.f, float(width), float(height), 0.25f, exe_word(s, 0x0020AE74), s.outer);
 }
 
-// Xbox 0x00017110 / 0x00017190, EDX the keyboard: a bat at scale DAT_0032B114, pass 3.
+// EDX the keyboard: a bat at scale DAT_0032B114, pass 3 (one retail function per bat).
+// Xbox 0x00017110
+// Xbox 0x00017190
 void draw_bat(Actor* bat, GameSelectControlServices& s)
 {
     if (bat == nullptr || (s.flags & 0x40080u) != 0)

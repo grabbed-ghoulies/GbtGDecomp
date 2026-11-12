@@ -1,4 +1,5 @@
 #include "generic_strategy.h"
+#include "mind_request_fields.h"
 #include <cstddef>
 #include "strategy_fields.h"
 #include "mind_fields.h"
@@ -91,15 +92,6 @@ RuntimePlayerMindRequest& allocate_request(u16 kind, RuntimeGenericStrategy& con
 {
     RuntimeMindGoalContext& mind = goals_of(context).entry.goals;
     return *allocate_runtime_mind_request(mind.anchor, kind, mind.sizes); // 0x00029D90, EBX kind
-}
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    if (offset + 4 > bytes.size())
-    {
-        throw Error("generic strategy mind request field lies outside the request");
-    }
-    std::memcpy(bytes.data() + offset, &value, 4);
 }
 
 bool join_queue(RuntimeMindTarget* target, RuntimeGenericStrategy& context)
@@ -470,10 +462,10 @@ void enter_runtime_generic_state(u16 state, RuntimeGenericStrategy& context)
     {
         body_record(body).move_class = 3;
         RuntimePlayerMindRequest& chase = allocate_request(0x2F, context); // 0x00029D90, EBX 0x2F
-        put_float(chase.bytes, 0x10, kOne);
-        put_float(chase.bytes, 0x14, kOne);
-        put_float(chase.bytes, 0x1C, kChaseSlack);
-        put_float(chase.bytes, 0x18, kChaseRange);
+        set(chase.bytes, target_position_request::speed_low, kOne);
+        set(chase.bytes, target_position_request::speed_high, kOne);
+        set(chase.bytes, target_position_request::approach, kChaseSlack);
+        set(chase.bytes, target_position_request::radius, kChaseRange);
         return;
     }
     case 0x3EE:

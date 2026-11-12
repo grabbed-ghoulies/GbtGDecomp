@@ -191,7 +191,9 @@ void make_prompts(GalleryControlState& control, GameSelectControlServices& s)
         origin, nullptr, 0.75f, 0.75f, "gameselect", resource, 0x80, s.widget_allocation); // 0x00141DA0, ESI +0xA8, 0x003022D8
 }
 
-// Xbox 0x00087F20 / 0x00087F80, ECX the control: the stick is off centre and points `code` (8 right, 4 left).
+// ECX the control: the stick is off centre and points `code`, one retail function per code (8 right, 4 left).
+// Xbox 0x00087F20
+// Xbox 0x00087F80
 bool stick_points(const GalleryControlState& control, u16 code, GameSelectControlServices& s)
 {
     std::array<float, 2> direction{};

@@ -185,9 +185,11 @@ The native transition book (`src/engine/transitions/native_book.cpp`):
 `0x000F85D0` (release) and `0x00048550` (draw: the page captures, the view
 clears `0x00061B40`, the camera and the cutscene). It is the capture book
 (`DAT_005462A0`) each view's present draws. The page textures `DAT_005047D8`
-and `DAT_005047E4` (boot `0x000620C0`) are made in each native scene's
-resource memory (the host has no native boot arena, and `DAT_005047E4`
-aliases retail's depth buffer); `D3DDevice_CopyRects` from the back buffer is
+and `DAT_005047E4` are made once at boot by `0x000620C0`
+(`graphics/boot_render_targets.cpp`): page 0 at the back buffer's size and
+format, page 1 over the memory of a surface of the depth buffer's size, which
+is also the LIN_A8R8G8B8 texture `DAT_005047E8` the glow samples as depth;
+`D3DDevice_CopyRects` from the back buffer is
 a recorded command (`SceneD3DCopy`) the presenter reads back into the
 texture. The game-select control drives it: `0x00083D90`, `0x00083E20`,
 `0x00083C70` / `0x00083D10` (the start), and the slot and contents

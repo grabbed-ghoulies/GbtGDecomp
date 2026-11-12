@@ -866,8 +866,18 @@ i32 save_game_writing(const char16_t* name)
     return slot == nullptr ? 0 : slot->writing;
 }
 
-// 0x0010DC20 (+0x184), 0x0010DC60 (+0x188), 0x0010DCA0 (+0x18C), 0x0010DCE0 (+0x190), 0x0010DD20 (+0x194),
-// 0x0010DD60 (+0x198), 0x0010DDA0 (+0x19C), 0x0010E050 (+0x1A0) and 0x0010E120 (+0x260), EBX the name.
+// One getter per word of the named save, EBX the name, 0 with no save of that name: +0x184, +0x188, +0x18C, +0x190,
+// +0x194, +0x198, +0x19C, +0x1A0, the float at +0x1A4 (XMM0, 0.0 with none) and +0x260.
+// Xbox 0x0010DC20
+// Xbox 0x0010DC60
+// Xbox 0x0010DCA0
+// Xbox 0x0010DCE0
+// Xbox 0x0010DD20
+// Xbox 0x0010DD60
+// Xbox 0x0010DDA0
+// Xbox 0x0010E050
+// Xbox 0x0010E090
+// Xbox 0x0010E120
 i32 save_game_word(const char16_t* name, size_t offset)
 {
     SaveSlot* slot = find_save_slot(name);

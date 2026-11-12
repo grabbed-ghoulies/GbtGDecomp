@@ -1,5 +1,6 @@
 #pragma once
 #include "gbtg/model_render.h"
+#include "model_library_hooks.h"
 #include "model_tree_dispatch.h"
 
 namespace gbtg
@@ -26,10 +27,10 @@ struct RuntimeModelShaderDraw
     ModelTreeDispatchContext& tree;
     RuntimeModelShaderStates& states;
     std::function<void(u32)> pixel_shader;
-    std::function<void(u32)> post_shader; // DAT_004D9768, supplied by 0x0015B660.
+    RuntimeModelLibraryHooks& hooks; // DAT_004D9768, the post-shader hook.
 };
 void bind_runtime_model_shader_callback(std::function<void(u32)> callback,
-    RuntimeModelShaderDraw& context); // Xbox 0x0015B660
+    RuntimeModelLibraryHooks& hooks); // Xbox 0x0015B660
 void bind_runtime_model_shader(u32 shader, RuntimeModelShaderDraw& context); // Xbox 0x0015B5E0
 u32 runtime_model_shader_texture_stage(u32 shader,
     const RuntimeRelocationImage& image); // Xbox 0x0015B670

@@ -24,7 +24,7 @@ such as AID, body, mind and "unbound" are defined in the [Glossary](docs/GLOSSAR
 
 ## Completion
 
-Last counted 2026-11-09. The game plays from boot through the attract, game select and every chapter to the final
+Last counted 2026-11-12. The game plays from boot through the attract, game select and every chapter to the final
 score and credits on translated code. It is not complete: code the tests and playthroughs have not reached is still
 untranslated, and raises when reached.
 
@@ -35,45 +35,44 @@ them.
 | Measure | Count |
 |---|---|
 | Game functions known | 5,086 (Ghidra's 4,078, plus 1,008 more found while translating) |
-| Translated | 4,657 (91.6%) |
-| Untranslated, known | 429, about 65 KB of code |
+| Translated | 4,706 (92.5%) |
+| Untranslated, known | 380, about 58 KB of code |
 
 Ghidra's analysis missed about a fifth of the functions translated so far, so the untranslated count is a lower
 bound. The known untranslated functions, grouped by the source area of their nearest translated neighbour:
 
 | Area | Translated | Untranslated | Untranslated bytes |
 |---|---:|---:|---:|
-| entities | 2,431 | 154 | 14,828 |
-| frontend | 595 | 117 | 33,665 |
-| scene | 436 | 28 | 2,811 |
-| include (shared headers) | 246 | 26 | 2,534 |
-| graphics | 232 | 15 | 1,867 |
-| scripts | 168 | 21 | 1,209 |
+| entities | 2,440 | 142 | 14,157 |
+| frontend | 613 | 102 | 28,855 |
+| scene | 444 | 24 | 2,545 |
+| include (shared headers) | 246 | 24 | 2,456 |
+| graphics | 234 | 12 | 1,253 |
+| scripts | 169 | 21 | 1,209 |
 | video | 47 | 18 | 2,558 |
-| saves | 81 | 11 | 696 |
-| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 421 | 39 | 5,113 |
-| **Total** | **4,657** | **429** | **65,281** |
+| saves | 91 | 1 | 63 |
+| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 422 | 36 | 4,877 |
+| **Total** | **4,706** | **380** | **57,973** |
 
-**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 429 by the call graph
-Ghidra resolves (counted 2026-11-09):
+**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 380 by the call graph
+Ghidra resolves (counted 2026-11-12):
 
 | Class | Functions | Bytes | Meaning |
 |---|---:|---:|---|
-| Frontier | 141 | 25,429 | A translated function calls or references it. 114 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 11 on a line that raises, 16 nowhere |
-| Reachable | 58 | 7,159 | WinMain reaches it, but only through other untranslated functions |
-| Table | 71 | 14,955 | Reached only from a vtable or handler table, or from the C runtime's initializer list |
-| Unreached | 78 | 7,563 | Nothing resolved reaches it: dead code, or a computed call Ghidra did not resolve |
-| Untagged | 72 | 8,253 | Translated, but its declaration is named with `// 0x` instead of the `// Xbox 0x` tag |
-| Fragment | 9 | 1,922 | Not a function: Ghidra split a translated function's body |
+| Frontier | 165 | 24,912 | A translated function calls or references it. 141 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 15 on a line that raises, 9 nowhere |
+| Reachable | 44 | 5,686 | WinMain reaches it, but only through other untranslated functions |
+| Table | 66 | 15,314 | Reached only from a vtable or handler table, or from the C runtime's initializer list |
+| Unreached | 97 | 10,245 | Nothing resolved reaches it: dead code, or a computed call Ghidra did not resolve |
+| Fragment | 8 | 1,816 | Not a function: Ghidra split a translated function's body |
 
 The largest groups still missing: the retail resource loader, which the host replaces with a synchronous bundle
 store and its own registry (the boot's provider registrations `0x00035A90`, `0x00034C30`, `0x00033CF0` and
 `0x00035010`, the `common.bnl` load `0x001243B0`, and the pending-record path `0x00034290`, `0x000348D0`,
-`0x00034110`); the boot's render targets `0x000620C0` and model library setup `0x000F8740`, which the scene
-services build in pieces; and the virtual keyboard's other layouts (`0x00012920` and the boards under `0x00011870`).
+`0x00034110`); and the virtual keyboard's other layouts (`0x00012920` and the boards under `0x00011870`).
 The boot's resets (`0x000FAD20`, `0x000FA210`, `0x000FF040`, `0x00038600`, `0x00048980`, `0x000F2B60`,
 `0x0011EA50`, `0x00133B10`, `0x00133B70`) and the language choice `0x000FF1C0` run in `Game::init` in retail
-order.
+order. The model library setup `0x000F8740` and the render targets `0x000620C0` run in that order, each whole, when
+the boot builds the scene services.
 
 **Object factory types.** 163 of the 168 types with a getter (`0x0030D41C`) are installed. Not installed: 0x0E,
 0x11, 0x2F, 0x6C and 0x9C (by the table's name rows, an effect emitter, the explode effect, the dust-up effect,
@@ -84,8 +83,7 @@ the floored state and the candle scene control). Any of them raises if a scene c
 - Front end: game-select rows 5 and 7 and the cross-sell kiosk rows 12 to 15 (nothing in the retail game requests
   them), and the Japanese virtual keyboard (`0x00012920`, about 8.5 KB).
 - Rendering: an effect's mode 2 sprite (`0x0005CA10`), and any model node draw slot or background cloth hook without
-  a translation. Blob shadows stay off.
-- Audio: the 3D cone and doppler factors and a buffer's mute-past-maximum flag.
+  a translation.
 - Region: NTSC-J starts its first scene but does not run yet ([Regional releases](docs/REGIONS.md)).
 - One deliberate deviation from retail, in the widescreen mirror pass ([Retail deviations](docs/RETAIL_DEVIATIONS.md)).
 - Retail objects still read through raw offsets rather than named fields ([Retail layouts](docs/RETAIL_LAYOUTS.md)).

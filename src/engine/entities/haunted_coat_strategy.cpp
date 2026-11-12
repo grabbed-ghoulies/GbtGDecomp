@@ -93,15 +93,6 @@ std::span<const u8> target_bytes(const RuntimeMindTarget* target, const char* re
     return target->bytes;
 }
 
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    if (offset + 4 > bytes.size())
-    {
-        throw Error("haunted coat mind request field lies outside the request");
-    }
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
-
 // Each of the actor's live attachment records (+0x8F8) holds `step` more (0x00042090 / 0x000420B0).
 void adjust_live_holds(i32 step, RuntimeHauntedCoatStrategy& context)
 {
@@ -229,16 +220,16 @@ bool sway_runtime_haunted_coat(std::span<const u8> target, RuntimeHauntedCoatStr
         clear_runtime_player_mind_requests(*goals.setup.mind); // 0x00029E80, EBX mind
         const float lift = float(retail_sin(phase_angle(fields_of(strategy).bob * bob_scale * tau)) * 8.0L);
         RuntimePlayerMindRequest& hover = allocate_request(0x11, context);
-        put_float(hover.bytes, 0x10, 1.f);
-        put_float(hover.bytes, 0x14, 1.f);
-        put_float(hover.bytes, 0x1C, 1.f);
-        put_float(hover.bytes, 0x24, 30.f); // DAT_0032B108.
-        put_float(hover.bytes, 0x28, .25f); // DAT_0032B104.
-        put_float(hover.bytes, 0x18, 10.f); // DAT_0032B10C.
-        put_float(hover.bytes, 0x24, 0.f);
-        put_float(hover.bytes, 0x18, lift);
+        set(hover.bytes, vertical_target_request::speed_low, 1.f);
+        set(hover.bytes, vertical_target_request::speed_high, 1.f);
+        set(hover.bytes, vertical_target_request::tolerance, 1.f);
+        set(hover.bytes, vertical_target_request::approach, 30.f); // DAT_0032B108.
+        set(hover.bytes, vertical_target_request::vertical_speed, .25f); // DAT_0032B104.
+        set(hover.bytes, vertical_target_request::height, 10.f); // DAT_0032B10C.
+        set(hover.bytes, vertical_target_request::approach, 0.f);
+        set(hover.bytes, vertical_target_request::height, lift);
         RuntimePlayerMindRequest& face = allocate_request(0x27, context);
-        put_float(face.bytes, 0x10, 40.f); // DAT_0032B1B8.
+        set(face.bytes, facing_request::degrees, 40.f); // DAT_0032B1B8.
         return true;
     }
     Vec3 point{};

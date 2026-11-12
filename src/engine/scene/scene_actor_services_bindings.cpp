@@ -753,9 +753,10 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         }
         return body_state_context(scene.address_of(player.body.data()));
     };
+    // DAT_00511B40 holds the players' actor +0x93C nodes (links[1]); each gets the message through its vtable +0xC.
+    // Xbox 0x00122D10
     players->bindings.scene.tell_players = [this](std::span<const u32> message)
     {
-        // 0x00122D10: DAT_00511B40 holds the players' actor +0x93C nodes (links[1]).
         for (auto* node = static_cast<entity_detail::ListHead*>(entity_detail::g_world.case_head.next);
              node != nullptr;)
         {
@@ -2548,12 +2549,41 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             unbound("boot pixel shader factory " + std::to_string(factory));
         }});
     create_runtime_boot_pixel_shaders(*boot_pixel_shaders);
-    // The scratch allocation/binding sequence in 0x000F8740, with its actual
-    // 0x00155D40 size and 0x20 heap alignment. Other boot services are owned separately.
-    const u32 matrix_size = runtime_model_matrix_scratch_size();
-    model_matrix_allocation.reset(static_cast<u8*>(engine_heap_allocate_aligned(i32(matrix_size), 0x20)));
-    bind_runtime_model_matrix_scratch(reinterpret_cast<RuntimeShaderMatrix*>(model_matrix_allocation.get()),
-        matrix_size, model_matrix_scratch);
+    // Boot 0x00033030 -> 0x000F8740: the model library's matrix scratch, deferred releases and hooks. The hooks reach
+    // the draw contexts this constructor makes later; nothing draws before it returns.
+    RuntimeModelLibraryBoot model_library{model_matrix_allocation, model_matrix_scratch, deferred,
+        model_library_hooks, model_library_allocator,
+        [](i32 size, u32 alignment)
+        {
+            return static_cast<u8*>(engine_heap_allocate_aligned(size, alignment));
+        },
+        [this](u32 shader)
+        {
+            post_runtime_model_shader(shader, *model_shader_combiner);
+        },
+        [this](u32)
+        {
+            apply_runtime_model_material_colors(*model_shader_combiner);
+        },
+        [this](u32 texture, u32 stage)
+        {
+            // 0x000F9BC0 passes the texture to 0x00053550 in ESI.
+            u8* header = resources.memory.pointer(texture);
+            if (header == nullptr)
+            {
+                throw Error("model material binds an unmapped texture");
+            }
+            bind_dialogue_texture(header, stage, *dialogue_draw);
+        },
+        [](u32 size)
+        {
+            return engine_heap_allocate(i32(size));
+        },
+        [](void* block)
+        {
+            engine_heap_free(block); // HeapFree on the block's heap, as 0x000D8AC0 does.
+        }};
+    boot_runtime_model_library(model_library);
     for (size_t index = 0; index < render_frame_storage.size(); ++index)
     {
         render_frames.emplace(&render_frame_storage[index], DialogueRenderFrame{{}, frame_cameras[index]});
@@ -3137,6 +3167,8 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             bind_runtime_actor_marker_now(*rider, parent, binding, 0, origin, default_euler); // 0x0003B500
         }});
     scene.controls->context.super_scary = super_scary_services.get();
+    bind_snapshot_texture_create();
+    create_boot_render_targets();
     bind_book_services();
     map_view_services = std::make_unique<MapViewControlServices>(MapViewControlServices{*book_services,
         std::span<const MapViewRoom, 6>(reinterpret_cast<const MapViewRoom*>(data(0x00427628, 0x330).data()), 6),
@@ -3151,19 +3183,6 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         },
         dialogue_state.map_retained});
     scene.controls->context.map_view = map_view_services.get();
-    // Boot 0x000620C0's glow targets over the book pages: book page 0's surface (DAT_005047E0) and, for the depth
-    // surface (DAT_005047FC) and its texture alias (DAT_005047E8), book page 1, the scene's stand-in for the depth
-    // memory DAT_005047E4 aliases as LIN_A8R8G8B8.
-    const auto frame_record = [](std::span<u8> texture)
-    {
-        return texture.data() + read_u32(texture, 4) + u32(texture[0x12]) * 0x14;
-    };
-    glow_targets.page_texture = frame_record(book_pages[0]);
-    glow_targets.depth_texture = frame_record(book_pages[1]);
-    glow_targets.page_surface = d3d_device.outer().surface(
-        DialogueSurfaceHandle(resources.memory.address_of(glow_targets.page_texture)), 0);
-    glow_targets.depth_surface = d3d_device.outer().surface(
-        DialogueSurfaceHandle(resources.memory.address_of(glow_targets.depth_texture)), 0);
     glow_pass = std::make_unique<RuntimeGlowPass>(RuntimeGlowPass{*dialogue_outer, glow_targets, g_transition_guard,
         [this](u32 address)
         {
@@ -3327,23 +3346,6 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
     {
         const auto& record = resources.d3d.resources.at(u32(texture));
         return {record.header[0], record.header[1]};
-    };
-    snapshot_d3d.create_texture = [this](u32 width, u32 height, u32 levels, u32 usage, u32 format, u32 pool)
-    {
-        // D3DDevice_CreateTexture2: one level of 32-bit texels behind a resource header (LIN_D24S8, 0x2E, keeps
-        // depth-stencil words).
-        if (levels != 1 || (format != 6 && format != 0x12 && format != 0x2E))
-        {
-            unbound("D3DDevice_CreateTexture2 of a format or level count other than one 32-bit level");
-        }
-        const u32 header = resources.memory.allocate(0x14, 4).address;
-        const u32 texels = resources.memory.allocate(width * height * 4, 0x80).address;
-        auto& record = resources.d3d.resources[header];
-        record.kind = 3;
-        record.data = texels;
-        record.header = {width, height, levels, usage, format, pool};
-        created_textures.insert(header);
-        return header;
     };
     snapshot_d3d.surface_level = [this](u32 texture, u32 level)
     {
@@ -3526,7 +3528,7 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         [this](u32 shader)
         {
             d3d_device.dialogue().pixel_shader(shader); // D3DDevice_SetPixelShader (0x00175370).
-        }, {}});
+        }, model_library_hooks});
     model_shader_combiner = std::make_unique<RuntimeModelShaderCombiner>(RuntimeModelShaderCombiner{
         *model_shader_draw, std::span<u32>(deferred_states).subspan((0x00181B70 - 0x00181968) / 4),
         deferred_states[0], deferred_states[(0x00181C44 - 0x00181968) / 4], shader_texture_stage,
@@ -3534,10 +3536,6 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         {
             d3d_device.set_state(setter == 0x001722A0 ? SceneD3DDevice::kZEnable : setter, value);
         }});
-    bind_runtime_model_shader_callback([this](u32 shader)
-    {
-        post_runtime_model_shader(shader, *model_shader_combiner);
-    }, *model_shader_draw);
     node_callbacks[0x00157CE0] = [this](u32 node, void*)
     {
         dispatch_runtime_model_shader(node, *model_shader_draw);
@@ -3594,27 +3592,12 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
         vertex_parameters[1] = model_renderer.state.fog_scaled_end;
         dispatch_runtime_model_vertex_shader(node, *vertex_draw);
     };
-    // DAT_00336130 starts with its .data value; 0x000F8740 binds DAT_004D9754 to 0x000F9BC0 and
-    // DAT_004D9750 to 0x000F9B90.
+    // DAT_00336130 starts with its .data value; boot 0x000F8740 bound the hooks.
     std::memcpy(material_globals.material_vector.data(), data(0x00336130, 0xC).data(), 0xC);
     material_bind = std::make_unique<RuntimeModelMaterialBind>(RuntimeModelMaterialBind{*tree_dispatch,
         material_globals, texture_records, deferred_states, deferred_states[(0x00181C60 - 0x00181968) / 4],
         deferred_states[(0x00181C58 - 0x00181968) / 4], deferred_states[(0x00181C64 - 0x00181968) / 4],
-        environment_primary, environment_secondary,
-        [this](u32 texture, u32 stage)
-        {
-            // 0x000F9BC0 passes the texture to 0x00053550 in ESI.
-            u8* header = resources.memory.pointer(texture);
-            if (header == nullptr)
-            {
-                throw Error("model material binds an unmapped texture");
-            }
-            bind_dialogue_texture(header, stage, *dialogue_draw);
-        },
-        [this](u32)
-        {
-            apply_runtime_model_material_colors(*model_shader_combiner);
-        },
+        environment_primary, environment_secondary, model_library_hooks,
         [this](u32 stage, u32 texture)
         {
             d3d_device.dialogue().texture(stage, texture == 0 ? nullptr : render_image.pointer(texture));

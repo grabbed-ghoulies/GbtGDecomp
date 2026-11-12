@@ -153,6 +153,8 @@ RuntimeBackgroundCloth* create_runtime_background_cloth(u16 rows, u16 columns, u
     return cloth;
 }
 
+// EBX the cloth: its points (+0x150), then the cloth, freed to the engine heap.
+// Xbox 0x0004B770
 void release_runtime_background_cloth(RuntimeBackgroundCloth* cloth)
 {
     engine_heap_free(cloth->bytes.data()); // 0x0014D360

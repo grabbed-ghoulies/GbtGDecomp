@@ -448,12 +448,6 @@ void SceneActorServices::State::present_view(i32 view)
         [this, first_background_model]()
         {
             RuntimeLightVolumeOrder order{g_light_filled, g_light_filled_gate, g_light_order};
-            if (light_volume_texture == 0)
-            {
-                light_volume_texture = snapshot_d3d.create_texture(0x100, 0x100, 1, 1, 6, 3); // D3D 0x00177840
-                light_volume_surface = d3d_device.outer().surface(DialogueSurfaceHandle(light_volume_texture),
-                    0); // D3DTexture_GetSurfaceLevel2 (0x00177900)
-            }
             RuntimeBackgroundClothDraw cloth{*point_light_pass, *display_setup, shadow_projector,
                 cloth_ramp_texture, cloth_water_phase,
                 [this](u32 address)
@@ -1275,7 +1269,8 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
     // back buffer's depth-stencil. Other texture targets keep a depth buffer of their own for now.
     const u8* record = resources.memory.pointer(texture);
     if (depth == SceneD3DDevice::kDepthBuffer
-        && (record == glow_targets.page_texture || record == glow_targets.depth_texture))
+        && (record == glow_targets.page_texture || record == glow_targets.depth_texture
+            || record == book_page_frame(1)))
     {
         gfx_begin_native_scene_target(texture, i32(registered->second.header[0]),
             i32(registered->second.header[1]));
@@ -1340,7 +1335,20 @@ void SceneActorServices::State::present_render_target(std::uintptr_t color, std:
 bool SceneActorServices::State::book_page_record(const u8* record) const
 {
     return record != nullptr && (record == book_pages[0].data() || record == book_pages[1].data()
-        || record == glow_targets.page_texture || record == glow_targets.depth_texture);
+        || record == glow_targets.page_texture || record == glow_targets.depth_texture
+        || record == book_page_frame(1));
+}
+
+// Book page `index`'s frame record (the texture object's frames from its +4 offset, frame +0x12): its surfaces are
+// the targets. Page 0's is DAT_005047DC; page 1's shares the depth surface's memory with DAT_005047E8.
+const u8* SceneActorServices::State::book_page_frame(size_t index) const
+{
+    const std::span<u8> page = book_pages[index];
+    if (page.empty())
+    {
+        return nullptr;
+    }
+    return page.data() + read_u32(page, 4) + u32(page[0x12]) * 0x14;
 }
 
 // D3DDevice_CopyRects(back buffer, null, 0, the texture's level 0, null): the 640x480 game viewport drawn so

@@ -71,10 +71,9 @@ void set_runtime_model_additive_states(RuntimeModelShaderStates& states)
 }
 
 // Xbox 0x0015B660
-void bind_runtime_model_shader_callback(std::function<void(u32)> callback,
-    RuntimeModelShaderDraw& context)
+void bind_runtime_model_shader_callback(std::function<void(u32)> callback, RuntimeModelLibraryHooks& hooks)
 {
-    context.post_shader = std::move(callback);
+    hooks.post_shader = std::move(callback);
 }
 
 // Xbox 0x0015B5E0
@@ -96,9 +95,9 @@ void bind_runtime_model_shader(u32 shader, RuntimeModelShaderDraw& context)
         break;
     }
     context.pixel_shader(context.tree.image.get(shader, model_pixel_shader_field::handle));
-    if (context.post_shader)
+    if (context.hooks.post_shader)
     {
-        context.post_shader(shader);
+        context.hooks.post_shader(shader);
     }
 }
 

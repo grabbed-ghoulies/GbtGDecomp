@@ -5,8 +5,9 @@ sounds, and the front-end and transition cues. The boot-owned native audio core 
 frame. The XACT and XAudio2 calls are the host boundary (`pcm_out.cpp`). A Bink clip's own sound track is a library
 boundary: FFmpeg decodes it and XAudio2 plays it at the clip's retail volume.
 
-Status (2026-11-08): the 3D attenuation leaves out the buffer's mute-past-maximum flag (+0x58 bit 2), whose source
-was not found, and the cone and doppler factors (see "Frame audio order and 3D positioning"). Tests run under the
+Status (2026-11-11): 3D sound is complete. Retail never sets the buffer's mute-past-maximum flag, and every 3D
+record has full cones and a doppler factor of 1 with zero velocities (see "Mute past maximum, cones and doppler").
+Tests run under the
 virtual audio clock (`AGENTS.md`, "Test volume").
 
 Read `AGENTS.md` first.

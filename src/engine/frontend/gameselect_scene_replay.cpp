@@ -157,9 +157,11 @@ i32 replay_chapter_number(i32 ordinal, const GameSelectControlServices& s)
     return exe_integer(s, u32(0x002FE698 + chapter * 4));
 }
 
-// Xbox 0x000E3130 (row 10) and 0x000E3F90 (row 11): replay scene `ordinal`. The held scene order becomes game
+// Row 10 (0x000E3130) and row 11 (0x000E3F90): replay scene `ordinal`. The held scene order becomes game
 // select, every script of that scene in the order, and game select again, and the scene's first script starts
 // (0x00083B90, mode 2). Row 10 marks the scene flag 0x20, row 11 0x40.
+// Xbox 0x000E3130
+// Xbox 0x000E3F90
 void replay_scene(i32 ordinal, const ReplayPage& page, GameSelectControlServices& s)
 {
     const std::span<const u8> order = s.scene_order_held; // DAT_00511B64
@@ -665,8 +667,12 @@ void draw_runtime_game_scene_replay(GameSelectWidget& widget, GameSelectControlS
     draw_runtime_button_bat_menu(s); // The tail jump to 0x00143840.
 }
 
-// Xbox 0x000E3760 (row 10), 0x000E2900 (row 9), 0x000E4650 (row 11) and 0x000E57F0 (row 16): the same body over
-// the page's floats, rows and items.
+// The same body over each page's floats, rows and items: row 10 (0x000E3760), row 9 (0x000E2900), row 11
+// (0x000E4650) and row 16 (0x000E57F0).
+// Xbox 0x000E3760
+// Xbox 0x000E2900
+// Xbox 0x000E4650
+// Xbox 0x000E57F0
 void set_runtime_game_scene_replay_state(GameSceneReplayWidget& w, i32 state, GameSelectControlServices& services)
 {
     auto& s = services;

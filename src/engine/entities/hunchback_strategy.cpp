@@ -106,6 +106,8 @@ float roll(RuntimeHunchbackStrategy& context)
     return std::bit_cast<float>((random & 0x7FFFFFu) | 0x3F800000u) - 1.f; // DAT_0032B0F8.
 }
 
+// EAX the range: least (+0xC) plus a roll of the span to most (+0x10).
+// Xbox 0x000B2B70
 float roll_between(RuntimeHunchbackStrategy& context, const HunchbackRange& range)
 {
     return (range.most - range.least) * roll(context) + range.least;
@@ -128,7 +130,8 @@ bool target_beyond(const RuntimeMindTarget& target, float reach, RuntimeHunchbac
     return reach * reach < dx * dx + dz * dz + dy * dy;
 }
 
-// 0x0001D760: each live attachment gains a hold and body +0x6D counts it.
+// Each live attachment gains a hold and body +0x6D counts it (retail's step is 1).
+// Xbox 0x0001D760
 void hold_live_attachments(i32 step, RuntimeHunchbackStrategy& context)
 {
     for (auto* live = static_cast<ActorLiveAttachment*>(context.live_attachments.next); live != nullptr;
@@ -140,9 +143,10 @@ void hold_live_attachments(i32 step, RuntimeHunchbackStrategy& context)
     body_record(body).unk_6D = u8(body_record(body).unk_6D + step);
 }
 
+// "Evade" unless a request is pending (the mind's +0x58); 0x000B2BC0 inlines the same.
+// Xbox 0x000B2D70
 void evade_goal(RuntimeHunchbackStrategy& context)
 {
-    // 0x000B2D70 / 0x000B2BC0: "evade" unless a request is pending.
     if (!requests_pending(context))
     {
         load_goal(context.goal_evade, context);

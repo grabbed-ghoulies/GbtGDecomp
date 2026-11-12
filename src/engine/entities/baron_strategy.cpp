@@ -373,7 +373,9 @@ bool runtime_baron_target_holds_cane(const RuntimeMindTarget& target, RuntimeBar
     return read_u32(context.views.body_of(target.actor).bytes, 0x48) == cane;
 }
 
-// Xbox 0x000A8750 (0x3EA), 0x000A87E0 (0x3EE)
+// One function per state: 0x000A8750 for 0x3EA, 0x000A87E0 for 0x3EE.
+// Xbox 0x000A8750
+// Xbox 0x000A87E0
 void fetch_runtime_baron_cane_for(u16 state, RuntimeBaronStrategy& context)
 {
     if (body_record(body_of(context)).attached != 0)

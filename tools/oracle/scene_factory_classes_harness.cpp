@@ -593,10 +593,11 @@ int main()
                 {
                     record(0x1722A0, value);
                 }};
+            RuntimeModelLibraryHooks hooks;
             RuntimeModelShaderDraw draw{tree, states, [&](u32 value)
                 {
                     record(0x175370, value);
-                }, {}};
+                }, hooks};
             RuntimeModelShaderCombiner combiner{draw, shadows, dirty, shadows[index(0x181C44)], stage, record};
             if (read_u32(parameters, 0) == 1)
             {
@@ -609,7 +610,7 @@ int main()
                     bind_runtime_model_shader_callback([&](u32 shader)
                     {
                         post_runtime_model_shader(shader, combiner);
-                    }, draw);
+                    }, hooks);
                 }
                 dispatch_runtime_model_shader(0x10000100, draw);
             }

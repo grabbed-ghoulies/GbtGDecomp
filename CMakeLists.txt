@@ -526,6 +526,8 @@ add_executable(gbtg
     src/engine/graphics/model_skeleton_draw.cpp
     src/engine/graphics/model_matrix_array_draw.cpp
     src/engine/graphics/model_shader_states.cpp
+    src/engine/graphics/model_library_boot.cpp
+    src/engine/graphics/boot_render_targets.cpp
     src/engine/graphics/model_transform_draw.cpp
     src/engine/graphics/shader_optimization_driver.cpp
     src/engine/graphics/model_vertex_shader_cache.cpp

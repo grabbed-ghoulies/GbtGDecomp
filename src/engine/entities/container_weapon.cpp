@@ -34,12 +34,7 @@ const ContainerWeaponState& fields_of(std::span<const u8> bytes)
 
 namespace parameter = container_weapon_parameter;
 
-// 0x00145FD0, EAX actor: the holder whose link actor +0x918 names, while that link is set.
-Actor* holder_of(const RuntimeWeaponActor& weapon)
-{
-    const ActorLink* link = weapon.actor.link;
-    return link != nullptr && link->head != nullptr ? link->owner : nullptr;
-}
+using weapon_detail::holder_of; // Xbox 0x00145FD0
 
 // A live player (+0xCE0 set, 0x00028D20) in the scripted modes (+0xCDC 2, or +0x93C set).
 bool live_scripted_player(RuntimeWeaponActor& weapon, const Actor& actor)

@@ -37,12 +37,15 @@ ButtonBatMenu& menu_of(GameSelectControlServices& s)
     return *s.frontend.bat_menu;
 }
 
-i32 item_count(const ButtonBatMenu& menu) // 0x0002CC10, EAX the list
+// EAX the list: its items, counted along the list's chain.
+// Xbox 0x0002CC10
+i32 item_count(const ButtonBatMenu& menu)
 {
     return i32(menu.items.size());
 }
 
-// 0x0002CCB0, EAX the list, EDX the index: the item at an index, or none past the end.
+// EAX the list, EDX the index: the item at an index, or none past the end.
+// Xbox 0x0002CCB0
 i32 item_at(const ButtonBatMenu& menu, i32 index)
 {
     return index < item_count(menu) ? index : kNoItem;

@@ -47,6 +47,24 @@ MENTION = re.compile(r"0x([0-9A-Fa-f]{8})")
 RAISES = re.compile(r"throw|Error\(|untranslated|not bound|not translated", re.IGNORECASE)
 # A declaration or definition named with a bare `// 0x` instead of the `// Xbox 0x` tag: `...); // 0x0010F690`.
 DECLARED = re.compile(r"\)\s*(?:const\s*)?(?:override\s*)?;?\s*//\s*0x([0-9A-Fa-f]{8})")
+# Only lines shaped like a declaration count: a return type and a name opening the parameter list
+# (`void f(u16 tag); // 0x...`), or a last parameter closing it (`    RuntimeBaron& context); // 0x...`). A call, a
+# condition or an assignment ending in `); // 0x...` names the callee it inlines, not a declaration.
+DECLARATION_START = re.compile(
+    r"^\s*(?:(?:static|inline|virtual|constexpr|explicit)\s+)*(?:const\s+)?[A-Za-z_][\w:<>,]*[\s\*&]+[\*&]?"
+    r"[A-Za-z_~][\w:~]*\s*\(")
+PARAMETER_END = re.compile(
+    r"^\s*(?:const\s+)?[A-Za-z_][\w:<>,]*[\s\*&]+[\*&]?[A-Za-z_]\w*(?:\[[^\]]*\])?(?:\s*=\s*[^,()=]+)?\s*\)")
+NOT_DECLARATION = re.compile(r"^\s*(?:return|if|else|while|for|switch|case|throw|delete|new|co_return)\b")
+
+
+def looks_declared(line):
+    if NOT_DECLARATION.match(line):
+        return False
+    head = line.split("//", 1)[0]
+    if DECLARATION_START.match(head):
+        return "=" not in head.split("(", 1)[0]
+    return bool(PARAMETER_END.match(head))
 
 
 def source_mentions():
@@ -61,7 +79,8 @@ def source_mentions():
             if not hits:
                 continue
             (raising if RAISES.search(line) else inline).update(hits)
-            declared.update(int(hit, 16) for hit in DECLARED.findall(line))
+            if looks_declared(line):
+                declared.update(int(hit, 16) for hit in DECLARED.findall(line))
     return inline, raising, declared
 
 

@@ -111,10 +111,12 @@ RuntimeScoreboardMessage* board_row(u32 id)
     return nullptr;
 }
 
+// SI the door: 1 when a row of the door table (DAT_004EE2B8) has that id.
+// Xbox 0x0005B510
 bool door_exists(u16 door)
 {
     u16 state = 0;
-    return runtime_door_state(door, state, context().doors); // 0x0005B510's walk
+    return runtime_door_state(door, state, context().doors); // The same walk, by id.
 }
 
 void remove_step(u8*& row, u8*& end)

@@ -5,6 +5,7 @@
 #include "strategy_fields.h"
 #include "player_mind_targets.h"
 #include "mind_fields.h"
+#include "mind_request_fields.h"
 #include "actor_shape_push.h"
 #include "actor_transform.h"
 #include "body_animation_commands.h"
@@ -39,11 +40,6 @@ const GrimReaperStrategyState& fields_of(std::span<const u8> strategy)
     return strategy_view<GrimReaperStrategyState>(strategy);
 }
 
-
-void put_float(std::span<u8> bytes, size_t offset, float value)
-{
-    std::memcpy(bytes.data() + offset, &value, 4);
-}
 
 constexpr float kOne = 1.f; // DAT_0032B0F8.
 constexpr float kEpsilon = 0.001f; // DAT_0032B1A4.
@@ -261,18 +257,18 @@ void request_chase(RuntimeGrimReaperStrategy& context)
         }
     }
     RuntimePlayerMindRequest& chase = request(0x2F, context);
-    put_float(chase.bytes, 0x1C, 30.f); // DAT_0032B108.
-    put_float(chase.bytes, 0x10, kOne);
-    put_float(chase.bytes, 0x14, kOne);
-    put_float(chase.bytes, 0x18, extra + reach);
-    put_float(chase.bytes, 0x10, fields_of(strategy).speed);
-    put_float(chase.bytes, 0x14, fields_of(strategy).speed);
-    put_float(chase.bytes, 0x1C, 0.f);
-    put_float(body, offsetof(BodyRecord, turn_rates), fields_of(strategy).turn_speed);
+    set(chase.bytes, target_position_request::approach, 30.f); // DAT_0032B108.
+    set(chase.bytes, target_position_request::speed_low, kOne);
+    set(chase.bytes, target_position_request::speed_high, kOne);
+    set(chase.bytes, target_position_request::radius, extra + reach);
+    set(chase.bytes, target_position_request::speed_low, fields_of(strategy).speed);
+    set(chase.bytes, target_position_request::speed_high, fields_of(strategy).speed);
+    set(chase.bytes, target_position_request::approach, 0.f);
+    body_record(body).turn_rates[0] = fields_of(strategy).turn_speed;
    body_record(body).turn_rates[1] = fields_of(strategy).turn_speed;
    body_record(body).turn_rates[2] = kOne;
     RuntimePlayerMindRequest& wait = request(0x27, context);
-    put_float(wait.bytes, 0x10, 5.f); // DAT_0032B184.
+    set(wait.bytes, facing_request::degrees, 5.f); // DAT_0032B184.
 }
 
 // Xbox 0x000ACE20, EAX target, ECX actor: settled and not flying, the target lies within his reach (block +0).
@@ -784,7 +780,7 @@ void dispatch_runtime_grim_reaper_message(std::span<const u32> message, RuntimeG
                 throw Error("0x000AD7D0 reads the body of a dead actor outside the scene");
             }
             const RuntimeStrategyBodyView body = context.views.body_of(*dead);
-            if (read_u32(body.bytes, 0x270) != self) // The dead actor's body (+0x95C) +0x270.
+            if (body_record(body.bytes).attacker != self) // The dead actor's body (+0x95C).
             {
                 return;
             }
@@ -866,7 +862,7 @@ void enter_runtime_grim_reaper_state(u16 state, u16 previous, RuntimeGrimReaperS
         // 0x000ACD00, EAX strategy: appearing, he waits 5 s first.
         if (fields_of(strategy_of(context)).appearing != 0)
         {
-            put_float(request(0x27, context).bytes, 0x10, 5.f); // DAT_0032B184
+            set(request(0x27, context).bytes, facing_request::degrees, 5.f); // DAT_0032B184
         }
         return;
     case 0x409:

@@ -47,7 +47,8 @@ u8 save_game_slot(const char16_t* name); // Xbox 0x0010DB60, EBX the name
 void save_game_script(const char16_t* name, char* output); // Xbox 0x0010DB10, EBX the name
 i32 save_game_loading(const char16_t* name); // Xbox 0x0010DBA0, EBX the name
 i32 save_game_writing(const char16_t* name); // Xbox 0x0010DBE0, EBX the name
-i32 save_game_word(const char16_t* name, size_t offset); // 0x0010DC20..0x0010DDA0, 0x0010E050, 0x0010E120
+// The save's word at `offset` (0x0010DC20..0x0010DDA0, 0x0010E050, 0x0010E090 and 0x0010E120; see save_games.cpp).
+i32 save_game_word(const char16_t* name, size_t offset);
 u8 save_game_byte(const char16_t* name, size_t offset); // Xbox 0x0010E0E0 (+0x25D), EBX the name
 RuntimeProfileBlock* save_game_progress(const char16_t* name); // Xbox 0x0010DDE0, EBX the name
 RuntimeProfileBlock* save_game_challenges(const char16_t* name); // Xbox 0x0010DE30, EBX the name

@@ -30,6 +30,8 @@
 #include "../entities/bone_debris_actor.h"
 #include "scene_point_lights.h"
 #include "scene_light_grid.h"
+#include "../graphics/boot_render_targets.h"
+#include "../graphics/model_library_boot.h"
 #include "../graphics/scene_point_light_pass.h"
 #include "../graphics/refraction_pass.h"
 #include "../graphics/shadow_volume_pass.h"
@@ -846,7 +848,7 @@ struct SceneActorServices::State
     float cloth_water_phase = 0.f; // DAT_005462B0, BSS.
     RuntimeShadowProjector shadow_projector; // DAT_00504880..DAT_00504950.
     // Boot 0x000620C0's light volume texture (DAT_00504844, 256 x 256 A8R8G8B8, a render target) and its surface
-    // (DAT_00504848); the scene makes them once, on its first light volume.
+    // (DAT_00504848).
     u32 light_volume_texture = 0;
     DialogueSurfaceHandle light_volume_surface = 0;
     std::unique_ptr<RuntimeBackgroundClothContext> cloth_context;
@@ -882,6 +884,8 @@ struct SceneActorServices::State
     void create_scene_objects(); // Xbox 0x0011C980
     void bind_gameselect_services();
     void with_scene_save(const std::function<void(RuntimeSceneSave&)>& run);
+    void bind_snapshot_texture_create();
+    void create_boot_render_targets(); // Boot 0x000620C0
     void bind_book_services();
     RuntimeScreenTextureBoundaries screen_texture_boundaries();
     std::array<std::span<u8>, 2> book_pages{}; // DAT_005047D8, DAT_005047E4
@@ -1025,6 +1029,8 @@ struct SceneActorServices::State
             engine_heap_free(block);
         }};
     RuntimeModelMatrixScratch model_matrix_scratch;
+    RuntimeModelLibraryHooks model_library_hooks; // DAT_004D9750..DAT_004D9768, DAT_00437098.
+    RuntimeModelLibraryAllocator model_library_allocator; // DAT_004DD0B8..DAT_004DD0C8.
     std::span<RuntimeShaderMatrix> published_model_matrices; // Native render state +0x190.
     std::unique_ptr<RuntimeModelMatrixArrayDraw> matrix_array_draw;
     std::unique_ptr<RuntimeModelTransformDraw> transform_draw;
@@ -1219,7 +1225,7 @@ struct SceneActorServices::State
     FactoryObject& object_of_actor(Actor& actor);
     void start_background();
     void notify_body_list(u32 id); // Message {id} to each DAT_00511B20 (+0x934 list) node's actor.
-    void message_body_list(std::span<const u32> words); // 0x00122F70 over DAT_00511B20.
+    void message_body_list(std::span<const u32> words); // Xbox 0x00122F70 over DAT_00511B20.
     void actor_draw(Actor& actor, i32 view, i32 pass); // Actor vtable +0x14 by class.
     u32 actor_visible(Actor& actor, i32 pass, i32 view); // Actor vtable +0x18 by class.
     void draw_scene_actor(FactoryObject& object, Actor& actor, i32 kind); // 0x0003C9E0.
@@ -1291,6 +1297,7 @@ struct SceneActorServices::State
     // GBTG_OPTIMIZE steps 25 and 26: the book page textures (DAT_005047D8, DAT_005047E4) and their frame records,
     // whose texels no native code reads, so copies and targets into them stay on the GPU.
     bool book_page_record(const u8* record) const;
+    const u8* book_page_frame(size_t index) const;
     u32 render_target_texture = 0;
     // GBTG_OPTIMIZE step 12: a created texture target that ended on the GPU (gfx_end_native_target_into). Its
     // data is written once the presenter's commands are done (finish_render_target), before native code runs

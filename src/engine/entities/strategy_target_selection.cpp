@@ -60,8 +60,9 @@ u16 front_goal_kind(const RuntimePlayerGoalRing* ring, std::span<const u8> addre
     return read_u16(ring->rows, size_t(ring->head) * ring->stride);
 }
 
-// The inlined resume gate: strategy +0x1C clear, 0x0002B7F0 and an empty or idle goal ring.
-// 0x0002B840, EAX strategy, ECX force.
+// The resume gate, EAX strategy, ECX force: strategy +0x1C clear (or forced), 0x0002B7F0's decay test and an empty
+// or idle goal ring.
+// Xbox 0x0002B840
 bool reactions_enabled(RuntimePlayerStrategyGoals& context, u32 force = 0)
 {
     if (force == 0 && strategy_base(strategy_of(context)).pause_count != 0)

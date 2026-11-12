@@ -2,6 +2,7 @@
 
 #include "weapon_actor.h"
 #include "weapon_fields.h"
+#include "actor_world_lists.h"
 #include "gbtg/anim.h"
 
 #include <bit>
@@ -13,6 +14,24 @@
 namespace gbtg::weapon_detail
 {
 inline constexpr u32 kAidPrefix = 0x5F646961; // "aid_".
+
+// The holder whose link actor +0x918 names, while that link and its first word are set: the link less 0x918.
+// Xbox 0x00145FD0
+inline Actor* holder_of(const RuntimeWeaponActor& weapon)
+{
+    const ActorLink* link = weapon.actor.link;
+    return link != nullptr && link->head != nullptr ? link->owner : nullptr;
+}
+
+// Actor +0x118 gains the bits and the shape probe is registered again (0x0003C770); the bits that were already set.
+// Xbox 0x0003C750
+inline i32 raise_model_mode(RuntimeWeaponActor& weapon, i32 bits)
+{
+    const i32 was = weapon.actor.model_mode;
+    weapon.actor.model_mode = was | bits;
+    register_actor_shape_probe(weapon.actor, weapon.view.shape); // 0x0003C770
+    return was & bits;
+}
 
 inline void store8(std::span<u8> bytes, size_t offset, u8 value)
 {

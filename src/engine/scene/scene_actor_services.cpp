@@ -283,6 +283,8 @@ void SceneActorServices::State::notify_body_list(u32 id)
     message_body_list(message);
 }
 
+// The message to every body on DAT_00511B20 (actor +0x934 nodes), through each one's vtable +0xC.
+// Xbox 0x00122F70
 void SceneActorServices::State::message_body_list(std::span<const u32> words)
 {
     for (auto* node = static_cast<entity_detail::ListHead*>(entity_detail::g_world.body_a.next); node != nullptr;)
@@ -1257,6 +1259,8 @@ void SceneActorServices::add_scale_exclusion(u16 tag)
     ++state.scale_exclusion_count;
 }
 
+// CX the tag, XMM0 the scale: the next row of DAT_0050E170.
+// Xbox 0x0010F660
 void SceneActorServices::add_animation_class(u16 tag, float scale)
 {
     auto& state = *state_;
@@ -1270,6 +1274,8 @@ void SceneActorServices::add_animation_class(u16 tag, float scale)
     ++state.animation_class_count; // DAT_0050E16C
 }
 
+// CX the tag, the stack the value: the next row of DAT_0050E14C, the value truncated (0x001673D8).
+// Xbox 0x0010F690
 void SceneActorServices::add_mind_class_setting(u16 tag, float value)
 {
     auto& state = *state_;
@@ -1341,6 +1347,8 @@ void SceneActorServices::clear_score_awards()
     clear_runtime_score_awards(*state_->score); // 0x0012DF90
 }
 
+// The scene teardown's dialogue release: the speaker, the icon, the input device by its kind and the widget.
+// Xbox 0x00057DC0
 void SceneActorServices::release_scene_dialogue()
 {
     auto& state = *state_;

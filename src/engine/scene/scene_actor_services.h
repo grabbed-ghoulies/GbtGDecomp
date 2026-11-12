@@ -99,8 +99,8 @@ public:
     // Script world actions 0x6D, 9 and 8: the per-tag tables bodies and minds read at construction.
     void clear_script_tag_tables(); // The teardown's (0x0011C5A0) clear of the three counts.
     void add_scale_exclusion(u16 tag); // DAT_0050E1B4 / DAT_0050E1B0
-    void add_animation_class(u16 tag, float scale); // 0x0010F660, CX the tag, XMM0 the scale
-    void add_mind_class_setting(u16 tag, float value); // 0x0010F690, CX the tag, the stack the value
+    void add_animation_class(u16 tag, float scale); // Xbox 0x0010F660, CX the tag, XMM0 the scale
+    void add_mind_class_setting(u16 tag, float value); // Xbox 0x0010F690, CX the tag, the stack the value
     // The scene tick's per-frame passes over scene state.
     void age_actor_snapshots(); // Xbox 0x001162F0
     void release_actor_snapshots(); // Xbox 0x001163D0, in the teardown
@@ -124,7 +124,7 @@ public:
     void refresh_master_pad(); // 0x00109470 on the boot "Scene Master Pad" (the scene record's +0x230)
     void collect_model_releases(); // 0x000F9780 in the present: models released two fences ago go.
     void flush_model_releases(); // 0x000F97F0, the scene teardown's: every deferred model goes.
-    void release_scene_dialogue(); // 0x00057DC0, the teardown's: the speaker, icon, input device and widget go.
+    void release_scene_dialogue(); // Xbox 0x00057DC0, the teardown's: the speaker, icon, input device and widget go.
     void free_script_title_pool(); // DAT_00512484 in 0x001289A0 (0x0005F460)
     void add_profile_scene_times(bool replay, float scene_time); // Xbox 0x000F2BE0
     void set_frontend_state(i32 next); // Xbox 0x0004A4D0

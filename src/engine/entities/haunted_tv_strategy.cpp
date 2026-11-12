@@ -155,8 +155,9 @@ bool count_down_repeat(float& counter, float reset, RuntimeHauntedTvStrategy& co
     return false;
 }
 
-// Xbox 0x0015B2B0's caller 0x000B1CE0, EAX strategy, ECX texture, EDX mode: 0x000F86F0, inlined, when the screen
-// parameter exists.
+// EAX strategy, ECX texture, EDX mode: when the screen parameter (+0x58) exists, 0x000F86F0's texture set, inlined,
+// which ends in 0x0015B2B0.
+// Xbox 0x000B1CE0
 void show_screen_texture(u32 texture, u32 mode, RuntimeHauntedTvStrategy& context)
 {
     RuntimeShaderTextureParameter* screen = resources_of(context).screen;

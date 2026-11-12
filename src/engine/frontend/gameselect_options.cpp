@@ -105,7 +105,10 @@ u32 setting_record(GameOptionsWidget& w, GameOptionsWidget::Option& option, Game
         s.metrics, s.viewport_width, s.next_text_id, s.random); // 0x0005F5C0, EAX 1
 }
 
-// Xbox 0x000E1320 / 0x000E1430 / 0x000E1620 (the item's +0x208): the setting's text beside the item.
+// The setting's text beside the item, one retail function per setting (the item's +0x208).
+// Xbox 0x000E1320
+// Xbox 0x000E1430
+// Xbox 0x000E1620
 void show_setting(size_t index, GameSelectControlServices& s)
 {
     auto& w = open_widget(s);

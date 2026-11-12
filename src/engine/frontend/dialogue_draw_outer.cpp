@@ -36,7 +36,7 @@ void begin_runtime_dialogue_target(DialogueSurfaceHandle color, DialogueSurfaceH
     state.depth_buffer = c.d3d.depth_buffer();
     if (color == 0)
     {
-        state.unused_surface = c.d3d.surface(depth, 0);
+        state.depth_capture_surface = c.d3d.surface(depth, 0);
         c.d3d.render_target(state.back_buffer, state.depth_surface);
         state.color_texture = 0;
         state.depth_texture = depth;

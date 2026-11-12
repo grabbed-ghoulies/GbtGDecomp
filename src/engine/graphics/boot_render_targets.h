@@ -39,9 +39,9 @@ struct RuntimeBootRenderTargets
 {
     u32& light_volume_texture; // DAT_00504844
     DialogueSurfaceHandle& light_volume_surface; // DAT_00504848
-    DialogueRenderTargetState& targets; // DAT_005047D0, DAT_005047D4, DAT_00504800
+    DialogueRenderTargetState& targets; // DAT_005047D0, DAT_005047D4, DAT_005047FC, DAT_00504800
     std::array<std::span<u8>, 2>& pages; // DAT_005047D8, DAT_005047E4
-    RuntimeGlowTargets& glow; // DAT_005047DC, DAT_005047E0, DAT_005047E8, DAT_005047FC
+    RuntimeGlowTargets& glow; // DAT_005047DC, DAT_005047E0, DAT_005047E8
     i32& transition_guard; // DAT_0050484C
 };
 // The light volume texture, book page 0 (a texture of the back buffer's size and format) with its surface, and a

@@ -9,7 +9,6 @@ namespace gbtg
 struct RuntimeGlowTargets
 {
     DialogueSurfaceHandle page_surface = 0; // DAT_005047E0, book page 0's surface.
-    DialogueSurfaceHandle depth_surface = 0; // DAT_005047FC.
     u8* page_texture = nullptr; // DAT_005047DC, book page 0's frame record.
     u8* depth_texture = nullptr; // DAT_005047E8, the depth surface's memory as LIN_A8R8G8B8.
     std::array<float, 8> corners{}; // DAT_00504804..DAT_00504820: four x, y corners.

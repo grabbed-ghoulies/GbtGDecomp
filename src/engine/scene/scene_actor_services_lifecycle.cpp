@@ -600,7 +600,7 @@ void SceneActorServices::State::create_boot_render_targets()
     // Presentation: the depth surface is drawn into through the texture over its memory, and that texture, a bare
     // XGSetTextureHeader header with no texture object round it, is decoded from its header words as a created one is.
     const u32 depth_texture = resources.memory.address_of(glow_targets.depth_texture);
-    d3d_device.surface_textures[glow_targets.depth_surface] = depth_texture;
+    d3d_device.surface_textures[render_targets.depth_capture_surface] = depth_texture;
     created_textures.insert(depth_texture);
 }
 

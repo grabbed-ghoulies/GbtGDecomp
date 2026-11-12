@@ -177,7 +177,7 @@ void begin_runtime_glow_capture(const float* minimum, const float* maximum, Runt
     auto& glow = context.targets;
     state.back_buffer = d3d.back_buffer(0);
     state.depth_buffer = d3d.depth_buffer();
-    d3d.render_target(glow.page_surface, glow.depth_surface);
+    d3d.render_target(glow.page_surface, state.depth_capture_surface);
     if (minimum != nullptr && maximum != nullptr)
     {
         glow.corners = {minimum[0], minimum[1], minimum[0], maximum[1], maximum[0], maximum[1], maximum[0],

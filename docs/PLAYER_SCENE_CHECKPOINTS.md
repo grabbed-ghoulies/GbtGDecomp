@@ -31,9 +31,12 @@ checkpoints at the top, below this paragraph.
   depth surface, its texture and page 1 share one block, as in retail.
 - Presentation: `DAT_005047E8` is a bare header, so the presenter decodes it from its header words as it does a
   created texture. Page 1's frame record still draws at the window's resolution with the device's depth.
-- Two host fields still hold `DAT_005047FC`: the glow's `depth_surface`, and the dialogue target's
-  `unused_surface`, which `0x000629D0` writes when it has no colour texture. Retail keeps one global, so after that
-  path the glow would capture onto the dialogue's depth surface.
+- `DAT_005047FC` is one host field now, `depth_capture_surface` in the outer target state. Before, the glow kept
+  its own copy and the dialogue target an `unused_surface`. The XBE writes it in `0x000620C0` and in `0x000629D0`
+  (which writes it when there is no colour texture), and reads it only in `0x00062220`'s capture target, inlined
+  again in `0x00071DF0` and `0x000770F0`. All three reach `begin_runtime_glow_capture`. After `0x000629D0`'s
+  no-colour path, the next glow capture draws its depth into that texture's surface, as retail's does. The same
+  196 captures are still byte-identical.
 - The 196 captures of `--scene3a2`, `--scene6` and `--scene2a2-reaper` (the haunted television's glow, the book's
   page turns, and the Reaper's fade to grey) are byte-identical to the runs before the change. `--player-fight`
   and `--scene7` pass, and a 900-frame headless boot exits 0.

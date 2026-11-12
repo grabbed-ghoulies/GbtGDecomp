@@ -29,14 +29,14 @@ void create_runtime_boot_render_targets(RuntimeBootRenderTargets& targets, const
         return;
     }
     const RuntimeSurfaceDescription depth = d3d.describe(targets.targets.depth_buffer);
-    targets.glow.depth_surface = d3d.create_surface(depth.width, depth.height, 0, depth.format);
-    if (targets.glow.depth_surface == 0)
+    targets.targets.depth_capture_surface = d3d.create_surface(depth.width, depth.height, 0, depth.format);
+    if (targets.targets.depth_capture_surface == 0)
     {
         return;
     }
     d3d.texture_header(depth.width, depth.height, 1, 0, 0x12, 0, d3d.textures.address_of(targets.glow.depth_texture),
-        d3d.surface_data(targets.glow.depth_surface), 0);
-    const u32 bits = d3d.lock_surface(targets.glow.depth_surface, 0x80);
+        d3d.surface_data(targets.targets.depth_capture_surface), 0);
+    const u32 bits = d3d.lock_surface(targets.targets.depth_capture_surface, 0x80);
     targets.pages[1] = create_runtime_screen_texture(u16(back.width), u16(back.height), 1, 0x12, bits,
         d3d.textures); // 0x000533A0
     d3d.release(targets.targets.depth_buffer);

@@ -10,7 +10,9 @@ struct DialogueRenderTargetState
 {
     DialogueSurfaceHandle back_buffer; // DAT_005047D0
     DialogueSurfaceHandle depth_buffer; // DAT_005047D4
-    DialogueSurfaceHandle unused_surface; // DAT_005047FC
+    // DAT_005047FC: the surface 0x00062220's glow capture draws its depth into. Boot 0x000620C0 makes it over
+    // DAT_005047E8's memory; 0x000629D0 replaces it with a depth texture's surface when it has no colour texture.
+    DialogueSurfaceHandle depth_capture_surface;
     DialogueSurfaceHandle color_texture; // DAT_00504834
     DialogueSurfaceHandle color_surface; // DAT_00504838
     DialogueSurfaceHandle depth_texture; // DAT_0050483C

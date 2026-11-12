@@ -34,32 +34,32 @@ them.
 
 | Measure | Count |
 |---|---|
-| Game functions known | 5,086 (Ghidra's 4,078, plus 1,008 more found while translating) |
-| Translated | 4,711 (92.6%) |
-| Untranslated, known | 375, about 49 KB of code |
+| Game functions known | 5,091 (Ghidra's 4,078, plus 1,013 more found while translating) |
+| Translated | 4,720 (92.7%) |
+| Untranslated, known | 371, about 48 KB of code |
 
 Ghidra's analysis missed about a fifth of the functions translated so far, so the untranslated count is a lower
 bound. The known untranslated functions, grouped by the source area of their nearest translated neighbour:
 
 | Area | Translated | Untranslated | Untranslated bytes |
 |---|---:|---:|---:|
-| entities | 2,440 | 142 | 14,157 |
-| frontend | 616 | 99 | 20,090 |
-| scene | 445 | 23 | 2,111 |
-| include (shared headers) | 246 | 24 | 2,456 |
+| entities | 2,441 | 141 | 14,120 |
+| frontend | 617 | 99 | 20,090 |
+| scene | 450 | 22 | 2,086 |
+| include (shared headers) | 247 | 24 | 2,456 |
 | graphics | 235 | 11 | 1,164 |
 | scripts | 169 | 21 | 1,209 |
 | video | 47 | 18 | 2,558 |
 | saves | 91 | 1 | 63 |
-| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 422 | 36 | 4,877 |
-| **Total** | **4,711** | **375** | **48,685** |
+| camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 423 | 34 | 4,663 |
+| **Total** | **4,720** | **371** | **48,409** |
 
-**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 375 by the call graph
+**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 371 by the call graph
 Ghidra resolves (counted 2026-11-12):
 
 | Class | Functions | Bytes | Meaning |
 |---|---:|---:|---|
-| Frontier | 162 | 15,764 | A translated function calls or references it. 142 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 11 on a line that raises, 9 nowhere |
+| Frontier | 158 | 15,488 | A translated function calls or references it. 142 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 7 on a line that raises, 9 nowhere |
 | Reachable | 43 | 5,597 | WinMain reaches it, but only through other untranslated functions |
 | Table | 65 | 15,263 | Reached only from a vtable or handler table, or from the C runtime's initializer list |
 | Unreached | 97 | 10,245 | Nothing resolved reaches it: dead code, or a computed call Ghidra did not resolve |
@@ -74,17 +74,20 @@ The boot's resets (`0x000FAD20`, `0x000FA210`, `0x000FF040`, `0x00038600`, `0x00
 order. The model library setup `0x000F8740` and the render targets `0x000620C0` run in that order, each whole, when
 the boot builds the scene services. Each scene starts through the whole of its startup `0x0011CBD0`.
 
-**Object factory types.** 163 of the 168 types with a getter (`0x0030D41C`) are installed. Not installed: 0x0E,
-0x11, 0x2F, 0x6C and 0x9C (by the table's name rows, an effect emitter, the explode effect, the dust-up effect,
-the floored state and the candle scene control). Any of them raises if a scene creates one.
+**Object factory types.** 164 of the 168 types with a getter (`0x0030D41C`) are installed. Not installed: 0x0E,
+0x11, 0x2F and 0x6C (by the table's name rows, an effect emitter, the explode effect, the dust-up effect and the
+floored state). Nothing in retail makes them: no objparams template, bundle or code names types 0x0E, 0x11 or 0x6C,
+and nothing names type 0x2F's only template, `aid_objparams_ghoulies_fx_bandagedustup`. Any of them raises if a
+scene creates one.
 
 **What is known to remain.**
 
 - Front end: game-select rows 5 and 7 and the cross-sell kiosk rows 12 to 15 (nothing in the retail game requests
   them).
 - Rendering: any model node draw slot or background cloth hook without a translation.
-- Unreachable in retail and left untranslated: the depth probe sampling (`0x00065F90`; nothing adds a probe) and an
-  effect's mode 2 sprite (`0x0005CA10`; `0x000ED390` sends mode 2 elsewhere).
+- Unreachable in retail and left untranslated: the depth probe sampling (`0x00065F90`; nothing adds a probe), an
+  effect's mode 2 sprite (`0x0005CA10`; `0x000ED390` sends mode 2 elsewhere), a weapon's piece blocks
+  (`0x001450A0`; every write of weapon +0xD9C stores zero) and the four factory types above.
 - Region: NTSC-J starts its first scene but does not run yet ([Regional releases](docs/REGIONS.md)).
 - One deliberate deviation from retail, in the widescreen mirror pass ([Retail deviations](docs/RETAIL_DEVIATIONS.md)).
 - Retail objects still read through raw offsets rather than named fields ([Retail layouts](docs/RETAIL_LAYOUTS.md)).

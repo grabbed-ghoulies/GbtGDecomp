@@ -113,6 +113,14 @@ void release_runtime_pickup_weapon(RuntimePickupStateContext& context)
             {reinterpret_cast<const u8*>(event.data()), sizeof(event)}); // 0x00116810
     }
 }
+
+// Xbox 0x00146280
+void send_runtime_weapon_message_97(u32 weapon, u32 value, RuntimePickupStateContext& context)
+{
+    // EAX the weapon, ECX the value: message {0x97, value} through the weapon's vtable +0xC.
+    const std::array<u32, 2> message{0x97, value};
+    context.weapon_message(weapon, message);
+}
 }
 
 // Xbox 0x0009DD80
@@ -330,13 +338,7 @@ void destroy_runtime_lift_state(LiftState& state, RuntimePickupStateContext& con
         // Weapon +0x918: no bind node, an unbound node, or a node of no actor.
         if (lifted.link == nullptr || lifted.link->head == nullptr || lifted.link->actor == nullptr)
         {
-            // 0x00146280, EAX the weapon, ECX 0: weapon message {0x97, 0}.
-            if (!context.weapon_message)
-            {
-                throw Error("lift state has no weapon message view for 0x00146280");
-            }
-            const std::array<u32, 2> drop{0x97, 0};
-            context.weapon_message(weapon, drop);
+            send_runtime_weapon_message_97(weapon, 0, context); // 0x00146280, ECX 0
         }
     }
 }

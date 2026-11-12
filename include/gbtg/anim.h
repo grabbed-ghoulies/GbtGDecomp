@@ -263,6 +263,7 @@ struct MinaPlayer : MinaPlayback
     AnimationResourceRegistry* resource_registry = nullptr; // host mapping of the global registry
 };
 
+std::unique_ptr<AnimationPose> copy_animation_pose(const AnimationPose& source); // Xbox 0x0002D3F0
 std::unique_ptr<MinaPlayer> make_mina_player(); // Xbox 0x0002D780
 void release_mina_player(std::unique_ptr<MinaPlayer>& player,
                           AnimationResourceRegistry& registry); // Xbox 0x0002D850

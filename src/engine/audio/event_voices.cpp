@@ -151,6 +151,19 @@ i16 request_spatial_audio_event_voice(const char* name, u32 stop, float distance
     return index;
 }
 
+// Xbox 0x00039480
+void request_audio_event_voice_ahead(u32 stop, const char* name, float distance, AudioEventVoices& context)
+{
+    if (distance == 0.f) // DAT_0032B100
+    {
+        distance = 5.f; // DAT_0032B184
+    }
+    const float* listener = context.listener; // DAT_005077A8
+    const Vec3 position{listener[7] * distance + listener[0], listener[8] * distance + listener[1],
+        listener[9] * distance + listener[2]};
+    request_positioned_audio_event_voice(name, stop, position, context); // 0x00039580
+}
+
 // Xbox 0x00039580
 i16 request_positioned_audio_event_voice(const char* name, u32 stop,
     const Vec3& position, AudioEventVoices& context)

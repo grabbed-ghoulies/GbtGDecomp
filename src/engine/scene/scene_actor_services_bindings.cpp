@@ -2924,6 +2924,15 @@ SceneActorServices::State::State(SceneFactoryRuntime& owner, Game& owner_game)
             script_queue_event(game, message);
         }});
     scene.controls->context.relics_store = relics_store_services.get();
+    // A relic candle's flame (factory type 0x9C), which the walk-in script action 0x001274B0 makes.
+    candle_control_services = std::make_unique<CandleControlServices>(CandleControlServices{*candle_services,
+        resources.registry, resources.error, sounds, g_sim_freeze, g_sim_dt, g_sim_scale,
+        [this](Actor& actor) -> const float&
+        {
+            return actors->view(object_of_actor(actor)).frame.elapsed;
+        },
+        scene_actor_at});
+    scene.controls->context.candle = candle_control_services.get();
     // Cutscene event 0x13 calls the walk cutscene's +0x150 (0x00081630) with +0x154, the control's address.
     weapon_services->cutscenes().event_callbacks[0x00081630] = [this](RuntimeCutsceneInstance&, u32 owner, u32)
     {

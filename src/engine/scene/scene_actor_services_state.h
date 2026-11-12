@@ -841,6 +841,7 @@ struct SceneActorServices::State
     std::unique_ptr<TrophyHeadsControlServices> trophy_heads_services; // Factory type 0x92.
     std::unique_ptr<HauntedChairsControlServices> haunted_chairs_services; // Factory type 0x93.
     std::unique_ptr<RelicsStoreControlServices> relics_store_services; // Factory type 0x94.
+    std::unique_ptr<CandleControlServices> candle_control_services; // Factory type 0x9C.
     std::unique_ptr<SceneFxControlServices> fx_services; // Factory type 0x97.
     std::unique_ptr<Chapter2Scene4ControlServices> chapter2_scene4_services; // Factory type 0x95.
     std::unique_ptr<Chapter5CountdownServices> chapter5_countdown_services; // Factory type 0x9D and script type 0x89.

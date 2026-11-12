@@ -198,6 +198,19 @@ void initialize_animation_pose(AnimationPose& pose)
     pose.auxiliary.fill(0.f);
 }
 
+// Xbox 0x0002D3F0
+std::unique_ptr<AnimationPose> copy_animation_pose(const AnimationPose& source)
+{
+    // 0x000F72D0 allocates the count word, the 0x28-byte joints and the 0x100-byte trailer.
+    auto copy = std::make_unique<AnimationPose>();
+    copy->joints.resize(source.joints.size());
+    initialize_animation_pose(*copy); // 0x0002D370
+    // The joints and the trailer, copied word by word.
+    copy->joints = source.joints;
+    copy->auxiliary = source.auxiliary;
+    return copy;
+}
+
 // Xbox 0x0002D780.
 std::unique_ptr<MinaPlayer> make_mina_player()
 {

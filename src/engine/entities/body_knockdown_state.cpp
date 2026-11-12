@@ -283,17 +283,18 @@ void enter_runtime_knockdown_phase(KnockdownState& state, u32 phase, RuntimeKnoc
             MinaPlayer* player = controller->slots.at(0).player.get();
             if (player != nullptr)
             {
+                bool blend = true;
                 if (player->old_pose == nullptr)
                 {
-                    // 0x0002D3F0: a copy of the current pose (EBX player +0x10).
-                    if (player->pose == nullptr)
-                    {
-                        throw Error("knockdown pose copy 0x0002D3F0 has no current pose");
-                    }
-                    player->old_pose = std::make_unique<AnimationPose>(*player->pose);
+                    // EBX is the player's current pose (+0x10).
+                    player->old_pose = copy_animation_pose(*player->pose); // 0x0002D3F0
+                    blend = player->old_pose != nullptr;
                 }
-                player->blend_remaining = flight;
-                player->blend_duration = flight;
+                if (blend)
+                {
+                    player->blend_remaining = flight;
+                    player->blend_duration = flight;
+                }
             }
             controller->dirty = true;
         }

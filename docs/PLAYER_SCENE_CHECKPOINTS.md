@@ -4,6 +4,34 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-12: four guarded callees, the candle control, and five unreachable pieces
+
+- Four callees that translated callers named on a raising line are their own functions now, and the host checks
+  around them are gone (retail tests none of them):
+  - `0x00039480` (`request_audio_event_voice_ahead`, `audio/event_voices.cpp`): a sound at the view's position plus
+    its forward times a distance (XMM3; 0 means 5). The ambient phase sound (`0x001185E0`) passes 1.0 in XMM3; the
+    0x3F800000 it pushes is never read.
+  - `0x0002D3F0` (`copy_animation_pose`): the knockdown flight's copy of the current pose. `0x0009D150` now skips the
+    blend times when the copy fails, as retail does.
+  - `0x00146280` (`send_runtime_weapon_message_97`): weapon message {0x97, ECX} through vtable +0xC.
+  - `0x0006DB10` (final score `bat_arrived`): the bat's +0x934 is 1 or 3.
+- Factory type 0x9C, entitySceneControlCandle (`scene/candle_control.cpp`, getter `0x00080EC0`, vtable
+  `0x00505560`): sizes `0x00080EA0`, constructor `0x00080F10`, destructor `0x00080F60`, update `0x00080F80` and draw
+  `0x00080FD0`, over the candle weapon's flame functions. The walk-in action `0x001274B0` makes it when its cutscene
+  has a reliccandle actor. Retail never does: the only such cutscene is chapter 1 scene 10's walk, which the relics
+  store control plays, and no script's walk-in names it. It is translated because translated code names its
+  template; no run creates one.
+- Left untranslated because retail can't reach them:
+  - `0x001450A0`, a weapon's piece blocks: the three writes of weapon +0xD9C (`0x00145198`, `0x001458A3`,
+    `0x00145F47`) all store zero.
+  - Factory types 0x0E, 0x11 and 0x6C: no objparams template in the XBE, no objparams resource in any bundle (the
+    `bundles/aid_objparams` files hold none), and no code writes those type words.
+  - Factory type 0x2F: its only template, `aid_objparams_ghoulies_fx_bandagedustup`, is named by nothing. The
+    bandaged state's dust (+0x198) is the fxemitter of the same name.
+- Testing: `--scenefinal`, `--player-fight`, `--scene10`, `--scene-start` and `--scene-spawn` pass; the 196 captures
+  of `--scene3a2`, `--scene6` and `--scene2a2-reaper` are byte-identical, and the Reaper mode ends where it always
+  does. No run is known to reach the ambient phase sound, the knockdown pose copy or the lift's message 0x97.
+
 ### 2026-11-12: input kinds 4 and 5, the Japanese keyboard, and two unreachable callees
 
 - `0x00108180` makes every input kind now:

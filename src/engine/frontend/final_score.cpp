@@ -321,15 +321,16 @@ void stop_voice(i16& voice, GameSelectControlServices& s)
     voice = -1;
 }
 
+// Xbox 0x0006DB10
 bool bat_arrived(Actor* bat, GameSelectControlServices& s)
 {
-    if (bat == nullptr)
-    {
-        throw Error("0x0006DB10 reads final score page 2's bat (+0x2134) before it exists");
-    }
-    // 0x0006DB10, EAX the bat: +0x934 is 1 or 3.
+    // EAX the bat; true when its +0x934 is 1 or 3.
     const i32 state = s.bat_screen(*bat).state;
-    return state == 1 || state == 3;
+    if (state != 1 && state != 3)
+    {
+        return false;
+    }
+    return true;
 }
 
 // The current page's free, through 0x00304EB4 + page * 0x14 for pages 1..5.

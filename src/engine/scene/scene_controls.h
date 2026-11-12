@@ -11,6 +11,7 @@
 #include "trophy_heads_control.h"
 #include "haunted_chairs_control.h"
 #include "relics_store_control.h"
+#include "candle_control.h"
 #include "scene_fx_control.h"
 #include "chapter2_scene4_control.h"
 #include "map_view_control.h"
@@ -43,6 +44,7 @@ struct SceneControlInstance
     std::unique_ptr<TrophyHeadsControlState> trophy_heads; // Type 0x92's pointer words.
     std::unique_ptr<HauntedChairsControlState> haunted_chairs; // Type 0x93's pointer words.
     std::unique_ptr<RelicsStoreControlState> relics_store; // Type 0x94's pointer words.
+    std::unique_ptr<CandleControlState> candle; // Type 0x9C's pointer words.
     std::unique_ptr<SuperScaryControlState> super_scary; // Type 0x98's pointer words.
     std::unique_ptr<MapViewControlState> map_view; // Type 0x9E's pointer words.
     std::unique_ptr<GalleryControlState> gallery; // Type 0x9F's pointer words.
@@ -62,6 +64,7 @@ struct SceneControlContext
     TrophyHeadsControlServices* trophy_heads = nullptr;
     HauntedChairsControlServices* haunted_chairs = nullptr;
     RelicsStoreControlServices* relics_store = nullptr;
+    CandleControlServices* candle = nullptr;
     SceneFxControlServices* fx = nullptr;
     Chapter2Scene4ControlServices* chapter2_scene4 = nullptr;
     SuperScaryControlServices* super_scary = nullptr;
@@ -74,6 +77,7 @@ struct SceneControlContext
     TrophyHeadsControlServices& trophy_heads_services() const;
     HauntedChairsControlServices& haunted_chairs_services() const;
     RelicsStoreControlServices& relics_store_services() const;
+    CandleControlServices& candle_services() const;
     SceneFxControlServices& fx_services() const;
     Chapter2Scene4ControlServices& chapter2_scene4_services() const;
     SuperScaryControlServices& super_scary_services() const;

@@ -215,6 +215,22 @@ void destroy_relics_store_view(FactoryObject& object)
         installing->context.relics_store_services()); // 0x00081150
 }
 
+bool construct_candle_view(FactoryObject& object, std::span<const u8> parameters)
+{
+    auto& control = installing->instance(object);
+    control.state = state_of(object);
+    control.type = object.type;
+    control.candle = std::make_unique<CandleControlState>();
+    return construct_runtime_candle_control(parameters, *control.candle,
+        installing->context.candle_services()); // 0x00080F10
+}
+
+void destroy_candle_view(FactoryObject& object)
+{
+    auto& control = installing->instance(object);
+    destroy_runtime_candle_control(*control.candle, installing->context.candle_services()); // 0x00080F60
+}
+
 bool construct_scene_fx_view(FactoryObject& object, std::span<const u8> parameters)
 {
     auto& control = installing->instance(object);
@@ -345,6 +361,14 @@ const ObjectFactoryVtable* relics_store_control_lifecycle()
 {
     static const ObjectFactoryVtable table{0x00505578, relics_store_control_object_sizes,
         construct_relics_store_view, destroy_relics_store_view};
+    return &table;
+}
+
+// Getter 0x00080EC0; message 0x00115EE0.
+const ObjectFactoryVtable* candle_control_lifecycle()
+{
+    static const ObjectFactoryVtable table{0x00505560, candle_control_object_sizes, construct_candle_view,
+        destroy_candle_view};
     return &table;
 }
 
@@ -482,6 +506,15 @@ RelicsStoreControlServices& SceneControlContext::relics_store_services() const
     return *relics_store;
 }
 
+CandleControlServices& SceneControlContext::candle_services() const
+{
+    if (candle == nullptr)
+    {
+        throw Error("candle control before the scene's actor services bind its services");
+    }
+    return *candle;
+}
+
 SceneFxControlServices& SceneControlContext::fx_services() const
 {
     if (fx == nullptr)
@@ -537,6 +570,7 @@ void NativeSceneControlOwner::install(std::span<ObjectFactoryType> types)
     types[0x92] = ObjectFactoryType{3, trophy_heads_control_lifecycle};
     types[0x93] = ObjectFactoryType{3, haunted_chairs_control_lifecycle}; // Getter 0x000824F0.
     types[0x94] = ObjectFactoryType{3, relics_store_control_lifecycle}; // Getter 0x00081010.
+    types[0x9C] = ObjectFactoryType{3, candle_control_lifecycle}; // Getter 0x00080EC0.
     types[0x95] = ObjectFactoryType{3, chapter2_scene4_control_lifecycle}; // Getter 0x000829A0.
     types[0x9D] = ObjectFactoryType{3, chapter5_countdown_control_lifecycle}; // Getter 0x00082CB0.
     types[0x97] = ObjectFactoryType{3, scene_fx_control_lifecycle}; // Getter 0x00082FA0.
@@ -641,7 +675,7 @@ void NativeSceneControlOwner::message(SceneControlInstance& control, std::span<c
         message_runtime_super_scary_control(words, *control.super_scary, control, context.lists);
         return;
     }
-    // Types 3, 0x91, 0x95, 0x99, 0x9A, 0x9B, 0x9D, 0x9E and 0x9F share 0x00115EE0.
+    // Types 3, 0x91, 0x95, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E and 0x9F share 0x00115EE0.
     message_runtime_scene_control(control, words, context.lists);
 }
 
@@ -674,6 +708,10 @@ void NativeSceneControlOwner::tick(SceneControlInstance& control)
     case 0x94:
         tick_runtime_relics_store_control(scene_control_view<SceneControlBase>(control.state), *control.relics_store,
             context.relics_store_services()); // 0x00081080
+        return;
+    case 0x9C:
+        tick_runtime_candle_control(scene_control_view<SceneControlBase>(control.state), *control.candle,
+            context.candle_services()); // 0x00080F80
         return;
     case 0x95:
         tick_runtime_chapter2_scene4_control(scene_control_view<Chapter2Scene4ControlState>(control.state),
@@ -738,6 +776,9 @@ void NativeSceneControlOwner::draw(SceneControlInstance& control)
     case 0x94:
         draw_runtime_relics_store_control(*control.relics_store,
             context.relics_store_services()); // 0x00081310
+        return;
+    case 0x9C:
+        draw_runtime_candle_control(*control.candle, context.candle_services()); // 0x00080FD0
         return;
     case 0x98:
     {

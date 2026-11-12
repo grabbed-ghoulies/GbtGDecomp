@@ -130,6 +130,7 @@ add_library(gbtg_lib STATIC
     src/engine/scene/trophy_heads_control.cpp
     src/engine/scene/haunted_chairs_control.cpp
     src/engine/scene/relics_store_control.cpp
+    src/engine/scene/candle_control.cpp
     src/engine/scene/scene_fx_control.cpp
     src/engine/scene/chapter2_scene4_control.cpp
     src/engine/scene/background_morphs.cpp

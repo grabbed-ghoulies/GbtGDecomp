@@ -1130,6 +1130,11 @@ SceneActorServices::State::~State()
     {
         scene.controls->context.relics_store = nullptr;
     }
+    if (scene.controls != nullptr && candle_control_services != nullptr
+        && scene.controls->context.candle == candle_control_services.get())
+    {
+        scene.controls->context.candle = nullptr;
+    }
     if (scene.controls != nullptr && chapter2_scene4_services != nullptr
         && scene.controls->context.chapter2_scene4 == chapter2_scene4_services.get())
     {

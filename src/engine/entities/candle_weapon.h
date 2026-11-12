@@ -15,7 +15,8 @@ namespace gbtg
 // kind-2 scene light (DAT_00509B7C), a point light (DAT_00511B70), the torch sound on sound slot 4 and two billboards.
 // Its fuel (+0xE54) gives the flame's strength; a lit swing that lands costs 0.225 of it once, an empty candle
 // relights after 5 s and refills at 0.075 a second, and the scoreboard meter shows it while a live player holds it.
-// The flame block 0x000C6C80..0x000C7540 work on (EDI): the candle's +0xE5C and the scene 10 control's +0x40.
+// The flame block 0x000C6C80..0x000C7540 work on (EDI): the candle's +0xE5C, the scene 10 control's +0x40 and the
+// candle control's (type 0x9C) +0x28.
 struct CandleFlameBlock
 {
     u32 lit = 0; // +0

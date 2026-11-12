@@ -892,14 +892,8 @@ void tick_ambient(float step, u32& random, AudioBankStreams& banks, const SceneE
             g_amb_phase = g_amb_phase - g_amb_phase_len;
             if (g_amb_phase_name[0] != 0)
             {
-                if (voices.listener == nullptr)
-                {
-                    throw Error("0x00039480 has no DAT_005077A8 view");
-                }
-                // 0x00039480 with XMM3 1: the view's position plus its forward.
-                const Vec3 position{voices.listener[7] + voices.listener[0], voices.listener[8] + voices.listener[1],
-                    voices.listener[9] + voices.listener[2]};
-                request_positioned_audio_event_voice(g_amb_phase_name, 1, position, voices); // 0x00039580
+                // XMM3 is DAT_0032B0F8 (1.0) here; the pushed 0x3F800000 is never read.
+                request_audio_event_voice_ahead(1, g_amb_phase_name, 1.f, voices); // 0x00039480
             }
         }
         const float half_turn = std::bit_cast<float>(0x40490FDBu); // DAT_0032B148

@@ -16,6 +16,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 namespace gbtg
@@ -56,6 +57,35 @@ TransitionBookServices& bound_inputs(ControllerDisconnectServices& services, con
     return books;
 }
 
+std::span<u8> create_runtime_input_for_kind(i32 kind, TransitionBookServices& books);
+
+// Xbox 0x00107900, EDI the output: kind 4, 0x18 bytes and active, holding four kind 5 devices (+8..+0x14) that each
+// name it at their +0xB8.
+std::span<u8> create_runtime_input_group(TransitionBookServices& books)
+{
+    std::span<u8> group{static_cast<u8*>(engine_heap_allocate(0x18)), 0x18};
+    std::memset(group.data(), 0, 0x18);
+    const u32 active = 1;
+    const u32 kind = 4;
+    std::memcpy(group.data() + 4, &active, 4);
+    std::memcpy(group.data(), &kind, 4);
+    const u32 group_address = static_cast<u32>(reinterpret_cast<std::uintptr_t>(group.data()));
+    u32 slot = 8;
+    i32 remaining = 4;
+    do
+    {
+        const std::span<u8> child = create_runtime_input_for_kind(5, books); // 0x00108180
+        const u32 child_address = static_cast<u32>(reinterpret_cast<std::uintptr_t>(child.data()));
+        (*books.input_addresses)[child_address] = child;
+        (*books.input_views)[child_address] = RuntimeDialogueInputDevice{child, {nullptr, nullptr, nullptr, nullptr}};
+        std::memcpy(group.data() + slot, &child_address, 4);
+        slot += 4;
+        --remaining;
+        std::memcpy(child.data() + 0xB8, &group_address, 4);
+    } while (remaining != 0);
+    return group;
+}
+
 // Xbox 0x00108180: the device 0x000337B0 makes for the top entry's kind; ESI the output (DAT_004DEA28).
 std::span<u8> create_runtime_input_for_kind(i32 kind, TransitionBookServices& books)
 {
@@ -68,9 +98,9 @@ std::span<u8> create_runtime_input_for_kind(i32 kind, TransitionBookServices& bo
     case 3:
         return create_runtime_keyboard_input(*books.input_release); // 0x00107EF0
     case 4:
-        throw Error("0x00108180 kind 4 calls 0x00107900, which is not translated");
+        return create_runtime_input_group(books); // 0x00107900
     case 5:
-        throw Error("0x00108180 kind 5 calls 0x00107AE0, which is not translated");
+        return create_runtime_actor_input(*books.input_release); // 0x00107AE0
     default:
         // DAT_004DEA28 stays 0, and 0x000337B0 pushes and resets a device at address zero.
         throw Error("0x00108180 with input kind " + std::to_string(kind) + " makes no device");

@@ -7111,60 +7111,31 @@ void check_scene_spawn(gbtg::Game& game, bool scene_start)
     }
     try
     {
-        if (scene_start)
+        // The whole startup 0x0011CBD0: background and navigation, markers, activation and the start messages. The
+        // script's {0x7D} event goes to the script VM, which this fixture does not run.
+        std::cout << "scene spawn: startup\n";
+        services.start_scene([]()
         {
-            // 0x0011CBD0 creates and activates the requested background and builds navigation first.
-            services.start_background();
-            std::cout << "scene start: background and navigation built\n";
-        }
-        std::cout << "scene spawn: markers\n";
-        services.start_markers();
+        });
         const auto spawned = services.actor_addresses();
-        if (spawned.empty() || !services.activation_pending())
+        std::cout << "scene spawn: actors=" << spawned.size() << "\n";
+        if (spawned.empty() || services.activation_pending())
         {
-            throw Error("opening markers created no pending actors");
+            throw Error("scene startup created no actors or left some pending");
         }
-        std::cout << "scene spawn: activation\n";
+        // The startup ends with 0x00123240, which empties the start list; the world's actor registry keeps them.
+        if (!services.active_actor_addresses().empty() || entity_detail::g_world.latch == nullptr)
+        {
+            throw Error("scene startup did not clear its start list (0x00123240) or left no registered actor");
+        }
         services.activate_actors();
-        const auto active = services.active_actor_addresses();
-        if (services.activation_pending() || active.size() != spawned.size())
+        if (services.activation_pending() || !services.active_actor_addresses().empty())
         {
-            throw Error("opening activation did not drain every spawned actor");
+            throw Error("an empty activation pass after the startup activated something");
         }
-        std::unordered_set<u32> seen;
-        for (u32 address : active)
-        {
-            if (!spawned.contains(address) || !seen.insert(address).second)
-            {
-                throw Error("opening activation registered a duplicate or foreign actor");
-            }
-        }
-        size_t listed = 0;
-        for (auto* node = entity_detail::g_world.latch; node != nullptr; node = node->next)
-        {
-            if (++listed > active.size())
-            {
-                throw Error("opening active actor registry contains a cycle or extra actor");
-            }
-        }
-        if (listed != active.size())
-        {
-            throw Error("opening activation did not publish the world active actor registry");
-        }
-        const size_t count = active.size();
-        services.activate_actors();
-        if (services.activation_pending() || services.active_actor_addresses().size() != count)
-        {
-            throw Error("empty activation pass changed the active actor list");
-        }
-        std::cout << "scene spawn: activated=" << count << " pending=0\n";
+        std::cout << "scene spawn: started=" << spawned.size() << " pending=0\n";
         if (scene_start)
         {
-            // 0x0011CBD0 then sends 0x88 (0x001231F0) and 0x7D (0x001231A0) over the activated list.
-            services.send_scene_start_notice();
-            std::cout << "scene start: notice 0x88 delivered\n";
-            services.send_scene_start();
-            std::cout << "scene start: 0x7D delivered\n";
             std::cout << "scene start: script 0x6F player wait returns " << services.wait_script_player() << "\n";
             check_scene_actor_update_queue();
             check_actor_sound_frame_pass();

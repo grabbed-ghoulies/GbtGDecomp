@@ -71,6 +71,8 @@ void reset_runtime_composite_input(std::span<u8> device,
 std::span<u8> create_runtime_keyboard_input(const RuntimeInputReleaseContext& context); // Xbox 0x00107EF0
 std::span<u8> create_runtime_selected_input(const RuntimeInputReleaseContext& context); // Xbox 0x00107D60
 std::span<u8> create_runtime_actor_base_input(const RuntimeInputReleaseContext& context); // Xbox 0x00107830
+// Kind 5: 0xBC bytes, inactive, +8 -1 and +0xC 0, then its states cleared (0x00107B90 through the kind switch).
+std::span<u8> create_runtime_actor_input(const RuntimeInputReleaseContext& context); // Xbox 0x00107AE0, ESI output
 void refresh_runtime_input_device(u32 address, u32 frame,
     RuntimeInputActivationContext& context, const RuntimeInputReleaseContext& release); // Xbox 0x00109470
 }

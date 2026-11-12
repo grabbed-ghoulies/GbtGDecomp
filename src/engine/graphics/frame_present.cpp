@@ -28,6 +28,9 @@ void clear_present_target(u32 flags, FramePresentServices& services)
 void sample_depth_probes()
 {
     const GhoulySpawnPool& pool = *g_depth_probe_pool;
+    // Unreachable in retail: a byte scan of the XBE finds DAT_00504960 only in the boot's allocation (0x000332D5)
+    // and here, so nothing ever adds a probe and the pool stays empty. The sampling (0x00065F90, with 0x0013BB70 and
+    // a CPU read of the depth buffer) is left untranslated.
     if (pool.begin != pool.cursor)
     {
         throw Error("0x00066080 samples a depth probe: the depth surface lock and 0x00065F90 are untranslated");

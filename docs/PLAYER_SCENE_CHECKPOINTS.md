@@ -4,6 +4,25 @@ A dated log of the native work on the player scenes, newest first. The current s
 order, test entry points and frontier are in [Player scene](PLAYER_SCENE.md). Add new
 checkpoints at the top, below this paragraph.
 
+### 2026-11-12: input kinds 4 and 5, the Japanese keyboard, and two unreachable callees
+
+- `0x00108180` makes every input kind now:
+  - kind 5 (`0x00107AE0`, `create_runtime_actor_input`) is a 0xBC-byte device;
+  - kind 4 (`0x00107900`, `create_runtime_input_group`) is a group of four kind 5 devices, each naming the group at
+    its +0xB8.
+- `0x00012920` (`lay_out_japanese_keyboard`) lays out the Japanese keyboard. It leaves boards 0 to 2 empty, puts the
+  cursor on board 3, and builds boards 3 to 5 with nine rows of kana each, at a row spacing of 32. The key table
+  was read from the dump's 297 key pushes with a script. The PAL keyboard never picks layout 2, so this code
+  doesn't run here; it is for the NTSC-J build.
+- Left untranslated because retail can't reach them:
+  - the depth probe sampling `0x00065F90`: a byte scan finds the probe pool `DAT_00504960` only in the boot's
+    allocation and in `0x00066080`, so nothing ever adds a probe;
+  - the mode 2 sprite `0x0005CA10`: no code calls it directly, and the only reference is `0x000EFEA0`'s mode 2
+    case, which `0x000ED390` never sends there. Its transform also reads a stack matrix it never writes.
+- The scene startup commit (`ccefacd8`) was first checked with a stale test executable, because the tests target
+  failed to build on a `start_background` call and the old exe stayed in place. The `--scene-spawn` and
+  `--scene-start` fixture now runs the whole startup, and every check above was rerun with fresh executables.
+
 ### 2026-11-12: scene startup runs whole
 
 - `0x0011CBD0` (`SceneActorServices::State::start_scene`, `scene/scene_actor_services_actors.cpp`) is one function
@@ -17,8 +36,10 @@ checkpoints at the top, below this paragraph.
   - clears the light cones' count (`DAT_00510560`) and each record's first two words.
 - `0x00119990` (`graphics/blob_shadows.cpp`, `reset_runtime_blob_shadows`) is its own function now, not inline
   steps.
-- Testing: the 196 captures of `--scene3a2`, `--scene6` and `--scene2a2-reaper` are byte-identical. `--scene3a2`,
-  `--scene6` and `--player-fight` pass, and the Reaper mode still ends where it always does.
+- Testing, rerun with fresh executables (see the entry above): the 196 captures of `--scene3a2`, `--scene6` and
+  `--scene2a2-reaper` are byte-identical. `--scene3a2`, `--scene6`, `--player-fight`, `--scene-start`,
+  `--scene-spawn`, `--controller-prompt` and `--gameselect-new-game` pass. The Reaper mode still ends where it
+  always does, and a 900-frame `gbtg --headless` boot exits 0.
 
 ### 2026-11-12: the boot's model library setup and render targets
 

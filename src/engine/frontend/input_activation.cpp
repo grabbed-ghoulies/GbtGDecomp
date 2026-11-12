@@ -150,6 +150,22 @@ std::span<u8> create_runtime_actor_base_input(const RuntimeInputReleaseContext& 
     return device;
 }
 
+// Xbox 0x00107AE0
+std::span<u8> create_runtime_actor_input(const RuntimeInputReleaseContext& context)
+{
+    std::span<u8> device{static_cast<u8*>(engine_heap_allocate(0xBC)), 0xBC};
+    std::memset(device.data(), 0, 0xBC);
+    const u32 inactive = 0;
+    const u32 kind = 5;
+    const u32 none = 0xFFFFFFFFu;
+    std::memcpy(device.data() + 4, &inactive, 4);
+    std::memcpy(device.data(), &kind, 4);
+    std::memcpy(device.data() + 0xC, &inactive, 4);
+    std::memcpy(device.data() + 8, &none, 4);
+    reset_runtime_input_device(device, context);
+    return device;
+}
+
 // Xbox 0x00109340
 void push_runtime_input_entry(u32 address, const char* name, RuntimeInputActivationContext& context)
 {

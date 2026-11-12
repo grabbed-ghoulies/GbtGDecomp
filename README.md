@@ -35,8 +35,8 @@ them.
 | Measure | Count |
 |---|---|
 | Game functions known | 5,086 (Ghidra's 4,078, plus 1,008 more found while translating) |
-| Translated | 4,708 (92.6%) |
-| Untranslated, known | 378, about 57 KB of code |
+| Translated | 4,711 (92.6%) |
+| Untranslated, known | 375, about 49 KB of code |
 
 Ghidra's analysis missed about a fifth of the functions translated so far, so the untranslated count is a lower
 bound. The known untranslated functions, grouped by the source area of their nearest translated neighbour:
@@ -44,7 +44,7 @@ bound. The known untranslated functions, grouped by the source area of their nea
 | Area | Translated | Untranslated | Untranslated bytes |
 |---|---:|---:|---:|
 | entities | 2,440 | 142 | 14,157 |
-| frontend | 613 | 102 | 28,855 |
+| frontend | 616 | 99 | 20,090 |
 | scene | 445 | 23 | 2,111 |
 | include (shared headers) | 246 | 24 | 2,456 |
 | graphics | 235 | 11 | 1,164 |
@@ -52,23 +52,23 @@ bound. The known untranslated functions, grouped by the source area of their nea
 | video | 47 | 18 | 2,558 |
 | saves | 91 | 1 | 63 |
 | camera, navigation, audio, cutscenes, transitions, runtime, gbtg, engine and other | 422 | 36 | 4,877 |
-| **Total** | **4,708** | **378** | **57,450** |
+| **Total** | **4,711** | **375** | **48,685** |
 
-**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 378 by the call graph
+**Where the untranslated code sits.** `tools/census/reachability.py` classes each of the 375 by the call graph
 Ghidra resolves (counted 2026-11-12):
 
 | Class | Functions | Bytes | Meaning |
 |---|---:|---:|---|
-| Frontier | 164 | 24,478 | A translated function calls or references it. 141 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 14 on a line that raises, 9 nowhere |
+| Frontier | 162 | 15,764 | A translated function calls or references it. 142 of these are named in a comment in `src` (most are small helpers translated inline in their caller), 11 on a line that raises, 9 nowhere |
 | Reachable | 43 | 5,597 | WinMain reaches it, but only through other untranslated functions |
-| Table | 66 | 15,314 | Reached only from a vtable or handler table, or from the C runtime's initializer list |
+| Table | 65 | 15,263 | Reached only from a vtable or handler table, or from the C runtime's initializer list |
 | Unreached | 97 | 10,245 | Nothing resolved reaches it: dead code, or a computed call Ghidra did not resolve |
 | Fragment | 8 | 1,816 | Not a function: Ghidra split a translated function's body |
 
-The largest groups still missing: the retail resource loader, which the host replaces with a synchronous bundle
+The largest group still missing is the retail resource loader, which the host replaces with a synchronous bundle
 store and its own registry (the boot's provider registrations `0x00035A90`, `0x00034C30`, `0x00033CF0` and
 `0x00035010`, the `common.bnl` load `0x001243B0`, and the pending-record path `0x00034290`, `0x000348D0`,
-`0x00034110`); and the virtual keyboard's other layouts (`0x00012920` and the boards under `0x00011870`).
+`0x00034110`).
 The boot's resets (`0x000FAD20`, `0x000FA210`, `0x000FF040`, `0x00038600`, `0x00048980`, `0x000F2B60`,
 `0x0011EA50`, `0x00133B10`, `0x00133B70`) and the language choice `0x000FF1C0` run in `Game::init` in retail
 order. The model library setup `0x000F8740` and the render targets `0x000620C0` run in that order, each whole, when
@@ -81,9 +81,10 @@ the floored state and the candle scene control). Any of them raises if a scene c
 **What is known to remain.**
 
 - Front end: game-select rows 5 and 7 and the cross-sell kiosk rows 12 to 15 (nothing in the retail game requests
-  them), and the Japanese virtual keyboard (`0x00012920`, about 8.5 KB).
-- Rendering: an effect's mode 2 sprite (`0x0005CA10`), and any model node draw slot or background cloth hook without
-  a translation.
+  them).
+- Rendering: any model node draw slot or background cloth hook without a translation.
+- Unreachable in retail and left untranslated: the depth probe sampling (`0x00065F90`; nothing adds a probe) and an
+  effect's mode 2 sprite (`0x0005CA10`; `0x000ED390` sends mode 2 elsewhere).
 - Region: NTSC-J starts its first scene but does not run yet ([Regional releases](docs/REGIONS.md)).
 - One deliberate deviation from retail, in the widescreen mirror pass ([Retail deviations](docs/RETAIL_DEVIATIONS.md)).
 - Retail objects still read through raw offsets rather than named fields ([Retail layouts](docs/RETAIL_LAYOUTS.md)).

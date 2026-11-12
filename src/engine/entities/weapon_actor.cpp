@@ -1,4 +1,7 @@
 #include "weapon_actor.h"
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+#include "../runtime/rare_replay.h"
+#endif
 #include "mind_fields.h"
 #include "gbtg/model_nodes.h"
 #include "actor_fields.h"
@@ -1940,6 +1943,14 @@ void tick_actor_model_pieces(const Actor& actor, std::span<u8> actor_bytes, std:
     }
     const auto cpu = actor.model->cpu;
     const u32 header = runtime_model_piece_header(cpu);
+    // The flight, gravity and spin decay are per retail tick (1/30 s); only the age counts seconds.
+    float tick = 1.f;
+    float damping = std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+    // Rare Replay: a shorter tick moves, falls and decays by its part of a retail tick.
+    tick = rare_replay_tick_fraction();
+    damping = std::pow(damping, tick);
+#endif
     u32 row = 0;
     for (u32 group = 0; group < cpu[header]; ++group)
     {
@@ -1961,8 +1972,8 @@ void tick_actor_model_pieces(const Actor& actor, std::span<u8> actor_bytes, std:
                 continue;
             }
             // The piece flies by its velocity (+0) from its position (+0x30), as a sphere of its radius (+0x48).
-            Vec3 next{part.position.x + part.velocity.x, part.position.y + part.velocity.y,
-                part.position.z + part.velocity.z};
+            Vec3 next{part.position.x + part.velocity.x * tick, part.position.y + part.velocity.y * tick,
+                part.position.z + part.velocity.z * tick};
             Vec3 start{part.position.x, part.position.y, part.position.z};
             if (entity_record_sphere_probe(next, start, part.radius, -1, 0) != 0) // 0x001225A0
             {
@@ -2005,12 +2016,11 @@ void tick_actor_model_pieces(const Actor& actor, std::span<u8> actor_bytes, std:
             }
             else
             {
-                part.velocity.y = part.velocity.y - std::bit_cast<float>(0x3D4CCCCDu); // DAT_0032B250 gravity.
+                part.velocity.y = part.velocity.y - std::bit_cast<float>(0x3D4CCCCDu) * tick; // DAT_0032B250 gravity.
             }
             part.position.x = next.x;
             part.position.y = next.y;
             part.position.z = next.z;
-            constexpr float damping = std::bit_cast<float>(0x3F733333u); // DAT_0032B2B8.
             part.spin.x = part.spin.x * damping;
             part.spin.y = part.spin.y * damping;
             part.spin.z = part.spin.z * damping;

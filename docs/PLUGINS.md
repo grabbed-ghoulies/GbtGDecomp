@@ -280,6 +280,7 @@ checked at 60 Hz:
 | `scene/background_morphs.cpp` (0x001137E0) | A fixed pull of 0.008 a tick over 100 steps | Steps on retail ticks |
 | `frontend/scoreboard_update.cpp`, `damage_6e0` and `meter_bc8` | The HUD's damage flash and meter countdowns | Count retail ticks |
 | `entities/bg_break_key.cpp` | The broken piece's spin, added to its yaw each tick and decayed by 0.992 | Scaled by the step's part of a retail tick (`rare_replay_tick_fraction`): half the turn and the square root of the decay at 60 Hz |
+| `entities/weapon_actor.cpp`, `tick_actor_model_pieces` (0x0003FB80) | A broken model's pieces: each tick they move by their velocity, gravity takes 0.05 off it and the spin decays by 0.95 (only the age counts seconds) | Scaled by `rare_replay_tick_fraction`: that part of the velocity and gravity, and the decay to that power |
 | `graphics/effect_notifications.cpp` (0x000EE560) | Effect sounds at most every 5 frames (`DAT_004DEA58`) | 5 retail ticks |
 | `scene/lighting.cpp` via `animate_light_records` (0x000FDDA0) | Light flicker and pulses on frame-counter masks, a random roll each | Animate on retail ticks, with the retail frame count |
 | `runtime/clock.cpp`, `update_holds` (0x000F9F60) | The frames each pad button is held | Counts retail ticks |

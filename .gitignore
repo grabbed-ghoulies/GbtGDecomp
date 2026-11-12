@@ -30,6 +30,7 @@ tools/ghidra
 /build-opt/
 /build-asan/
 /build-vulkan/
+/build-release/
 cmake-build-*/
 out/
 .vs/

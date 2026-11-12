@@ -276,6 +276,11 @@ Console output is also written to `gbtg.log` beside the executable
 each line starts with `[INFO]`, `[WARN]` or `[ERROR]` and the time since boot.
 `--verbose` also shows `[VERBOSE]` lines, which are dropped otherwise.
 
+An error or crash that ends an interactive run also shows a dialog with the message and the log's path. Runs that
+are tests or captures (`--headless`, `--screenshot`, `--frames`, `--render-profile`,
+`--validate-render-boundary`) never show one, nor does any run with the `GBTG_NO_ERROR_DIALOG` environment
+variable set.
+
 The ImGui diagnostics are the `debug_ui` plugin, so they exist only in plugin
 builds (not the retail presets) with a D3D11 or Vulkan backend: **F8**
 opens the menu and **F12** toggles the timing overlay (shown at start in Debug,

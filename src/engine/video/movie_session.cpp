@@ -7,24 +7,20 @@ namespace gbtg
 {
 namespace
 {
-// Retail's disc root (DAT_0054F5B0) is "D:\", and 0x00039C50 builds cached Z:\ paths by skipping its three
-// characters. A Windows host root keeps that shape ("F:\...\"). A POSIX root has no drive, so it stays "D:\"
-// and the create-file boundaries below map that drive to the game folder, as they map Z:.
-std::string movie_disc_root(const std::filesystem::path& disc_root)
+// Retail's disc root (DAT_0054F5B0) is "D:\", and 0x00039C50 builds a cached Z:\ path by skipping its three
+// characters. The root stays "D:\" on every host, and the file boundaries below map that drive to the game folder
+// as they map Z: to the utility folder. (A host root such as "C:\...\OriginalFiles\" would put the whole host path
+// under Z:.)
+std::string movie_disc_root()
 {
-#ifdef _WIN32
-    return std::filesystem::absolute(disc_root).string() + "\\";
-#else
-    (void)disc_root;
     return "D:\\";
-#endif
 }
 }
 
 RuntimeMovieSession::RuntimeMovieSession(const std::filesystem::path& disc_root,
     MovieErrorContext& error, bool pal, bool pal_override,
     std::function<RuntimeMovieLockedSurface(void*)> lock_texture)
-    : root_(movie_disc_root(disc_root)),
+    : root_(movie_disc_root()),
       worker_context_{worker_, worker_io_, counter_, {}, 0, diagnostic_, error},
       file_context_{file_io_, error, pending_, file_head_, file_count_, {}, 0,
           sectors_, &worker_context_},
@@ -42,14 +38,10 @@ RuntimeMovieSession::RuntimeMovieSession(const std::filesystem::path& disc_root,
         {
             return (utility / (path + 3)).string();
         }
-#ifndef _WIN32
         if (std::strncmp(path, "D:\\", 3) == 0)
         {
             return (disc / (path + 3)).string();
         }
-#else
-        (void)disc;
-#endif
         return std::string(path);
     };
     auto create_file = worker_io_.create_file;
@@ -78,12 +70,15 @@ RuntimeMovieSession::RuntimeMovieSession(const std::filesystem::path& disc_root,
         return create_directory(mapped.c_str());
     };
     auto sector_size = file_io_.sector_size;
-    file_io_.sector_size = [sector_size, utility, map_utility](const char* drive)
+    file_io_.sector_size = [sector_size, utility, disc, map_utility](const char* drive)
     {
 #ifdef _WIN32
-        const std::string mapped = drive[0] == 'Z' ? utility.root_path().string() : std::string(drive);
+        // The volume roots of the folders Z: and D: stand for.
+        const std::string mapped = drive[0] == 'Z' ? utility.root_path().string()
+            : drive[0] == 'D' ? disc.root_path().string() : std::string(drive);
         (void)map_utility;
 #else
+        (void)disc;
         (void)utility;
         const std::string mapped = map_utility(drive);
 #endif
@@ -114,15 +109,13 @@ RuntimeMovieSession::RuntimeMovieSession(const std::filesystem::path& disc_root,
     paths_.last_error = worker_io_.last_error;
     bind_native_movie_heap(startup_);
     bind_existing_movie_decoder(startup_);
-#ifndef _WIN32
-    // BinkOpen takes the movie's path under the disc root, which is "D:\" here.
+    // BinkOpen takes the movie's path under the disc root, "D:\".
     auto decoder_open = startup_.decoder_open;
     startup_.decoder_open = [decoder_open, map_utility](const char* path, u32 flags)
     {
         const std::string mapped = xbox_host_path(map_utility(path).c_str());
         return decoder_open(mapped.c_str(), flags);
     };
-#endif
     startup_.lock_texture = std::move(lock_texture);
 }
 

@@ -19,6 +19,20 @@ if(GBTG_FORBIDDEN_HEADERS)
     message(FATAL_ERROR "Project-owned headers must use .h: ${GBTG_FORBIDDEN_HEADERS}")
 endif()
 
+# The C++ runtime links statically (/MT) into gbtg, its plugins and the fetched libraries alike, while the Universal
+# CRT stays the Windows DLL (ucrtbase, part of Windows 10 and later): the "hybrid" runtime. Windows resolves a
+# load-time import such as MSVCP140.dll only beside the executable, in System32 or on PATH, never in thirdparty/, so
+# a /MD build needs the Visual C++ Redistributable installed or its DLLs loose beside gbtg.exe. The UCRT stays a DLL
+# because the SDK's xapobase.lib (XAudio2) imports it, and its static copy would define frexp twice. Plugins and gbtg
+# share only the C plugin interface, so each module keeping its own C++ runtime is safe. Pass
+# -DCMAKE_MSVC_RUNTIME_LIBRARY to override.
+if(MSVC AND NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    add_link_options(
+        "$<IF:$<CONFIG:Debug>,/NODEFAULTLIB:libucrtd.lib,/NODEFAULTLIB:libucrt.lib>"
+        "$<IF:$<CONFIG:Debug>,/DEFAULTLIB:ucrtd.lib,/DEFAULTLIB:ucrt.lib>")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -557,6 +571,7 @@ add_executable(gbtg
     src/engine/graphics/shader_rewrite_context.cpp
     src/engine/runtime/native_cpp_exception.cpp
     src/engine/runtime/throw_trace.cpp
+    src/engine/runtime/error_dialog.cpp
     src/engine/graphics/shader_register_rewrite.cpp
     src/engine/graphics/shader_reorder.cpp
     src/engine/graphics/shader_rewrite_outputs.cpp

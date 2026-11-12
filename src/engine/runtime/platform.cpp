@@ -167,16 +167,29 @@ int run_platform(Game& game, const PlatformConfig& cfg)
     long long field = 0; // The 60 Hz field of the previous logic tick (its swap).
     int swap_interval = kSwapInterval;
 #if !defined(GBTG_RETAIL_GAME_ONLY)
-    // Rare Replay (rare_replay.h): a tick every field, so the step is 1/60 s.
+    // Rare Replay (rare_replay.h): a tick every field, so the step is 1/60 s, unless it ticks once a frame below.
     swap_interval = rare_replay_swap_interval();
 #endif
     bool presented = false;
+    [[maybe_unused]] auto last_tick = std::chrono::steady_clock::now(); // Rare Replay's TickPerFrame.
     [[maybe_unused]] auto last_pass = std::chrono::steady_clock::now(); // Plugin overlays' host frame time.
     while (game.running)
     {
         // DAT_005096D0: the fields between the last two swaps, which the vertical-blank callback 0x000FC3B0 counts.
         // 0x000FC030 makes the step that many fields.
         int fields = swap_interval;
+        double render_rate_seconds = -1.0;
+#if !defined(GBTG_RETAIL_GAME_ONLY)
+        // Rare Replay's TickPerFrame: the logic ticks once per presented frame, its step the real time since the
+        // last tick, so the frame rate is the refresh rate (VSync=1) or as fast as the PC goes (VSync=0).
+        if (paced && rare_replay_tick_per_frame())
+        {
+            const auto now = std::chrono::steady_clock::now();
+            render_rate_seconds = std::chrono::duration<double>(now - (presented ? last_tick : origin)).count();
+            last_tick = now;
+        }
+        else
+#endif
         if (paced)
         {
             const auto due = origin + step * (field + swap_interval);
@@ -370,7 +383,8 @@ int run_platform(Game& game, const PlatformConfig& cfg)
         {
             in = {}; // Reproducible neutral host input for automated measurements.
         }
-        const float dt = float(fields) / 60.f; // 0x000FC030 caps it at five fields (clock_pad).
+        // 0x000FC030 caps it at five fields (clock_pad).
+        const float dt = render_rate_seconds >= 0.0 ? float(render_rate_seconds) : float(fields) / 60.f;
         const auto frame_start = render_profile::Clock::now();
         render_profile::count_allocations = render_profile::enabled;
         gfx_begin_frame();

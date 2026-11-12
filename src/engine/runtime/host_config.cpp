@@ -277,7 +277,7 @@ bool write_default(const std::filesystem::path& path)
            "\n"
            "[Audio]\n"
            "; 0 to 100\n"
-           "MasterVolume=100\n"
+           "MasterVolume=50\n"
            "\n"
            "[Game]\n"
            "; English, French, German, Spanish or Italian\n"

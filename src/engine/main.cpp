@@ -8,11 +8,13 @@
 #include "gbtg/platform.h"
 
 #include "graphics/render_profile.h"
+#include "runtime/error_dialog.h"
 #include "runtime/throw_trace.h"
 #include "saves/save_root.h"
 #if !defined(GBTG_RETAIL_GAME_ONLY)
 #include "plugins/plugins.h"
 #endif
+#include <cstdlib>
 #include <string>
 
 namespace
@@ -72,6 +74,16 @@ int main(int argc, char** argv)
         else
         {
             gbtg::log::warn("log: could not open %s", log_file.string().c_str());
+        }
+        // Errors end an interactive run with a dialog. Tests, captures and profiling runs stay silent, as does any
+        // run with GBTG_NO_ERROR_DIALOG set.
+        const bool automated = has_flag(argc, argv, "--headless") || !arg(argc, argv, "--screenshot").empty()
+            || !arg(argc, argv, "--frames").empty() || !arg(argc, argv, "--render-profile").empty()
+            || has_flag(argc, argv, "--validate-render-boundary") || std::getenv("GBTG_NO_ERROR_DIALOG") != nullptr;
+        if (!automated)
+        {
+            gbtg::enable_error_dialogs(log_file);
+            gbtg::install_crash_dialog();
         }
         const gbtg::HostConfig host = gbtg::load_host_config(argc > 0 ? argv[0] : "");
 
@@ -156,6 +168,16 @@ int main(int argc, char** argv)
             }
         }
 #endif
+        {
+            // Name the missing dump plainly, rather than the first disc file the boot fails to open.
+            std::error_code ec;
+            if (!std::filesystem::exists(cfg.game_dir / "default.xbe", ec))
+            {
+                throw gbtg::Error("The game files were not found in " + std::filesystem::absolute(cfg.game_dir,
+                    ec).string() + ".\n\nCopy your extracted Grabbed by the Ghoulies disc into that folder (its "
+                    "README.txt says how), or set GameDir in gbtg.ini to where your files are.");
+            }
+        }
         game.init(cfg.game_dir, cfg.scene);
 #if !defined(GBTG_RETAIL_GAME_ONLY)
         gbtg::plugins_boot(game);
@@ -174,6 +196,7 @@ int main(int argc, char** argv)
             gbtg::print_last_error_stack(); // Where this error was thrown.
         }
         gbtg::log::error("usage: gbtg --game-dir <dir> [--headless] [--frames N] [--screenshot file.bmp] [--scene name-or-index] [--width W --height H --vsync N] [--fullscreen|--windowed] [--gfx d3d11|vulkan|null] [--render-thread 0|1] [--render-profile file.csv] [--render-reference] [--cpu-vertex] [--validate-gpu-vertices] [--validate-render-boundary] [--verbose]");
+        gbtg::show_error_dialog(ex.what());
         return 1;
     }
 }

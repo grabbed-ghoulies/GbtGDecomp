@@ -244,18 +244,32 @@ SDL3 calls resolve to gbtg's copy when it loads.
 
 ### Rare Replay (`src/plugins/rare_replay`)
 
-The game's logic ticks at 60 Hz, as the Rare Replay release does, instead of retail's 30 Hz. Retail presents with
-`D3DPRESENT_INTERVAL_TWO` (0x000FC310 stores 2, 0x001548B0 passes it to the device), so a tick is two 60 Hz fields and
-0x000FC030 makes the step 1/30 s. This data plugin switches on the compiled-in `rare_replay` feature
-(`runtime/rare_replay.cpp`): the platform loop ticks every field, so the step is 1/60 s. Rare Replay's own code is not
-available, so this follows the retail code.
+The game's logic ticks faster than retail's 30 Hz. Retail presents with `D3DPRESENT_INTERVAL_TWO` (0x000FC310
+stores 2, 0x001548B0 passes it to the device), so a tick is two 60 Hz fields and 0x000FC030 makes the step 1/30 s.
+This data plugin switches on the compiled-in `rare_replay` feature (`runtime/rare_replay.cpp`), in one of two ways:
+
+```ini
+[rare_replay]
+TickPerFrame = 1   ; 1 (the default): one tick per presented frame; 0: a tick every 60 Hz field
+```
+
+- **`TickPerFrame = 1`**: an interactive run ticks once per presented frame, and the step is the real time since the
+  last tick. The frame rate follows the monitor with `[Video] VSync=1` and runs as fast as the PC can with `VSync=0`
+  (about 240 and 1,200 frames a second on the development machine), and game time keeps pace with the clock.
+  0x000FC030 still caps a step at five fields.
+- **`TickPerFrame = 0`**: the platform loop ticks every 60 Hz field, so the step is 1/60 s, as the Rare Replay
+  release does. Rare Replay's own code is not available, so this follows the retail code.
+
+Headless and screenshot runs keep their fixed steps either way.
 
 Most of the game scales by the step (`DAT_005096C0`: 43 files, about 130 reads), and those parts need nothing:
 movement, gravity and hit pushes, animation, cutscenes, the script's timer conditions (0x00117100), the body timers
 (0x0001F600), the pad's repeat timers (0x00154BA0), the camera, effects and spray particles, the cloth solver, the
 spawn queue's intervals, ambient steps and scare timers, transition durations. The code that counts ticks instead asks
-`rare_replay_retail_tick()`, true on each tick that completes one of retail's 1/30 s ticks (every second tick at
-60 Hz, every tick without the plugin), so its counts keep their retail meaning:
+`rare_replay_retail_tick()`, true on each tick whose steps add up to one of retail's 1/30 s ticks (every second
+tick at 60 Hz, every tick without the plugin), so its counts keep their retail meaning. A step of 1/30 s or more
+completes one retail tick and keeps no remainder, as retail counts a slow frame as one tick. The sites below were
+checked at 60 Hz:
 
 | Site | Counts | With Rare Replay |
 |------|--------|------------------|
@@ -265,7 +279,7 @@ spawn queue's intervals, ambient steps and scare timers, transition durations. T
 | `transitions/scene_transitions.cpp`, `flag_delay` | 15 ticks before a transition sets `DAT_0050EA9C` 0x2000 | Counts retail ticks |
 | `scene/background_morphs.cpp` (0x001137E0) | A fixed pull of 0.008 a tick over 100 steps | Steps on retail ticks |
 | `frontend/scoreboard_update.cpp`, `damage_6e0` and `meter_bc8` | The HUD's damage flash and meter countdowns | Count retail ticks |
-| `entities/bg_break_key.cpp` | The broken piece's spin, added to its yaw each tick and decayed by 0.992 | Half a turn and the square root of the decay a 60 Hz tick |
+| `entities/bg_break_key.cpp` | The broken piece's spin, added to its yaw each tick and decayed by 0.992 | Scaled by the step's part of a retail tick (`rare_replay_tick_fraction`): half the turn and the square root of the decay at 60 Hz |
 | `graphics/effect_notifications.cpp` (0x000EE560) | Effect sounds at most every 5 frames (`DAT_004DEA58`) | 5 retail ticks |
 | `scene/lighting.cpp` via `animate_light_records` (0x000FDDA0) | Light flicker and pulses on frame-counter masks, a random roll each | Animate on retail ticks, with the retail frame count |
 | `runtime/clock.cpp`, `update_holds` (0x000F9F60) | The frames each pad button is held | Counts retail ticks |
@@ -288,8 +302,9 @@ Counted but left alone:
 - **The retail `clock.delayed` callback slots** (`DAT_004DEA64`, counted in ticks): nothing schedules one.
 
 Random rolls happen at events (spawns, hits, breaks, choices), not as chances each tick, apart from the light flicker
-above; a roll found later inside a per-tick update needs the gate too. Each tick waits for its 60 Hz field, so VSync
-at 60 Hz or more shows every tick.
+above; a roll found later inside a per-tick update needs the gate too. At 60 Hz each tick waits for its 60 Hz
+field, so VSync at 60 Hz or more shows every tick. Once a frame, a per-tick update the audit missed runs as often as
+the frame rate, so anything that moves too fast at high frame rates is a site that needs the gate.
 
 The attract reel at 30 Hz and 60 Hz shows the same shots at the same game times; its second script starts at 116.03 s
 at 30 Hz and 115.71 s at 60 Hz, as each of its waits ends on a tick (up to 1/30 s late at 30 Hz, 1/60 s at 60 Hz).

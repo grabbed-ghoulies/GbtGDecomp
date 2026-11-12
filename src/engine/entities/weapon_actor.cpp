@@ -1483,7 +1483,9 @@ u32 test_runtime_projectile_contact(RuntimeWeaponActor& weapon, RuntimeSegmentCo
     GhoulySpawnPool* contacts, const Vec3& velocity, u16 word)
 {
     auto bytes = weapon.bytes;
-    if (report_runtime_projectile_contact(weapon, weapon_holder(weapon.actor), object, point, contacts, velocity, word,
+    // The holder is +0xD8C, the actor that threw it (not the +0x918 link, which a thrown weapon no longer has), so a
+    // thrown drum, gramophone or plant pot's hits count as its thrower's attacks (DAT_00524E2C, "Limited Hits").
+    if (report_runtime_projectile_contact(weapon, weapon.actor.spawn_owner, object, point, contacts, velocity, word,
                                           weapon_base(bytes).hit_kind, weapon_base(bytes).hit_strength,
                                           weapon_base(bytes).hit_style, actor_record_view<LargeProjectileState>(bytes).hits == 0,
                                           0) != 0) // 0x00141A30
